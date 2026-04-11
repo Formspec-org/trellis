@@ -68,8 +68,8 @@ The **tiered privacy white paper** is broader than Formspec or WOS: it defines a
 | `thoughts/formspec/adrs/0059-unified-ledger-as-canonical-event-store.md` | Draft ADR: one canonical ledger for Formspec + WOS lifecycle; Temporal as execution only. |
 | `thoughts/specs/2026-04-10-unified-ledger-concrete-proposal.md` | Full-stack engineering proposal extending ADR-0059 (sync, crypto, WOS hooks). |
 | `thoughts/research/2026-04-10-unified-ledger-technology-survey.md` | OSS/managed survey aligned to ADR-0059’s building blocks and phases. |
-| `thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md` | Multi-expert review of ADR-0059 + survey; synthesis and roadmap. |
-| `thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md` | Detailed crypto/protocol answers; Header V2. |
+| `trellis/thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md` | Multi-expert review of ADR-0059 + survey; synthesis and roadmap. |
+| `trellis/thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md` | Detailed crypto/protocol answers; Header V2. |
 | `thoughts/research/ledger-risk-reduction.md` | Standards-first risk memo relative to the concrete proposal. |
 | `thoughts/research/tiered-privacy-white-paper-3-24-2025.md` | TPIF white paper: tiered identity and strong crypto at internet scale. |
 

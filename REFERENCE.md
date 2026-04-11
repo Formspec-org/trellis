@@ -54,7 +54,7 @@ Reframes the concrete proposal toward mature building blocks (transparency-log s
 
 ---
 
-## `thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md`
+## `trellis/thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md`
 
 **H1 — Expert Panel Review: Unified Ledger Architecture**  
 Four independent reviews of ADR-0059 and the technology survey: consensus themes, fixes, ideal “proof replaces trust” vision, concrete architectures, Phase 1 vs later.
@@ -207,7 +207,7 @@ Optional respondent-facing append-only ledger companion; aligns with platform au
 
 ---
 
-## `thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md`
+## `trellis/thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md`
 
 **H1 — Concrete Solutions for All 13 Findings**  
 Rust-oriented crypto/protocol fixes for expert findings plus gaps; closes with consolidated **Header V2**.
