@@ -2,9 +2,9 @@
 
 ## Abstract
 
-This document is a subordinate companion to the **Unified Ledger Core Specification**.
+This document is a companion to the **Unified Ledger Core Specification**.
 
-It collects profile semantics, sidecars, appendices, examples, and companion requirements that were intentionally excluded from the constitutional core so that the core can remain narrow, stable, and implementation-agnostic.
+It collects profile semantics, sidecars, appendices, examples, and companion requirements excluded from the constitutional core so the core can remain narrow, stable, and implementation-agnostic.
 
 This document:
 
@@ -13,22 +13,22 @@ This document:
 - MAY define reusable companion requirements that refine but do not reinterpret the core,
 - MUST remain subordinate to the constitutional semantics of the Unified Ledger Core Specification.
 
-This document does not redefine canonical truth, canonical order, canonical append attestation semantics, trust honesty requirements, or export-verification guarantees established by the core.
+It does not redefine canonical truth, canonical order, canonical append attestation semantics, trust honesty requirements, or export-verification guarantees established by the core.
 
 ## Status of This Document
 
 This document is a draft companion specification.
 
-Its purpose is to preserve important semantic and operational detail without re-expanding the constitutional core.
+Its purpose is to preserve important semantic and operational detail without expanding the constitutional core again.
 
 The intended hierarchy is:
 
-- the **core specification** defines what MUST stay true,
+- the **core specification** defines what MUST remain true,
 - this **companion specification** organizes subordinate profiles, sidecars, appendices, and reusable companion requirements,
 - **bindings** define concrete serializations, proof encodings, APIs, and technology mappings,
 - **implementation specifications** define exact operational procedures, deployment details, and reference stacks.
 
-Where this companion introduces additional requirements, those requirements MUST be interpreted consistently with the core specification.
+Additional requirements in this companion MUST be interpreted consistently with the core specification.
 
 ---
 
@@ -62,7 +62,7 @@ Nothing in this document:
 
 ## 1.2 Requirement Classes in this Companion
 
-This document uses the following requirement classes:
+This companion uses the following requirement classes:
 
 - **Profile constraint** for requirements that attach only to a declared profile,
 - **Binding or sidecar choice** for technology-family or domain-family material,
@@ -81,7 +81,7 @@ A capability belongs in this companion rather than the core when it:
 
 ## 1.4 Companion-Owned Detail
 
-This companion is the home for detail that is too important to lose but too specific to remain in the constitutional core.
+This companion holds detail too important to lose and too specific for the constitutional core.
 
 That includes, at minimum:
 
@@ -302,7 +302,7 @@ An implementation conforming to the Respondent History Profile:
 A Respondent History Profile:
 
 - MUST prioritize material respondent-side state changes over raw UI telemetry,
-- MUST NOT require keystroke, focus and blur, rendering, or equivalent ephemeral interface event capture,
+- MUST NOT require keystroke, focus, blur, rendering, or equivalent ephemeral interface event capture,
 - SHOULD expose validation, submission, amendment, and materially relevant identity or attestation boundaries where they matter to human review,
 - MAY define profile-specific change-set semantics aligned to stable form-path and item-key semantics where those concepts exist.
 
@@ -436,6 +436,8 @@ The Canonical Append Service MUST NOT, by virtue of its canonical role alone, be
 
 Canonical append operations MUST define idempotency semantics for retried, replayed, or duplicate submissions.
 
+Canonical append operations MUST define a stable idempotency key or equivalent causal submission identity.
+
 A conforming implementation MUST define whether such a submission is:
 
 - rejected,
@@ -445,15 +447,19 @@ A conforming implementation MUST define whether such a submission is:
 
 Duplicate or retried submission handling MUST NOT create ambiguity about whether a canonical record was newly appended, previously appended, or not admitted.
 
-If idempotent acceptance is supported, the implementation SHOULD define the verifier-visible consequences of that behavior.
+For a given idempotency identity within a declared append scope, every successful retry MUST resolve to the same canonical record reference or the same declared no-op outcome.
+
+If idempotent acceptance is supported, the implementation MUST define the verifier-visible consequences of that behavior.
 
 ## 3.3.2 Verifier-Facing Proof Model Discipline
 
 **Requirement class: Companion requirement**
 
-A conforming implementation SHOULD present one verifier-facing canonical append proof model per declared append scope.
+A conforming implementation MUST present one verifier-facing canonical append proof model per declared append scope at a time.
 
 An implementation MUST NOT require verifiers to reconcile multiple overlapping append-attestation semantics for the same canonical scope.
+
+If an implementation changes that proof model, it MUST define an explicit migration boundary so verifiers never need to reconcile overlapping append-attestation semantics for the same canonical scope.
 
 Implementations SHOULD use a transparency-log-style append model with:
 
@@ -481,14 +487,16 @@ External witnessing:
 
 Implementations MAY define conflict-sensitive fact categories.
 
+Conflict handling MUST be evaluated within the declared append scope of the affected canonical facts.
+
 If conflict-sensitive facts require resolution:
 
-- canonical append SHOULD continue,
+- canonical append in unaffected append scopes MUST continue,
 - affected derived systems, policies, or workflows MAY gate on explicit resolution facts,
 - derived artifacts MUST NOT silently rewrite canonical facts in order to resolve conflicts,
 - conflict resolution SHOULD be represented through later canonical facts, explicit rejection, or profile-defined admission rules.
 
-An implementation SHOULD NOT stall global append solely because derived conflict handling remains unresolved.
+An implementation MUST NOT stall unrelated append scopes solely because conflict handling remains unresolved in another declared append scope.
 
 ---
 
@@ -524,7 +532,7 @@ A conforming implementation:
 - MUST distinguish assurance level from disclosure posture,
 - MUST NOT treat higher assurance as requiring greater identity disclosure by default,
 - MAY support subject continuity without requiring full legal identity disclosure,
-- MUST preserve those distinctions across trust profiles, exports, disclosures, profiles, and sidecars.
+- MUST preserve those distinctions across trust profiles, exports, disclosures, and sidecars.
 
 ---
 
@@ -556,6 +564,10 @@ Canonical records MUST be stored durably and immutably from the perspective of o
 Protected payloads MAY be stored in one or more blob stores.
 
 Canonical acceptance MUST define which durable write conditions are required.
+
+A conforming implementation MUST declare the durable-append boundary that governs attestation, retry handling, and export issuance for a canonical record.
+
+Any proof material or referenced state required to recover or verify a canonical record within the declared export scope MUST be durably recoverable no later than that boundary.
 
 Replica completion state MUST remain operational state, not canonical truth.
 
@@ -594,7 +606,7 @@ If an implementation uses cryptographic erasure or key destruction, it MUST docu
 - what evidence of destruction is preserved,
 - what metadata remains.
 
-If protected content is cryptographically destroyed or made inaccessible under the implementation’s lifecycle rules, affected derived plaintext state MUST be invalidated, purged, or otherwise made unusable according to the implementation’s declared policy.
+If protected content is cryptographically destroyed or made inaccessible under the implementation's lifecycle rules, affected derived plaintext state MUST be invalidated, purged, or otherwise made unusable according to the implementation's declared policy.
 
 ## 3.8.2 Sealing and Later Lifecycle Facts
 
@@ -640,7 +652,7 @@ Visible metadata SHOULD be limited to what is required for:
 - conflict gating,
 - append processing.
 
-Visible metadata SHOULD NOT remain available merely to accelerate derived artifacts.
+Implementations SHOULD NOT keep visible metadata merely to accelerate derived artifacts.
 
 Implementations MUST NOT retain visible append-related metadata merely for operational convenience when the same function can be satisfied by derived or scoped mechanisms.
 
@@ -668,7 +680,7 @@ A sidecar MUST NOT:
 
 **Requirement class: Binding or sidecar choice**
 
-This companion recognizes at least the following sidecar families:
+This companion recognizes these sidecar families:
 
 - trust-profile example sidecars,
 - forms and respondent-history sidecars,
@@ -1030,7 +1042,7 @@ Such views MUST preserve provenance distinctions and MUST NOT imply broader cove
 Implementations SHOULD define versioned registries for at least:
 
 - fact kinds,
-- schema or semantic references,
+- schema or semantic digests or immutable references,
 - custody modes,
 - trust profile identifiers,
 - lifecycle fact kinds,
@@ -1065,13 +1077,15 @@ If duplicate submissions are accepted as idempotent no-ops or as references to a
 
 A conforming implementation:
 
-- MUST version canonical algorithms and schema or semantic references,
+- MUST version canonical algorithms and any schema or semantic digests, embedded copies, or immutable references needed for historical verification,
 - MUST version author-originated fact semantics where profile- or binding-specific semantics exist,
 - MUST version canonical record semantics, append semantics, export verification semantics, and trust profile semantics,
 - MUST preserve enough information to verify historical records under the algorithms and rules in effect when they were produced,
 - MUST NOT silently reinterpret historical records under newer rules without an explicit migration mechanism,
 - MUST ensure that algorithm or schema evolution does not silently invalidate prior export verification,
 - MUST NOT rely on out-of-band operator knowledge to interpret historical records.
+
+A conforming implementation MUST preserve enough immutable interpretation material to verify historical records without live registry lookups, mutable references, or out-of-band operator knowledge.
 
 ---
 
@@ -1101,7 +1115,7 @@ Implementations SHOULD test canonical invariants using model checking, replay te
 
 **Requirement class: Non-normative guidance**
 
-This system may support strong payload confidentiality but does not eliminate metadata disclosure by default.
+This system may support strong payload confidentiality, but it does not eliminate metadata disclosure by default.
 
 Implementers should consider:
 
@@ -1117,7 +1131,7 @@ Implementers should consider:
 
 **Requirement class: Non-normative guidance**
 
-A migration from a pre-existing system should preserve where possible:
+A migration from a pre-existing system should preserve, where possible:
 
 - browser-originated authoring,
 - append-only facts,
@@ -1126,7 +1140,7 @@ A migration from a pre-existing system should preserve where possible:
 - explicit custody modes,
 - verifiable export goals.
 
-It should replace where possible:
+It should replace, where possible:
 
 - bespoke receipt-chain logic,
 - overlapping proof models,
@@ -1211,4 +1225,4 @@ A useful practical test is:
 - keep the companion rich enough to support profile authors, sidecar authors, and reference-spec builders,
 - keep bindings and implementation specs concrete enough that verifiers and operators can interoperate without guessing.
 
-The emotional center of this companion is to preserve important detail without letting the constitution become an architecture document.
+The point of this companion is to preserve important detail without letting the constitution become an architecture document.

@@ -11,13 +11,13 @@ It standardizes:
 - fact admission, canonicalization, ordering, and attestation semantics,
 - trust honesty requirements,
 - export and verification guarantees,
-- contracts between core semantics and replaceable implementations.
+- the contracts between core semantics and replaceable implementations.
 
-It does not standardize product UX, deployment stacks, exact bytes, proof encodings, or operational architecture.
+It does not standardize product UX, deployment stacks, byte-level formats, proof encodings, or operational architecture.
 
 Profiles, bindings, sidecars, and implementation specifications may define domain vocabularies, concrete serializations, product-facing interpretations, and deployment-specific mechanisms without changing the constitutional core.
 
-Its purpose is to define what MUST stay true even if the surrounding stack changes.
+Its purpose is to define what MUST remain true even if the surrounding stack changes.
 
 ## Status of This Document
 
@@ -27,7 +27,7 @@ This document is the **semantic constitution** of the system. It defines invaria
 
 The intended hierarchy is:
 
-- the **core specification** defines what MUST stay true,
+- the **core specification** defines what MUST remain true,
 - **profiles** define permitted domain-specific interpretations that narrow but do not reinterpret the core,
 - **bindings** define how core semantics map onto concrete technologies,
 - **sidecars** collect family-specific, deployment-specific, or implementation-adjacent material without altering the core,
@@ -39,9 +39,9 @@ When a capability is described in this specification, the text MUST make clear w
 - a **profile constraint**, or
 - a **binding or reference choice**.
 
-Statements that mix those layers without clear boundaries SHOULD be revised or split.
+Statements that mix those layers without clear boundaries SHOULD be split or revised.
 
-The core specification standardizes semantics, invariants, and verification boundaries. Exact bytes, proof encodings, APIs, and operational procedures belong to bindings and implementation specifications.
+The core specification standardizes semantics, invariants, and verification boundaries. Exact bytes, proof encodings, APIs, and operational procedures belong in bindings and implementation specifications.
 
 ## Table of Contents
 
@@ -102,7 +102,7 @@ A conventional workflow platform often creates multiple sources of truth:
 - mutable application database state,
 - export views assembled after the fact.
 
-This specification defines a model in which canonical truth is explicit and narrow, while workflow engines, authorization evaluators, caches, projections, and presentation layers remain replaceable.
+This specification defines a model in which canonical truth is explicit and narrow, and workflow engines, authorization evaluators, caches, projections, and presentation layers remain replaceable.
 
 ---
 
@@ -114,7 +114,7 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 
 The following conformance classes are defined:
 
-- **Event Producer**: creates author-originated facts.
+- **Fact Producer**: creates author-originated facts or other attributable facts admitted under the active profile or binding.
 - **Canonical Append Service**: admits facts, forms canonical records, orders them, and issues canonical append attestations.
 - **Verifier**: verifies authored facts, canonical append attestations, and export scopes.
 - **Derived Processor**: builds derived artifacts from canonical truth.
@@ -166,16 +166,16 @@ An implementation conforming to the Core Profile:
 
 ## 2.5 Conformance Class Requirements
 
-### 2.5.1 Event Producer
+### 2.5.1 Fact Producer
 
 **Requirement class: Constitutional semantic**
 
-An Event Producer conforms if it:
+A Fact Producer conforms if it:
 
-- produces author-originated facts according to this specification,
-- signs or otherwise authenticates author-originated facts where the active profile or binding requires it,
+- produces author-originated facts or other attributable facts admitted under the active profile or binding according to this specification,
+- signs or otherwise authenticates such facts where the active profile or binding requires it,
 - preserves causal references when applicable,
-- does not mutate previously produced author-originated facts.
+- does not mutate previously produced facts.
 
 ### 2.5.2 Canonical Append Service
 
@@ -184,7 +184,7 @@ An Event Producer conforms if it:
 A Canonical Append Service conforms if it:
 
 - validates admissible facts under the active profile or binding,
-- forms canonical records for admitted canonical facts,
+- forms canonical records for admitted facts,
 - appends canonical records to canonical order,
 - issues canonical append attestations,
 - does not rewrite prior canonical records,
@@ -246,23 +246,23 @@ Bindings and implementations MUST preserve these contracts even when the underly
 
 ## 4.1 Author-Originated Fact
 
-A statement, assertion, or action attributable to an originating actor before or independent of canonical append attestation.
+A statement, assertion, or action attributable to an originating actor before, or independent of, canonical append attestation.
 
 ## 4.2 Canonical Fact
 
 A fact that belongs to canonical truth under this specification.
 
-A canonical fact may originate as an author-originated fact that has become canonical, a grant or revocation fact, a lifecycle fact, or another admitted fact under the active profile or binding.
+A canonical fact may begin as an author-originated fact that becomes canonical, a grant or revocation fact, a lifecycle fact, or another admitted fact under the active profile or binding.
 
 ## 4.3 Canonical Record
 
 A canonical representation of a canonical fact within canonical order.
 
-A Canonical Record is distinct from both the underlying canonical fact and the canonical append attestation that later attests to its inclusion.
+A canonical record is distinct from both the underlying canonical fact and the canonical append attestation that later attests to its inclusion.
 
 ## 4.4 Canonical Append Attestation
 
-A service-issued attestation that a canonical record was accepted into canonical order and is bound into the canonical append structure.
+A service-issued attestation that a canonical record was accepted into canonical order and bound into the canonical append structure.
 
 ## 4.5 Derived Artifact
 
@@ -274,7 +274,7 @@ An audience-specific package, presentation, or view assembled for portability, r
 
 ## 4.7 Trust Profile
 
-A semantic object that declares which actors can decrypt, recover, attest, block, or administer data in a deployment mode.
+A semantic object that declares which actors may decrypt, recover, attest, block, or administer data in a deployment mode.
 
 ## 4.8 Disclosure Posture
 
@@ -282,11 +282,11 @@ A declared posture describing how much identity or subject information is intend
 
 ## 4.9 Subject Continuity
 
-A stable continuity reference for a subject, record-holder, or respondent that supports linking related activity, records, or attestations across time without by itself requiring full legal identity disclosure.
+A stable continuity reference for a subject, record holder, or respondent that links related activity, records, or attestations across time without, by itself, requiring full legal identity disclosure.
 
 ## 4.10 Controlled Vocabulary
 
-To reduce synonym drift in normative sections, this specification uses the following preferred terms:
+To reduce synonym drift in normative sections, this specification uses these preferred terms:
 
 - **author-originated fact** for originating assertions or actions,
 - **canonical fact** for a fact that belongs to canonical truth,
@@ -296,7 +296,7 @@ To reduce synonym drift in normative sections, this specification uses the follo
 - **disclosure or export artifact** for audience-specific packages or presentations,
 - **append-head reference** as the preferred generic term for an attested append-head reference, of which a signed tree head is one possible binding-specific form.
 
-Normative sections MUST avoid casual alternatives for these terms when a preferred term already exists.
+Normative sections MUST avoid casual alternatives when a preferred term already exists.
 
 ---
 
@@ -312,7 +312,7 @@ This specification is organized around five primary object classes:
 - **Derived Artifacts**
 - **Disclosure and Export Artifacts**
 
-Canonical facts are a semantic category of facts that belong to canonical truth. Canonical records are the canonical representations of those facts in canonical order.
+Canonical facts are a semantic category of facts that belong to canonical truth. Canonical records are their canonical representations in canonical order.
 
 ## 5.2 Ontology Discipline
 
@@ -333,7 +333,7 @@ Canonical truth includes, at minimum:
 - canonical facts admitted under the active profile or binding, including author-originated facts that have become canonical, grant and revocation facts, conflict-resolution facts, and lifecycle or compliance facts where the implementation defines them,
 - canonical append attestations.
 
-The listed canonical-fact categories identify categories the core recognizes. They do not require every conforming implementation to emit every category.
+These categories identify what the core recognizes. They do not require every conforming implementation to emit every category.
 
 Canonical truth excludes, at minimum:
 
@@ -363,7 +363,7 @@ The following invariants are fundamental to this specification:
 - **Invariant 5 — Delegated Compute Is Not General Provider Readability**: delegated compute access MUST NOT be treated as blanket plaintext access for the service operator.
 - **Invariant 6 — Disclosure Posture Is Not Assurance Level**: disclosure posture and assurance posture MUST remain distinct and MUST NOT be conflated.
 
-Later sections SHOULD preserve and, where useful, explicitly reference these invariants.
+Later sections SHOULD preserve these invariants and reference them explicitly where useful.
 
 ---
 
@@ -373,7 +373,7 @@ Later sections SHOULD preserve and, where useful, explicitly reference these inv
 
 **Requirement class: Constitutional semantic**
 
-This section narrows the broader ontology to the subset of semantic objects that participate directly in canonical representation, canonical append, and later disclosure or export relationships.
+This section narrows the broader ontology to the semantic objects that participate directly in canonical representation, canonical append, and later disclosure or export.
 
 A conforming implementation MUST keep distinguishable:
 
@@ -411,19 +411,21 @@ Profiles MUST NOT reinterpret these categories in a way that changes canonical t
 
 **Requirement class: Constitutional semantic**
 
-The core specification defines the following semantic lifecycle for fact admission and canonicalization:
+The core specification defines the following lifecycle for fact admission and canonicalization:
 
 | State | Meaning | Entered by | What is true in this state |
 |---|---|---|---|
-| Authored | An author-originated fact exists but has not yet been submitted for canonical admission. | Event Producer | The fact may be signed or otherwise authenticated, but it is not yet canonical. |
-| Submitted for Admission | The fact has been presented to a Canonical Append Service under an active profile or binding. | Event Producer or submitting system | The fact is pending admission. Submission alone does not make it canonical. |
+| Originated | An attributable fact exists but has not yet been submitted for canonical admission. | Fact Producer | The fact may be signed or otherwise authenticated, but it is not yet canonical. |
+| Submitted for Admission | The fact has been presented to a Canonical Append Service under an active profile or binding. | Fact Producer or submitting system | The fact is pending admission. Submission alone does not make it canonical. |
 | Admissible | The Canonical Append Service has determined that the fact satisfies the active admissibility rules. | Canonical Append Service | The fact is eligible to become canonical, but canonical record formation and ordering may still be pending. |
-| Canonical Fact | The fact has been admitted into canonical truth. | Canonical Append Service | The fact belongs to canonical truth. |
-| Canonical Record Formed | A canonical record representing the canonical fact has been formed and bound into canonical order. | Canonical Append Service | The canonical fact now has an ordered canonical representation. |
+| Accepted for Durable Append | The fact has passed admission checks and is accepted for durable append. | Canonical Append Service | The fact has passed admission checks, but it is not yet canonical. |
+| Canonical Record Formed | A canonical record representing the fact has crossed the declared durable-append boundary and been bound into canonical order. | Canonical Append Service | The fact is now canonical and has an ordered canonical representation. |
 | Canonical Append Attested | A canonical append attestation has been issued for the canonical record. | Canonical Append Service | The implementation can prove that the canonical record was accepted into canonical order under the active append model. |
 | Exported | A disclosure or export artifact has been assembled for a declared scope. | Export Generator | Export exists, but export does not alter canonical truth. |
 
-A canonical append attestation proves that the corresponding canonical record was admitted into canonical order under the active append model. It does not by itself prove the substantive correctness, legality, or wisdom of the underlying fact beyond the scope of admission and attestation.
+For this specification, a fact becomes canonical only when its canonical record has crossed the implementation's declared durable-append boundary.
+
+A canonical append attestation proves that the corresponding canonical record was admitted into canonical order under the active append model. By itself, it does not prove the substantive correctness, legality, or wisdom of the underlying fact beyond the scope of admission and attestation.
 
 ---
 
@@ -433,7 +435,9 @@ A canonical append attestation proves that the corresponding canonical record wa
 
 **Requirement class: Constitutional semantic**
 
-Accepted canonical records MUST be bound into a canonical ordered append structure.
+Canonical records that have crossed the declared durable-append boundary MUST be bound into a canonical ordered append structure.
+
+Canonical order MUST have a declared scope. That scope MAY be global or limited to a declared ledger, case, tenant, or other append domain. Inclusion, consistency, position, and export claims apply only within that scope.
 
 The canonical append-attestation stream, or its equivalent append-attested order, MUST be the single ordered source of truth for canonical record inclusion and sequence.
 
@@ -443,7 +447,9 @@ No workflow runtime, projection, authorization evaluator, or collaboration layer
 
 **Requirement class: Constitutional semantic**
 
-A Canonical Append Service MUST return a canonical append attestation for accepted canonical records.
+A Canonical Append Service MUST return a canonical append attestation for canonical records that have crossed the declared durable-append boundary.
+
+A Canonical Append Service MUST NOT issue a canonical append attestation before the durable-append boundary has been crossed.
 
 A canonical append attestation MUST include or reference:
 
@@ -456,7 +462,7 @@ A canonical append attestation MUST include or reference:
 
 **Requirement class: Binding or reference choice**
 
-The core specification does not standardize byte-level canonicalization, proof encodings, or exact append APIs by itself.
+By itself, the core specification does not standardize byte-level canonicalization, proof encodings, or exact append APIs.
 
 Bindings MAY define deterministic encodings, canonical byte sequences, exact proof formats, or API procedures for author-originated facts, canonical records, canonical append attestations, or disclosure and export artifacts.
 
@@ -470,7 +476,7 @@ If such a binding is declared, conforming implementations for that binding MUST 
 
 **Requirement class: Constitutional semantic**
 
-The core specification defines Trust Profile as a first-class semantic object, even where a binding chooses the concrete serialization.
+The core specification treats Trust Profile as a first-class semantic object, even when a binding chooses the concrete serialization.
 
 A Trust Profile object MUST semantically include at least:
 
@@ -497,7 +503,7 @@ A conforming implementation:
 - MUST distinguish assurance level from disclosure posture,
 - MUST NOT treat higher assurance as requiring greater identity disclosure by default,
 - MAY support subject continuity without requiring full legal identity disclosure,
-- MUST preserve those distinctions across trust profiles, exports, disclosures, and profiles.
+- MUST preserve those distinctions across trust profiles, exports, and disclosures.
 
 ---
 
@@ -507,7 +513,7 @@ A conforming implementation:
 
 **Requirement class: Constitutional semantic**
 
-For every deployment mode handling protected content, an implementation:
+For every deployment mode that handles protected content, an implementation:
 
 - MUST publish a Trust Profile,
 - MUST state whether ordinary service operation is provider-readable, reader-held, or reader-held with delegated compute,
@@ -536,7 +542,7 @@ If an implementation changes custody mode, provider readability posture, recover
 
 **Requirement class: Constitutional semantic**
 
-Conforming implementations MUST support independently verifiable exports for at least a declared scope of canonical truth.
+Conforming implementations MUST support independently verifiable exports for at least one declared scope of canonical truth.
 
 ## 12.2 Export Contents
 
@@ -546,11 +552,13 @@ An export package MUST include sufficient material for an offline verifier to va
 
 - canonical records or their declared canonical representations,
 - canonical append attestations or equivalent proof material for the declared scope,
-- verification keys or references,
+- verification keys or immutable key references,
 - append proofs,
-- schema or semantic references,
+- schema or semantic digests plus either embedded copies or immutable references,
 - protected payload references or included payloads for exported scope where applicable,
 - canonical facts relevant to the exported scope where required for claim verification.
+
+Any reference required for offline verification MUST be immutable, content-addressed, or included in the export package.
 
 ## 12.3 Verification Requirement
 
@@ -559,9 +567,9 @@ An export package MUST include sufficient material for an offline verifier to va
 A conforming verifier MUST be able to:
 
 1. verify authored signatures or equivalent authored authentication where required,
-2. verify canonical inclusion,
+2. verify canonical inclusion within the declared append scope,
 3. verify append-head consistency when required by the profile,
-4. verify schema or semantic references,
+4. verify schema or semantic digests and any embedded copies or immutable references required for offline verification,
 5. verify any included disclosure or export artifacts.
 
 ## 12.4 Provenance Distinction Requirement
@@ -738,7 +746,7 @@ Such a binding MAY define:
 - amendment or migration semantics,
 - profile-specific change-set structures.
 
-These remain binding- or profile-level choices unless adopted by a higher-level profile.
+These remain binding- or profile-level choices unless a higher-level profile adopts them.
 
 ## 15.4 Sidecar Candidates
 
@@ -792,7 +800,7 @@ Visible metadata SHOULD be limited to what is required for:
 - conflict gating,
 - append processing.
 
-Visible metadata SHOULD NOT remain available merely to accelerate derived artifacts.
+Implementations SHOULD NOT keep visible metadata merely to accelerate derived artifacts.
 
 Implementations MUST NOT retain visible append-related metadata merely for operational convenience when the same function can be satisfied by derived or scoped mechanisms.
 
@@ -802,6 +810,8 @@ Implementations MUST NOT retain visible append-related metadata merely for opera
 
 Canonical append operations MUST define idempotency semantics for retried or replayed submissions.
 
+Canonical append operations MUST define a stable idempotency key or equivalent causal submission identity.
+
 A conforming implementation MUST define whether a retried submission is:
 
 - rejected,
@@ -810,11 +820,15 @@ A conforming implementation MUST define whether a retried submission is:
 
 Rejected submissions MUST NOT be treated as canonically appended.
 
+For a given idempotency identity within a declared append scope, every successful retry MUST resolve to the same canonical record reference or the same declared no-op outcome.
+
 ## 16.4 Storage and Snapshot Discipline
 
 **Requirement class: Constitutional semantic**
 
 Canonical records MUST be stored durably and immutably from the perspective of ordinary append participants.
+
+A conforming implementation MUST declare the durable-append boundary that makes a canonical record accepted for attestation, retry handling, and export.
 
 Protected payloads MAY be stored in one or more blob stores.
 
@@ -849,7 +863,7 @@ If an implementation uses cryptographic erasure or key destruction, it MUST docu
 - what evidence of destruction is preserved,
 - what metadata remains.
 
-If protected content is cryptographically destroyed or made inaccessible, affected derived plaintext state MUST be invalidated, purged, or otherwise made unusable according to the implementation’s declared policy.
+If protected content is cryptographically destroyed or otherwise made inaccessible, affected derived plaintext state MUST be invalidated, purged, or otherwise made unusable according to the implementation's declared policy.
 
 ## 16.6 Versioning and Algorithm Agility
 
@@ -870,7 +884,7 @@ A conforming implementation:
 
 ## 17.1 Security Considerations
 
-Implementers should consider at least the following:
+Implementers should consider at least:
 
 - key compromise,
 - verifier or parser divergence,
@@ -885,7 +899,7 @@ Implementers should consider at least the following:
 
 ## 17.2 Privacy Considerations
 
-This specification supports strong payload confidentiality but does not eliminate metadata disclosure by default.
+This specification supports strong payload confidentiality, but it does not eliminate metadata disclosure by default.
 
 Implementers should consider:
 
@@ -934,12 +948,12 @@ If a capability does not define:
 - trust honesty requirements,
 - or export-verification guarantees,
 
-it probably belongs in a profile, a binding, a sidecar, or an implementation specification rather than in the constitutional core.
+it probably belongs in a profile, binding, sidecar, or implementation specification rather than in the constitutional core.
 
 ## 18.3 Final Recommendation
 
 Implementers should build a system with a small custom constitution and a large standard library of replaceable infrastructure.
 
-A useful practical test is: every major seam should be treated as an explicit contract between core semantics and replaceable implementations, rather than as an informal architectural preference.
+A useful test is this: treat every major seam as an explicit contract between core semantics and replaceable implementations, not as an informal architectural preference.
 
-The emotional center of this specification is to define what MUST stay true even if the surrounding stack changes.
+The point of this specification is to define what MUST remain true even if the surrounding stack changes.
