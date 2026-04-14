@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Provide evidence references for each completed gate in `specs/assurance/ratification-checklist.md`.
+Provide evidence references for each completed gate in `specs/ratification/ratification-checklist.md`.
 
 ## Evidence status key
 

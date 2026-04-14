@@ -36,6 +36,7 @@ Index file for the normalized spec family with dependency order, ownership bound
 
 | H2 | Summary |
 |----|---------|
+| Layout | Maps each topical folder (`core`, `trust`, `projection`, `export`, `operations`, `assurance`, `ratification`) to its role. |
 | Normative dependency order (draft) | Lists the intended review/ratification sequence across core and companions. |
 | Ownership boundaries (draft) | States Trellis vs Formspec vs WOS authority boundaries. |
 | Current maturity markers | Gives quick status labels for each spec draft. |
@@ -180,7 +181,7 @@ Companion draft that binds core invariants to concrete assurance methods and exp
 
 ---
 
-## `specs/assurance/ratification-checklist.md`
+## `specs/ratification/ratification-checklist.md`
 
 **H1 — Trellis Spec Family Ratification Checklist (Draft)**  
 Cross-document readiness checklist defining global and per-spec gates for moving drafts toward normative ratification.
@@ -194,7 +195,7 @@ Cross-document readiness checklist defining global and per-spec gates for moving
 
 ---
 
-## `specs/assurance/ratification-evidence.md`
+## `specs/ratification/ratification-evidence.md`
 
 **H1 — Trellis Ratification Evidence Registry (Draft)**  
 Evidence-linked registry mapping checklist gates to current proof artifacts and identifying remaining automated-evidence gaps.

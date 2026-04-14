@@ -84,8 +84,8 @@ The **tiered privacy white paper** is broader than Formspec or WOS: it defines a
 | `specs/export/disclosure-manifest.md` | New companion draft for audience-scoped disclosure claim semantics and provenance-preserving selective disclosure. |
 | `specs/operations/monitoring-witnessing.md` | New minimal seam-oriented companion draft for checkpoint publication and anti-equivocation-compatible monitoring. |
 | `specs/assurance/assurance-traceability.md` | New companion draft mapping core invariants to TLA+/Alloy/tests/fuzzing/drill evidence artifacts. |
-| `specs/assurance/ratification-checklist.md` | Draft readiness gates and stopping criteria for moving the spec family from draft to normative ratification. |
-| `specs/assurance/ratification-evidence.md` | Draft evidence registry linking checklist gates to concrete spec artifacts and identifying remaining auto-evidence gaps. |
+| `specs/ratification/ratification-checklist.md` | Draft readiness gates and stopping criteria for moving the spec family from draft to normative ratification. |
+| `specs/ratification/ratification-evidence.md` | Draft evidence registry linking checklist gates to concrete spec artifacts and identifying remaining auto-evidence gaps. |
 | `specs/README.md` | Draft spec-family index with dependency order, Trellis/Formspec/WOS boundaries, and next extraction passes. |
 | `thoughts/research/tiered-privacy-white-paper-3-24-2025.md` | TPIF white paper: tiered identity and strong crypto at internet scale. |
 
