@@ -36,11 +36,12 @@ Index file for the normalized spec family with dependency order, ownership bound
 
 | H2 | Summary |
 |----|---------|
-| Layout | Maps each topical folder (`core`, `trust`, `projection`, `export`, `operations`, `assurance`, `ratification`) to its role. |
-| Normative dependency order (draft) | Lists the intended review/ratification sequence across core and companions. |
+| Layout | Maps each topical folder under `specs/` (`core`, `trust`, `projection`, `export`, `operations`, `assurance`) to its role. |
+| Normative dependency order (draft) | Lists the intended review sequence across `specs/`; ratification process docs are linked from `../ratification/`. |
 | Ownership boundaries (draft) | States Trellis vs Formspec vs WOS authority boundaries. |
 | Current maturity markers | Gives quick status labels for each spec draft. |
 | Immediate next extraction passes | Lists short-term migration work from legacy omnibus drafts into focused specs. |
+| Phase status | Notes ratification links and open auto-evidence gates. |
 
 ---
 
@@ -181,7 +182,18 @@ Companion draft that binds core invariants to concrete assurance methods and exp
 
 ---
 
-## `specs/ratification/ratification-checklist.md`
+## `ratification/README.md`
+
+**H1 — Trellis ratification (draft)**  
+Pointer to ratification checklist and evidence alongside the `specs/` tree.
+
+| H2 | Summary |
+|----|---------|
+| *(body)* | Explains these are process gates, not protocol specs, with links to checklist and evidence. |
+
+---
+
+## `ratification/ratification-checklist.md`
 
 **H1 — Trellis Spec Family Ratification Checklist (Draft)**  
 Cross-document readiness checklist defining global and per-spec gates for moving drafts toward normative ratification.
@@ -195,7 +207,7 @@ Cross-document readiness checklist defining global and per-spec gates for moving
 
 ---
 
-## `specs/ratification/ratification-evidence.md`
+## `ratification/ratification-evidence.md`
 
 **H1 — Trellis Ratification Evidence Registry (Draft)**  
 Evidence-linked registry mapping checklist gates to current proof artifacts and identifying remaining automated-evidence gaps.

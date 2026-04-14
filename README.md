@@ -57,6 +57,7 @@ The **tiered privacy white paper** is broader than Formspec or WOS: it defines a
 | See the convergence normalization plan for Trellis spec-family boundaries | `DRAFTS/trellis_spec_family_normalization_plan.md` |
 | Start the split-out drafts from core + companion into spec-family docs | `specs/core/trellis-core.md` and companion drafts under `specs/*/` |
 | See the draft dependency order and ownership map for the spec family | `specs/README.md` |
+| Ratification gates and evidence (process, not normative specs) | `ratification/README.md` |
 | Tiered identity / privacy background | `tiered-privacy-white-paper-3-24-2025.md` |
 
 ---
@@ -84,8 +85,9 @@ The **tiered privacy white paper** is broader than Formspec or WOS: it defines a
 | `specs/export/disclosure-manifest.md` | New companion draft for audience-scoped disclosure claim semantics and provenance-preserving selective disclosure. |
 | `specs/operations/monitoring-witnessing.md` | New minimal seam-oriented companion draft for checkpoint publication and anti-equivocation-compatible monitoring. |
 | `specs/assurance/assurance-traceability.md` | New companion draft mapping core invariants to TLA+/Alloy/tests/fuzzing/drill evidence artifacts. |
-| `specs/ratification/ratification-checklist.md` | Draft readiness gates and stopping criteria for moving the spec family from draft to normative ratification. |
-| `specs/ratification/ratification-evidence.md` | Draft evidence registry linking checklist gates to concrete spec artifacts and identifying remaining auto-evidence gaps. |
+| `ratification/ratification-checklist.md` | Draft readiness gates and stopping criteria for moving the spec family from draft to normative ratification. |
+| `ratification/ratification-evidence.md` | Draft evidence registry linking checklist gates to concrete spec artifacts and identifying remaining auto-evidence gaps. |
+| `ratification/README.md` | Index for ratification checklist and evidence (sits beside `specs/`, not inside it). |
 | `specs/README.md` | Draft spec-family index with dependency order, Trellis/Formspec/WOS boundaries, and next extraction passes. |
 | `thoughts/research/tiered-privacy-white-paper-3-24-2025.md` | TPIF white paper: tiered identity and strong crypto at internet scale. |
 
