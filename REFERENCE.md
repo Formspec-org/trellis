@@ -6,6 +6,228 @@ Paths are relative to `trellis/`.
 
 ---
 
+## `specs/trellis-core.md`
+
+**H1 — Trellis Core Specification**  
+W3C-style constitutional core draft defining append-attested canonical semantics, invariants, verification requirements, and cross-repo authority boundaries.
+
+| H2 | Summary |
+|----|---------|
+| Status of This Document | Declares draft status and W3C-style structural intent. |
+| Abstract | Summarizes constitutional scope and explicit out-of-scope exclusions. |
+| Table of Contents | Lists the normative section structure for the core specification. |
+| 1. Introduction | Defines scope and design goal. |
+| 2. Conformance | Defines RFC2119 interpretation and role requirements. |
+| 3. Terminology | Defines core semantic terms used normatively. |
+| 4. Core Model | Defines object classes and ontology discipline. |
+| 5. Canonical Truth and Invariants | Defines canonical boundary and named invariants. |
+| 6. Canonical Admission and Order | Defines admission, order, and idempotency/rejection semantics. |
+| 7. Canonical Hash Construction | Defines single authoritative hash construction requirement. |
+| 8. Verification Requirements | Defines verifier obligations independent of runtime state. |
+| 9. Cross-Repository Authority Boundaries | Reasserts Trellis/Formspec/WOS authority boundaries. |
+| 10. Security and Privacy Considerations | Captures metadata minimization and trust-honesty baseline. |
+
+---
+
+## `specs/README.md`
+
+**H1 — Trellis Specs (Draft Family)**  
+Index file for the normalized spec family with dependency order, ownership boundaries, maturity markers, and next extraction passes.
+
+| H2 | Summary |
+|----|---------|
+| Normative dependency order (draft) | Lists the intended review/ratification sequence across core and companions. |
+| Ownership boundaries (draft) | States Trellis vs Formspec vs WOS authority boundaries. |
+| Current maturity markers | Gives quick status labels for each spec draft. |
+| Immediate next extraction passes | Lists short-term migration work from legacy omnibus drafts into focused specs. |
+
+---
+
+## `specs/shared-ledger-binding.md`
+
+**H1 — Trellis Companion — Shared Ledger Binding (Draft)**  
+Companion draft for family bindings and canonization discipline across Formspec/WOS/trust/release facts.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks extraction from legacy companion omnibus draft. |
+| Purpose | Binds fact families into one canonical substrate without reinterpreting source semantics. |
+| Normative Focus | Family IDs, required fields, schema/version rules, canonization eligibility, conformance matrix. |
+| Family binding matrix (draft scaffold) | Provides initial family-to-authority/required-field mapping scaffold. |
+| Canonization rules (draft) | Adds baseline acceptance/rejection and no-competing-order rules. |
+| Schema/version compatibility policy (draft) | Defines additive vs breaking change compatibility expectations. |
+| Canonization rejection codes (draft) | Enumerates canonical rejection code scaffold for machine testing. |
+| Deferral Rules | Reaffirms Formspec and WOS authority boundaries. |
+| Core handoff note | Clarifies core admission semantics vs binding-owned schema/version policy. |
+| Migrated requirements from `unified_ledger_core.md` (Section 15) | Captures binding-side extracted requirements from legacy core domain-binding sections. |
+
+---
+
+## `specs/trust-profiles.md`
+
+**H1 — Trellis Companion — Trust Profiles (Draft)**  
+Companion draft for custody/readability posture declarations and trust-honesty semantics.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks extraction from legacy companion omnibus draft. |
+| Purpose | Defines explicit trust postures and mandatory profile declarations. |
+| Baseline Profiles | Reader-held default, provider-readable, tenant-operated key plane. |
+| Metadata Budget Requirement | Requires per-fact-family visibility/leakage/delegation declarations. |
+| Trust honesty rule (draft) | Requires claims to match operational decryptability/recovery/delegation realities. |
+| Profile declaration schema (draft) | Lists required machine-readable trust profile declaration fields. |
+| Conformance audit hooks (draft) | Adds auditability expectations for trust declaration enforcement. |
+| Operational trust disclosure requirements (draft) | Moves explicit decryptability/delegation/recovery/destruction disclosure obligations into trust companion scope. |
+| Migrated requirements from `unified_ledger_core.md` (Sections 10, 11, 14) | Captures trust-profile, transition, and profile-export requirements extracted from legacy core. |
+
+---
+
+## `specs/key-lifecycle-operating-model.md`
+
+**H1 — Trellis Companion — Key Lifecycle Operating Model (Draft)**  
+Companion draft for lifecycle state machine semantics, rotation, grace periods, recovery, and destruction completeness.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks extraction from legacy companion omnibus draft. |
+| Purpose | Treats key lifecycle as first-class behavior. |
+| Normative Focus | Key classes, transitions, rotation, grace, recovery, shredding, historical verification. |
+| Key classes (draft) | Defines draft key class taxonomy for policy/lifecycle handling. |
+| Lifecycle states (draft) | Introduces draft state machine and allowed transitions. |
+| Grace-period rule (draft) | Adds explicit offline-client rotation/grace behavior requirements. |
+| Required Completeness Rule | States purge-cascade requirement for plaintext-derived projections/caches. |
+| Recovery and destruction evidence requirements (draft) | Adds required evidence outputs for recovery/destruction operations. |
+| Migrated requirements from `unified_ledger_core.md` (Section 16.5) | Captures lifecycle and cryptographic inaccessibility requirements from legacy core. |
+
+---
+
+## `specs/projection-runtime-discipline.md`
+
+**H1 — Trellis Companion — Projection and Runtime Discipline (Draft)**  
+Companion draft for derived-system discipline, provenance watermarking, rebuildability, snapshot boundaries, and runtime deferral seams.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks draft startup from the normalization sequence. |
+| Purpose | Prevents derived systems from becoming hidden canonical truth. |
+| Normative Focus | Watermarking, rebuild contract, snapshot discipline, purge cascades, runtime boundary. |
+| Projection watermark contract (draft) | Defines required canonical checkpoint/build metadata for staff-facing projections. |
+| Rebuild verification (draft) | Adds semantic equivalence expectations for projection rebuilds. |
+| Deferral to WOS | Defers execution semantics and runtime envelope specifics to WOS. |
+| Migrated requirements from `unified_ledger_core.md` (Sections 16.1 and 16.4) | Captures derived artifact and snapshot discipline requirements from legacy core. |
+
+---
+
+## `specs/export-verification-package.md`
+
+**H1 — Trellis Companion — Export Verification Package (Draft)**  
+Companion draft for offline-verifiable package composition and verification obligations.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks draft startup from normalization sequence. |
+| Purpose | Defines package semantics for offline integrity verification. |
+| Normative Focus | Required members, readability declaration, trust-profile carriage, offline verifier behavior, anchoring seam. |
+| Verification manifest minimum fields (draft) | Defines required manifest fields for portable offline verification. |
+| Cross-implementation verification requirement (draft) | Adds expectation for equivalent outcomes across independent verifiers. |
+| Provenance distinction requirement (draft) | Requires export packages to preserve canonical vs derived artifact distinctions. |
+| Migrated requirements from `unified_ledger_core.md` (Section 12) | Captures export/verification guarantees extracted from legacy core. |
+
+---
+
+## `specs/disclosure-manifest.md`
+
+**H1 — Trellis Companion — Disclosure Manifest (Draft)**  
+Companion draft for audience-specific disclosure manifests as first-class release artifacts.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks draft startup from normalization sequence. |
+| Purpose | Separates disclosure semantics from canonical append records. |
+| Normative Focus | Audience scope, claim classes, provenance preservation, selective disclosure discipline, readability/redaction declarations. |
+| Claim-class taxonomy (draft) | Defines disclosure claim classes and canonical-reference rule. |
+| Interop Direction | Prioritizes SD-JWT / VC path; defers advanced mechanisms. |
+
+---
+
+## `specs/monitoring-witnessing.md`
+
+**H1 — Trellis Companion — Monitoring and Witnessing (Draft)**  
+Minimal companion draft defining publication/verification seams for independent monitoring and witness compatibility.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks minimal seam-oriented startup. |
+| Purpose | Creates anti-equivocation-ready seam without forcing a witness network design now. |
+| Normative Focus (minimal for now) | Checkpoint publication, append-growth verification, anti-equivocation-compatible publication, verifier interop targets. |
+| Testability hooks (draft) | Adds fixture/replay expectations for monitor verification seams. |
+| Current Scope Constraint | Defers concrete witness topology choices. |
+
+---
+
+## `specs/assurance-traceability.md`
+
+**H1 — Trellis Companion — Assurance Traceability (Draft)**  
+Companion draft that binds core invariants to concrete assurance methods and expected evidence artifacts.
+
+| H2 | Summary |
+|----|---------|
+| Status | Marks assurance traceability as active spec-family work. |
+| Purpose | Keeps assurance architectural and testable rather than appendix prose. |
+| Traceability matrix (draft) | Maps invariants to TLA+/Alloy/property/fuzz/drill methods and outputs. |
+| Minimum CI expectations (draft) | Sets baseline automation and evidence-retention expectations. |
+| Evidence retention policy (draft) | Adds retention and remediation linkage expectations for assurance artifacts. |
+
+---
+
+## `specs/ratification-checklist.md`
+
+**H1 — Trellis Spec Family Ratification Checklist (Draft)**  
+Cross-document readiness checklist defining global and per-spec gates for moving drafts toward normative ratification.
+
+| H2 | Summary |
+|----|---------|
+| Purpose | Defines stopping conditions and readiness gates for ratification. |
+| Global gates | Lists family-wide requirements (boundaries, traceability, vectors, verifier reproducibility). |
+| Per-document readiness gates | Provides file-specific ratification checks for each core/companion draft. |
+| Natural stopping point for this extraction phase | Defines completion criteria for the current drafting phase. |
+
+---
+
+## `specs/ratification-evidence.md`
+
+**H1 — Trellis Ratification Evidence Registry (Draft)**  
+Evidence-linked registry mapping checklist gates to current proof artifacts and identifying remaining automated-evidence gaps.
+
+| H2 | Summary |
+|----|---------|
+| Purpose | Provides evidence references for each checklist gate. |
+| Evidence status key | Defines `PROSE` vs `PENDING-AUTO` evidence states. |
+| Global gate evidence | Tracks evidence IDs for global gates and outstanding automation gaps. |
+| Per-document gate evidence | Tracks evidence IDs for each document-specific readiness gate. |
+| Follow-up required to move PENDING-AUTO to complete | Lists remaining automation tasks required for full closure. |
+
+---
+
+## `DRAFTS/trellis_spec_family_normalization_plan.md`
+
+**H1 — Trellis Spec Family Normalization Plan (Convergence Pass)**  
+Decision-oriented convergence plan that validates the core/companion split, answers boundary questions directly, and maps current Trellis materials into normative companions, profile sidecars, and rationale.
+
+| H2 | Summary |
+|----|---------|
+| 1) Assessment of the proposed split | Confirms the split direction and directly answers key structural questions (core size, trust/key split, projection deferral, export/disclosure split, monitoring companion). |
+| 2) Recommended final Trellis spec family | Defines final normative companion set, priority order, profile/sidecar artifacts, and rationale set. |
+| 3) Mapping from current Trellis docs into the new family | Maps both major clusters and each current file into keep/split/demote actions and target homes. |
+| 4) Explicit repo-boundary decisions (Trellis vs WOS vs Formspec) | States ownership, binding duties, and non-redefinition boundaries across repos. |
+| 5) Top 5 drafting priorities | Lists the highest-leverage drafting actions for reducing semantic debt and preserving hard conclusions. |
+| 5.1 Immediate repo normalization sequence (recommended) | Provides an ordered execution sequence for migrating from current draft layout to the target family structure. |
+| 6) Anything structurally wrong in the current draft | Calls out overloaded companion and boundary/assurance gaps. |
+| 7) Technical conclusions still not captured strongly enough | Highlights missing explicitness for idempotency, snapshots, assurance traceability, metadata budget tables, and Phase-1 profile. |
+| 8) What the current canvas-style restructuring got right vs what should still change | Separates confirmed wins from remaining structural refinements. |
+
+---
+
 ## `thoughts/specs/2026-04-10-unified-ledger-concrete-proposal.md`
 
 **H1 — Unified Ledger: Concrete Proposal**  

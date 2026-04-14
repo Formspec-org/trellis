@@ -54,6 +54,9 @@ The **tiered privacy white paper** is broader than Formspec or WOS: it defines a
 | See external scrutiny and phased delivery | `2026-04-10-expert-panel-unified-ledger-review.md` |
 | See crypto/protocol responses | `2026-04-11-crypto-expert-concrete-solutions.md` |
 | Pressure-test bespoke vs standards | `ledger-risk-reduction.md` |
+| See the convergence normalization plan for Trellis spec-family boundaries | `DRAFTS/trellis_spec_family_normalization_plan.md` |
+| Start the split-out drafts from core + companion into spec-family docs | `specs/trellis-core.md` and companion drafts in `specs/` |
+| See the draft dependency order and ownership map for the spec family | `specs/README.md` |
 | Tiered identity / privacy background | `tiered-privacy-white-paper-3-24-2025.md` |
 
 ---
@@ -71,6 +74,19 @@ The **tiered privacy white paper** is broader than Formspec or WOS: it defines a
 | `trellis/thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md` | Multi-expert review of ADR-0059 + survey; synthesis and roadmap. |
 | `trellis/thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md` | Detailed crypto/protocol answers; Header V2. |
 | `thoughts/research/ledger-risk-reduction.md` | Standards-first risk memo relative to the concrete proposal. |
+| `DRAFTS/trellis_spec_family_normalization_plan.md` | Convergence pass plan that normalizes Trellis into a core + companion family with explicit Trellis/Formspec/WOS boundaries. |
+| `specs/trellis-core.md` | New split-out constitutional core draft started from `unified_ledger_core.md` as the first step of normalization. |
+| `specs/shared-ledger-binding.md` | New companion draft for Formspec/WOS/trust/release family binding and canonization rules. |
+| `specs/trust-profiles.md` | New companion draft for trust posture declarations and metadata budgets. |
+| `specs/key-lifecycle-operating-model.md` | New companion draft for key classes, lifecycle states, rotation, grace periods, recovery, and crypto-shredding completeness. |
+| `specs/projection-runtime-discipline.md` | New companion draft for provenance watermarking, rebuild contract, snapshot discipline, and purge-cascade obligations. |
+| `specs/export-verification-package.md` | New companion draft for offline-verifiable export package requirements and payload readability declarations. |
+| `specs/disclosure-manifest.md` | New companion draft for audience-scoped disclosure claim semantics and provenance-preserving selective disclosure. |
+| `specs/monitoring-witnessing.md` | New minimal seam-oriented companion draft for checkpoint publication and anti-equivocation-compatible monitoring. |
+| `specs/assurance-traceability.md` | New companion draft mapping core invariants to TLA+/Alloy/tests/fuzzing/drill evidence artifacts. |
+| `specs/ratification-checklist.md` | Draft readiness gates and stopping criteria for moving the spec family from draft to normative ratification. |
+| `specs/ratification-evidence.md` | Draft evidence registry linking checklist gates to concrete spec artifacts and identifying remaining auto-evidence gaps. |
+| `specs/README.md` | Draft spec-family index with dependency order, Trellis/Formspec/WOS boundaries, and next extraction passes. |
 | `thoughts/research/tiered-privacy-white-paper-3-24-2025.md` | TPIF white paper: tiered identity and strong crypto at internet scale. |
 
 ---
