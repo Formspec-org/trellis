@@ -1,10 +1,24 @@
-# Trellis Core Specification
+---
+title: Trellis Core Specification
+version: 0.1.0-draft.1
+date: 2026-04-13
+status: draft
+---
+
+# Trellis Core Specification v0.1
+
+**Version:** 0.1.0-draft.1
+**Date:** 2026-04-13
+**Editors:** Formspec Working Group
+**Companion to:** Formspec v1.0, WOS v1.0
+
+---
 
 ## Status of This Document
 
-This is a draft specification in the Trellis spec family.
+This document is a **draft specification**. It is the foundation layer of the Trellis specification family — a companion framework to Formspec v1.0 and WOS v1.0 that does not modify their processing models. Implementors are encouraged to experiment with this specification and provide feedback, but MUST NOT treat it as stable for production use until a 1.0.0 release is published.
 
-This document is intended to follow W3C-style specification structure and language discipline. It defines constitutional semantics only and is paired with companion specifications for bindings, trust profiles, key lifecycle, projection/runtime discipline, export/disclosure, monitoring/witnessing, and assurance traceability.
+This document defines constitutional semantics only and is paired with companion specifications for bindings, trust profiles, key lifecycle, projection/runtime discipline, export/disclosure, monitoring/witnessing, and assurance traceability.
 
 ## Abstract
 
@@ -44,7 +58,19 @@ Trellis Core governs constitutional semantics that MUST remain stable across imp
 
 Trellis Core excludes profile and operational detail that belongs in companions.
 
-### 1.2 Design Goal
+### 1.2 Relationship to Formspec and WOS
+
+Trellis is a **companion framework** to Formspec v1.0 and WOS v1.0. Trellis adds canonical ledger, trust, and disclosure semantics on top of Formspec and WOS substrates. It does not modify their processing models.
+
+**Additive invariant.** Trellis MUST NOT alter Formspec data capture, validation, or Core processing model semantics (Definition evaluation, Response validation, FEL calculation, relevance, or the four-phase processing cycle). A Formspec processor that ignores all Trellis sidecars, bindings, and artifacts remains fully conformant to Formspec and produces identical data and validation results.
+
+**Delegation requirement.** When Trellis behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, or calculation — processing MUST be delegated to a Formspec-conformant processor (Core S1.4). Trellis defines admission, order, attestation, and verification shape for bound records; it does not specify bind/FEL/validation rules.
+
+**Formspec conformance tier.** Trellis-bound Formspec processors MUST implement at least Formspec Core conformance (Core S2). Whether Theme or Component tiers are required depends on the Trellis conformance class: Structural and Append Service roles require Core only; roles that present or render Formspec-backed tasks to end users additionally require Component conformance.
+
+**Screener scope.** Trellis does not redefine Screener routing, classification, or determination semantics (Screener S1–S7). When a Trellis-bound deployment uses Formspec Screener evaluation, it MUST delegate to a Formspec-conformant Screener processor. Trellis may bind Screener determination records as canonical facts but MUST NOT alter the Screener evaluation algorithm.
+
+### 1.3 Design Goal
 
 Prevent multi-source-of-truth drift by enforcing one canonical append-attested substrate while allowing replaceable derived systems.
 
@@ -52,7 +78,9 @@ Prevent multi-source-of-truth drift by enforcing one canonical append-attested s
 
 ## 2. Conformance
 
-The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**, and **MAY** in this document are to be interpreted as described in BCP 14.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in ALL CAPITALS, as shown here.
+
+JSON syntax and data types are as defined in [RFC 8259]. URI syntax is as defined in [RFC 3986].
 
 ### 2.1 Conformance Roles
 
@@ -143,13 +171,21 @@ Canonical truth excludes derived runtime state and all derived artifacts.
 
 A canonical append service MUST admit only records that satisfy core admissibility constraints.
 
-Schema/version compatibility policy is defined in the Shared Ledger Binding companion.
+A Canonical Append Service MUST NOT issue a canonical append attestation for a record until all binding-declared admission prerequisites are satisfied, including resolution of causal or logical dependencies required for that record class (Shared Ledger Binding S5).
+
+Schema/version compatibility policy is defined in the Shared Ledger Binding companion (S6).
 
 ### 6.2 Order
 
 Canonical append order MUST be monotonically append-only within governed scope.
 
 Implementations MAY partition by scope into multiple ledgers, but MUST NOT allow competing canonical orders for the same governed scope.
+
+Canonical order positions MUST be determined solely by rules in this specification and the applicable binding. Canonical order MUST NOT depend on wall-clock receipt time, queue depth, worker identity, or other operational accidents.
+
+### 6.2.1 Determinism note
+
+Bindings SHOULD specify deterministic tie-breaking where concurrent admissible records could otherwise admit more than one total order consistent with declared causal constraints.
 
 ### 6.3 Idempotency and Rejection
 
@@ -167,6 +203,8 @@ Deterministic canonical serialization is REQUIRED for canonical hashing.
 
 Subordinate hashes MAY exist for specialized purposes (e.g., payload identity, attachments, disclosure artifacts) but MUST NOT redefine canonical append semantics.
 
+The `hash_construction_mismatch` rejection code (Shared Ledger Binding S7) refers to a registered construction ID table. Until a dedicated registry companion is published, the single mandatory construction is JSON Canonicalization Scheme (JCS, RFC 8785) with SHA-256. Future constructions MUST be registered before verifiers are required to accept them.
+
 ---
 
 ## 8. Verification Requirements
@@ -180,15 +218,17 @@ A conforming verifier MUST be able to validate:
 
 without requiring derived runtime state.
 
+At Trellis Core conformance, verifiers MUST support at minimum the following claim classes: canonical-record integrity, append-attestation validity, and inclusion consistency. Additional claim classes (payload integrity, authorization history, disclosure policy) are defined by companion specifications (Disclosure Manifest S4, Export Verification Package S3).
+
 ---
 
 ## 9. Cross-Repository Authority Boundaries
 
-- **Formspec** remains authoritative for authored/spec/runtime semantics.
-- **WOS** remains authoritative for workflow/governance meaning and runtime envelope.
-- **Trellis Core** is authoritative for canonical ledger semantics, append/attestation semantics, and verification boundaries.
+- **Formspec** is authoritative for Definition structure and validation (Core S4), Response semantics (Core S5), FEL evaluation (Core S3), version pinning (Core S6.4, VP-01), and the four-phase processing model (Core S7). Trellis MUST NOT restate or reinterpret these semantics; it cites them by section number.
+- **WOS** is authoritative for kernel lifecycle topology (Kernel S3), case state model (Kernel S4), provenance Facts tier (Kernel S6), governance enforcement (Kernel S8), and runtime behavioral contract (Runtime S4–S12). Trellis MUST NOT restate WOS evaluation or governance semantics; it cites them by section number.
+- **Trellis Core** is authoritative for canonical ledger semantics (S4–S7), append/attestation semantics (S6), verification boundaries (S8), and cross-repository authority (this section).
 
-This specification MUST NOT be interpreted to redefine Formspec or WOS semantic authority.
+This specification MUST NOT be interpreted to redefine Formspec or WOS semantic authority. When Trellis normative text depends on Formspec or WOS behavior, it MUST cite the relevant specification section rather than restating the behavior.
 
 ---
 
@@ -197,3 +237,9 @@ This specification MUST NOT be interpreted to redefine Formspec or WOS semantic 
 Implementations SHOULD minimize metadata leakage consistent with declared trust profiles.
 
 Details of trust profile declarations, key lifecycle controls, and disclosure semantics are specified in companion documents.
+
+### 10.1 Baseline scope (advanced capabilities)
+
+Baseline Trellis Core conformance MUST NOT be interpreted to require advanced selective disclosure, threshold custody, group-sharing protocols, advanced homomorphic or privacy-preserving computation, or cross-agency analytic protocols unless a declared profile, binding, or implementation specification explicitly requires them. Such capabilities MAY be introduced only through those upper layers without redefining core canonical truth, order, or hash semantics established in this document.
+
+This baseline-scope constraint corresponds to ULCR-100 and ULCOMP-R-213–214 in the requirements matrices.
