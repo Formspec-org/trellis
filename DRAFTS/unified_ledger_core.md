@@ -1,19 +1,19 @@
 # Unified Ledger Core Specification
 
 > **Normalization status (2026-04-13):** This file is now a legacy source draft.
-> Active split-out draft work has started in `specs/trellis-core.md`.
-> Companion-specific material in this file should be migrated into the new companion drafts in `specs/`.
+> Active split-out draft work has started in `specs/core/trellis-core.md`.
+> Companion-specific material in this file should be migrated into the new companion drafts under `specs/*/`.
 
 ### Migration map from this legacy core draft
 
 The following sections in this file are companion-owned in the normalized family and should be migrated out of core:
 
-- Trust Profile Semantics / Trust Honesty / Trust Profile Transitions → `specs/trust-profiles.md`
-- Standard Profiles (Offline, Reader-Held, Delegated Compute, Disclosure/Export, User-Held Reuse, Respondent History) → profile-oriented companion docs under `specs/`
-- Domain Bindings and Sidecars → `specs/shared-ledger-binding.md`
-- Derived Artifact operational constraints, snapshots, lifecycle shredding details → `specs/projection-runtime-discipline.md` and `specs/key-lifecycle-operating-model.md`
-- Export detail beyond core guarantees → `specs/export-verification-package.md` and `specs/disclosure-manifest.md`
-- Monitoring/witnessing seams and assurance methodology detail → `specs/monitoring-witnessing.md` and `specs/assurance-traceability.md`
+- Trust Profile Semantics / Trust Honesty / Trust Profile Transitions → `specs/trust/trust-profiles.md`
+- Standard Profiles (Offline, Reader-Held, Delegated Compute, Disclosure/Export, User-Held Reuse, Respondent History) → profile-oriented companion docs under `specs/trust/` and `specs/export/`
+- Domain Bindings and Sidecars → `specs/core/shared-ledger-binding.md`
+- Derived Artifact operational constraints, snapshots, lifecycle shredding details → `specs/projection/projection-runtime-discipline.md` and `specs/trust/key-lifecycle-operating-model.md`
+- Export detail beyond core guarantees → `specs/export/export-verification-package.md` and `specs/export/disclosure-manifest.md`
+- Monitoring/witnessing seams and assurance methodology detail → `specs/operations/monitoring-witnessing.md` and `specs/assurance/assurance-traceability.md`
 
 Migration progress: initial normative extraction has been applied into the target companion drafts listed above; remaining pass is wording harmonization and removal of duplicated legacy prose.
 

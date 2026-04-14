@@ -2,19 +2,32 @@
 
 This folder is the active normalization target for Trellis specifications.
 
+## Layout
+
+| Folder | Role |
+|--------|------|
+| [`core/`](core/) | Constitutional core + family binding to Formspec/WOS (read first). |
+| [`trust/`](trust/) | Trust profiles and key lifecycle operating model. |
+| [`projection/`](projection/) | Derived projections, watermarking, rebuild and purge discipline. |
+| [`export/`](export/) | Offline verification packages and selective disclosure manifests. |
+| [`operations/`](operations/) | Monitoring and witnessing seams. |
+| [`assurance/`](assurance/) | Traceability matrix, ratification checklist, and evidence registry. |
+
 ## Normative dependency order (draft)
 
-1. `trellis-core.md`
-2. `shared-ledger-binding.md`
-3. `trust-profiles.md`
-4. `key-lifecycle-operating-model.md`
-5. `projection-runtime-discipline.md`
-6. `export-verification-package.md`
-7. `disclosure-manifest.md`
-8. `monitoring-witnessing.md`
-9. `assurance-traceability.md`
-10. `ratification-checklist.md`
-11. `ratification-evidence.md`
+Paths are relative to `specs/`.
+
+1. `core/trellis-core.md`
+2. `core/shared-ledger-binding.md`
+3. `trust/trust-profiles.md`
+4. `trust/key-lifecycle-operating-model.md`
+5. `projection/projection-runtime-discipline.md`
+6. `export/export-verification-package.md`
+7. `export/disclosure-manifest.md`
+8. `operations/monitoring-witnessing.md`
+9. `assurance/assurance-traceability.md`
+10. `assurance/ratification-checklist.md`
+11. `assurance/ratification-evidence.md`
 
 ## Ownership boundaries (draft)
 
@@ -24,27 +37,27 @@ This folder is the active normalization target for Trellis specifications.
 
 ## Current maturity markers
 
-- `trellis-core.md`: constitutional scope + core invariants/conformance roles draft
-- `shared-ledger-binding.md`: family-binding structure + canonization matrix draft
-- `trust-profiles.md`: trust posture + metadata budget + honesty rule draft
-- `key-lifecycle-operating-model.md`: lifecycle state-machine + grace-period draft
-- `projection-runtime-discipline.md`: derived-system boundary + watermark contract draft
-- `export-verification-package.md`: offline verification package + manifest minimums draft
-- `disclosure-manifest.md`: selective disclosure release draft
-- `monitoring-witnessing.md`: seam-only minimal draft
-- `assurance-traceability.md`: invariant-to-assurance mapping draft
-- `ratification-checklist.md`: draft readiness/risk gates for ratification
-- `ratification-evidence.md`: gate-to-evidence registry with pending automation markers
+- `core/trellis-core.md`: constitutional scope + core invariants/conformance roles draft
+- `core/shared-ledger-binding.md`: family-binding structure + canonization matrix draft
+- `trust/trust-profiles.md`: trust posture + metadata budget + honesty rule draft
+- `trust/key-lifecycle-operating-model.md`: lifecycle state-machine + grace-period draft
+- `projection/projection-runtime-discipline.md`: derived-system boundary + watermark contract draft
+- `export/export-verification-package.md`: offline verification package + manifest minimums draft
+- `export/disclosure-manifest.md`: selective disclosure release draft
+- `operations/monitoring-witnessing.md`: seam-only minimal draft
+- `assurance/assurance-traceability.md`: invariant-to-assurance mapping draft
+- `assurance/ratification-checklist.md`: draft readiness/risk gates for ratification
+- `assurance/ratification-evidence.md`: gate-to-evidence registry with pending automation markers
 
 ## Immediate next extraction passes
 
-1. Pull precise MUST/SHALL language from `DRAFTS/unified_ledger_core.md` into `trellis-core.md`.
+1. Pull precise MUST/SHALL language from `DRAFTS/unified_ledger_core.md` into `core/trellis-core.md`.
 2. Pull companion-grade normative language from `DRAFTS/unified_ledger_companion.md` into each companion draft.
 3. Expand assurance traceability matrix into executable checks and artifact retention policy.
-4. Keep `ratification-checklist.md` updated as sections move from draft to normative-ready.
+4. Keep `assurance/ratification-checklist.md` updated as sections move from draft to normative-ready.
 
 ## Phase status
 
-- Ratification checklist gates are now evidence-linked via `ratification-evidence.md`.
+- Ratification checklist gates are now evidence-linked via `assurance/ratification-evidence.md`.
 - Two global auto-evidence gates remain open: native/WASM vectors and cross-implementation verifier reproducibility.
 - Initial migrations from `DRAFTS/unified_ledger_core.md` have been extracted into companion-specific “Migrated requirements” sections.

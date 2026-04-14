@@ -93,7 +93,7 @@ The current split is directionally correct and should be preserved.
 
 | Current file | Target classification | Target home | Decision |
 |---|---|---|---|
-| `DRAFTS/unified_ledger_core.md` | Normative core | `specs/trellis-core.md` | Keep, but reduce to constitutional invariants only. |
+| `DRAFTS/unified_ledger_core.md` | Normative core | `specs/core/trellis-core.md` | Keep, but reduce to constitutional invariants only. |
 | `DRAFTS/unified_ledger_companion.md` | Companion source material | Split across `specs/companions/*` | Decompose into named companions; remove omnibus role. |
 | `thoughts/specs/2026-04-10-unified-ledger-concrete-proposal.md` | Rationale + implementation profile seed | `rationale/implementation-baseline.md` + excerpts into companions | Split; keep non-normative as baseline profile guidance. |
 | `thoughts/research/2026-04-10-unified-ledger-technology-survey.md` | Rationale | `rationale/technology-survey.md` | Retain as option-analysis record. |
@@ -152,7 +152,7 @@ The current split is directionally correct and should be preserved.
 ## 5.1 Immediate repo normalization sequence (recommended)
 
 1. Create `specs/` and `specs/companions/` scaffold with final filenames.
-2. Move trimmed constitutional text from `DRAFTS/unified_ledger_core.md` into `specs/trellis-core.md`.
+2. Move trimmed constitutional text from `DRAFTS/unified_ledger_core.md` into `specs/core/trellis-core.md`.
 3. Split `DRAFTS/unified_ledger_companion.md` into named companion drafts.
 4. Move research/reviews/ADRs into a clearly marked `rationale/` tree.
 5. Add profile sidecar templates (`profiles/`) for trust-profile and metadata-budget declarations.

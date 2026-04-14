@@ -2,9 +2,9 @@
 
 > **Normalization status (2026-04-13):** This file is now a legacy omnibus source draft.
 > Active split-out draft work has started in `specs/`:
-> - `shared-ledger-binding.md`
-> - `trust-profiles.md`
-> - `key-lifecycle-operating-model.md`
+> - `core/shared-ledger-binding.md`
+> - `trust/trust-profiles.md`
+> - `trust/key-lifecycle-operating-model.md`
 > Further companion extraction should continue here before this omnibus draft is retired.
 
 ## Abstract

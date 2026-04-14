@@ -6,7 +6,7 @@ Paths are relative to `trellis/`.
 
 ---
 
-## `specs/trellis-core.md`
+## `specs/core/trellis-core.md`
 
 **H1 — Trellis Core Specification**  
 W3C-style constitutional core draft defining append-attested canonical semantics, invariants, verification requirements, and cross-repo authority boundaries.
@@ -43,7 +43,7 @@ Index file for the normalized spec family with dependency order, ownership bound
 
 ---
 
-## `specs/shared-ledger-binding.md`
+## `specs/core/shared-ledger-binding.md`
 
 **H1 — Trellis Companion — Shared Ledger Binding (Draft)**  
 Companion draft for family bindings and canonization discipline across Formspec/WOS/trust/release facts.
@@ -63,7 +63,7 @@ Companion draft for family bindings and canonization discipline across Formspec/
 
 ---
 
-## `specs/trust-profiles.md`
+## `specs/trust/trust-profiles.md`
 
 **H1 — Trellis Companion — Trust Profiles (Draft)**  
 Companion draft for custody/readability posture declarations and trust-honesty semantics.
@@ -82,7 +82,7 @@ Companion draft for custody/readability posture declarations and trust-honesty s
 
 ---
 
-## `specs/key-lifecycle-operating-model.md`
+## `specs/trust/key-lifecycle-operating-model.md`
 
 **H1 — Trellis Companion — Key Lifecycle Operating Model (Draft)**  
 Companion draft for lifecycle state machine semantics, rotation, grace periods, recovery, and destruction completeness.
@@ -101,7 +101,7 @@ Companion draft for lifecycle state machine semantics, rotation, grace periods, 
 
 ---
 
-## `specs/projection-runtime-discipline.md`
+## `specs/projection/projection-runtime-discipline.md`
 
 **H1 — Trellis Companion — Projection and Runtime Discipline (Draft)**  
 Companion draft for derived-system discipline, provenance watermarking, rebuildability, snapshot boundaries, and runtime deferral seams.
@@ -118,7 +118,7 @@ Companion draft for derived-system discipline, provenance watermarking, rebuilda
 
 ---
 
-## `specs/export-verification-package.md`
+## `specs/export/export-verification-package.md`
 
 **H1 — Trellis Companion — Export Verification Package (Draft)**  
 Companion draft for offline-verifiable package composition and verification obligations.
@@ -135,7 +135,7 @@ Companion draft for offline-verifiable package composition and verification obli
 
 ---
 
-## `specs/disclosure-manifest.md`
+## `specs/export/disclosure-manifest.md`
 
 **H1 — Trellis Companion — Disclosure Manifest (Draft)**  
 Companion draft for audience-specific disclosure manifests as first-class release artifacts.
@@ -150,7 +150,7 @@ Companion draft for audience-specific disclosure manifests as first-class releas
 
 ---
 
-## `specs/monitoring-witnessing.md`
+## `specs/operations/monitoring-witnessing.md`
 
 **H1 — Trellis Companion — Monitoring and Witnessing (Draft)**  
 Minimal companion draft defining publication/verification seams for independent monitoring and witness compatibility.
@@ -165,7 +165,7 @@ Minimal companion draft defining publication/verification seams for independent 
 
 ---
 
-## `specs/assurance-traceability.md`
+## `specs/assurance/assurance-traceability.md`
 
 **H1 — Trellis Companion — Assurance Traceability (Draft)**  
 Companion draft that binds core invariants to concrete assurance methods and expected evidence artifacts.
@@ -180,7 +180,7 @@ Companion draft that binds core invariants to concrete assurance methods and exp
 
 ---
 
-## `specs/ratification-checklist.md`
+## `specs/assurance/ratification-checklist.md`
 
 **H1 — Trellis Spec Family Ratification Checklist (Draft)**  
 Cross-document readiness checklist defining global and per-spec gates for moving drafts toward normative ratification.
@@ -194,7 +194,7 @@ Cross-document readiness checklist defining global and per-spec gates for moving
 
 ---
 
-## `specs/ratification-evidence.md`
+## `specs/assurance/ratification-evidence.md`
 
 **H1 — Trellis Ratification Evidence Registry (Draft)**  
 Evidence-linked registry mapping checklist gates to current proof artifacts and identifying remaining automated-evidence gaps.
