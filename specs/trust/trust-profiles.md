@@ -1,13 +1,13 @@
 ---
 title: Trellis Companion — Trust Profiles
-version: 0.1.0-draft.2
+version: 0.1.0-draft.3
 date: 2026-04-14
 status: draft
 ---
 
 # Trellis Companion — Trust Profiles v0.1
 
-**Version:** 0.1.0-draft.2
+**Version:** 0.1.0-draft.3
 **Date:** 2026-04-14
 **Editors:** Formspec Working Group
 **Companion to:** Trellis Core v0.1
@@ -69,7 +69,7 @@ Define explicit custody and readability postures, the honesty rules that bind th
 
 **Requirement class: Non-normative guidance**
 
-[Trellis Core] treats the Trust Profile as a first-class constitutional semantic object (Trellis Core S10, S11). This companion elaborates the object shape, the honesty requirements, the transition requirements, and the Standard Profiles that a deployment MAY conform to. Bindings MAY choose the concrete wire shape, but they MUST preserve the semantic fields and meanings defined in §3.
+[Trellis Core] treats the Trust Profile as a first-class constitutional semantic object (Trellis Core S10, S11). [WOS Kernel §10.5] `custodyHook` delegates Trust Profile object definition to this binding spec. This companion elaborates the object shape, the honesty requirements, the transition requirements, and the Standard Profiles that a deployment MAY conform to. Bindings MAY choose the concrete wire shape, but they MUST preserve the semantic fields and meanings defined in §3.
 
 ### 1.3 Relationship to Other Companions
 
@@ -127,14 +127,9 @@ Bindings MAY define the concrete wire shape of a Trust Profile object, but they 
 
 ### 3.2 Disclosure Posture and Assurance
 
-**Requirement class: Constitutional semantic**
+**Requirement class: Cross-reference**
 
-[Trellis Core] S10.2 requires that a conforming implementation:
-
-- MUST distinguish assurance level from disclosure posture,
-- MUST NOT treat higher assurance as requiring greater identity disclosure by default,
-- MAY support subject continuity without requiring full legal identity disclosure,
-- MUST preserve those distinctions across Trust Profiles, exports, and disclosures.
+Disclosure posture and assurance level semantics are defined in [WOS Assurance §2] (assurance) and [WOS Assurance §4] (independence invariant). This spec does not restate them; the Trust Profile object carries postures as declared values without reinterpretation.
 
 ---
 
@@ -165,11 +160,13 @@ Bindings MAY define the concrete wire shape of a Trust Profile object, but they 
 - MUST define whether the transition applies prospectively, retrospectively, or both,
 - MUST NOT expand from reader-held access or delegated compute access into provider-readable access without such an explicit transition.
 
+The generic named-lifecycle-operation pattern that governs versioned, declared transitions of governed objects is defined in [WOS Governance §2.9] (Schema Upgrade). Trust Profile transitions are the ledger-custody application of that pattern.
+
 ### 4.3 Transition Recording
 
 **Requirement class: Companion requirement**
 
-Trust Profile transitions MUST be append-attributable: each transition MUST be recorded as a canonical fact that identifies the actor, the prior profile, the new profile, the effective time, and the policy authority ([Trellis Core] S5.2 invariant 1, S6.1). The minimal canonical fact shape for a transition event follows the Shared Ledger Binding family matrix for trust and access facts.
+Trust Profile transitions MUST be append-attributable: each transition MUST be recorded as a canonical fact that identifies the actor, the prior profile, the new profile, the effective time, and the policy authority ([Trellis Core] S5.2 invariant 1, S6.1). The minimal canonical fact shape for a transition event follows the Shared Ledger Binding family matrix for trust and access facts. The append-attributability requirement is the ledger-specific declaration of the named-lifecycle-operation pattern in [WOS Governance §2.9].
 
 ### 4.4 Mutual Exclusion
 
@@ -317,7 +314,7 @@ Implementations handling protected content MUST distinguish the following forms 
 - **Reader-held access.** An explicitly authorized human or tenant-side principal can decrypt content within its scope.
 - **Delegated compute access.** A specific compute agent or model is granted scoped access to process content for a specific purpose.
 
-A conforming implementation MUST describe these categories consistently with its actual behavior.
+A conforming implementation MUST describe these categories consistently with its actual behavior. (Note: WOS Assurance does not currently define a generic access-category taxonomy at the substrate layer; this spec is the normative home for these custody-mode definitions in the Trellis distributed-trust binding.)
 
 ### 9.4 Profile Honesty Detail
 
@@ -487,66 +484,17 @@ A disclosure-oriented artifact:
 - MUST preserve provenance distinctions,
 - MUST NOT be treated as a rewrite of canonical truth.
 
-### 10.5 User-Held Record Reuse Profile
+### 10.5 User-Held Record Reuse (Cross-Reference)
 
-**Requirement class: Profile constraint**
+**Requirement class: Cross-reference**
 
-An implementation conforming to the User-Held Record Reuse Profile:
+User-held record reuse is a data-contract concern, not a custody-mode binding. See [Formspec Respondent Ledger §2.3 / §15A Profile A] for the normative definition.
 
-- MUST support submission or reference of previously user-held records, supporting material, or attestations,
-- MUST bind exactly what was reused or disclosed when such material is introduced into canonical workflows,
-- MUST distinguish reusable prior records from canonical workflow state,
-- MUST distinguish workflow submission from prior-record possession,
-- MUST avoid treating the entire user-held record layer as canonical workflow state by default.
+### 10.6 Respondent History (Cross-Reference)
 
-#### 10.5.1 Selective Submission Preference
+**Requirement class: Cross-reference**
 
-**Requirement class: Companion requirement**
-
-If an implementation supports user-held reusable prior records, selective submission SHOULD be favored over bulk transfer of unrelated user-held content.
-
-#### 10.5.2 Reuse Provenance
-
-**Requirement class: Companion requirement**
-
-When reused material is introduced into canonical truth, the implementation:
-
-- MUST bind what was introduced,
-- SHOULD bind the reuse context where relevant,
-- MUST preserve provenance distinctions among pre-existing user-held material, canonical submission, and later disclosure artifacts.
-
-### 10.6 Respondent History Profile
-
-**Requirement class: Profile constraint**
-
-An implementation conforming to the Respondent History Profile:
-
-- MUST scope itself to respondent-originated or respondent-visible material history,
-- MAY support respondent-history moments such as draft, save, submit, amendment, attachment, validation, prepopulation, or materially relevant attestation boundaries,
-- MUST treat respondent-history views as projections or profile-specific interpretations over canonical truth rather than as a separate source of truth,
-- MUST NOT define a second canonical append model,
-- MUST NOT imply complete workflow, governance, custody, or compliance coverage unless the declared profile scope actually includes those materials.
-
-#### 10.6.1 Materiality Discipline
-
-**Requirement class: Profile constraint**
-
-A Respondent History Profile:
-
-- MUST prioritize material respondent-side state changes over raw UI telemetry,
-- MUST NOT require keystroke, focus, blur, rendering, or equivalent ephemeral interface event capture,
-- SHOULD expose validation, submission, amendment, and materially relevant identity or attestation boundaries where they matter to human review,
-- MAY define profile-specific change-set semantics aligned to stable form-path and item-key semantics where those concepts exist.
-
-#### 10.6.2 Coverage Honesty
-
-**Requirement class: Profile constraint**
-
-A respondent-history export or view:
-
-- MAY present a profile-specific timeline or delta history,
-- MUST preserve provenance distinctions,
-- MUST NOT imply broader workflow, governance, custody, or compliance coverage than the declared profile scope actually provides.
+Respondent-history projection is a data-contract concern, not a custody-mode binding. See [Formspec Respondent Ledger §6.6A] for the normative definition.
 
 ---
 
@@ -689,6 +637,10 @@ These examples are useful when documenting tradeoffs among:
 - **[Disclosure-Manifest]** — Trellis Companion: Disclosure Manifest v0.1 (`trellis/specs/export/disclosure-manifest.md`).
 - **[Export-Verification-Package]** — Trellis Companion: Export Verification Package v0.1 (`trellis/specs/export/export-verification-package.md`).
 - **[Shared Ledger Binding]** — Trellis Binding: Shared Ledger Binding v0.1 (`trellis/specs/core/shared-ledger-binding.md`).
+- **[WOS Kernel §10.5]** — WOS Kernel Specification, §10 Seams, S10.5 `custodyHook` (`wos-spec/specs/kernel/spec.md`).
+- **[WOS Assurance §2]**, **[WOS Assurance §4]** — WOS Assurance Specification, §2 Assurance Levels, §4 Invariant 6 (Disclosure Posture Is Not Assurance Level) (`wos-spec/specs/assurance/assurance.md`).
+- **[WOS Governance §2.9]** — WOS Workflow Governance Specification, §2.9 Schema Upgrade (`wos-spec/specs/governance/workflow-governance.md`).
+- **[Formspec Respondent Ledger §2.3 / §6.6A / §15A Profile A]** — Formspec Respondent Ledger Specification (`specs/audit/respondent-ledger-spec.md`).
 - **[RFC 2119]** — Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997.
 - **[RFC 8174]** — Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017.
 - **[RFC 8259]** — Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format", STD 90, RFC 8259, December 2017.
