@@ -1,13 +1,15 @@
 ---
 title: Trellis — Companion Requirements Matrix (Ownership Traceability)
-version: 0.2.0
-date: 2026-04-14
+version: 0.3.0
+date: 2026-04-15
 status: living document
 ---
 
 # Trellis — Companion Requirements Matrix
 
 This document is a **current-state ownership traceability tool**. It maps every requirement extracted from the legacy companion draft [`../../DRAFTS/unified_ledger_companion.md`](../../DRAFTS/unified_ledger_companion.md) to its **owning Trellis companion spec** (or marks it as legacy-only when no current spec owns it). It is no longer a migration tracker — it is the canonical pointer from a stable requirement ID (`ULCOMP-R-NNN`) to the spec section that today carries (or will carry) the normative obligation.
+
+**Plan 3 refactor (2026-04-15):** this matrix was refactored to reflect the three-spec dependency direction — Formspec (bottom) ← WOS (references Formspec) ← Trellis (references both). Rows whose normative content moved upstream (to WOS Assurance, WOS Governance, or Formspec Respondent Ledger) were removed from this matrix and only ledger-specific obligations retained. Rows removed in Plan 3 are indexed in `cross-reference-map.md` with their upstream home. The two former sidecar stub owners (`../forms/forms-respondent-history.md`, `../workflow/workflow-governance-provenance.md`) no longer own rows here because the respondent-history and workflow-governance material is now owned upstream (Formspec Respondent Ledger and WOS Governance respectively).
 
 ## Table of Contents
 
@@ -28,11 +30,13 @@ This document is a **current-state ownership traceability tool**. It maps every 
 | Prefix | Meaning |
 |--------|---------|
 | `ULCOMP-F-###` | Feature / capability area extracted from the legacy companion draft. |
-| `ULCOMP-R-###` | Normative requirement (`ULCOMP-R-001` through `ULCOMP-R-223`). |
+| `ULCOMP-R-###` | Normative requirement. IDs are stable across revisions; removed IDs are not reused. |
 
 These IDs are stable. They MUST be preserved when prose moves from this matrix or from `DRAFTS/unified_ledger_companion.md` into a current companion spec; the receiving spec section SHOULD cite the inbound `ULCOMP-R-NNN` so reverse traceability stays intact.
 
 `ULCOMP-*` IDs are distinct from the core matrix IDs (`ULCF-*` / `ULCR-*`) tracked in [`unified-ledger-requirements-matrix.md`](unified-ledger-requirements-matrix.md). Do not collapse the two ID spaces.
+
+**Retired IDs (Plan 3, 2026-04-15).** The following IDs were removed because their normative content is now owned upstream; they are permanently retired and MUST NOT be reused: `ULCOMP-R-067`–`075` (User-Held Reuse → Formspec Respondent Ledger), `ULCOMP-R-076`–`087` (Respondent History → Formspec Respondent Ledger), `ULCOMP-R-135`–`138` (identity/signing mechanics → WOS Assurance), `ULCOMP-R-140`–`142` (assurance vs disclosure taxonomy → WOS Assurance + Formspec Respondent Ledger), `ULCOMP-R-155`–`158` (generic lifecycle → WOS Governance), `ULCOMP-R-161`–`162` (sealing/precedence → WOS Governance), `ULCOMP-R-181`–`188` (forms respondent-history sidecar → Formspec Respondent Ledger), `ULCOMP-R-189`–`196` (workflow governance sidecar → WOS Governance), and `ULCOMP-R-197` (registry conventions → WOS Governance). See `cross-reference-map.md` for upstream destinations.
 
 **Synthesis rows.** `ULCOMP-R-215`–`220` formalize projection discipline drawn from [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md). `ULCOMP-R-221` formalizes the metadata-budget obligation in [`../trust/trust-profiles.md`](../trust/trust-profiles.md). `ULCOMP-R-222` and `ULCOMP-R-223` formalize verification-posture and projection-integrity policy in those same companions.
 
@@ -44,7 +48,7 @@ Each row carries one class, drawn from the legacy draft and preserved here for n
 
 | Class | Meaning |
 |-------|---------|
-| **PC** | **Profile constraint** — applies only within a declared profile (offline authoring, reader-held decryption, delegated compute, disclosure/export, user-held reuse, respondent history). |
+| **PC** | **Profile constraint** — applies only within a declared profile (offline authoring, reader-held decryption, delegated compute, disclosure/export). |
 | **BSC** | **Binding or sidecar choice** — a binding- or sidecar-author obligation: the choice is optional, but if exercised the constraints apply. |
 | **CR** | **Companion requirement** — applies across the companion family regardless of profile or sidecar choice. |
 
@@ -56,7 +60,7 @@ Non-normative appendices appear only where a testable **SHOULD** remains.
 
 | Owning companion spec | Row count |
 |---|---:|
-| [`shared-ledger-binding.md`](shared-ledger-binding.md) | 25 |
+| [`shared-ledger-binding.md`](shared-ledger-binding.md) | 20 |
 | [`trellis-core.md`](trellis-core.md) | 22 |
 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) | 48 |
 | [`../trust/key-lifecycle-operating-model.md`](../trust/key-lifecycle-operating-model.md) | 2 |
@@ -65,12 +69,10 @@ Non-normative appendices appear only where a testable **SHOULD** remains.
 | [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) | 18 |
 | [`../operations/monitoring-witnessing.md`](../operations/monitoring-witnessing.md) | 5 |
 | [`../assurance/assurance-traceability.md`](../assurance/assurance-traceability.md) | 1 |
-| [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) (stub) | 20 |
-| [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) (stub) | 8 |
-| _(legacy only — no current owner)_ | 48 |
-| **Total** | **223** |
+| _(legacy only — no current owner)_ | 30 |
+| **Total** | **172** |
 
-The "legacy only" rows are concentrated in three profile areas — **offline authoring** (`§2.1`, 18 rows), **user-held record reuse** (`§2.5`, 9 rows), and **identity, attestation, signing, and continuity** (`§3.5`, 7 rows) — plus a handful of cross-cutting topics (delegated-compute output reliance §2.3.2 (5 rows), conflict-handling discretionary rules §3.4 (3 rows), the three non-normative App. F migration `SHOULD`s, sealing/precedence §3.8.2 (2 rows), and sharing-mode discipline §3.1.2 (1 row)) that have not yet been promoted into a dedicated companion. They remain authoritative in [`../../DRAFTS/unified_ledger_companion.md`](../../DRAFTS/unified_ledger_companion.md) until split out.
+The remaining "legacy only" rows are concentrated in three areas — **offline authoring** (§2.1, 18 rows), **delegated-compute output reliance** (§2.3.2, 5 rows), **conflict-handling discretionary rules** (§3.4, 3 rows), **sharing-mode discipline** (§3.1.2, 1 row), and the three non-normative App. F migration `SHOULD`s. These have not yet been promoted into a dedicated companion and remain authoritative in [`../../DRAFTS/unified_ledger_companion.md`](../../DRAFTS/unified_ledger_companion.md) until split out.
 
 ---
 
@@ -98,23 +100,18 @@ The "legacy only" rows are concentrated in three profile areas — **offline aut
 | ULCOMP-F-003 | Reader-Held Decryption Profile | 2.2 |
 | ULCOMP-F-004 | Delegated Compute Profile | 2.3 |
 | ULCOMP-F-005 | Disclosure and Export Profile | 2.4 |
-| ULCOMP-F-006 | User-Held Record Reuse Profile | 2.5 |
-| ULCOMP-F-007 | Respondent History Profile | 2.6 |
 | ULCOMP-F-008 | Trust inheritance and scoped export honesty | 3.0 |
 | ULCOMP-F-009 | Access grants, revocations, delegation, evaluators | 3.1 |
 | ULCOMP-F-010 | Provider / reader / delegated access and honesty | 3.2 |
 | ULCOMP-F-011 | Canonical Append Service, idempotency, proof model, witnessing | 3.3 |
 | ULCOMP-F-012 | Conflict handling | 3.4 |
-| ULCOMP-F-013 | Identity, attestation, signing, assurance / disclosure | 3.5 |
+| ULCOMP-F-013 | Identity, attestation, signing, assurance / disclosure (ledger-evidence portion only) | 3.5 |
 | ULCOMP-F-014 | Protected payloads and access material | 3.6 |
 | ULCOMP-F-015 | Storage, snapshots, durable boundary | 3.7 |
-| ULCOMP-F-016 | Lifecycle, erasure, sealing, legal sufficiency | 3.8 |
+| ULCOMP-F-016 | Cryptographic erasure and legal sufficiency (ledger-specific portion only) | 3.8 |
 | ULCOMP-F-017 | Privacy and metadata minimization | 3.9 |
 | ULCOMP-F-018 | Sidecar discipline and recognized families | 4 |
 | ULCOMP-F-019 | Trust Profile example sidecar | 5 |
-| ULCOMP-F-020 | Forms and respondent-history sidecar | 6 |
-| ULCOMP-F-021 | Workflow, governance, provenance sidecar | 7 |
-| ULCOMP-F-022 | Appendix A — suggested registries | App. A |
 | ULCOMP-F-023 | Appendix B — rejection semantics | App. B |
 | ULCOMP-F-024 | Appendix C — versioning and algorithm agility | App. C |
 | ULCOMP-F-025 | Appendix D — security testing guidance | App. D |
@@ -122,6 +119,8 @@ The "legacy only" rows are concentrated in three profile areas — **offline aut
 | ULCOMP-F-027 | Appendix G — companion conformance boundary | App. G |
 | ULCOMP-F-028 | Projection and staff-view discipline (normalized) | [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) |
 | ULCOMP-F-029 | Trust profiles and metadata budget (normalized) | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) |
+
+**Retired feature families (Plan 3):** `ULCOMP-F-006` (User-Held Record Reuse), `ULCOMP-F-007` (Respondent History), `ULCOMP-F-020` (Forms and respondent-history sidecar), `ULCOMP-F-021` (Workflow, governance, provenance sidecar), and `ULCOMP-F-022` (Appendix A suggested registries) were fully absorbed upstream. All their rows moved to Formspec Respondent Ledger or WOS Governance; see `cross-reference-map.md` for the per-row destination.
 
 ---
 
@@ -195,27 +194,6 @@ The "legacy only" rows are concentrated in three profile areas — **offline aut
 | ULCOMP-R-064 | ULCOMP-F-005 | Disclosure-oriented artifact | MAY present audience-specific subset or presentation. | MAY | CR | 2.4.2 | [`../export/disclosure-manifest.md`](../export/disclosure-manifest.md) §Claim-class taxonomy |
 | ULCOMP-R-065 | ULCOMP-F-005 | Disclosure-oriented artifact | MUST preserve provenance distinctions. | MUST | CR | 2.4.2 | [`../export/disclosure-manifest.md`](../export/disclosure-manifest.md) §Claim-class taxonomy |
 | ULCOMP-R-066 | ULCOMP-F-005 | Disclosure-oriented artifact | MUST NOT be treated as a rewrite of canonical truth. | MUST NOT | CR | 2.4.2 | [`../export/disclosure-manifest.md`](../export/disclosure-manifest.md) §Claim-class taxonomy |
-| ULCOMP-R-067 | ULCOMP-F-006 | User-Held Reuse | MUST support submission or reference of previously user-held records, supporting material, or attestations. | MUST | PC | 2.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-068 | ULCOMP-F-006 | User-Held Reuse | MUST bind exactly what was reused or disclosed when material enters canonical workflows. | MUST | PC | 2.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-069 | ULCOMP-F-006 | User-Held Reuse | MUST distinguish reusable prior records from canonical workflow state. | MUST | PC | 2.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-070 | ULCOMP-F-006 | User-Held Reuse | MUST distinguish workflow submission from prior-record possession. | MUST | PC | 2.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-071 | ULCOMP-F-006 | User-Held Reuse | MUST avoid treating entire user-held record layer as canonical workflow state by default. | MUST | PC | 2.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-072 | ULCOMP-F-006 | Selective submission | If user-held reusable prior records supported, selective submission SHOULD be favored over bulk transfer of unrelated content. | SHOULD | CR | 2.5.1 | _(legacy only — no current owner)_ |
-| ULCOMP-R-073 | ULCOMP-F-006 | Reuse provenance | When reused material enters canonical truth, MUST bind what was introduced. | MUST | CR | 2.5.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-074 | ULCOMP-F-006 | Reuse provenance | SHOULD bind reuse context where relevant. | SHOULD | CR | 2.5.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-075 | ULCOMP-F-006 | Reuse provenance | MUST preserve provenance distinctions among pre-existing user-held material, canonical submission, later disclosure artifacts. | MUST | CR | 2.5.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-076 | ULCOMP-F-007 | Respondent History | MUST scope to respondent-originated or respondent-visible material history. | MUST | PC | 2.6 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-077 | ULCOMP-F-007 | Respondent History | MAY support listed respondent-history moments (draft, save, submit, etc.). | MAY | PC | 2.6 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-078 | ULCOMP-F-007 | Respondent History | MUST treat respondent-history views as projections/profile interpretations over canonical truth, not separate source of truth. | MUST | PC | 2.6 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Scope and Subordination |
-| ULCOMP-R-079 | ULCOMP-F-007 | Respondent History | MUST NOT define a second canonical append model. | MUST NOT | PC | 2.6 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Scope and Subordination |
-| ULCOMP-R-080 | ULCOMP-F-007 | Respondent History | MUST NOT imply complete workflow/governance/custody/compliance coverage unless declared scope includes those materials. | MUST NOT | PC | 2.6 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Scope and Subordination |
-| ULCOMP-R-081 | ULCOMP-F-007 | Materiality | MUST prioritize material respondent-side state changes over raw UI telemetry. | MUST | PC | 2.6.1 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-082 | ULCOMP-F-007 | Materiality | MUST NOT require keystroke, focus, blur, rendering, or equivalent ephemeral interface event capture. | MUST NOT | PC | 2.6.1 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-083 | ULCOMP-F-007 | Materiality | SHOULD expose validation, submission, amendment, materially relevant identity/attestation boundaries where they matter to human review. | SHOULD | PC | 2.6.1 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-084 | ULCOMP-F-007 | Materiality | MAY define profile-specific change-set semantics aligned to stable form-path and item-key semantics where those exist. | MAY | PC | 2.6.1 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-085 | ULCOMP-F-007 | Coverage honesty | Respondent-history export or view MAY present profile-specific timeline or delta history. | MAY | PC | 2.6.2 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-086 | ULCOMP-F-007 | Coverage honesty | MUST preserve provenance distinctions. | MUST | PC | 2.6.2 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Scope and Subordination |
-| ULCOMP-R-087 | ULCOMP-F-007 | Coverage honesty | MUST NOT imply broader workflow/governance/custody/compliance coverage than declared profile scope provides. | MUST NOT | PC | 2.6.2 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Scope and Subordination |
 | ULCOMP-R-088 | ULCOMP-F-008 | Trust inheritance | Profiles/bindings/sidecars MUST remain consistent with active Trust Profile. | MUST | CR | 3.0.1 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Trust honesty rule |
 | ULCOMP-R-089 | ULCOMP-F-008 | Trust inheritance | MUST distinguish provider-readable, reader-held, delegated compute when protected content involved. | MUST | CR | 3.0.1 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Baseline Profiles |
 | ULCOMP-R-090 | ULCOMP-F-008 | Trust inheritance | MUST NOT imply stronger confidentiality, weaker provider visibility, or weaker recovery than active Trust Profile supports. | MUST NOT | CR | 3.0.1 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Trust honesty rule |
@@ -263,15 +241,8 @@ The "legacy only" rows are concentrated in three profile areas — **offline aut
 | ULCOMP-R-132 | ULCOMP-F-012 | Conflict handling | Derived artifacts MUST NOT silently rewrite canonical facts to resolve conflicts. | MUST NOT | CR | 3.4 | [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) §Normative Focus |
 | ULCOMP-R-133 | ULCOMP-F-012 | Conflict handling | Conflict resolution SHOULD be via later canonical facts, explicit rejection, or profile-defined admission rules. | SHOULD | CR | 3.4 | _(legacy only — no current owner)_ |
 | ULCOMP-R-134 | ULCOMP-F-012 | Conflict handling | MUST NOT stall unrelated append scopes solely because conflict unresolved in another scope. | MUST NOT | CR | 3.4 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Canonization rules |
-| ULCOMP-R-135 | ULCOMP-F-013 | Identity & attestation | If identity/attestation facts represented canonically or in bindings, SHOULD represent provider-neutrally where feasible. | SHOULD | CR | 3.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-136 | ULCOMP-F-013 | Identity & attestation | Provider-specific issuers/adapters MAY be used operationally; SHOULD NOT define long-lived semantic meaning of attestation in constitutional model. | MAY / SHOULD NOT | CR | 3.5 | _(legacy only — no current owner)_ |
-| ULCOMP-R-137 | ULCOMP-F-013 | User signing | SHOULD support user-originated signatures. | SHOULD | CR | 3.5.1 | _(legacy only — no current owner)_ |
-| ULCOMP-R-138 | ULCOMP-F-013 | User signing | MAY support offline user-originated signing. | MAY | CR | 3.5.1 | _(legacy only — no current owner)_ |
-| ULCOMP-R-139 | ULCOMP-F-013 | User signing | If supported, evidence package MUST distinguish user signature/auth from later canonical append attestation. | MUST | CR | 3.5.1 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §7 |
-| ULCOMP-R-140 | ULCOMP-F-013 | Assurance & disclosure | MUST distinguish assurance from disclosure posture. | MUST | CR | 3.5.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-141 | ULCOMP-F-013 | Assurance & disclosure | MUST NOT treat higher assurance as requiring greater identity disclosure by default. | MUST NOT | CR | 3.5.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-142 | ULCOMP-F-013 | Assurance & disclosure | MAY support subject continuity without full legal identity disclosure. | MAY | CR | 3.5.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-143 | ULCOMP-F-013 | Assurance & disclosure | MUST preserve distinctions across trust profiles, exports, disclosures, sidecars. | MUST | CR | 3.5.2 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §7 |
+| ULCOMP-R-139 | ULCOMP-F-013 | User signing evidence | If user signing supported, evidence package MUST distinguish user signature/auth from later canonical append attestation. | MUST | CR | 3.5.1 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §7 |
+| ULCOMP-R-143 | ULCOMP-F-013 | Ledger evidence distinctions | MUST preserve assurance vs disclosure distinctions across trust profiles, exports, disclosures, sidecars (ledger-evidence portion — taxonomy owned upstream). | MUST | CR | 3.5.2 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §7 |
 | ULCOMP-R-144 | ULCOMP-F-014 | Protected payloads | Sensitive content SHOULD reside in protected payloads when protection required by Trust Profile or binding. | SHOULD | CR | 3.6 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Baseline Profiles |
 | ULCOMP-R-145 | ULCOMP-F-014 | Protected payloads | MUST define which data visible for canonical verification vs payload-protected. | MUST | CR | 3.6 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Metadata Budget Requirement |
 | ULCOMP-R-146 | ULCOMP-F-014 | Protected payloads | Canonical records with protected payloads MUST include or reference sufficient access material for authorized recipients per custody/binding. | MUST | CR | 3.6 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §4 |
@@ -283,14 +254,8 @@ The "legacy only" rows are concentrated in three profile areas — **offline aut
 | ULCOMP-R-152 | ULCOMP-F-015 | Storage | Proof/referenced state needed to recover/verify within export scope MUST be durably recoverable no later than that boundary. | MUST | CR | 3.7 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §4 |
 | ULCOMP-R-153 | ULCOMP-F-015 | Storage | Replica completion state MUST remain operational, not canonical truth. | MUST | CR | 3.7 | [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) §Normative Focus |
 | ULCOMP-R-154 | ULCOMP-F-015 | Snapshots | Snapshots MAY be used for performance; MUST be derived artifacts; MUST NOT become canonical truth. | MAY / MUST / MUST NOT | CR | 3.7 | [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) §Normative Focus |
-| ULCOMP-R-155 | ULCOMP-F-016 | Lifecycle | MAY define lifecycle facts for listed operations (retention, hold, archival, etc.). | MAY | CR | 3.8 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Family binding matrix |
-| ULCOMP-R-156 | ULCOMP-F-016 | Lifecycle | MAY support subset or none of lifecycle operations. | MAY | CR | 3.8 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Family binding matrix |
-| ULCOMP-R-157 | ULCOMP-F-016 | Lifecycle | If operation is part of canonical/compliance-relevant behavior, MUST represent as lifecycle fact. | MUST | CR | 3.8 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Family binding matrix |
-| ULCOMP-R-158 | ULCOMP-F-016 | Lifecycle | If fact affects compliance/retention/recoverability claims, MUST be canonical fact. | MUST | CR | 3.8 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Family binding matrix |
-| ULCOMP-R-159 | ULCOMP-F-016 | Erasure | If cryptographic erasure or key destruction used, MUST document irrecoverable content, who retains access, destruction evidence, remaining metadata. | MUST | CR | 3.8.1 | [`../trust/key-lifecycle-operating-model.md`](../trust/key-lifecycle-operating-model.md) §Recovery and destruction evidence requirements |
-| ULCOMP-R-160 | ULCOMP-F-016 | Erasure | If protected content destroyed/inaccessible per lifecycle rules, affected derived plaintext MUST be invalidated/purged/unusable per declared policy. | MUST | CR | 3.8.1 | [`../trust/key-lifecycle-operating-model.md`](../trust/key-lifecycle-operating-model.md) §Required Completeness Rule |
-| ULCOMP-R-161 | ULCOMP-F-016 | Sealing | MUST define whether sealed cases/records/scopes permit later lifecycle or governance facts. | MUST | CR | 3.8.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-162 | ULCOMP-F-016 | Sealing | MUST define whether retention or hold rules take precedence when both apply. | MUST | CR | 3.8.2 | _(legacy only — no current owner)_ |
+| ULCOMP-R-159 | ULCOMP-F-016 | Cryptographic erasure | If cryptographic erasure or key destruction used, MUST document irrecoverable content, who retains access, destruction evidence, remaining metadata. | MUST | CR | 3.8.1 | [`../trust/key-lifecycle-operating-model.md`](../trust/key-lifecycle-operating-model.md) §Recovery and destruction evidence requirements |
+| ULCOMP-R-160 | ULCOMP-F-016 | Cryptographic erasure | If protected content destroyed/inaccessible per lifecycle rules, affected derived plaintext MUST be invalidated/purged/unusable per declared policy. | MUST | CR | 3.8.1 | [`../trust/key-lifecycle-operating-model.md`](../trust/key-lifecycle-operating-model.md) §Required Completeness Rule |
 | ULCOMP-R-163 | ULCOMP-F-016 | Legal sufficiency | MUST NOT imply crypto alone guarantees admissibility or legal sufficiency in all jurisdictions. | MUST NOT | CR | 3.8.3 | [`trellis-core.md`](trellis-core.md) §13.4 |
 | ULCOMP-R-164 | ULCOMP-F-016 | Legal sufficiency | MAY claim stronger evidentiary posture only to extent supported by process, signatures, attestations, records practice, law. | MAY | CR | 3.8.3 | [`trellis-core.md`](trellis-core.md) §13.4 |
 | ULCOMP-R-165 | ULCOMP-F-017 | Privacy | MUST document what is protected from whom. | MUST | CR | 3.9 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Mandatory Profile Declarations |
@@ -309,23 +274,6 @@ The "legacy only" rows are concentrated in three profile areas — **offline aut
 | ULCOMP-R-178 | ULCOMP-F-019 | Example Profile C | Trust Profile MUST state whether plaintext visible to any provider-operated components during delegation. | MUST | BSC | 5.4 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Trust honesty rule |
 | ULCOMP-R-179 | ULCOMP-F-019 | Example Profile D | Recovery conditions, quorum thresholds, exceptional access MUST be declared; threshold participation MUST NOT be overstated. | MUST / MUST NOT | BSC | 5.5 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Mandatory Profile Declarations |
 | ULCOMP-R-180 | ULCOMP-F-019 | Example Profile E | Trust Profile MUST identify scope of organizational authority and exceptional-access controls; MUST distinguish provider-readable from organization-controlled where they differ. | MUST | BSC | 5.6 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Mandatory Profile Declarations |
-| ULCOMP-R-181 | ULCOMP-F-020 | Stable paths | If stable path semantics defined: SHOULD remain stable across non-material presentation changes; SHOULD use semantic positions; MUST distinguish structural path from display-order accidents; SHOULD define deprecation/migration; SHOULD support history without UI telemetry. | SHOULD / MUST | BSC | 6.2 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-182 | ULCOMP-F-020 | Item keys | If item-key semantics defined: SHOULD stable logical item across cycles; SHOULD distinguish changed vs new item when reliable; SHOULD define key lifecycle; MUST NOT rely on ephemeral rendering state as sole identity. | SHOULD / MUST NOT | BSC | 6.3 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-183 | ULCOMP-F-020 | Validation snapshots | If defined, SHOULD capture material outcomes, bind paths/keys, distinguish blocking/advisory/informational, record boundary/scope, permit later verification at material boundary. | SHOULD | BSC | 6.4 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-184 | ULCOMP-F-020 | Amendment cycles | If defined, SHOULD distinguish initiation/progress/submit/complete; define baseline; preserve linkage; distinguish amendment kinds; define abandoned visibility. | SHOULD | BSC | 6.5 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-185 | ULCOMP-F-020 | Migration outcomes | If defined, SHOULD distinguish listed outcome types; migration sidecar SHOULD define canonical vs derived vs export-visible outcomes. | SHOULD | BSC | 6.6 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-186 | ULCOMP-F-020 | Change sets | If defined, SHOULD use stable paths/keys, prefer material deltas, define attachments/amendments, distinguish derived vs authored, preserve provenance. | SHOULD | BSC | 6.7 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-187 | ULCOMP-F-020 | History moments | If moments defined, SHOULD be meaningful, reproducible from canonical/profile material, not dependent on raw UI telemetry. | SHOULD | BSC | 6.8 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Inbound Requirements |
-| ULCOMP-R-188 | ULCOMP-F-020 | Respondent export views | Respondent-facing export views MUST remain derived or disclosure-oriented; MUST NOT become canonical truth. | MUST / MUST NOT | BSC | 6.9 | [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) §Scope and Subordination |
-| ULCOMP-R-189 | ULCOMP-F-021 | Workflow mapping | If mappings defined, MUST distinguish operational non-canonical state, workflow events as canonical, governance/review as canonical, derived dashboards/queues/status. | MUST | BSC | 7.2 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Inbound Requirements |
-| ULCOMP-R-190 | ULCOMP-F-021 | Governance facts | If fact families defined, SHOULD define which canonically admissible vs operational. | SHOULD | BSC | 7.3 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Inbound Requirements |
-| ULCOMP-R-191 | ULCOMP-F-021 | Review semantics | If defined, SHOULD distinguish listed review stages; SHOULD define which outputs canonical vs derived workflow. | SHOULD | BSC | 7.4 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Inbound Requirements |
-| ULCOMP-R-192 | ULCOMP-F-021 | Approval & recovery | If defined, SHOULD distinguish timer ops, human actions, retries, recovery, compensating, exceptional handling. | SHOULD | BSC | 7.5 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Inbound Requirements |
-| ULCOMP-R-193 | ULCOMP-F-021 | Approval & recovery | Operational sequencing alone MUST NOT be mistaken for canonical order. | MUST NOT | BSC | 7.5 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Scope and Subordination |
-| ULCOMP-R-194 | ULCOMP-F-021 | Provenance family | If defined, SHOULD trace derived to canonical, distinguish workflow from truth, preserve provenance in export, support rebuild. | SHOULD | BSC | 7.6 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Inbound Requirements |
-| ULCOMP-R-195 | ULCOMP-F-021 | Conflict families | If defined, SHOULD distinguish unresolved/rejected/resolution/superseding/gating; MUST remain subordinate to no silent rewrite of canonical facts by derived systems. | SHOULD / MUST | BSC | 7.7 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Inbound Requirements |
-| ULCOMP-R-196 | ULCOMP-F-021 | Workflow export views | MUST preserve provenance distinctions; MUST NOT imply broader coverage than declared export scope. | MUST / MUST NOT | BSC | 7.8 | [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md) §Scope and Subordination |
-| ULCOMP-R-197 | ULCOMP-F-022 | Registries | Implementations SHOULD define versioned registries for at least listed identifier/kind categories. | SHOULD | CR | App. A | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Schema/version compatibility policy |
 | ULCOMP-R-198 | ULCOMP-F-023 | Rejection | MUST define rejection behavior for at least listed failure categories. | MUST | CR | App. B | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Canonization rejection codes |
 | ULCOMP-R-199 | ULCOMP-F-023 | Rejection | Rejected submissions MUST NOT be treated as canonically appended. | MUST NOT | CR | App. B | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Canonization rejection codes |
 | ULCOMP-R-200 | ULCOMP-F-023 | Rejection | If duplicates accepted as idempotent no-op or ref to existing record, MUST define that behavior explicitly. | MUST | CR | App. B | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Canonization rejection codes |
@@ -368,7 +316,7 @@ These themes group `ULCOMP-R` rows by the operational-safety and trust-clarity p
 | Tiered verification posture vs high-stakes workflows | **ULCOMP-R-222** |
 | Projection integrity (sampling or checkpoint equivalence) | **ULCOMP-R-223** |
 | Rejection and duplicate handling | ULCOMP-R-198–200 |
-| Erasure + derived plaintext invalidation | ULCOMP-R-159–160, **ULCOMP-R-218** |
+| Cryptographic erasure + derived plaintext invalidation | ULCOMP-R-159–160, **ULCOMP-R-218** |
 | Staff projections: watermark + stale + mandatory fields | **ULCOMP-R-215–217** |
 | Rebuild equivalence + projection conformance tests | **ULCOMP-R-219–220** |
 
@@ -382,23 +330,25 @@ These themes group `ULCOMP-R` rows by the operational-safety and trust-clarity p
 
 1. **Legacy §4.2** lists recognized sidecar families descriptively; no separate MUST beyond sidecar discipline (ULCOMP-R-173–174). Owning spec for sidecar discipline is [`shared-ledger-binding.md`](shared-ledger-binding.md) §Substrate binding (no second canonical truth) and [`trellis-core.md`](trellis-core.md) §11 (Companion Specifications).
 
-2. **Legacy §5.7** (example comparison guidance) and **Appendix D** threat list are non-normative; only the testable **SHOULD** in Appendix D (ULCOMP-R-209) and the testable **SHOULD** in Appendix F (ULCOMP-R-210–212) are carried. **Appendix E** (Privacy Considerations Detail) is **deliberately omitted from this matrix as a normative source**: its five enumerated considerations (visible fact categories, timing patterns, access-pattern observability, disclosure linkability, user-held record reuse correlation risks) are subsumed by the metadata-budget obligation (`ULCOMP-R-221`, owned by [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Metadata Budget Requirement), which already requires every declared profile to document timing/access-pattern leakage, linkage stability, observer classes, and delegated-compute effects per fact family. Re-extracting Appendix E would create duplicate, weaker `SHOULD` rows for obligations that the metadata budget carries as `MUST`.
+2. **Legacy §5.7** (example comparison guidance) and **Appendix D** threat list are non-normative; only the testable **SHOULD** in Appendix D (ULCOMP-R-209) and the testable **SHOULD** in Appendix F (ULCOMP-R-210–212) are carried. **Appendix E** (Privacy Considerations Detail) is **deliberately omitted from this matrix as a normative source**: its five enumerated considerations are subsumed by the metadata-budget obligation (`ULCOMP-R-221`, owned by [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Metadata Budget Requirement).
 
-3. **Legacy §3.5** opening sentence (“Authentication mechanisms are not themselves canonical facts unless…”) is definitional; requirements begin at ULCOMP-R-135. Most §3.5 rows remain `(legacy only — no current owner)` pending a dedicated identity/attestation companion.
+3. **Plan 3 upstream removals (2026-04-15).** Rows whose normative content moved upstream were removed from this matrix — they are not legacy-only and they are not restatable here. The retired ID ranges and their upstream destinations are listed in §1 and indexed in `cross-reference-map.md`:
 
-4. **Legacy §6.1** and **§7.1** state purpose; binding obligations appear in conditional “If … defined” rows (ULCOMP-R-181–188 and ULCOMP-R-189–196 respectively). These are owned by the stub specs [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md) and [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md). The stubs exist to give rows a stable owning-spec reference; their `Status of This Document` clearly notes the legacy draft remains authoritative until normative prose is extracted.
+   - `ULCOMP-R-067`–`075`, `ULCOMP-R-076`–`087`, `ULCOMP-R-181`–`188` → **Formspec Respondent Ledger** (user-held reuse, respondent history, forms sidecar).
+   - `ULCOMP-R-135`–`138`, `ULCOMP-R-140`–`142` → **WOS Assurance** (identity/signing mechanics, assurance-vs-disclosure taxonomy; `140`–`142` additionally reference Formspec Respondent Ledger for subject continuity).
+   - `ULCOMP-R-155`–`158`, `ULCOMP-R-161`–`162`, `ULCOMP-R-189`–`196`, `ULCOMP-R-197` → **WOS Governance** (generic lifecycle, sealing/precedence, workflow/governance sidecar, registry conventions).
 
-5. Companion **PC** rows (legacy §2.x) overlap thematically with core [`unified-ledger-requirements-matrix.md`](unified-ledger-requirements-matrix.md) **ULCF-022–027**; both ID spaces are kept distinct so that core and companion obligations can be cited independently.
+   The Trellis companion family retains only the **ledger-evidence** and **append-service** obligations from the corresponding legacy sections. For example, `ULCOMP-R-139` (user-signing evidence package distinct from canonical append attestation) and `ULCOMP-R-143` (assurance/disclosure distinctions preserved across exports/disclosures/sidecars) remain here because they are claims the export verifier must resolve; the underlying assurance *taxonomy* belongs to WOS Assurance.
 
-6. **ULCOMP-R-181–187** each summarize multiple conditional **SHOULD**/**MUST** bullets under legacy §6.2–6.8 (“If … defined”); split further if you need one ID per bullet for tooling.
+4. **Legacy §3.5** opening sentence (“Authentication mechanisms are not themselves canonical facts unless…”) is definitional; the identity-mechanics rows that used to follow (`ULCOMP-R-135`–`138`) were removed in Plan 3 as WOS Assurance content. Only the ledger-evidence obligations (`ULCOMP-R-139`, `ULCOMP-R-143`) remain, owned by [`../export/export-verification-package.md`](../export/export-verification-package.md).
 
-7. **ULCOMP-R-215–220** track [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md); align IDs if that draft gains its own requirement table.
+5. Companion **PC** rows (legacy §2.1–§2.4) overlap thematically with core [`unified-ledger-requirements-matrix.md`](unified-ledger-requirements-matrix.md) **ULCF-022–025**; both ID spaces are kept distinct so that core and companion obligations can be cited independently.
 
-8. **ULCOMP-R-221** tracks [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Metadata Budget Requirement.
+6. **ULCOMP-R-215–220** track [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md); align IDs if that draft gains its own requirement table.
 
-9. **ULCOMP-R-222** tracks [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Verification posture declaration; **ULCOMP-R-223** tracks [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) §Projection integrity policy.
+7. **ULCOMP-R-221** tracks [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Metadata Budget Requirement. **ULCOMP-R-222** tracks §Verification posture declaration; **ULCOMP-R-223** tracks [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) §Projection integrity policy.
 
-10. **Legacy-only rows remain authoritative in `DRAFTS/unified_ledger_companion.md`.** When a row marked `(legacy only — no current owner)` is later promoted into a current companion spec, update its **Owning Spec** column in this matrix (do not change the `ULCOMP-R-NNN` ID) and add a backreference in the receiving spec section of the form `(formerly ULCOMP-R-NNN; see DRAFTS/unified_ledger_companion.md §X.Y)`.
+8. **Legacy-only rows remain authoritative in `DRAFTS/unified_ledger_companion.md`.** When a row marked `(legacy only — no current owner)` is later promoted into a current companion spec, update its **Owning Spec** column in this matrix (do not change the `ULCOMP-R-NNN` ID) and add a backreference in the receiving spec section of the form `(formerly ULCOMP-R-NNN; see DRAFTS/unified_ledger_companion.md §X.Y)`.
 
 ---
 
@@ -413,7 +363,6 @@ These themes group `ULCOMP-R` rows by the operational-safety and trust-clarity p
 - **Projection and Runtime Discipline:** [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md)
 - **Monitoring and Witnessing:** [`../operations/monitoring-witnessing.md`](../operations/monitoring-witnessing.md)
 - **Assurance Traceability:** [`../assurance/assurance-traceability.md`](../assurance/assurance-traceability.md)
-- **Forms and Respondent-History Sidecar (stub):** [`../forms/forms-respondent-history.md`](../forms/forms-respondent-history.md)
-- **Workflow, Governance, and Provenance Sidecar (stub):** [`../workflow/workflow-governance-provenance.md`](../workflow/workflow-governance-provenance.md)
+- **Cross-reference map (Plan 3 removed-row index):** `cross-reference-map.md`
 - **Core matrix (distinct ID space):** [`unified-ledger-requirements-matrix.md`](unified-ledger-requirements-matrix.md)
 - **Legacy companion draft:** [`../../DRAFTS/unified_ledger_companion.md`](../../DRAFTS/unified_ledger_companion.md)
