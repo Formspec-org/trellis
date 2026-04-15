@@ -307,13 +307,13 @@ Cryptographic-erasure events recorded as canonical lifecycle facts (see `key-lif
 
 **Requirement class: Companion requirement**
 
-The generic separation of lifecycle state from case state is owned by [WOS Kernel §12.1 Lifecycle vs. Case State Separation]. This section adds the ledger-specific canonical-admission rule that governs when a workflow event crosses into canonical truth in a Trellis deployment. Workflow runtime is a derived processor (Core S2.2) and is governed by PRD-01.
+The generic separation of lifecycle state from case state is owned by [WOS Kernel §12(1) Lifecycle vs. Case State Separation]. This section adds the ledger-specific canonical-admission rule that governs when a workflow event crosses into canonical truth in a Trellis deployment. Workflow runtime is a derived processor (Core S2.2) and is governed by PRD-01.
 
 ### 11.1 PRD-09 — Canonical-Admission Distinctions
 
 **PRD-09 (MUST).** A workflow-family deployment that maps operational workflow state to canonical facts MUST distinguish, in its configuration and in any projections it produces:
 
-1. **operational state that remains non-canonical** — in-flight task assignments, transient queue memberships, scheduler ticks, ephemeral session data (governed by [WOS Kernel §12.1]),
+1. **operational state that remains non-canonical** — in-flight task assignments, transient queue memberships, scheduler ticks, ephemeral session data (governed by [WOS Kernel §12(1)]),
 2. **workflow events that become canonical facts** — intake receipts, review-open and review-close events, adjudicative decisions, governance and review outcomes — but only where the active binding declares them canonically admissible,
 3. **derived dashboards, queues, and status views** — which remain derived artifacts under PRD-01 and are subject to PRD-02 through PRD-04.
 
@@ -419,7 +419,7 @@ A workflow or orchestration engine contributes to canonical truth only by submit
 The following topics are owned upstream and are excluded from this companion:
 
 - Generic separation of audit, governance, execution, and case state — see [WOS Kernel §12 Separation Principles].
-- Lifecycle-vs-case-state separation as it applies to workflow runtime — see [WOS Kernel §12.1].
+- Lifecycle-vs-case-state separation as it applies to workflow runtime — see [WOS Kernel §12(1)].
 - Workflow execution and orchestration semantics, governance-time behavior, and orchestration policy — see [WOS Governance: Workflow Governance].
 
 This companion's Runtime Boundary (S15) restricts how workflow runtime state relates to canonical truth in a ledger deployment. It does not prescribe workflow execution semantics, which remain owned by [WOS Governance].
@@ -455,7 +455,7 @@ This companion relates to the following upstream and Trellis documents. Citation
 **Upstream:**
 
 - **[WOS Kernel §12 Separation Principles]** — generic separation of audit, governance, execution, and case state. PRD-01 (S4.1) is the ledger-deployment instantiation of this principle.
-- **[WOS Kernel §12.1 Lifecycle vs. Case State Separation]** — generic lifecycle-vs-case-state framing referenced by S11 (PRD-09).
+- **[WOS Kernel §12(1) Lifecycle vs. Case State Separation]** — generic lifecycle-vs-case-state framing referenced by S11 (PRD-09).
 - **[WOS Governance: Workflow Governance]** — workflow execution and orchestration semantics referenced by S15 and S16.
 
 **Trellis:**

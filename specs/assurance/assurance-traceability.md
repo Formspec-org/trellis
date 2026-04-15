@@ -133,9 +133,9 @@ Map each Trellis normative invariant to concrete assurance methods so that assur
 
 "Every Trellis normative invariant" in this companion refers to the following set:
 
-1. **Trellis Core invariants** — the six canonical-truth invariants enumerated at `trellis-core.md §7` (Append-only Canonical History; No Second Canonical Truth; One Canonical Order per Governed Scope; One Canonical Event Hash Construction; Verification Independence; Append Idempotency). Mapped in Appendix A as `TRELLIS-INV-1` through `TRELLIS-INV-6`.
+1. **Trellis Core invariants** — the six canonical-truth invariants enumerated at `trellis-core.md §6.2` (Append-only Canonical History; No Second Canonical Truth; One Canonical Order per Governed Scope; One Canonical Event Hash Construction; Verification Independence; Append Idempotency). Mapped in Appendix A as `TRELLIS-INV-1` through `TRELLIS-INV-6`.
 2. **Trellis Projection invariants** — the projection-layer invariants at Projection §5 (Derived Artifact Is Not Authoritative) and Projection §10 / §14 (evaluator-input traceability, rebuild behavior, fail-closed on stale state, canonical-semantics precedence, purge-cascade completeness). Mapped as `TRELLIS-PRD-01`, `TRELLIS-PRD-05`–`TRELLIS-PRD-08`, and `TRELLIS-PRD-13`.
-3. **Trellis Monitoring invariants** — the witness-subordination invariant at Monitoring §S3 and the equivocation evidence-format invariant at Monitoring §S9. Mapped as `TRELLIS-MONITOR-1` and `TRELLIS-MONITOR-2`.
+3. **Trellis Monitoring invariants** — the witness-subordination invariant at Monitoring §3 and the equivocation evidence-format invariant at Monitoring §9. Mapped as `TRELLIS-MONITOR-1` and `TRELLIS-MONITOR-2`.
 
 Additional invariants added by future Trellis companions MUST be registered in this list before assurance methods are required for them. Invariants owned by upstream specs (WOS Assurance, Formspec Respondent Ledger) are covered by those specs' own conformance matrices and are not duplicated here.
 
@@ -207,7 +207,7 @@ Reviews evidence artifacts, remediation linkage, and retention compliance. MUST 
 
 ### 8.3 Upstream Identity and Assurance Roles
 
-Identity/assurance-related conformance roles are inherited from [WOS Assurance §8 Conformance Roles]. Trellis deployments that admit identity, attestation, or assurance-upgrade facts canonically MUST satisfy the applicable WOS Assurance roles; this companion does not restate them.
+Identity/assurance-related conformance obligations are inherited from [WOS Assurance §§2–6]. Trellis deployments that admit identity, attestation, or assurance-upgrade facts canonically MUST satisfy the applicable WOS Assurance obligations; this companion does not restate them.
 
 ---
 
@@ -254,19 +254,19 @@ Implementations SHOULD maintain this matrix mapping Trellis normative invariants
 
 | Invariant ID | Source § | Summary | Verification Method |
 |---|---|---|---|
-| `TRELLIS-INV-1` | trellis-core.md §7 | Append-only Canonical History | property test / model check |
-| `TRELLIS-INV-2` | trellis-core.md §7 | No Second Canonical Truth | property test |
-| `TRELLIS-INV-3` | trellis-core.md §7 | One Canonical Order per Governed Scope | property test |
-| `TRELLIS-INV-4` | trellis-core.md §7 | One Canonical Event Hash Construction | fixture |
-| `TRELLIS-INV-5` | trellis-core.md §7 | Verification Independence | fixture |
-| `TRELLIS-INV-6` | trellis-core.md §7 | Append Idempotency | property test |
+| `TRELLIS-INV-1` | trellis-core.md §6.2 | Append-only Canonical History | property test / model check |
+| `TRELLIS-INV-2` | trellis-core.md §6.2 | No Second Canonical Truth | property test |
+| `TRELLIS-INV-3` | trellis-core.md §6.2 | One Canonical Order per Governed Scope | property test |
+| `TRELLIS-INV-4` | trellis-core.md §6.2 | One Canonical Event Hash Construction | fixture |
+| `TRELLIS-INV-5` | trellis-core.md §6.2 | Verification Independence | fixture |
+| `TRELLIS-INV-6` | trellis-core.md §6.2 | Append Idempotency | property test |
 | `TRELLIS-PRD-01` | projection §5 | Derived Artifact Is Not Authoritative | property test |
 | `TRELLIS-PRD-05` | projection §10 | Evaluator Inputs Traceable to Canonical Facts | fixture |
 | `TRELLIS-PRD-06` | projection §10 | Evaluator Rebuild Behavior Defined | fixture |
 | `TRELLIS-PRD-07` | projection §10 | Stale Evaluator State Fail-Closed | fixture |
 | `TRELLIS-PRD-08` | projection §10 | Canonical Semantics Prevail Over Evaluator State | fixture |
 | `TRELLIS-PRD-13` | projection §14 | Purge-Cascade Completeness | fixture |
-| `TRELLIS-MONITOR-1` | monitoring §S3 | Witness Subordination to Canonical Correctness | fixture |
-| `TRELLIS-MONITOR-2` | monitoring §S9 | Equivocation Evidence Format Validity | fixture |
+| `TRELLIS-MONITOR-1` | monitoring §3 | Witness Subordination to Canonical Correctness | fixture |
+| `TRELLIS-MONITOR-2` | monitoring §9 | Equivocation Evidence Format Validity | fixture |
 
-Note: `trellis-core.md §7` actually numbers the six core invariants as `Invariant A` through `Invariant F` (per the baseline rewrite). The invariant IDs above use a stable convention; implementations map these IDs to the current letter labels and MUST update the matrix when the trellis-core numbering changes.
+Note: `trellis-core.md §6.2` numbers the six canonical-truth invariants 1–6 (Append-only Canonical History, No Second Canonical Truth, One Canonical Order per Governed Scope, One Canonical Event Hash Construction, Verification Independence, Append Idempotency); `§6.3` separately names object-distinction invariants `A`–`F`. The `TRELLIS-INV-1` through `TRELLIS-INV-6` IDs above use a stable convention aligned with `§6.2`; implementations MUST update the matrix when the trellis-core numbering changes.

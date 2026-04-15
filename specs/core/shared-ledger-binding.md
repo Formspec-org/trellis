@@ -239,9 +239,9 @@ This binding MUST NOT reinterpret Formspec or WOS semantic authority (Core §9).
 
 **Requirement class: Companion requirement.**
 
-When binding behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, calculation, or version pinning — processing MUST be delegated to a Formspec-conformant processor per [Formspec Core §6 Version Pinning (VP-01, VP-02)] and [Formspec Core §1.4 Scope]. This binding defines admission, order, attestation, and verification shape for bound records; it does not specify bind, FEL, or validation rules.
+When binding behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, calculation, or version pinning — processing MUST be delegated to a Formspec-conformant processor per [Formspec Core §6 Version Pinning (VP-01, VP-02)] and [Formspec Core §1.3 Scope]. This binding defines admission, order, attestation, and verification shape for bound records; it does not specify bind, FEL, or validation rules.
 
-Trellis-bound Formspec processors MUST implement at least Formspec Core conformance per [Formspec Core §2 Conformance]. Whether Theme or Component tiers are required depends on the Trellis conformance class and the bound family's declared requirements (Core §1.2).
+Trellis-bound Formspec processors MUST implement at least Formspec Core conformance per [Formspec Core §1.4 Conformance]. Whether Theme or Component tiers are required depends on the Trellis conformance class and the bound family's declared requirements (Core §1.2).
 
 When binding behavior depends on WOS kernel or runtime semantics, processing MUST be delegated to a WOS-conformant processor per [WOS Kernel §2 Conformance Classes] and [WOS Kernel §2.1].
 
@@ -543,7 +543,7 @@ Breaking-vs-additive classification applied to `schema_ref` follows [Formspec Ch
 
 1. Ingest a Formspec Response or Definition reference submitted as a `formspec.authored` fact.
 2. Validate the reference against the pinned Definition version per [Formspec Core §6 Version Pinning VP-01] (Response is always validated against its pinned Definition version, never against a newer version). If the reference cites a Definition version not recognized by the Formspec-conformant processor, reject with `invalid_schema_ref`.
-3. Delegate Definition and Response validation to a Formspec-conformant processor per [Formspec Core §1.4 Scope] and [Formspec Core §6 VP-01]. If validation fails, reject with `invalid_schema_ref`.
+3. Delegate Definition and Response validation to a Formspec-conformant processor per [Formspec Core §1.3 Scope] and [Formspec Core §6 VP-01]. If validation fails, reject with `invalid_schema_ref`.
 4. Map the validated reference to a canonical record envelope per S5 and S6.
 5. Apply canonization rules (S10.1) and, if admissible, append to canonical order and issue an append attestation (S7).
 
@@ -725,7 +725,7 @@ This binding is subordinate to and cites the following upstream specifications. 
 - **WOS Kernel** — `wos-spec/specs/kernel/spec.md`. Authoritative for workflow lifecycle, actor model, case state, and conformance classes. This binding cites [WOS Kernel §2 Conformance Classes] for workflow-fact delegation (S4.3), WOS Kernel S3–S8 for `wos.governance` authority (S5, S13.2), and WOS Kernel §2.1 for processor conformance scope.
 - **WOS Assurance** — `wos-spec/specs/assurance/assurance.md`. Authoritative for custody-mode semantics and legal-sufficiency disclosure obligations. This binding cites [WOS Assurance §5.1] for custody-mode semantics (S9.3) and [WOS Assurance §6] for legal-sufficiency disclosure obligations (S17.3).
 - **WOS Governance** — `wos-spec/specs/governance/workflow-governance.md`. Authoritative for workflow governance structural requirements. This binding cites it for `governance_scope` and `actor_ref` structural conformance (S13.2).
-- **Formspec Core** — `specs/core/spec.md`. Authoritative for Definition, Response, FEL, validation, processing model, and version pinning. This binding cites [Formspec Core §1.4 Scope] and [Formspec Core §6 Version Pinning VP-01, VP-02] for response-fact delegation (S4.3, S13.1) and [Formspec Core §2 Conformance] for processor conformance (S4.3).
+- **Formspec Core** — `specs/core/spec.md`. Authoritative for Definition, Response, FEL, validation, processing model, and version pinning. This binding cites [Formspec Core §1.3 Scope] and [Formspec Core §6 Version Pinning VP-01, VP-02] for response-fact delegation (S4.3, S13.1) and [Formspec Core §1.4 Conformance] for processor conformance (S4.3).
 - **Formspec Changelog** — `specs/registry/changelog-spec.md`. Authoritative for breaking-vs-additive classification. This binding cites [Formspec Changelog §4 Impact Classification] for `schema_ref` version compatibility (S11).
 - **Formspec Respondent Ledger** — `specs/audit/respondent-ledger-spec.md`. Authoritative for respondent-facing audit change tracking when Formspec-authored facts carry draft, reopen, or amendment history. This binding does not redefine the respondent-ledger contract; where a `formspec.authored` admission carries respondent-ledger material, that material remains authoritative in the source repository per Core §9.
 
