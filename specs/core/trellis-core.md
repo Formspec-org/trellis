@@ -573,8 +573,8 @@ Concrete export-packaging and disclosure-manifest normative requirements are spe
 
 **Requirement class:** Constitutional semantic
 
-- **Formspec** is authoritative for Definition structure and validation (Core S4), Response semantics (Core S5), FEL evaluation (Core S3), version pinning (Core S6.4, VP-01), and the four-phase processing model (Core S7). Trellis MUST NOT restate or reinterpret these semantics; it cites them by section number.
-- **WOS** is authoritative for kernel lifecycle topology (Kernel S3), case state model (Kernel S4), provenance Facts tier (Kernel S6), governance enforcement (Kernel S8), and runtime behavioral contract (Runtime S4–S12). Trellis MUST NOT restate WOS evaluation or governance semantics; it cites them by section number.
+- **Formspec** is authoritative for Definition structure ([Formspec Core §4]), validation ([Formspec Core §5]), Response semantics and the four-phase processing model ([Formspec Core §2 Conceptual Model], [§2.4 Processing Model]), FEL evaluation ([Formspec Core §3]), and version pinning ([Formspec Core §6 Versioning & Evolution, Pinning Rule VP-01]). Trellis MUST NOT restate or reinterpret these semantics; it cites them by section number.
+- **WOS** is authoritative for actor model ([WOS Kernel §3]), lifecycle topology ([WOS Kernel §4]), case state model ([WOS Kernel §5]), provenance Facts tier ([WOS Kernel §8]), governance enforcement ([WOS Workflow Governance companion]), and runtime behavioral contract ([WOS Runtime companion §4–§12]). Trellis MUST NOT restate WOS evaluation or governance semantics; it cites them by section number.
 - **Trellis Core** is authoritative for canonical ledger semantics (§§5–7), append/attestation semantics (§7.4–§7.5), canonical hash construction scope (§8), verification boundaries (§9), and cross-repository authority (this section).
 
 This specification MUST NOT be interpreted to redefine Formspec or WOS semantic authority. When Trellis normative text depends on Formspec or WOS behavior, it MUST cite the relevant specification section rather than restating the behavior.
