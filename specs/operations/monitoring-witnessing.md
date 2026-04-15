@@ -271,6 +271,10 @@ A relying party consuming a witness attestation MUST verify:
 
 A relying party MUST NOT draw assurance beyond the attested property class. In particular, an attestation attesting only to observation of an append-head does not attest to append-growth consistency, and vice versa.
 
+### 7.6 Assurance-Level Claims in Witness Attestations
+
+Where a witness attestation carries, or is consumed as input to, an assurance-level claim (for example, a profile that declares quorum-witnessed checkpoints as a precondition for a given assurance posture), the claim's taxonomy and semantics are governed by the Witnessed Observation System assurance taxonomy ([WOS Assurance §2]). This companion does not redefine assurance levels; it defines only the observational material (checkpoint, consistency, inclusion, anchor) from which an assurance-level claim may be composed. A relying party consuming an assurance-level claim derived from witness attestations MUST evaluate the claim under [WOS Assurance §2], not under this companion alone.
+
 ---
 
 ## 8. External Anchoring Semantics
@@ -433,7 +437,7 @@ A witness attestation that omits any of the fields required by S7.4 is not a con
 
 **Requirement class: Profile or binding constraint.**
 
-Profiles or bindings requiring anti-equivocation guarantees MUST define a minimum independent-witness count sufficient for their threat model. "Independent" means administratively separate from the Canonical Append Service and from other witnesses in the set. A profile requiring anti-equivocation guarantees MUST NOT rely on a single witness and MUST NOT treat multiple witnesses sharing a common administrative scope as independent for the purposes of the minimum count.
+Profiles or bindings requiring anti-equivocation guarantees MUST define a minimum independent-witness count sufficient for their threat model. "Independent" means administratively separate from the Canonical Append Service and from other witnesses in the set. A profile requiring anti-equivocation guarantees MUST NOT rely on a single witness and MUST NOT treat multiple witnesses sharing a common administrative scope as independent for the purposes of the minimum count. Where minimum independent-witness counts are set to meet a declared assurance posture, the posture itself is governed by [WOS Assurance §2]; this companion defines only the structural count, not the assurance-level thresholds the count is tuned to satisfy.
 
 ### 13.5 Relying Party Verification Obligations
 
@@ -489,6 +493,11 @@ This companion is intended to be read alongside:
 - **Shared Ledger Binding** ([`../core/shared-ledger-binding.md`](../core/shared-ledger-binding.md)) — concrete proof model (inclusion and consistency proofs, append-head binding) invoked by S6, S7, and S8 of this companion.
 - **Export Verification Package** ([`../export/export-verification-package.md`](../export/export-verification-package.md)) — consistency proof and append-head binding material carried in export packages for independent verification.
 - **Assurance Traceability** ([`../assurance/assurance-traceability.md`](../assurance/assurance-traceability.md)) — how monitor, witness, and anchor material contributes to assurance claims traceable across canonical records, exports, and disclosure artifacts.
+
+Upstream normative references:
+
+- **[WOS Kernel]** — upstream substrate defining observer, custodian, and witness roles at the kernel layer. Trellis is a ledger-substrate specialization of the WOS substrate; monitor, witness, and anchor sub-roles in this companion are ledger-level specializations layered over the kernel's substrate-generic observer and custodian semantics. See `wos-spec/specs/kernel/spec.md`.
+- **[WOS Assurance §2]** — upstream assurance-level taxonomy. Assurance-level claims carried by or composed from witness attestations (S7.6) and independent-witness counts tuned to assurance thresholds (S13.4) are governed by this upstream taxonomy. See `wos-spec/specs/assurance/assurance.md` §2.
 
 ---
 
