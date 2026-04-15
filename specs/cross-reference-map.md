@@ -1,10 +1,24 @@
-# Task 11 — Removed ULCOMP-R rows
+# Trellis Cross-Reference Map
 
-Working file consumed by Task 14 (cross-reference-map). Delete after Task 14 completes.
+**Status:** Living document. Updated when Trellis specs adopt or release content to/from sibling specs.
 
-Removed from `unified-ledger-companion-requirements-matrix.md` in Plan 3 (2026-04-15). These IDs are permanently retired per §1 "These IDs are stable"; removed IDs are not reused.
+## Purpose
 
-| ULCOMP-R-ID | Concept | Upstream home |
+This map records the upstream home for every concept removed from Trellis specs when the three-spec dependency direction (Formspec ← WOS ← Trellis) was formalized in Plan 3 (dated 2026-04-15). It is an implementation aid, not normative content.
+
+## Removed ULCR rows (from `unified-ledger-requirements-matrix.md`)
+
+| ULCR ID | Concept | New home |
+|---|---|---|
+| ULCR-063 | Disclosure posture vs assurance level taxonomy (MUST distinguish; MUST NOT require identity disclosure for higher assurance; MAY support subject continuity) | [WOS Assurance §2 assurance taxonomy], [WOS Assurance §4 Invariant 6], [WOS Assurance §3 subject continuity], [Formspec Respondent Ledger §6.6.1 assuranceLevel], [Formspec Respondent Ledger §6.6A Subject Continuity] |
+| ULCR-080 | User-Held Record Reuse Profile (reusable prior records, binding reused content into canonical truth) | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCR-081 | Respondent History Profile (respondent-originated/visible history, timelines as derived artifacts) | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCR-091 | Cryptographic lifecycle facts — RESCOPED: narrowed to ledger-specific cryptographic operations (key destruction, export issuance). Generic lifecycle operations (retention, legal hold, archival, sealing, schema upgrade) delegated upstream. | [WOS Governance §2.9 Schema Upgrade], [WOS Governance §7.15 Legal Hold] |
+| ULCR-112 | Legacy Invariant 6 — Disclosure posture and assurance posture MUST remain distinct and MUST NOT be conflated | [WOS Assurance §4 Invariant 6] |
+
+## Removed ULCOMP-R rows (from `unified-ledger-companion-requirements-matrix.md`)
+
+| ULCOMP-R ID | Concept | New home |
 |---|---|---|
 | ULCOMP-R-067 | User-held reuse — MUST support reuse/reference of prior user-held records | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-068 | User-held reuse — MUST bind exactly what was reused when entering canonical workflow | [Formspec Respondent Ledger §6.6A, §6.7] |
@@ -57,3 +71,27 @@ Removed from `unified-ledger-companion-requirements-matrix.md` in Plan 3 (2026-0
 | ULCOMP-R-195 | Workflow sidecar — conflict family distinctions | [WOS Governance §7] |
 | ULCOMP-R-196 | Workflow sidecar — export views preserve provenance/scope honesty | [WOS Governance §7] |
 | ULCOMP-R-197 | Appendix A — versioned registries for identifier/kind categories | [WOS Governance §2 registry conventions] |
+
+## Concept-to-home map (summary)
+
+| Concept | Upstream home |
+|---|---|
+| L1–L4 assurance-level taxonomy | [WOS Assurance §2] and [Formspec Respondent Ledger §6.6.1] |
+| Subject continuity primitive | [WOS Assurance §3] and [Formspec Respondent Ledger §6.6A] |
+| Invariant 6 (Disclosure Posture ≠ Assurance Level) | [WOS Assurance §4] |
+| Provider-neutral attestation | [WOS Assurance §5] |
+| Legal-sufficiency disclaimer | [WOS Assurance §6] and [Formspec Respondent Ledger §2.4] |
+| Authored signature semantics | [Formspec Respondent Ledger §6.8] |
+| Disclosure posture enumeration (anonymous/pseudonymous/identified/public) | [Formspec Respondent Ledger §6.6 `privacyTier`] |
+| Trust Profile seam | [WOS Kernel §10.5 `custodyHook`] — delegates object definition to [`trellis/specs/trust/trust-profiles.md`] |
+| Generic lifecycle ops (retention, hold, archival, sealing, schema-upgrade) | [WOS Governance §2.9, §7.15] |
+| Schema upgrade as lifecycle operation | [WOS Governance §2.9] |
+| Legal hold as distinct hold type | [WOS Governance §7.15] |
+| Quorum-based delegation (N-of-M authorization) | [WOS Governance §4.9] |
+| Respondent history profile | [Formspec Respondent Ledger §6.6A, §6.7] |
+| User-held record reuse | [Formspec Respondent Ledger §6.6A, §6.7] |
+| Version-pinned Response validation | [Formspec Core §6 VP-01, VP-02] |
+
+## Using this map
+
+When implementing against Trellis specs, encounters with concepts in the Concept-to-home table indicate the normative source. Trellis spec prose includes the explicit cross-reference; this map is the alphabetical index.
