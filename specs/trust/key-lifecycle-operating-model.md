@@ -33,7 +33,7 @@ JSON syntax and data types are as defined in [RFC 8259].
 
 ## Abstract
 
-The Key Lifecycle Operating Model defines key lifecycle as first-class platform behavior — not implementation detail. It specifies key classes, lifecycle states and transitions, rotation and versioning rules, grace periods, recovery, destruction and crypto-shredding semantics, threshold custody operational requirements, the seven canonical lifecycle operations (retention, legal hold, archival, key destruction, sealing, export issuance, schema upgrade), evidence-artifact requirements for destruction and erasure, the legal-sufficiency disclaimer for cryptographic controls, and historical verification across key evolution. This companion adds key-management semantics to the Trellis trust layer defined in Trust Profiles (S5–S11). It does not define Formspec or WOS semantics.
+The Key Lifecycle Operating Model defines cryptographic key lifecycle as first-class platform behavior — not implementation detail. It specifies key classes, lifecycle states and transitions, rotation and versioning rules, grace periods, key-destruction and crypto-shredding semantics, evidence-artifact requirements for destruction and erasure, the cryptographic proof-of-quorum format used when threshold custody is declared, the cryptographic recovery-evidence format, export-issuance facts, and historical verification across algorithm evolution. Generic lifecycle operations (retention, legal hold, archival, sealing, schema upgrade) and generic recovery-authority declaration are defined upstream — see [WOS Governance §2.9, §4.9, §7.15, §12], [WOS Assurance §6], and [Trellis Companion — Trust Profiles §3]. This companion adds key-management semantics to the Trellis trust layer defined in Trust Profiles (S5–S11). It does not define Formspec or WOS semantics.
 
 ## Table of Contents
 
@@ -148,21 +148,15 @@ This section defines normative requirements for the seven canonical lifecycle op
 
 ### 5.1 Retention
 
-**Requirement class:** Companion requirement
-
-A retention operation declares the policy-bound period during which canonical material, derived projections, or key material MUST remain available. A retention fact MUST identify the affected scope, the retention class, the effective start, and the retention end condition (absolute time, relative interval, or named policy-driven event). Retention facts MUST NOT silently expire; expiration MUST be represented as a separate lifecycle fact.
+Retention semantics are defined in [WOS Governance §12 Typed Hold Policies]. This ledger represents retention as canonical lifecycle facts and honors retention end conditions when evaluating destruction eligibility.
 
 ### 5.2 Legal Hold
 
-**Requirement class:** Companion requirement
-
-A legal hold operation suspends ordinary retention expiry and ordinary destruction eligibility for the affected scope. A hold fact MUST identify the affected scope, the placing authority, the effective start, and either the release condition or the absence of a release condition. While any hold is in effect over a scope, the implementation MUST refuse destruction transitions affecting that scope (§3.2). When retention rules and hold rules both apply to the same material, **hold rules MUST take precedence** unless the deployment declares the opposite ordering as a binding-overridable operational choice (§7).
+Legal Hold semantics are defined in [WOS Governance §7.15 Legal Hold]. This ledger honors legal holds by preventing cryptographic erasure of covered keys for the duration of the hold, in accordance with §3.2.
 
 ### 5.3 Archival
 
-**Requirement class:** Companion requirement
-
-An archival operation moves canonical material or key material from operational custody to long-term custody with restricted access. An archival fact MUST identify the affected scope, the archival custodian, the effective time, and the retrieval pathway permitted (if any). Transitions of key state to `archived` are governed by §3.
+Archival semantics are defined in [WOS Governance §12 Typed Hold Policies]. This ledger represents archival as canonical lifecycle facts; transitions of key state to `archived` are governed by §3.
 
 ### 5.4 Key Destruction
 
@@ -172,9 +166,7 @@ A key-destruction operation permanently disables cryptographic use of a managed 
 
 ### 5.5 Sealing
 
-**Requirement class:** Companion requirement
-
-A sealing operation marks a case, record, or equivalent scope as closed to ordinary canonical activity. A sealing fact MUST identify the sealed scope, the sealing authority, and the effective time. The implementation MUST declare its sealing policy in accordance with §7. State transitions for keys bound to sealed scopes are governed by §3.3.
+Sealing semantics are defined in [WOS Governance §12 Typed Hold Policies]. This ledger represents sealing as canonical lifecycle facts; state transitions for keys bound to sealed scopes are governed by §3.3.
 
 ### 5.6 Export Issuance
 
@@ -184,9 +176,7 @@ An export-issuance operation produces an independently verifiable disclosure art
 
 ### 5.7 Schema Upgrade
 
-**Requirement class:** Companion requirement
-
-A schema-upgrade operation introduces a new canonical schema or semantic version to a scope. A schema-upgrade fact MUST identify the prior and new schema versions, the upgrade authority, the effective time, and the migration mechanism that preserves historical verifiability (§11). Schema upgrades MUST NOT silently reinterpret historical records under the new rules.
+Schema upgrade as a lifecycle operation is defined in [WOS Governance §2.9 Schema Upgrade]. This ledger records schema upgrades as canonical facts carrying the declared migration mechanism that preserves historical verifiability (§11).
 
 ---
 
@@ -224,32 +214,21 @@ If protected content is cryptographically destroyed or otherwise made inaccessib
 
 ## 7. Sealing and Later Lifecycle Facts
 
-**Requirement class:** Companion requirement
-
-A conforming implementation MUST declare whether sealed cases, sealed records, or equivalent sealed scopes permit later lifecycle or governance facts. The declaration MUST specify, per sealed scope class:
-
-1. whether retention facts MAY be appended after sealing,
-2. whether legal-hold facts MAY be appended after sealing,
-3. whether archival, key-destruction, export-issuance, or schema-upgrade facts MAY be appended after sealing,
-4. which authorities are permitted to append each permitted fact class after sealing.
-
-The implementation MUST also declare whether retention or hold rules take precedence when both apply. The default ordering defined in §5.2 (hold takes precedence) is binding-overridable only by explicit declaration in the Trust Profile or a sealed-scope-specific policy fact.
+Per-sealed-scope policy declarations governing which fact classes may be appended after sealing, and which authorities may append them, are defined in [WOS Governance §12 Typed Hold Policies]. This ledger honors those declarations when admitting later lifecycle facts against sealed scopes.
 
 ---
 
 ## 8. Legal Sufficiency Statement
 
-**Requirement class:** Companion requirement
-
-Implementations MUST NOT imply that cryptographic controls alone guarantee admissibility or legal sufficiency in any jurisdiction. Destruction evidence artifacts (§6.1), threshold participation records (§9), recovery audit trails (§10), and historical verification material (§11) are necessary but not sufficient for legal sufficiency.
-
-Implementations MAY claim stronger evidentiary posture only to the extent supported by declared process, signature semantics, canonical append attestations, records-management practice, and applicable law. Marketing or interface text describing destruction, sealing, retention, hold, or recovery MUST NOT overstate the legal weight of the underlying cryptographic operations relative to what the deployment's process, governance, and jurisdictional law actually support.
+See [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations].
 
 ---
 
 ## 9. Threshold and Quorum Custody
 
 **Requirement class:** Binding or sidecar choice
+
+Generic N-of-M authorization policy is defined in [WOS Governance §4.9 Quorum-Based Delegation]. This section specifies the cryptographic proof-of-quorum format Trellis uses.
 
 Threshold custody is not required for baseline conformance to Trellis Core or to this companion (Trellis Companion Conformance Boundary, draft companion Appendix G). A deployment MAY declare threshold custody in its Trust Profile. When threshold custody is declared, this companion owns the operational requirements that follow.
 
@@ -291,41 +270,13 @@ If the deployment supports an exceptional-access pathway that bypasses the decla
 
 **Requirement class:** Companion requirement
 
-A conforming implementation MUST declare its recovery posture in the Trust Profile (`recovery_mode`: `none`, `emergency_only`, or `declared_pathways`). When a recovery posture other than `none` is declared, the requirements in this section apply.
+Generic recovery-authority declaration (recovery posture, recovery class conditions, authorized assistors, provider-assisted vs reader-held distinction) is held in the Trust Profile object — see [Trellis Companion — Trust Profiles §3]. This section specifies the cryptographic recovery-evidence format Trellis uses when a recovery operation completes.
 
-### 10.1 Recovery Conditions
-
-**Requirement class:** Companion requirement
-
-The implementation MUST declare, per recovery class:
-
-1. the conditions that authorize a recovery operation,
-2. the pre-recovery facts that MUST be appended before the recovery operation may proceed,
-3. the form and verification path of the recovery evidence artifact,
-4. whether the recovery operation reintroduces provider-readable access (Trust Profiles S6, trust-honesty rule).
-
-### 10.2 Recovery Assistors
+### 10.1 Recovery Evidence Artifact
 
 **Requirement class:** Companion requirement
 
-The implementation MUST declare, per recovery class, the actor classes authorized to assist recovery and the minimum count of distinct assistors required. When threshold custody applies, the recovery quorum MUST equal or exceed the relevant quorum count declared under §9.1.
-
-### 10.3 Provider-Assisted vs Reader-Held Recovery
-
-**Requirement class:** Companion requirement
-
-The implementation MUST distinguish, in declarations and in audit records, between:
-
-1. **Provider-assisted recovery** — recovery in which a provider-operated component participates in re-deriving or releasing key material. Provider-assisted recovery MUST be disclosed as such; it MAY reintroduce provider-readable access, in which case the Trust Profile MUST declare that effect explicitly (Trust Profiles S6).
-2. **Reader-held recovery** — recovery in which only the record subject, the subject's designated reader, or the subject's chosen custodians participate. Reader-held recovery MUST NOT be claimed when any provider-operated component is in the recovery path.
-
-Mischaracterizing provider-assisted recovery as reader-held recovery is a trust-honesty nonconformance (Trust Profiles S10).
-
-### 10.4 Recovery Evidence
-
-**Requirement class:** Companion requirement
-
-Each completed recovery operation MUST produce an auditable canonical fact that identifies the recovery class, the authorizing condition, the participating assistors, the effective time, and the post-recovery custody posture. Recovery facts MUST NOT be redacted from audit trails (Trellis Core S5.2 invariant 1).
+Each completed recovery operation MUST produce an auditable canonical fact that identifies the recovery class, the authorizing condition, the participating assistors, the effective time, and the post-recovery custody posture. When threshold custody applies, the recovery quorum MUST equal or exceed the relevant quorum count declared under §9.1, and the recovery evidence artifact MUST include the per-custodian participation records described in §9.2. Recovery facts MUST NOT be redacted from audit trails (Trellis Core S5.2 invariant 1).
 
 ---
 
@@ -387,11 +338,11 @@ Purge-cascade completion MUST produce verifiable evidence artifacts tied to cano
 
 ## 13. Security and Privacy Considerations
 
-This section is normative.
+This section is normative. Generic privacy-disclosure obligations are defined in [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations]; the items below cover ledger-specific cryptographic threats.
 
 - Key destruction and crypto-shredding are irreversible. Recovery from destruction requires separate recovery-key infrastructure that MUST NOT reuse destroyed key material.
 - Grace-period windows (§4) create intervals where both old and new key material are valid. Deployments MUST declare and bound these intervals in the Trust Profile (Trust Profiles S6).
 - Purge-cascade completion evidence MUST NOT reveal plaintext content of purged projections (Projection S4).
 - Key-lifecycle facts are canonical facts. They MUST NOT be redacted from audit trails even after key destruction (Trellis Core S5.2 invariant 1).
-- Threshold participation records (§9.3) and recovery facts (§10.4) reveal organizational topology. Deployments SHOULD account for this metadata exposure in the Trust Profile metadata budget (Trust Profiles S7).
+- Threshold participation records (§9.3) and recovery facts (§10.1) reveal organizational topology. Deployments SHOULD account for this metadata exposure in the Trust Profile metadata budget (Trust Profiles S7).
 - Cryptographic inaccessibility claims MUST include scope, authority, and effective-time semantics. Key-destruction claims MUST be distinguishable from payload-redaction or disclosure-filtering events. Historical verification across key evolution MUST remain possible where declared by policy.
