@@ -239,11 +239,11 @@ This binding MUST NOT reinterpret Formspec or WOS semantic authority (Core §9).
 
 **Requirement class: Companion requirement.**
 
-When binding behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, calculation, or version pinning — processing MUST be delegated to a Formspec-conformant processor (Formspec Core S1.4, S6.4). This binding defines admission, order, attestation, and verification shape for bound records; it does not specify bind, FEL, or validation rules.
+When binding behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, calculation, or version pinning — processing MUST be delegated to a Formspec-conformant processor per [Formspec Core §6 Version Pinning (VP-01, VP-02)] and [Formspec Core §1.4 Scope]. This binding defines admission, order, attestation, and verification shape for bound records; it does not specify bind, FEL, or validation rules.
 
-Trellis-bound Formspec processors MUST implement at least Formspec Core conformance (Formspec Core S2). Whether Theme or Component tiers are required depends on the Trellis conformance class and the bound family's declared requirements (Core §1.2).
+Trellis-bound Formspec processors MUST implement at least Formspec Core conformance per [Formspec Core §2 Conformance]. Whether Theme or Component tiers are required depends on the Trellis conformance class and the bound family's declared requirements (Core §1.2).
 
-When binding behavior depends on WOS kernel or runtime semantics, processing MUST be delegated to a WOS-conformant processor (WOS Kernel S2; WOS Runtime S2).
+When binding behavior depends on WOS kernel or runtime semantics, processing MUST be delegated to a WOS-conformant processor per [WOS Kernel §2 Conformance Classes] and [WOS Kernel §2.1].
 
 ---
 
@@ -463,20 +463,15 @@ Per Companion §3.6, a canonical record MUST preserve the semantic distinction a
 - The envelope MAY carry `access_material_ref` (an identifier or URI) but MUST NOT inline key material that would grant provider-readable access when the active Trust Profile declares reader-held or delegated-compute custody (see S18 → Trust Profiles).
 - The append attestation (S7) MUST NOT depend on access-material state; attestation remains verifiable whether or not any given Verifier can decrypt the payload (Core §8).
 
-### S9.3 Custody Mode Enumeration
+### S9.3 Custody Mode Field
 
 **Requirement class: Binding or reference choice.**
 
-When `custody_mode` is present in an envelope, its value MUST be drawn from the following registered identifiers:
+When `custody_mode` is present in an envelope, its value MUST be a registered identifier drawn from the Custody Modes registry (S16.3). The wire-level requirement is that `custody_mode` is a JSON string matching a registered identifier; verifiers MUST reject envelopes carrying an unregistered `custody_mode` (S16, S10.2 `custody_mode_inconsistent`).
 
-| `custody_mode` | Meaning |
-|---|---|
-| `provider-readable` | The service operator or ordinary service-side components can decrypt the protected payload during ordinary operation. |
-| `reader-held` | Only explicitly authorized tenant-side principals can decrypt within scope. The provider cannot decrypt in ordinary operation. |
-| `reader-held-with-recovery` | Reader-held custody, with a declared recovery authority that may assist recovery under declared conditions. |
-| `threshold` | Decryption or recovery requires cooperation by multiple parties or custodians; no single operator is sufficient. |
+Custody mode semantics — the operator-readable, reader-held, threshold, and recovery postures — are defined in [WOS Assurance §5.1] and operationalized for Trellis distributed deployments in `trellis/specs/trust/trust-profiles.md` §2 Object Shape. This binding does not enumerate or redefine those semantics; it fixes only the wire field, the registry binding (S16.3), and the admission-time consistency check against the active Trust Profile (S13.3).
 
-Additional custody modes MAY be registered per S16.3. **Profile-overridable:** the exact set of recognized custody modes beyond these four is profile-defined; the Trust Profiles companion (see S18) is authoritative for custody-mode semantics and Trust Profile alignment.
+**Profile-overridable:** the exact set of recognized custody modes is profile-defined via the registry (S16.3); the Trust Profiles companion (see S18) is authoritative for custody-mode semantics and Trust Profile alignment.
 
 ---
 
@@ -519,9 +514,11 @@ Rejections MUST be explicit and auditable (Core §6.3).
 
 **Requirement class: Binding or reference choice.**
 
-1. Backward-compatible additive fields MAY be accepted within a declared major version. Breaking versus additive classification follows the Formspec Changelog specification §4 (Impact Classification).
-2. Breaking semantic changes MUST require a new major `schema_ref` (Formspec Changelog §4.2).
-3. Verifiers MUST reject unknown major versions unless an explicit compatibility adapter is declared and registered (Formspec Changelog §4.3; rejection code `unsupported_major_version`).
+Breaking-vs-additive classification applied to `schema_ref` follows [Formspec Changelog §4 Impact Classification]. This binding does not redefine that classification; it applies it to the `schema_ref` field on the canonical record envelope (S6.1).
+
+1. Backward-compatible additive fields MAY be accepted within a declared major version, per [Formspec Changelog §4 Impact Classification].
+2. Breaking semantic changes MUST require a new major `schema_ref`, per [Formspec Changelog §4 Impact Classification].
+3. Verifiers MUST reject unknown major versions unless an explicit compatibility adapter is declared and registered (rejection code `unsupported_major_version`).
 
 **Profile-overridable:** Profiles MAY tighten these rules (e.g., forbid additive-field acceptance for specific families) but MUST NOT loosen them.
 
@@ -545,8 +542,8 @@ Rejections MUST be explicit and auditable (Core §6.3).
 **Requirement class: Binding or reference choice.**
 
 1. Ingest a Formspec Response or Definition reference submitted as a `formspec.authored` fact.
-2. Validate the reference against the pinned Definition version (Formspec Core S6.4, VP-01). If the reference cites a Definition version not recognized by the Formspec-conformant processor, reject with `invalid_schema_ref`.
-3. Delegate Definition and Response validation to a Formspec-conformant processor (Formspec Core S1.4). If validation fails, reject with `invalid_schema_ref`.
+2. Validate the reference against the pinned Definition version per [Formspec Core §6 Version Pinning VP-01] (Response is always validated against its pinned Definition version, never against a newer version). If the reference cites a Definition version not recognized by the Formspec-conformant processor, reject with `invalid_schema_ref`.
+3. Delegate Definition and Response validation to a Formspec-conformant processor per [Formspec Core §1.4 Scope] and [Formspec Core §6 VP-01]. If validation fails, reject with `invalid_schema_ref`.
 4. Map the validated reference to a canonical record envelope per S5 and S6.
 5. Apply canonization rules (S10.1) and, if admissible, append to canonical order and issue an append attestation (S7).
 
@@ -715,11 +712,24 @@ Payload confidentiality MUST NOT be described as equivalent to metadata privacy 
 
 **Requirement class: Companion requirement.**
 
-Per Companion §3.8.3, this binding MUST NOT be interpreted to imply that cryptographic controls alone guarantee admissibility or legal sufficiency in any jurisdiction. Evidentiary strength is a function of process, signature semantics, canonical append attestations, records practice, and applicable law.
+Legal-sufficiency and disclosure-obligation semantics are defined by [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations]. This binding MUST NOT be interpreted to imply that cryptographic controls alone guarantee admissibility or legal sufficiency in any jurisdiction; evidentiary strength is governed upstream per [WOS Assurance §6]. This binding addresses only ledger-level append-attestation and envelope integrity.
 
 ---
 
 ## S18. Cross-References to Companion Specifications
+
+### S18.1 Upstream Specifications
+
+This binding is subordinate to and cites the following upstream specifications. Trellis is an implementation of WOS hosting Formspec; these upstreams govern the semantics that Trellis admits, orders, and attests.
+
+- **WOS Kernel** — `wos-spec/specs/kernel/spec.md`. Authoritative for workflow lifecycle, actor model, case state, and conformance classes. This binding cites [WOS Kernel §2 Conformance Classes] for workflow-fact delegation (S4.3), WOS Kernel S3–S8 for `wos.governance` authority (S5, S13.2), and WOS Kernel §2.1 for processor conformance scope.
+- **WOS Assurance** — `wos-spec/specs/assurance/assurance.md`. Authoritative for custody-mode semantics and legal-sufficiency disclosure obligations. This binding cites [WOS Assurance §5.1] for custody-mode semantics (S9.3) and [WOS Assurance §6] for legal-sufficiency disclosure obligations (S17.3).
+- **WOS Governance** — `wos-spec/specs/governance/workflow-governance.md`. Authoritative for workflow governance structural requirements. This binding cites it for `governance_scope` and `actor_ref` structural conformance (S13.2).
+- **Formspec Core** — `specs/core/spec.md`. Authoritative for Definition, Response, FEL, validation, processing model, and version pinning. This binding cites [Formspec Core §1.4 Scope] and [Formspec Core §6 Version Pinning VP-01, VP-02] for response-fact delegation (S4.3, S13.1) and [Formspec Core §2 Conformance] for processor conformance (S4.3).
+- **Formspec Changelog** — `specs/registry/changelog-spec.md`. Authoritative for breaking-vs-additive classification. This binding cites [Formspec Changelog §4 Impact Classification] for `schema_ref` version compatibility (S11).
+- **Formspec Respondent Ledger** — `specs/audit/respondent-ledger-spec.md`. Authoritative for respondent-facing audit change tracking when Formspec-authored facts carry draft, reopen, or amendment history. This binding does not redefine the respondent-ledger contract; where a `formspec.authored` admission carries respondent-ledger material, that material remains authoritative in the source repository per Core §9.
+
+### S18.2 Trellis Companion Specifications
 
 This binding depends on and is depended upon by the following Trellis companion specifications:
 
