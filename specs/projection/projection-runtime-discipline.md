@@ -1,14 +1,14 @@
 ---
 title: Trellis Companion — Projection and Runtime Discipline
-version: 0.1.0-draft.2
-date: 2026-04-14
+version: 0.1.0-draft.3
+date: 2026-04-15
 status: draft
 ---
 
 # Trellis Companion — Projection and Runtime Discipline v0.1
 
-**Version:** 0.1.0-draft.2
-**Date:** 2026-04-14
+**Version:** 0.1.0-draft.3
+**Date:** 2026-04-15
 **Editors:** Formspec Working Group
 **Companion to:** Trellis Core v0.1
 
@@ -45,7 +45,7 @@ The Projection and Runtime Discipline companion defines strict rules for derived
 13. Storage, Snapshots, and Availability
 14. Purge-Cascade Requirement
 15. Runtime Boundary
-16. Deferral to WOS
+16. Upstream Cross-References
 17. Security and Privacy Considerations
 18. Cross-References
 
@@ -87,15 +87,15 @@ Roles defined in Trellis Core (Core S2.1) remain applicable. An implementation t
 
 ## 3. Terminology
 
-This section defines terms as used in this companion. Where a term is also used in Trellis Core, the Core definition governs; these entries are expository restatements scoped to this companion.
+This section defines terms as used in this companion. Where a term is also used in Trellis Core, the Core definition governs; these entries are expository restatements scoped to this companion. The generic canonical-versus-derived distinction inherits from [WOS Kernel §12 Separation Principles]; the entries below are scoped to ledger-specific projection, watermark, and purge-cascade semantics.
 
 ### 3.1 Canonical Truth
 
-The set of admitted canonical records, canonical append attestations, and canonical checkpoint material, as defined by Trellis Core (Core S5.1). Canonical truth excludes all derived runtime state.
+The set of admitted canonical records, canonical append attestations, and canonical checkpoint material, as defined by Trellis Core (Core S5.1). Canonical truth excludes all derived runtime state. The canonical-versus-derived boundary itself is the Trellis instantiation of [WOS Kernel §12 Separation Principles].
 
 ### 3.2 Derived Artifact
 
-Any runtime or materialized artifact computed from canonical records, including but not limited to queues, dashboards, indexes, caches, read models, materialized views, timelines, search projections, snapshots, and evaluator state. Cited in Trellis Core (Core S3.4).
+Any runtime or materialized artifact computed from canonical records, including but not limited to queues, dashboards, indexes, caches, read models, materialized views, timelines, search projections, snapshots, and evaluator state. Cited in Trellis Core (Core S3.4). See [WOS Kernel §12 Separation Principles] for the generic separation framing.
 
 ### 3.3 Projection
 
@@ -131,13 +131,13 @@ A Trellis Core concept (Core S5.1) referring to the append-attested state at a d
 
 **Requirement class: Constitutional semantic**
 
-This section names and anchors the invariant that governs every other requirement in this document.
+The generic separation principle — that audit and governance state are not authoritative over execution and case state — is owned by [WOS Kernel §12 Separation Principles]. This section names and anchors that principle as it applies to a canonical ledger: in this implementation, **canonical records are authoritative**, and every derived artifact derives from them rather than the other way around.
 
 ### 4.1 PRD-01 — No Derived Artifact Is Canonical Truth
 
 **PRD-01 (MUST).** No projection, evaluator state, cache, snapshot, timeline, dashboard, queue, index, read model, materialized view, workflow runtime state, or any other derived artifact is authoritative for canonical facts. Canonical truth is defined exclusively by Trellis Core (Core S5.1).
 
-PRD-01 is the operational restatement of Trellis Core Invariant 3 (Core S5.2, "Derived Artifact Is Not Canonical Truth"). Every subsequent section of this companion that defines derived artifact behavior MUST be read as subordinate to PRD-01, and MUST NOT be construed to create any exception to it.
+PRD-01 is the ledger-operational restatement of Trellis Core Invariant 3 (Core S5.2, "Derived Artifact Is Not Canonical Truth") and of [WOS Kernel §12 Separation Principles] for a canonical-ledger deployment. Every subsequent section of this companion that defines derived artifact behavior MUST be read as subordinate to PRD-01.
 
 ### 4.2 Enforcement Posture
 
@@ -176,21 +176,17 @@ PRD-02 applies uniformly to staff-facing projections, respondent-facing projecti
 
 **Requirement class: Companion requirement**
 
-A conforming Projection Producer MUST classify each projection into one of the following categories and apply the corresponding rules.
+A conforming Projection Producer MUST classify each projection it produces and apply the corresponding ledger rules. The categories below are scoped to ledger-display and ledger-rebuild obligations; see `trust-profiles.md` S4 for audience-scoped metadata budgets.
 
-### 6.1 Staff-Facing Projections
+### 6.1 Consumer-Facing Projections
 
-Views presented to caseworkers, reviewers, administrators, or other operational staff. These MUST carry a watermark (S7) indicating canonical append/checkpoint state. All watermark and stale-status rules apply.
+Projections delivered to a human consumer (staff or respondent). These MUST carry a watermark (S7) and MUST surface stale status (S7.3). Respondent-scoped views MUST additionally respect the trust profile's metadata budget (`trust-profiles.md` S4).
 
-### 6.2 Respondent-Facing Projections
+### 6.2 System Projections
 
-Views presented to the record subject or their delegate. These MUST carry a watermark (S7) when derived from canonical state. Respondent-facing projections MUST NOT expose staff-only metadata, internal audit trails, or governance-enforcement details not declared in the applicable trust profile's metadata budget (see `trust-profiles.md` S4).
+Internal caches, indexes, read models, and materialized views used by the platform itself. System projections MUST be rebuildable from canonical records (Core S6, S8 of this companion) and MUST internally record the watermark fields of S7.1, but are exempt from the display requirements in S7.2. Purge-cascade rules (S14) apply.
 
-### 6.3 System Projections
-
-Internal caches, indexes, read models, and materialized views used by the platform itself. System projections MUST be rebuildable from canonical records (Core S6, this companion S8) but are exempt from the watermark display requirements in S7.4. They remain subject to the watermark provenance requirements in S7.1 (the watermark MUST be internally recorded even when not displayed) and to purge-cascade rules (S14).
-
-### 6.4 Category Declaration
+### 6.3 Category Declaration
 
 A Projection Producer MUST declare the category of each projection it produces. Changing a projection's category is a configuration change (S5.2) and MUST be captured in declared configuration history.
 
@@ -211,7 +207,7 @@ A Projection Producer MUST declare the category of each projection it produces. 
 
 ### 7.2 Display Requirements
 
-Staff-facing and respondent-facing projections (S6.1, S6.2) MUST display or otherwise make available to the consumer the watermark fields required for that consumer to assess freshness. Implementations MAY elide fields that are not meaningful to the consumer (for example, schema version on respondent-facing views) but MUST NOT elide the canonical checkpoint reference.
+Consumer-facing projections (S6.1) MUST display or otherwise make available to the consumer the watermark fields required for that consumer to assess freshness. Implementations MAY elide fields that are not meaningful to the consumer (for example, schema version on respondent-scoped views) but MUST NOT elide the canonical checkpoint reference.
 
 ### 7.3 Stale Status
 
@@ -219,7 +215,7 @@ If a projection is stale relative to a newer canonical checkpoint available to t
 
 ### 7.4 System Projection Exemption
 
-System projections (S6.3) are exempt from display requirements (S7.2) but MUST record the watermark fields of S7.1 internally such that rebuild, purge-cascade, and verifier operations can determine the canonical state that produced them.
+System projections (S6.2) are exempt from display requirements (S7.2) but MUST record the watermark fields of S7.1 internally such that rebuild, purge-cascade, and verifier operations can determine the canonical state that produced them.
 
 ---
 
@@ -311,16 +307,15 @@ Cryptographic-erasure events recorded as canonical lifecycle facts (see `key-lif
 
 **Requirement class: Companion requirement**
 
-This section adapts the unified ledger companion (§7.2) into this companion. Workflow runtime is a derived processor (Core S2.2) and is governed by PRD-01.
+The generic separation of lifecycle state from case state is owned by [WOS Kernel §12.1 Lifecycle vs. Case State Separation]. This section adds the ledger-specific canonical-admission rule that governs when a workflow event crosses into canonical truth in a Trellis deployment. Workflow runtime is a derived processor (Core S2.2) and is governed by PRD-01.
 
-### 11.1 PRD-09 — Required Distinctions
+### 11.1 PRD-09 — Canonical-Admission Distinctions
 
 **PRD-09 (MUST).** A workflow-family deployment that maps operational workflow state to canonical facts MUST distinguish, in its configuration and in any projections it produces:
 
-1. **operational state that remains non-canonical** — for example, in-flight task assignments, transient queue memberships, scheduler ticks, and ephemeral session data,
-2. **workflow events that become canonical facts** — for example, intake receipts, review-open and review-close events, adjudicative decisions where the binding declares them canonically admissible,
-3. **governance or review facts that become canonical facts** — for example, approval, denial, escalation, and verification-upgrade facts declared canonical by the active binding,
-4. **derived dashboards, queues, and status views** — which remain derived artifacts under PRD-01 and are subject to PRD-02 through PRD-04.
+1. **operational state that remains non-canonical** — in-flight task assignments, transient queue memberships, scheduler ticks, ephemeral session data (governed by [WOS Kernel §12.1]),
+2. **workflow events that become canonical facts** — intake receipts, review-open and review-close events, adjudicative decisions, governance and review outcomes — but only where the active binding declares them canonically admissible,
+3. **derived dashboards, queues, and status views** — which remain derived artifacts under PRD-01 and are subject to PRD-02 through PRD-04.
 
 ### 11.2 Non-Elevation
 
@@ -391,7 +386,7 @@ Cryptographic erasure is incomplete until the purge-cascade completes. An implem
 
 The cascade MUST reach, at minimum:
 
-1. staff-facing, respondent-facing, and system projections,
+1. consumer-facing and system projections (S6.1, S6.2),
 2. evaluator state that incorporated the destroyed material,
 3. snapshots, including those retained for performance or recovery,
 4. caches, indexes, and materialized views,
@@ -419,46 +414,35 @@ A workflow or orchestration engine contributes to canonical truth only by submit
 
 ---
 
-## 16. Deferral to WOS
+## 16. Upstream Cross-References
 
-The following topics are owned by WOS and are excluded from this companion:
+The following topics are owned upstream and are excluded from this companion:
 
-- Execution semantics (Kernel S3, Runtime S4)
-- Runtime envelope and governance-time behavior (Kernel S8, Runtime S8)
-- Orchestration policy specifics (Kernel S3, Runtime S5)
+- Generic separation of audit, governance, execution, and case state — see [WOS Kernel §12 Separation Principles].
+- Lifecycle-vs-case-state separation as it applies to workflow runtime — see [WOS Kernel §12.1].
+- Workflow execution and orchestration semantics, governance-time behavior, and orchestration policy — see [WOS Governance: Workflow Governance].
 
-> Editor's note: WOS section citations above are placeholders pending WOS spec section-number stabilization.
-
-This companion's Runtime Boundary (S15) restricts how workflow runtime state relates to canonical truth. It does not prescribe workflow execution semantics, which remain WOS-authoritative.
+This companion's Runtime Boundary (S15) restricts how workflow runtime state relates to canonical truth in a ledger deployment. It does not prescribe workflow execution semantics, which remain owned by [WOS Governance].
 
 ---
 
 ## 17. Security and Privacy Considerations
 
-### 17.1 Metadata Leakage Through Projections
+Audience-scoped metadata budgets and projection content disclosure are owned by `trust-profiles.md` S4. The items below are the projection-runtime-specific safety considerations.
 
-Projections can leak metadata that canonical records would not. A projection MAY reveal:
-
-1. the existence, shape, timing, or frequency of canonical records that the consumer is not authorized to read directly,
-2. correlation information across records — for example, that two records concern the same subject — even when each underlying record is individually protected,
-3. aggregate structure (counts, queue depths, workflow phase distributions) that discloses operational posture beyond what any individual canonical record reveals,
-4. scheduling, ordering, or coordination metadata derived from append heights or checkpoint timestamps.
-
-Respondent-facing projections MUST NOT leak staff-only metadata beyond what the trust profile's metadata budget declares (see `trust-profiles.md` S4). Staff-facing projections SHOULD minimize metadata to what staff need for their declared operational role. System projections SHOULD apply the metadata minimization discipline of the unified ledger companion (§3.9.1) and SHOULD NOT retain metadata merely to accelerate derived artifacts.
-
-### 17.2 Stale-Status Disclosure
+### 17.1 Stale-Status Disclosure
 
 Stale-status indications on projections (S7.3) MUST NOT reveal the content of canonical updates that have not yet been projected. A stale indicator communicates freshness relative to canonical append height; it MUST NOT be used as a covert channel for the content of unprojected updates.
 
-### 17.3 Purge-Cascade Completeness
+### 17.2 Purge-Cascade Completeness
 
 Purge-cascade operations (S14) MUST NOT leave residual plaintext in system projections, caches, backups, evaluator state, or rebuild fixtures. An incomplete cascade undermines the confidentiality guarantees of cryptographic erasure recorded as a canonical lifecycle fact (see `key-lifecycle-operating-model.md` S7).
 
-### 17.4 Rebuild Fixture Integrity
+### 17.3 Rebuild Fixture Integrity
 
 Rebuild verification fixtures (S8.3) MUST be protected against tampering. Compromised fixtures could mask projection drift from canonical truth, defeating the verification discipline of S8 and S9.
 
-### 17.5 Authorization Evaluator Safety
+### 17.4 Authorization Evaluator Safety
 
 An Authorization Evaluator whose stale-state behavior is undeclared, silently fail-open, or permissive by omission is a security defect regardless of implementation effort (S10.3, S10.4). Deployments SHOULD treat PRD-07 and PRD-08 as safety-critical and SHOULD include them in their monitoring-and-witnessing posture (see `monitoring-witnessing.md`).
 
@@ -466,7 +450,15 @@ An Authorization Evaluator whose stale-state behavior is undeclared, silently fa
 
 ## 18. Cross-References
 
-This companion relates to the following Trellis documents. Citations use section numbers where available.
+This companion relates to the following upstream and Trellis documents. Citations use section numbers where available.
+
+**Upstream:**
+
+- **[WOS Kernel §12 Separation Principles]** — generic separation of audit, governance, execution, and case state. PRD-01 (S4.1) is the ledger-deployment instantiation of this principle.
+- **[WOS Kernel §12.1 Lifecycle vs. Case State Separation]** — generic lifecycle-vs-case-state framing referenced by S11 (PRD-09).
+- **[WOS Governance: Workflow Governance]** — workflow execution and orchestration semantics referenced by S15 and S16.
+
+**Trellis:**
 
 - **`trellis-core.md`** — the foundation specification. This companion refines:
   - Invariant 3 (Core S5.2, "Derived Artifact Is Not Canonical Truth") → anchored here as PRD-01 (S4.1),
