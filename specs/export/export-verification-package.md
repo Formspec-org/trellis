@@ -142,8 +142,8 @@ A conforming Verifier, given an Export Verification Package and its declared exp
 1. **Verify authored authentication.** Verify authored signatures, or equivalent authored authentication, over every author-originated fact the package presents, where such authentication is required by the active profile or binding.
 2. **Verify canonical inclusion.** Verify canonical inclusion of each exported canonical record within the declared append scope, using the included append proofs and verification keys.
 3. **Verify append-head consistency.** Verify consistency between append-head references that the package declares or relies upon, where consistency proofs are required by the active profile.
-4. **Verify schema and semantic integrity.** Verify schema or semantic digests against the embedded copies or immutable references carried in the package, establishing that canonical records and authored artifacts are interpreted under the schema and semantic definitions in effect when they were produced.
-5. **Verify included disclosure or export artifacts.** Verify any disclosure or export artifacts embedded in the package — including any Disclosure Manifest (see §13) — against the canonical records and attestations they reference, without treating those derived artifacts as canonical truth.
+4. **Verify schema and semantic integrity.** Verify schema or semantic digests against the embedded copies or immutable references carried in the package, establishing that canonical records and authored artifacts are interpreted under the schema and semantic definitions in effect when they were produced. Schema-digest construction and impact classification follow upstream rules; see [Formspec Changelog §4] (`/specs/registry/changelog-spec.md`) and [Formspec Core §6.4 Pinning Rule VP-01] (`/specs/core/spec.md`) for the canonical version-pinning and change-classification semantics that govern historical reinterpretation.
+5. **Verify included disclosure or export artifacts.** Verify any disclosure or export artifacts embedded in the package — including any Disclosure Manifest (see §13 and `trellis/specs/export/disclosure-manifest.md`) — against the canonical records and attestations they reference, without treating those derived artifacts as canonical truth.
 
 A Verifier MUST discharge each of these obligations using only material carried in the package, material referenced immutably by the package, and optional external proof material the package explicitly names. A Verifier MUST NOT require access to the producing service to complete any of these obligations.
 
@@ -200,9 +200,9 @@ A Disclosure and Export Profile SHOULD state which of the following claim classe
 | **Authorship** | Was this fact originated by the claimed actor under the active authentication model? | Authored signatures or equivalent authored authentication; verification keys or immutable key references. |
 | **Append / inclusion** | Was this canonical record admitted into canonical order within the declared append scope? | Canonical record; canonical append attestation; inclusion proof; append-head reference. |
 | **Payload integrity** | Has the protected payload, or its reference, remained bit-for-bit consistent with what was canonically admitted? | Payload body or immutable payload reference; schema or semantic digest; attestation linking payload digest to canonical record. |
-| **Authorization history** | What grants, revocations, and delegations were canonical at a given append-head? | Canonical grant and revocation facts within scope; lifecycle or delegation facts where relied upon; append proofs for each. |
-| **Disclosure** | What was disclosed to this audience, and with what redaction posture? | Disclosure manifest (see §13); provenance links from disclosed claims back to canonical records. |
-| **Lifecycle / compliance** | What retention, legal-hold, sealing, or export-issuance state was canonical at a given boundary? | Lifecycle facts (retention, legal hold, sealing, key destruction, export issuance, schema upgrade) where included by scope; append proofs. |
+| **Authorization history** | What grants, revocations, and delegations were canonical at a given append-head? | See [WOS Governance §provenanceLayer attachment (§§1.4, 4.3, 11)] (`wos-spec/specs/governance/workflow-governance.md`) for grant/revocation/delegation provenance; package material for these facts is canonical-fact append proofs (§4 item 7). |
+| **Disclosure** | What was disclosed to this audience, and with what redaction posture? | See `trellis/specs/export/disclosure-manifest.md`; provenance links MUST satisfy §7. |
+| **Lifecycle / compliance** | What retention, legal-hold, sealing, or export-issuance state was canonical at a given boundary? | See [Formspec Respondent Ledger §6.6.1 Assurance levels] (`/specs/audit/respondent-ledger-spec.md`) and [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] (`wos-spec/specs/assurance/assurance.md`) for the upstream lifecycle and assurance vocabulary; package material is the corresponding canonical lifecycle facts (§4 item 7) and their append proofs. |
 
 A package MUST NOT imply support for a claim class that it cannot verify. An implementation MUST NOT describe a package as verifying a claim class unless the package contents are sufficient, under §5, to discharge the Verifier obligation corresponding to that class.
 
@@ -248,12 +248,9 @@ See also: `trellis/specs/trust/key-lifecycle-operating-model.md` for key and alg
 
 **Requirement class:** Profile constraint
 
-A profile-scoped export MAY present a profile-specific timeline, delta history, or audience-specific interpretation. Such an export:
+A profile-scoped export MAY present a profile-specific timeline, delta history, or audience-specific interpretation, but MUST preserve the provenance distinctions of §7 and MUST NOT imply stronger confidentiality, weaker provider visibility, or weaker recovery capability than the active Trust Profile supports (see `trellis/specs/trust/trust-profiles.md`).
 
-- MUST preserve the provenance distinctions of §7,
-- MUST preserve provenance distinctions even when presenting a profile-specific timeline, delta history, or interpretation layer,
-- MUST NOT imply broader workflow, governance, custody, compliance, or disclosure coverage than its declared export scope actually includes,
-- MUST NOT imply stronger confidentiality, weaker provider visibility, or weaker recovery capability than the active Trust Profile supports (see `trellis/specs/trust/trust-profiles.md`).
+The generic no-overclaim discipline that bounds what a profile-scoped artifact may assert about workflow, governance, compliance, or disclosure coverage is defined upstream; see [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] (`wos-spec/specs/assurance/assurance.md`). This companion does not restate that discipline.
 
 ---
 
@@ -299,13 +296,25 @@ The **manifest-vs-package boundary**: the manifest governs **disclosure policy a
 - Payload-absent claim honesty (§6.1) is a privacy requirement as well as an integrity requirement. A package MUST NOT reveal the existence, count, or position of redacted claims beyond what the disclosure policy declares.
 - Cross-implementation verification (§12) SHOULD be performed in isolated environments to avoid side-channel leakage between Verifier implementations.
 - Metadata visible in the package (for example, schema identifiers, profile identifiers, or append-head positions) SHOULD be minimized to what is required for verification, consistent with the metadata-minimization obligations of the Trellis family.
+- Generic privacy-disclosure obligations (legal-sufficiency disclaimers, audience-scoped disclosure honesty independent of ledger mechanics) are defined upstream; see [WOS Assurance §6] (`wos-spec/specs/assurance/assurance.md`).
 
 ---
 
 ## 15. Cross-References
+
+### 15.1 Trellis family
 
 - **Trellis Core:** `trellis/specs/core/trellis-core.md` — canonical truth, invariants, verification requirements (S8), conformance roles (S2).
 - **Disclosure Manifest:** `trellis/specs/export/disclosure-manifest.md` — audience-scoped disclosure; boundary defined in §13.
 - **Trust Profiles:** `trellis/specs/trust/trust-profiles.md` — custody postures that determine what is exportable and under what confidentiality posture.
 - **Key Lifecycle Operating Model:** `trellis/specs/trust/key-lifecycle-operating-model.md` — key and algorithm lifecycle that underwrites historical verifiability (§10).
 - **Monitoring and Witnessing:** `trellis/specs/operations/monitoring-witnessing.md` — append-head consistency proofs and optional external anchoring (§4, §5.3).
+
+### 15.2 Upstream specifications
+
+- **WOS Kernel:** `wos-spec/specs/kernel/spec.md` — the workflow processing model whose Facts tier underlies canonical truth.
+- **WOS Governance:** `wos-spec/specs/governance/workflow-governance.md` — `provenanceLayer` seam (§§1.4, 6.5) that hosts authorization-history facts (§8 claim-class table).
+- **WOS Assurance:** `wos-spec/specs/assurance/assurance.md` — assurance levels, subject continuity, no-overclaim discipline (§§5–6) referenced from §11 and §14.2.
+- **Formspec Core:** `/specs/core/spec.md` — definition versioning and Pinning Rule VP-01 (§6.4) referenced from §5 step 4.
+- **Formspec Changelog:** `/specs/registry/changelog-spec.md` — change classification (§4) referenced from §5 step 4 for schema-digest semantics.
+- **Formspec Respondent Ledger:** `/specs/audit/respondent-ledger-spec.md` — assurance-level vocabulary (§6.6.1) referenced from §8 lifecycle/compliance row.
