@@ -38,22 +38,23 @@ Statements that mix those layers without clear boundaries SHOULD be split or rev
 
 ## Abstract
 
-Trellis Core defines the minimum normative semantics for a shared canonical substrate used by Formspec- and WOS-family systems.
+Trellis Core defines the minimum normative semantics for a **cryptographic append-only ledger** used by Formspec- and WOS-family systems. It is a constitutional specification for canonical record admission, ordering, hashing, attestation, and independently verifiable export — not a workflow, orchestration, or authorization substrate.
 
 This specification normatively defines:
 
-- core object classes,
+- core ledger object classes,
 - canonical truth boundaries,
-- fact admission, canonicalization, ordering, and attestation semantics,
-- conformance roles and profiles,
-- the contracts between core semantics and replaceable implementations,
-- trust honesty disclosure obligations,
+- fact admission, canonicalization, ordering, and append-attestation semantics,
+- conformance roles and profiles for ledger participants,
+- the contracts between canonical ledger semantics and replaceable implementations,
 - independent verification and export guarantees,
 - non-redefinition boundaries relative to Formspec and WOS.
 
+Workflow, authorization, custody, and assurance-level semantics are defined by the host substrate (see [WOS Kernel §10 Named Extension Seams] and [WOS Assurance §2–§6]); this specification cross-references those layers rather than restating them.
+
 This specification does **not** define domain vocabularies, product UX, deployment architecture, concrete serialization bytes, or proof-wire formats. Those belong in profiles, bindings, sidecars, and implementation specifications.
 
-Its purpose is to define what MUST remain true even if the surrounding stack changes.
+Its purpose is to define what MUST remain true about the ledger even if the surrounding stack changes.
 
 ## Table of Contents
 
@@ -242,10 +243,9 @@ At minimum, the following contracts apply:
 
 1. **Canonical Append Contract.** An implementation MAY vary append mechanisms, proof mechanisms, or storage mechanisms, but it MUST preserve fact admission, canonical order, canonical record formation, and canonical append attestation semantics.
 2. **Derived Artifact Contract.** An implementation MAY vary projection, indexing, evaluator, or caching mechanisms, but derived artifacts MUST remain rebuildable from canonical truth and MUST NOT become authoritative for canonical facts.
-3. **Workflow Contract.** An implementation MAY vary workflow or orchestration mechanisms, but workflow state MUST remain operational rather than canonical unless later represented as canonical facts under the active profile or binding.
-4. **Authorization Contract.** An implementation MAY vary authorization evaluators or policy engines, but grant and revocation semantics MUST remain canonical and evaluator state MUST remain derived.
-5. **Trust Contract.** An implementation MAY vary custody, key-management, or delegated compute mechanisms, but the active Trust Profile MUST continue to describe who can read, recover, delegate, attest, or administer access.
-6. **Export Contract.** An implementation MAY vary export packaging and disclosure mechanisms, but exports MUST preserve the provenance distinctions and verification claims required by this specification.
+3. **Export Contract.** An implementation MAY vary export packaging and disclosure mechanisms, but exports MUST preserve the provenance distinctions and verification claims required by this specification.
+
+See [WOS Kernel §10 Named Extension Seams] for the workflow, authorization, and custody contracts WOS defines.
 
 ---
 
@@ -277,15 +277,15 @@ An audience-specific package, presentation, or view assembled for portability, r
 
 ### 4.7 Trust Profile
 
-A semantic object that declares which actors may decrypt, recover, attest, block, or administer data in a deployment mode. See `trellis/specs/trust/trust-profiles.md` for profile-level normative requirements.
+See [WOS Assurance §5 Provider-Neutral Attestation] and [WOS Kernel §10.5 `custodyHook` seam] for the substrate-generic custody and trust-posture taxonomy. Distributed-custody object semantics are in `trellis/specs/trust/trust-profiles.md`.
 
 ### 4.8 Disclosure Posture
 
-A declared posture describing how much identity or subject information is intended to be revealed in a given context, such as anonymous, pseudonymous, identified, or public.
+See [WOS Assurance §4 Invariant 6: Disclosure Posture Is Not Assurance Level] and [Formspec Respondent Ledger §6.6 Identity attestation object] for the normative definition and posture taxonomy.
 
 ### 4.9 Subject Continuity
 
-A stable continuity reference for a subject, record holder, or respondent that links related activity, records, or attestations across time without, by itself, requiring full legal identity disclosure.
+See [WOS Assurance §3 Subject Continuity] and [Formspec Respondent Ledger §6.6A Identity and implementation decoupling] for the normative definition and requirements.
 
 ### 4.10 Append-Head Reference
 
@@ -383,7 +383,7 @@ The following object-distinction invariants complement the core invariants above
 - **Invariant C — Derived Artifact Is Not Canonical Truth.** Projections, evaluator state, caches, timelines, and other derived artifacts MUST remain non-canonical.
 - **Invariant D — Provider-Readable Access Is Not Reader-Held Access.** Provider-readable and reader-held access MUST remain distinct trust postures.
 - **Invariant E — Delegated Compute Is Not General Provider Readability.** Delegated compute access MUST NOT be treated as blanket plaintext access for the service operator.
-- **Invariant F — Disclosure Posture Is Not Assurance Level.** Disclosure posture and assurance posture MUST remain distinct and MUST NOT be conflated.
+- **Invariant F — Disclosure Posture Is Not Assurance Level (ledger anchor).** The normative statement is at [WOS Assurance §4]. This ledger's canonical append, export, and disclosure machinery MUST preserve the independence of disclosure posture and assurance level across all canonical records and exports.
 
 ---
 
@@ -671,17 +671,7 @@ This baseline-scope constraint corresponds to ULCR-100 and ULCOMP-R-213–214 in
 
 ### 13.4 Trust and Privacy Disclosure Obligations
 
-**Requirement class:** Constitutional semantic
-
-A conforming implementation handling protected content:
-
-- MUST disclose what metadata remains visible,
-- MUST disclose which parties can observe that metadata,
-- MUST disclose whether ordinary service operation is provider-readable,
-- MUST disclose whether delegated compute exposes plaintext to ordinary service components,
-- MUST NOT describe ciphertext storage as equivalent to provider blindness when decryption paths exist.
-
-Concrete Trust Profile object semantics, trust honesty transition requirements, and standard trust profiles are specified in `trellis/specs/trust/trust-profiles.md`. Key lifecycle and cryptographic-erasure operating detail is specified in `trellis/specs/trust/key-lifecycle-operating-model.md`.
+See [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] for the normative disclosure obligations that apply to this implementation. Concrete Trust Profile object semantics are specified in `trellis/specs/trust/trust-profiles.md`; key lifecycle and cryptographic-erasure operating detail is specified in `trellis/specs/trust/key-lifecycle-operating-model.md`.
 
 ---
 
