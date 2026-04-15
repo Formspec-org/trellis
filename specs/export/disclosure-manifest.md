@@ -118,26 +118,11 @@ and that governs interpretation of any accompanying disclosed payload.
 
 ### 4.3 Disclosure Posture
 
-**Requirement class: Constitutional semantic** (Trellis Core S4.8)
-
-A declared posture describing how much identity or subject information is intended to be revealed in a given disclosure context.
-
-For the purposes of this companion, disclosure posture is a value drawn from the following enumerated set:
-
-- **anonymous** — no subject identifier, continuity reference, or linkable correlate is disclosed.
-- **pseudonymous** — a subject continuity reference (Section 4.4) is disclosed but legal identity is not.
-- **identified** — legal identity or an equivalent identifying identifier is disclosed.
-- **public** — material is intended for unrestricted audience and carries no confidentiality expectation beyond what is declared.
-
-Implementations MAY register additional posture values via a profile or binding, but such values MUST NOT redefine or weaken the semantics of the four values above.
+The `disclosurePosture` field carries one of the values enumerated in [Formspec Respondent Ledger §6.6 `privacyTier`]. This spec does not redeclare the enumeration.
 
 ### 4.4 Subject Continuity
 
-**Requirement class: Constitutional semantic** (Trellis Core S4.9, S10.2)
-
-A stable continuity reference for a subject, record holder, or respondent that links related activity, records, or attestations across time **without**, by itself, requiring full legal identity disclosure.
-
-Subject continuity is an identity-linking primitive, not an identity assertion. A pseudonymous manifest MAY carry a subject continuity reference; carrying such a reference MUST NOT be interpreted as elevating posture to **identified**.
+Subject continuity semantics are defined in [Formspec Respondent Ledger §6.6A]. This manifest carries a continuity reference as an opaque string per that definition.
 
 ### 4.5 Coverage Honesty
 
@@ -153,15 +138,11 @@ The production of an audience-specific subset, projection, or presentation of ca
 
 ### 4.7 Posture and Assurance Non-Conflation
 
-**Requirement class: Constitutional semantic** (Trellis Core §7.1 Invariant 6; §10.2)
-
-A conforming disclosure manifest MUST distinguish **assurance level** from **disclosure posture** and MUST NOT conflate them. Higher assurance MUST NOT be treated, by the manifest or by any audience-facing wording bound to it, as requiring greater identity disclosure by default. Lower disclosure posture MUST NOT be treated as implying lower assurance.
-
-This restates Trellis Core Invariant 6 ("Disclosure Posture Is Not Assurance Level") as a normative obligation on disclosure manifests.
+The independence of disclosure posture and assurance level is defined in [WOS Assurance §4 Invariant 6]. This manifest's fields for `disclosurePosture` and `assuranceLevel` are independently declared and MUST NOT be coupled.
 
 ### 4.8 Controlled Vocabulary
 
-Normative sections of this document use the controlled terms defined above. Where a Trellis Core controlled term exists (Trellis Core §4.10), that term MUST be used in preference to synonyms.
+Normative sections of this document use the controlled terms cited above. Where an upstream controlled term exists (WOS Assurance, Formspec Respondent Ledger, Trellis Core), that term MUST be used in preference to synonyms.
 
 ---
 
@@ -176,7 +157,7 @@ A conforming disclosure manifest MUST include, at minimum, the following fields.
 1. **Format and version identifier** — the manifest format identifier and version (for example `trellis-disclosure-manifest/0.1`), sufficient for a verifier to select the applicable interpretation rules.
 2. **Manifest identity and production metadata** — a stable manifest identifier, production timestamp, and producing principal or producing-service reference sufficient to attribute the manifest.
 3. **Declared audience scope** — see Section 6.
-4. **Disclosure posture** — exactly one value from the enumeration in Section 4.3, plus any binding-registered extension values that do not weaken the enumerated semantics.
+4. **Disclosure posture** — exactly one value from the `privacyTier` enumeration in [Formspec Respondent Ledger §6.6], plus any binding-registered extension values that do not weaken the enumerated semantics.
 5. **Declared claim classes** — the set of claim classes the manifest asserts are verifiable within its disclosed material (Section 8).
 6. **Scope boundary statement** — a prose or structured declaration of what is in scope and what is explicitly out of scope, sufficient to satisfy the coverage honesty obligation (Section 10).
 7. **Included canonical records** — references to each canonical record that is disclosed, at the level of detail the declared posture permits.
@@ -237,11 +218,13 @@ without requiring access to derived runtime state, canonical append service inte
 
 ### 7.1 Enumerated Posture Values
 
-**Requirement class: Constitutional semantic + Companion requirement**
+**Requirement class: Companion requirement**
 
-A disclosure manifest MUST declare exactly one disclosure posture value from the enumeration in Section 4.3 (**anonymous**, **pseudonymous**, **identified**, **public**).
+A disclosure manifest MUST declare exactly one disclosure posture value from the `privacyTier` enumeration in [Formspec Respondent Ledger §6.6] (`anonymous`, `pseudonymous`, `identified`, `public`).
 
-Profiles or bindings MAY extend this enumeration with additional values that specialize rather than redefine the four base values. An extension posture MUST declare which base value it specializes.
+Profiles or bindings MAY extend this enumeration with additional values that specialize rather than redefine the upstream base values. An extension posture MUST declare which base value it specializes.
+
+The independence of `disclosurePosture` and `assuranceLevel` is governed by [WOS Assurance §4 Invariant 6] and [Formspec Respondent Ledger §6.7]; this manifest MUST preserve that independence and MUST NOT couple the two fields.
 
 ### 7.2 Posture Honesty
 
@@ -250,14 +233,14 @@ Profiles or bindings MAY extend this enumeration with additional values that spe
 A disclosure manifest:
 
 - MUST NOT declare a posture weaker than the material actually discloses.
-- MUST NOT declare a posture stronger than the material actually disclosed supports (for example, declaring **anonymous** while disclosing a subject continuity reference).
+- MUST NOT declare a posture stronger than the material actually disclosed supports (for example, declaring `anonymous` while disclosing a subject continuity reference).
 - MUST NOT describe the same disclosure as different postures to different audiences unless each distinct posture is bound to a distinct manifest.
 
 ### 7.3 Subject Continuity Compatibility
 
 **Requirement class: Companion requirement**
 
-A **pseudonymous** manifest MAY carry a subject continuity reference (Section 4.4). An **anonymous** manifest MUST NOT carry any subject continuity reference or any other identifier that is demonstrably linkable to a subject within declared audience scope. An **identified** or **public** manifest MAY carry identifying material consistent with its declared posture.
+A `pseudonymous` manifest MAY carry a subject continuity reference per [Formspec Respondent Ledger §6.6A]. An `anonymous` manifest MUST NOT carry any subject continuity reference or any other identifier that is demonstrably linkable to a subject within declared audience scope. An `identified` or `public` manifest MAY carry identifying material consistent with its declared posture.
 
 ---
 
@@ -265,18 +248,15 @@ A **pseudonymous** manifest MAY carry a subject continuity reference (Section 4.
 
 ### 8.1 Claim Class Taxonomy
 
-**Requirement class: Companion requirement** (Unified Ledger Companion §2.4.1)
+**Requirement class: Companion requirement**
 
-A conforming disclosure manifest MUST declare, from at minimum the following claim classes, which are verifiable within its disclosed material:
+A conforming disclosure manifest MUST declare which claim classes are verifiable within its disclosed material. The manifest's ledger-anchored claim classes are:
 
 1. **Authorship claims** — that a disclosed fact was authored by a specific principal.
 2. **Append or inclusion claims** — that a disclosed canonical record was admitted into canonical order (Trellis Core S6).
 3. **Payload-integrity claims** — that a disclosed payload matches the canonical record it is bound to.
-4. **Authorization-history claims** — that grants, revocations, or delegation facts relevant to the disclosed scope existed as declared at the relevant times.
-5. **Disclosure-policy claims** — that the manifest itself was produced under a stated disclosure policy or profile.
-6. **Lifecycle or compliance claims** — where included by scope, that declared lifecycle or compliance facts existed at the relevant times.
 
-Profiles or bindings MAY define additional claim classes.
+Authorization-history, disclosure-policy, lifecycle, and compliance claim classes are governed by their respective upstream specifications and MUST be cited from those sources rather than redeclared here. Profiles or bindings MAY define additional claim classes.
 
 ### 8.2 Verifiability Honesty
 
@@ -347,17 +327,9 @@ Where a disclosure manifest is assembled within a profile that itself has a narr
 
 ## 11. Posture and Assurance Non-Conflation
 
-**Requirement class: Constitutional semantic** (Trellis Core §7.1 Invariant 6; Trellis Core §10.2)
-
 ### 11.1 Non-Conflation Obligation
 
-A conforming disclosure manifest:
-
-1. MUST distinguish assurance level from disclosure posture.
-2. MUST NOT treat higher assurance as requiring greater identity disclosure by default.
-3. MUST NOT treat lower disclosure posture (for example, **anonymous** or **pseudonymous**) as implying lower assurance.
-4. MAY support subject continuity without requiring full legal identity disclosure.
-5. MUST preserve these distinctions across audiences, trust profiles, and accompanying export artifacts.
+This manifest MUST preserve the independence declared in [WOS Assurance §4 Invariant 6]. Implementations producing this manifest MUST NOT encode `disclosurePosture` and `assuranceLevel` as a joint value.
 
 ### 11.2 Presentation Discipline
 
@@ -408,11 +380,13 @@ Whether bundled or standalone, a disclosure manifest MUST preserve the Trellis C
 
 ## 13. Security and Privacy Considerations
 
+Generic privacy-disclosure considerations are governed by [WOS Assurance §6]. The subsections below are scoped to ledger-manifest-specific concerns and do not restate upstream obligations.
+
 ### 13.1 Linkability and Correlation
 
 Selective disclosure under a pseudonymous posture does not eliminate linkability. Implementers SHOULD consider:
 
-- cross-manifest correlation when multiple manifests carry the same or derivable subject continuity references (Section 4.4),
+- cross-manifest correlation when multiple manifests carry the same or derivable subject continuity references (per [Formspec Respondent Ledger §6.6A]),
 - time-pattern correlation across manifests produced for overlapping audiences,
 - audience-collusion correlation when distinct audiences compare manifests received independently,
 - re-identification risk from payload content, scope declarations, or claim-class metadata even when identifiers are withheld.
@@ -465,6 +439,11 @@ Advanced privacy-preserving disclosure mechanisms, including BBS+-style selectiv
 
 Normative cross-references:
 
+- **WOS Assurance §4 Invariant 6** — `../../../wos-spec/specs/assurance/assurance.md`. Constitutional independence of disclosure posture and assurance level (Sections 4.7, 7.1, 11).
+- **WOS Assurance §6** — same path. Generic privacy-disclosure obligations (Section 13).
+- **Formspec Respondent Ledger §6.6 `privacyTier`** — `../../../specs/audit/respondent-ledger-spec.md`. Canonical disclosure-posture enumeration (Sections 4.3, 5.1 field 4, 7.1).
+- **Formspec Respondent Ledger §6.6A** — same path. Subject continuity definition (Sections 4.4, 7.3, 13.1).
+- **Formspec Respondent Ledger §6.7** — same path. Disclosure tier and assurance independence (Section 7.1).
 - **Trellis Core Specification** — `../core/trellis-core.md`. Parent specification. Constitutional semantics: canonical truth (S5), admission/order (S6), hash construction (S7), verification (S8), cross-repository authority (S9).
 - **Export Verification Package companion** — `./export-verification-package.md`. Sibling companion. Offline verifiability, package members, verification mode.
 - **Trust Profiles companion** — `../trust/trust-profiles.md`. Trust-profile declarations inherited by disclosure manifests.
