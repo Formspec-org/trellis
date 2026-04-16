@@ -98,7 +98,7 @@ Trellis is a **companion framework** to Formspec v1.0 and WOS v1.0. Trellis adds
 
 **Additive invariant.** Trellis MUST NOT alter Formspec data capture, validation, or Core processing model semantics (Definition evaluation, Response validation, FEL calculation, relevance, or the four-phase processing cycle). A Formspec processor that ignores all Trellis sidecars, bindings, and artifacts remains fully conformant to Formspec and produces identical data and validation results.
 
-**Delegation requirement.** When Trellis behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, or calculation — processing MUST be delegated to a Formspec-conformant processor (Core S1.4). Trellis defines admission, order, attestation, and verification shape for bound records; it does not specify bind/FEL/validation rules.
+**Delegation requirement.** When Trellis behavior depends on Formspec Definition or Response semantics — including field values, relevance, validation, or calculation — processing MUST be delegated to a Formspec-conformant processor ([Formspec Core §1.4 Conformance]). Trellis defines admission, order, attestation, and verification shape for bound records; it does not specify bind/FEL/validation rules.
 
 **Formspec conformance tier.** Trellis-bound Formspec processors MUST implement at least Formspec Core conformance (Core S2). Whether Theme or Component tiers are required depends on the Trellis conformance class: Structural and Append Service roles require Core only; roles that present or render Formspec-backed tasks to end users additionally require Component conformance.
 
@@ -573,7 +573,7 @@ Concrete export-packaging and disclosure-manifest normative requirements are spe
 
 **Requirement class:** Constitutional semantic
 
-- **Formspec** is authoritative for Definition structure ([Formspec Core §4]), validation ([Formspec Core §5]), Response semantics and the four-phase processing model ([Formspec Core §2 Conceptual Model], [§2.4 Processing Model]), FEL evaluation ([Formspec Core §3]), and version pinning ([Formspec Core §6 Versioning & Evolution, Pinning Rule VP-01]). Trellis MUST NOT restate or reinterpret these semantics; it cites them by section number.
+- **Formspec** is authoritative for Definition structure ([Formspec Core §4]), validation ([Formspec Core §5]), Response semantics and the four-phase processing model ([Formspec Core §2 Conceptual Model], [Formspec Core §2.4 Processing Model]), FEL evaluation ([Formspec Core §3]), and version pinning ([Formspec Core §6.4 Response Pinning, VP-01]). Trellis MUST NOT restate or reinterpret these semantics; it cites them by section number.
 - **WOS** is authoritative for actor model ([WOS Kernel §3]), lifecycle topology ([WOS Kernel §4]), case state model ([WOS Kernel §5]), provenance Facts tier ([WOS Kernel §8]), governance enforcement ([WOS Workflow Governance companion]), and runtime behavioral contract ([WOS Runtime companion §4–§12]). Trellis MUST NOT restate WOS evaluation or governance semantics; it cites them by section number.
 - **Trellis Core** is authoritative for canonical ledger semantics (§§5–7), append/attestation semantics (§7.4–§7.5), canonical hash construction scope (§8), verification boundaries (§9), and cross-repository authority (this section).
 

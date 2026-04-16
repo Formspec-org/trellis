@@ -60,7 +60,7 @@ Non-normative appendices appear only where a testable **SHOULD** remains.
 
 | Owning companion spec | Row count |
 |---|---:|
-| [`shared-ledger-binding.md`](shared-ledger-binding.md) | 20 |
+| [`shared-ledger-binding.md`](shared-ledger-binding.md) | 25 |
 | [`trellis-core.md`](trellis-core.md) | 22 |
 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) | 48 |
 | [`../trust/key-lifecycle-operating-model.md`](../trust/key-lifecycle-operating-model.md) | 2 |
@@ -69,10 +69,10 @@ Non-normative appendices appear only where a testable **SHOULD** remains.
 | [`../projection/projection-runtime-discipline.md`](../projection/projection-runtime-discipline.md) | 18 |
 | [`../operations/monitoring-witnessing.md`](../operations/monitoring-witnessing.md) | 5 |
 | [`../assurance/assurance-traceability.md`](../assurance/assurance-traceability.md) | 1 |
-| _(legacy only — no current owner)_ | 30 |
+| _(legacy only — no current owner)_ | 25 |
 | **Total** | **172** |
 
-The remaining "legacy only" rows are concentrated in three areas — **offline authoring** (§2.1, 18 rows), **delegated-compute output reliance** (§2.3.2, 5 rows), **conflict-handling discretionary rules** (§3.4, 3 rows), **sharing-mode discipline** (§3.1.2, 1 row), and the three non-normative App. F migration `SHOULD`s. These have not yet been promoted into a dedicated companion and remain authoritative in [`../../DRAFTS/unified_ledger_companion.md`](../../DRAFTS/unified_ledger_companion.md) until split out.
+The remaining "legacy only" rows are concentrated in three areas — **offline authoring** (§2.1, 18 rows), **conflict-handling discretionary rules** (§3.4, 3 rows), **sharing-mode discipline** (§3.1.2, 1 row), and the three non-normative App. F migration `SHOULD`s. These have not yet been promoted into a dedicated companion and remain authoritative in [`../../DRAFTS/unified_ledger_companion.md`](../../DRAFTS/unified_ledger_companion.md) until split out.
 
 ---
 
@@ -178,11 +178,11 @@ The remaining "legacy only" rows are concentrated in three areas — **offline a
 | ULCOMP-R-048 | ULCOMP-F-004 | Delegated compute grant | SHOULD be time-bounded or purpose-bounded. | SHOULD | CR | 2.3.1 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Mandatory Profile Declarations |
 | ULCOMP-R-049 | ULCOMP-F-004 | Delegated compute grant | MUST be auditable. | MUST | CR | 2.3.1 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §Family binding matrix |
 | ULCOMP-R-050 | ULCOMP-F-004 | Delegated compute grant | MUST NOT be interpreted as conferring standing plaintext access to the ordinary service runtime. | MUST NOT | CR | 2.3.1 | [`../trust/trust-profiles.md`](../trust/trust-profiles.md) §Trust honesty rule |
-| ULCOMP-R-051 | ULCOMP-F-004 | Compute output reliance | If system relies materially on delegated compute output (workflow, policy, adjudication, access, consequential actions), MUST record output as canonical fact or canonical reference to stable artifact. | MUST | CR | 2.3.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-052 | ULCOMP-F-004 | Compute output reliance | MUST preserve auditable link to authorizing principal. | MUST | CR | 2.3.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-053 | ULCOMP-F-004 | Compute output reliance | MUST preserve auditable link to compute agent identity. | MUST | CR | 2.3.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-054 | ULCOMP-F-004 | Compute output reliance | MUST preserve auditable link to scope of delegated access relevant to that output. | MUST | CR | 2.3.2 | _(legacy only — no current owner)_ |
-| ULCOMP-R-055 | ULCOMP-F-004 | Compute output reliance | MUST define whether relied-upon output is advisory, recommendatory, or decision-contributory. | MUST | CR | 2.3.2 | _(legacy only — no current owner)_ |
+| ULCOMP-R-051 | ULCOMP-F-004 | Compute output reliance | If system relies materially on delegated compute output (workflow, policy, adjudication, access, consequential actions), MUST record output as canonical fact or canonical reference to stable artifact. | MUST | CR | 2.3.2 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §S9 (Protected Payload and Access Material) |
+| ULCOMP-R-052 | ULCOMP-F-004 | Compute output reliance | MUST preserve auditable link to authorizing principal. | MUST | CR | 2.3.2 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §S9 |
+| ULCOMP-R-053 | ULCOMP-F-004 | Compute output reliance | MUST preserve auditable link to compute agent identity. | MUST | CR | 2.3.2 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §S9 |
+| ULCOMP-R-054 | ULCOMP-F-004 | Compute output reliance | MUST preserve auditable link to scope of delegated access relevant to that output. | MUST | CR | 2.3.2 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §S9 |
+| ULCOMP-R-055 | ULCOMP-F-004 | Compute output reliance | MUST define whether relied-upon output is advisory, recommendatory, or decision-contributory. | MUST | CR | 2.3.2 | [`shared-ledger-binding.md`](shared-ledger-binding.md) §S9 |
 | ULCOMP-R-056 | ULCOMP-F-005 | Disclosure & Export | MUST support at least one verifiable disclosure or export form. | MUST | PC | 2.4 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §3 |
 | ULCOMP-R-057 | ULCOMP-F-005 | Disclosure & Export | MUST preserve distinction among author facts, canonical records, attestations, later disclosure/export artifacts. | MUST | PC | 2.4 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §7 |
 | ULCOMP-R-058 | ULCOMP-F-005 | Disclosure & Export | MUST define which claims remain verifiable when payload readability is absent. | MUST | PC | 2.4 | [`../export/export-verification-package.md`](../export/export-verification-package.md) §6.1 |

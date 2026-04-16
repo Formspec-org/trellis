@@ -273,7 +273,7 @@ A relying party MUST NOT draw assurance beyond the attested property class. In p
 
 ### 7.6 Assurance-Level Claims in Witness Attestations
 
-Where a witness attestation carries, or is consumed as input to, an assurance-level claim (for example, a profile that declares quorum-witnessed checkpoints as a precondition for a given assurance posture), the claim's taxonomy and semantics are governed by the Witnessed Observation System assurance taxonomy ([WOS Assurance §2]). This companion does not redefine assurance levels; it defines only the observational material (checkpoint, consistency, inclusion, anchor) from which an assurance-level claim may be composed. A relying party consuming an assurance-level claim derived from witness attestations MUST evaluate the claim under [WOS Assurance §2], not under this companion alone.
+Where a witness attestation carries, or is consumed as input to, an assurance-level claim (for example, a profile that declares quorum-witnessed checkpoints as a precondition for a given assurance posture), the claim's taxonomy and semantics are governed by the Witnessed Observation System assurance taxonomy ([WOS Assurance §2]). The assurance taxonomy's ordered levels (L1--L4) inform, but do not directly prescribe, witness-count thresholds; this companion defines the structural count independent of the level semantics. This companion does not redefine assurance levels; it defines only the observational material (checkpoint, consistency, inclusion, anchor) from which an assurance-level claim may be composed. A relying party consuming an assurance-level claim derived from witness attestations MUST evaluate the claim under [WOS Assurance §2], not under this companion alone.
 
 ---
 

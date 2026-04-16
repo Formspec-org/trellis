@@ -122,7 +122,7 @@ The `disclosurePosture` field carries one of the values enumerated in [Formspec 
 
 ### 4.4 Subject Continuity
 
-Subject continuity semantics are defined in [Formspec Respondent Ledger §6.6A]. This manifest carries a continuity reference as an opaque string per that definition.
+Subject continuity semantics are defined in [Formspec Respondent Ledger §6.6A — Identity and implementation decoupling (subject continuity semantics)]. This manifest carries a continuity reference as an opaque string per that definition.
 
 ### 4.5 Coverage Honesty
 

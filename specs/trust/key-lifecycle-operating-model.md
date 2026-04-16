@@ -148,7 +148,7 @@ This section defines normative requirements for the seven canonical lifecycle op
 
 ### 5.1 Retention
 
-Retention semantics are defined in [WOS Governance §12 Typed Hold Policies]. This ledger represents retention as canonical lifecycle facts and honors retention end conditions when evaluating destruction eligibility.
+Retention semantics are deployment-defined; no upstream specification currently defines data retention schedules. Implementations MUST declare their retention policy. This ledger represents retention as canonical lifecycle facts and honors retention end conditions when evaluating destruction eligibility.
 
 ### 5.2 Legal Hold
 
@@ -156,7 +156,7 @@ Legal Hold semantics are defined in [WOS Governance §7.15 Legal Hold]. This led
 
 ### 5.3 Archival
 
-Archival semantics are defined in [WOS Governance §12 Typed Hold Policies]. This ledger represents archival as canonical lifecycle facts; transitions of key state to `archived` are governed by §3.
+Archival semantics are deployment-defined; no upstream specification currently defines cold-custody archival semantics. Implementations MUST declare their archival policy. This ledger represents archival as canonical lifecycle facts; transitions of key state to `archived` are governed by §3.
 
 ### 5.4 Key Destruction
 
@@ -262,7 +262,7 @@ The implementation MUST preserve an auditable record of custodian participation 
 
 **Requirement class:** Companion requirement
 
-If the deployment supports an exceptional-access pathway that bypasses the declared quorum (for example, a court-ordered single-custodian disclosure), that pathway MUST be declared as part of the threshold-custody profile and MUST itself be governed by §10 (Recovery Authorities). Threshold participation MUST NOT be described more strongly than the actual recovery process supports (Trust Profiles example Profile D, draft companion §5.5).
+If the deployment supports an exceptional-access pathway that bypasses the declared quorum (for example, a court-ordered single-custodian disclosure), that pathway MUST be declared as part of the threshold-custody profile and MUST itself be governed by §10 (Recovery Authorities). Threshold participation MUST NOT be described more strongly than the actual recovery process supports (Trust Profiles example Profile D).
 
 ---
 

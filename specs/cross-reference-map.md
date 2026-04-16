@@ -62,15 +62,15 @@ This map records the upstream home for every concept removed from Trellis specs 
 | ULCOMP-R-186 | Forms sidecar — change-set semantics | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-187 | Forms sidecar — history moments reproducible from canonical/profile material | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-188 | Forms sidecar — respondent export views remain derived/disclosure-oriented | [Formspec Respondent Ledger §6.6A, §6.7] |
-| ULCOMP-R-189 | Workflow sidecar — workflow mapping distinctions (operational vs canonical) | [WOS Governance §7 workflow governance] |
-| ULCOMP-R-190 | Workflow sidecar — governance fact-family canonical-vs-operational classification | [WOS Governance §7] |
-| ULCOMP-R-191 | Workflow sidecar — review-stage semantics | [WOS Governance §7] |
-| ULCOMP-R-192 | Workflow sidecar — approval/recovery/compensating semantics | [WOS Governance §7] |
-| ULCOMP-R-193 | Workflow sidecar — operational sequencing MUST NOT be mistaken for canonical order | [WOS Governance §7] |
-| ULCOMP-R-194 | Workflow sidecar — provenance family (trace derived to canonical) | [WOS Governance §7] |
-| ULCOMP-R-195 | Workflow sidecar — conflict family distinctions | [WOS Governance §7] |
-| ULCOMP-R-196 | Workflow sidecar — export views preserve provenance/scope honesty | [WOS Governance §7] |
-| ULCOMP-R-197 | Appendix A — versioned registries for identifier/kind categories | [WOS Governance §2 registry conventions] |
+| ULCOMP-R-189 | Workflow sidecar — workflow mapping distinctions (operational vs canonical) | [WOS Governance §§3–4, §8, §11 — due process, review protocols, rejection/remediation, delegation] |
+| ULCOMP-R-190 | Workflow sidecar — governance fact-family canonical-vs-operational classification | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-191 | Workflow sidecar — review-stage semantics | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-192 | Workflow sidecar — approval/recovery/compensating semantics | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-193 | Workflow sidecar — operational sequencing MUST NOT be mistaken for canonical order | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-194 | Workflow sidecar — provenance family (trace derived to canonical) | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-195 | Workflow sidecar — conflict family distinctions | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-196 | Workflow sidecar — export views preserve provenance/scope honesty | [WOS Governance §§3–4, §8, §11] |
+| ULCOMP-R-197 | Appendix A — versioned registries for identifier/kind categories | (no confirmed upstream home — registry conventions are not defined in current WOS specs; deployment-defined) |
 
 ## Concept-to-home map (summary)
 

@@ -488,7 +488,7 @@ A disclosure-oriented artifact:
 
 **Requirement class: Cross-reference**
 
-User-held record reuse is a data-contract concern, not a custody-mode binding. See [Formspec Respondent Ledger §2.3 / §15A Profile A] for the normative definition.
+User-held record reuse is a data-contract concern, not a custody-mode binding. See [Formspec Respondent Ledger §15A.1 Profile A] for the normative definition.
 
 ### 10.6 Respondent History (Cross-Reference)
 
@@ -640,7 +640,7 @@ These examples are useful when documenting tradeoffs among:
 - **[WOS Kernel §10.5]** — WOS Kernel Specification, §10 Seams, S10.5 `custodyHook` (`wos-spec/specs/kernel/spec.md`).
 - **[WOS Assurance §2]**, **[WOS Assurance §4]** — WOS Assurance Specification, §2 Assurance Levels, §4 Invariant 6 (Disclosure Posture Is Not Assurance Level) (`wos-spec/specs/assurance/assurance.md`).
 - **[WOS Governance §2.9]** — WOS Workflow Governance Specification, §2.9 Schema Upgrade (`wos-spec/specs/governance/workflow-governance.md`).
-- **[Formspec Respondent Ledger §2.3 / §6.6A / §15A Profile A]** — Formspec Respondent Ledger Specification (`specs/audit/respondent-ledger-spec.md`).
+- **[Formspec Respondent Ledger §6.6A / §15A.1 Profile A]** — Formspec Respondent Ledger Specification (`specs/audit/respondent-ledger-spec.md`).
 - **[RFC 2119]** — Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997.
 - **[RFC 8174]** — Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017.
 - **[RFC 8259]** — Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format", STD 90, RFC 8259, December 2017.
