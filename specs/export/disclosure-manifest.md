@@ -20,7 +20,7 @@ This document is a **draft specification**. It is a companion to the Trellis Cor
 
 ## Abstract
 
-The Disclosure Manifest companion defines audience-scoped disclosure semantics as first-class release artifacts, separate from canonical records and their append attestations. It specifies a minimum manifest field set, the enumerated disclosure postures, claim-class declarations, selective disclosure discipline, coverage honesty, and the boundary between the disclosure manifest and the Export Verification Package. This companion adds disclosure semantics to the Trellis export layer defined in Trellis Core (S5, S8) and refined in Export Verification Package (S3). It does not define Formspec or WOS semantics.
+The Disclosure Manifest companion defines audience-scoped disclosure semantics as first-class release artifacts, separate from canonical records and their append attestations. It specifies a minimum manifest field set, the enumerated disclosure postures, claim-class declarations, selective disclosure discipline, coverage honesty, and the boundary between the disclosure manifest and the Export Verification Package. This companion adds disclosure semantics to the Trellis export layer defined in Trellis Core (§6, §9) and refined in Export Verification Package (S3). It does not define Formspec or WOS semantics.
 
 ## Table of Contents
 
@@ -50,14 +50,14 @@ This companion defines audience-scoped disclosure artifacts — called *disclosu
 
 This companion does not define:
 
-- Formspec Definition, Response, FEL, or validation semantics (Trellis Core S1.2).
-- WOS lifecycle, case state, or governance enforcement semantics (Trellis Core S9).
-- Canonical ledger, append order, or canonical hash construction semantics (Trellis Core S5–S7).
+- Formspec Definition, Response, FEL, or validation semantics (Trellis Core §1.2).
+- WOS lifecycle, case state, or governance enforcement semantics (Trellis Core §10).
+- Canonical ledger, append order, or canonical hash construction semantics (Trellis Core §6–§8).
 - Offline verifiability of exported material (Export Verification Package S3).
 
 ### 1.2 Relationship to Trellis Core
 
-A disclosure manifest is a species of the *disclosure or export artifact* object class defined in Trellis Core (S4.1). Disclosure manifests MUST preserve the canonical/derived distinctions of Trellis Core S4.2, S5, and S8, and MUST NOT be treated as canonical truth or as canonical rewrites.
+A disclosure manifest is a species of the *disclosure or export artifact* object class defined in Trellis Core (§5.1). Disclosure manifests MUST preserve the canonical/derived distinctions of Trellis Core §5.2, §6, and §9, and MUST NOT be treated as canonical truth or as canonical rewrites.
 
 ### 1.3 Additive Invariant
 
@@ -74,7 +74,7 @@ JSON syntax and data types are as defined in [RFC 8259]. URI syntax is as define
 Requirement-class markers used in this companion:
 
 - **Constitutional semantic** — preserved from Trellis Core; cited, not redefined here.
-- **Profile constraint** — attaches to the Disclosure and Export Profile (Trellis Core S2.2).
+- **Profile constraint** — attaches to the Disclosure and Export Profile (Trellis Core §2.2).
 - **Companion requirement** — reusable subordinate requirement introduced by this companion.
 
 ---
@@ -93,7 +93,7 @@ A conforming implementation MUST satisfy all requirements applicable to each cla
 
 ### 3.2 Profile Binding
 
-A Disclosure Producer or Disclosure Verifier that claims the **Disclosure and Export Profile** (Trellis Core S2.2) MUST also satisfy the profile-level requirements of Unified Ledger Companion S2.4 as restated and refined in this document.
+A Disclosure Producer or Disclosure Verifier that claims the **Disclosure and Export Profile** (Trellis Core §2.2) MUST also satisfy the profile-level requirements of Unified Ledger Companion S2.4 as restated and refined in this document.
 
 ---
 
@@ -101,7 +101,7 @@ A Disclosure Producer or Disclosure Verifier that claims the **Disclosure and Ex
 
 ### 4.1 Disclosure or Export Artifact
 
-**Requirement class: Constitutional semantic** (Trellis Core S4.6)
+**Requirement class: Constitutional semantic** (Trellis Core §4.6)
 
 An audience-specific package, presentation, or view assembled for portability, review, or selective disclosure. A disclosure manifest is a *disclosure or export artifact*. It is distinct from the canonical record it may reference and from any canonical append attestation that binds that record into canonical order.
 
@@ -134,7 +134,7 @@ A property of a disclosure manifest under which the manifest MUST NOT imply broa
 
 **Requirement class: Companion requirement** (Unified Ledger Companion §2.4.2)
 
-The production of an audience-specific subset, projection, or presentation of canonical or derived material, without rewriting canonical records and while preserving provenance distinctions (Trellis Core S12.4, Export Verification Package S3.7).
+The production of an audience-specific subset, projection, or presentation of canonical or derived material, without rewriting canonical records and while preserving provenance distinctions (Trellis Core §9.4, Export Verification Package S3.7).
 
 ### 4.7 Posture and Assurance Non-Conflation
 
@@ -163,7 +163,7 @@ A conforming disclosure manifest MUST include, at minimum, the following fields.
 7. **Included canonical records** — references to each canonical record that is disclosed, at the level of detail the declared posture permits.
 8. **Omitted canonical records** — a declaration of records or classes of records that exist within the declared scope but are intentionally withheld, sufficient for a verifier to recognize that the disclosure is a subset (Section 9).
 9. **Redaction and readability declarations** — for each disclosed record or payload, a declaration of whether content is readable, encrypted, redacted, or intentionally omitted, and whether any redaction is irreversible at the disclosure level (Section 13.3).
-10. **Provenance distinctions preserved** — explicit binding between disclosed claims and the canonical records, canonical append attestations, and earlier author-originated facts they derive from (Trellis Core S12.4).
+10. **Provenance distinctions preserved** — explicit binding between disclosed claims and the canonical records, canonical append attestations, and earlier author-originated facts they derive from (Trellis Core §9.4).
 11. **Posture–assurance non-conflation declaration** — a declaration that MUST NOT bind disclosure posture to assurance level and MUST NOT be phrased in a way that implies such binding (Section 4.7, Section 11).
 12. **Relationship to any accompanying Export Verification Package** — see Section 12.
 
@@ -253,7 +253,7 @@ A `pseudonymous` manifest MAY carry a subject continuity reference per [Formspec
 A conforming disclosure manifest MUST declare which claim classes are verifiable within its disclosed material. The manifest's ledger-anchored claim classes are:
 
 1. **Authorship claims** — that a disclosed fact was authored by a specific principal.
-2. **Append or inclusion claims** — that a disclosed canonical record was admitted into canonical order (Trellis Core S6).
+2. **Append or inclusion claims** — that a disclosed canonical record was admitted into canonical order (Trellis Core §7).
 3. **Payload-integrity claims** — that a disclosed payload matches the canonical record it is bound to.
 
 Authorization-history, disclosure-policy, lifecycle, and compliance claim classes are governed by their respective upstream specifications and MUST be cited from those sources rather than redeclared here. Profiles or bindings MAY define additional claim classes.
@@ -286,7 +286,7 @@ A disclosure manifest MUST preserve the distinction among:
 - derived artifacts,
 - later disclosure or export artifacts,
 
-for every disclosed item (Trellis Core S4.1, S12.4).
+for every disclosed item (Trellis Core §5.1, §9.4).
 
 ### 9.3 No Canonical Rewrite
 
@@ -372,9 +372,9 @@ Standalone manifests remain subject to all other requirements of this companion,
 
 ### 12.4 Provenance Distinction Across the Boundary
 
-**Requirement class: Constitutional semantic** (Trellis Core S12.4)
+**Requirement class: Constitutional semantic** (Trellis Core §9.4)
 
-Whether bundled or standalone, a disclosure manifest MUST preserve the Trellis Core S12.4 distinction among author-originated facts, canonical records, canonical append attestations, and later disclosure or export artifacts. This distinction MUST NOT be collapsed at either the manifest layer or the package layer.
+Whether bundled or standalone, a disclosure manifest MUST preserve the Trellis Core §9.4 distinction among author-originated facts, canonical records, canonical append attestations, and later disclosure or export artifacts. This distinction MUST NOT be collapsed at either the manifest layer or the package layer.
 
 ---
 
@@ -395,7 +395,7 @@ A Disclosure Producer SHOULD minimize linkable metadata consistent with the sele
 
 ### 13.2 Metadata Leakage
 
-Manifest-level metadata (audience identifiers, temporal bounds, scope purpose, claim-class declarations) is itself disclosed to the audience and potentially to observers of the manifest's distribution path. Implementers SHOULD limit manifest metadata to what the declared posture and claim classes require, in line with the metadata-minimization discipline of Trellis Core (S10; Unified Ledger Companion §3.9.1).
+Manifest-level metadata (audience identifiers, temporal bounds, scope purpose, claim-class declarations) is itself disclosed to the audience and potentially to observers of the manifest's distribution path. Implementers SHOULD limit manifest metadata to what the declared posture and claim classes require, in line with the metadata-minimization discipline of Trellis Core (§13.2; Unified Ledger Companion §3.9.1).
 
 ### 13.3 Redaction Irreversibility
 
@@ -431,7 +431,7 @@ SD-JWT [RFC 9535 / draft-ietf-oauth-selective-disclosure-jwt] and Verifiable Cre
 
 ### 14.2 Later-Phase Seams
 
-Advanced privacy-preserving disclosure mechanisms, including BBS+-style selective disclosure signatures and other unlinkable-credential schemes, remain later-phase seams and are not required for baseline conformance (Trellis Core S10.1).
+Advanced privacy-preserving disclosure mechanisms, including BBS+-style selective disclosure signatures and other unlinkable-credential schemes, remain later-phase seams and are not required for baseline conformance (Trellis Core §13.3).
 
 ---
 
@@ -444,7 +444,7 @@ Normative cross-references:
 - **Formspec Respondent Ledger §6.6 `privacyTier`** — `../../../specs/audit/respondent-ledger-spec.md`. Canonical disclosure-posture enumeration (Sections 4.3, 5.1 field 4, 7.1).
 - **Formspec Respondent Ledger §6.6A** — same path. Subject continuity definition (Sections 4.4, 7.3, 13.1).
 - **Formspec Respondent Ledger §6.7** — same path. Disclosure tier and assurance independence (Section 7.1).
-- **Trellis Core Specification** — `../core/trellis-core.md`. Parent specification. Constitutional semantics: canonical truth (S5), admission/order (S6), hash construction (S7), verification (S8), cross-repository authority (S9).
+- **Trellis Core Specification** — `../core/trellis-core.md`. Parent specification. Constitutional semantics: canonical truth (§6), admission/order (§7), hash construction (§8), verification (§9), cross-repository authority (§10).
 - **Export Verification Package companion** — `./export-verification-package.md`. Sibling companion. Offline verifiability, package members, verification mode.
 - **Trust Profiles companion** — `../trust/trust-profiles.md`. Trust-profile declarations inherited by disclosure manifests.
 - **Assurance Traceability companion** — `../assurance/assurance-traceability.md`. Assurance-level semantics; relevant to posture/assurance non-conflation (Section 11).

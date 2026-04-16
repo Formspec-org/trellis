@@ -32,13 +32,13 @@ This companion does not define WOS runtime semantics. Workflow execution, govern
 
 ## Purpose
 
-Preserve rich workflow, governance, and provenance semantics over canonical truth without allowing workflow runtime state to override the canonical-record/derived-artifact distinction established in Trellis Core (S5.1) and Projection and Runtime Discipline (S2).
+Preserve rich workflow, governance, and provenance semantics over canonical truth without allowing workflow runtime state to override the canonical-record/derived-artifact distinction established in Trellis Core (§5.1, §6.1) and Projection and Runtime Discipline (S2).
 
 ## Scope and Subordination
 
 This companion, when ratified, MUST remain subordinate to:
 
-1. **Trellis Core** — canonical truth, canonical order, append-only invariants, no second canonical truth (Core S5.2 invariants 1–3).
+1. **Trellis Core** — canonical truth, canonical order, append-only invariants, no second canonical truth (Trellis Core §6.2 invariants 1–3).
 2. **Shared Ledger Binding** — WOS-family admission rules and family-matrix minimum fields.
 3. **Trust Profiles** — custody postures governing what governance/review/provenance facts are visible to which observer classes.
 4. **Projection and Runtime Discipline** — workflow runtime engines are derived processors, not canonical ledgers; staff-facing workflow projections MUST carry watermarks.
@@ -46,18 +46,7 @@ This companion, when ratified, MUST remain subordinate to:
 
 ## Inbound Requirements
 
-The following requirements from the companion requirements matrix [`../core/unified-ledger-companion-requirements-matrix.md`](../core/unified-ledger-companion-requirements-matrix.md) are owned by this companion and will be extracted into normative sections in a subsequent draft:
-
-| Inbound ID | Topic | Source in legacy draft |
-|---|---|---|
-| ULCOMP-R-189 | Workflow state to canonical fact mapping | `DRAFTS/unified_ledger_companion.md` §7.2 |
-| ULCOMP-R-190 | Governance and processing facts | `DRAFTS/unified_ledger_companion.md` §7.3 |
-| ULCOMP-R-191 | Review and adjudication semantics | `DRAFTS/unified_ledger_companion.md` §7.4 |
-| ULCOMP-R-192 | Approval, escalation, and recovery semantics | `DRAFTS/unified_ledger_companion.md` §7.5 |
-| ULCOMP-R-193 | Operational sequencing distinct from canonical order | `DRAFTS/unified_ledger_companion.md` §7.5 |
-| ULCOMP-R-194 | Provenance family semantics | `DRAFTS/unified_ledger_companion.md` §7.6 |
-| ULCOMP-R-195 | Conflict and resolution families | `DRAFTS/unified_ledger_companion.md` §7.7 |
-| ULCOMP-R-196 | Workflow export views | `DRAFTS/unified_ledger_companion.md` §7.8 |
+Requirements formerly tracked here (ULCOMP-R-189..196) have been retired from the Trellis companion matrix and moved upstream. See [`../cross-reference-map.md`](../cross-reference-map.md) for their current homes.
 
 ## Conformance
 

@@ -69,7 +69,7 @@ Define explicit custody and readability postures, the honesty rules that bind th
 
 **Requirement class: Non-normative guidance**
 
-[Trellis Core] treats the Trust Profile as a first-class constitutional semantic object (Trellis Core S10, S11). [WOS Kernel §10.5] `custodyHook` delegates Trust Profile object definition to this binding spec. This companion elaborates the object shape, the honesty requirements, the transition requirements, and the Standard Profiles that a deployment MAY conform to. Bindings MAY choose the concrete wire shape, but they MUST preserve the semantic fields and meanings defined in §3.
+[Trellis Core] treats the Trust Profile as a first-class constitutional semantic object (Trellis Core §4.7 and §13.4, delegating concrete object semantics to this companion). [WOS Kernel §10.5] `custodyHook` delegates Trust Profile object definition to this binding spec. This companion elaborates the object shape, the honesty requirements, the transition requirements, and the Standard Profiles that a deployment MAY conform to. Bindings MAY choose the concrete wire shape, but they MUST preserve the semantic fields and meanings defined in §3.
 
 ### 1.3 Relationship to Other Companions
 
@@ -109,7 +109,7 @@ An implementation MAY additionally claim conformance to one or more Standard Pro
 
 **Requirement class: Constitutional semantic**
 
-[Trellis Core] S10.1 treats the Trust Profile as a first-class semantic object, even when a binding chooses the concrete serialization. A Trust Profile object MUST semantically include at least:
+[Trellis Core] §4.7 names the Trust Profile as a first-class semantic object and delegates its concrete object semantics to this companion, even when a binding chooses the concrete serialization. A Trust Profile object MUST semantically include at least:
 
 1. a profile identifier,
 2. a scope or deployment mode identifier,
@@ -139,7 +139,7 @@ Disclosure posture and assurance level semantics are defined in [WOS Assurance �
 
 **Requirement class: Constitutional semantic**
 
-[Trellis Core] S11.1. For every deployment mode that handles protected content, an implementation:
+Trust-honesty semantics are owned by this companion under the delegation from [Trellis Core] §13.4 (Trust and Privacy Disclosure Obligations). For every deployment mode that handles protected content, an implementation:
 
 - MUST publish a Trust Profile,
 - MUST state whether ordinary service operation is provider-readable, reader-held, or reader-held with delegated compute,
@@ -153,7 +153,7 @@ Disclosure posture and assurance level semantics are defined in [WOS Assurance �
 
 **Requirement class: Constitutional semantic**
 
-[Trellis Core] S11.2. If an implementation changes custody mode, provider readability posture, recovery semantics, or delegated compute semantics for protected content, it:
+Trust Profile transition semantics are owned by this companion under the delegation from [Trellis Core] §13.4. If an implementation changes custody mode, provider readability posture, recovery semantics, or delegated compute semantics for protected content, it:
 
 - MUST treat that change as a Trust Profile transition,
 - MUST make the transition auditable,
@@ -166,7 +166,7 @@ The generic named-lifecycle-operation pattern that governs versioned, declared t
 
 **Requirement class: Companion requirement**
 
-Trust Profile transitions MUST be append-attributable: each transition MUST be recorded as a canonical fact that identifies the actor, the prior profile, the new profile, the effective time, and the policy authority ([Trellis Core] S5.2 invariant 1, S6.1). The minimal canonical fact shape for a transition event follows the Shared Ledger Binding family matrix for trust and access facts. The append-attributability requirement is the ledger-specific declaration of the named-lifecycle-operation pattern in [WOS Governance §2.9].
+Trust Profile transitions MUST be append-attributable: each transition MUST be recorded as a canonical fact that identifies the actor, the prior profile, the new profile, the effective time, and the policy authority ([Trellis Core] §6.2 invariant 1, §7.1). The minimal canonical fact shape for a transition event follows the Shared Ledger Binding family matrix for trust and access facts. The append-attributability requirement is the ledger-specific declaration of the named-lifecycle-operation pattern in [WOS Governance §2.9].
 
 ### 4.4 Mutual Exclusion
 
@@ -351,7 +351,7 @@ A conforming Offline Authoring Profile SHOULD:
 - avoid treating broad local collaboration state as canonical truth,
 - define how rejected offline submissions are surfaced without implying canonical admission.
 
-Such a profile MUST preserve the core state machine and provenance distinctions of [Trellis Core] S8.
+Such a profile MUST preserve the core state machine and provenance distinctions of [Trellis Core] §7.3 (Fact Admission State Machine).
 
 #### 10.1.1 Offline Submission Semantics
 
@@ -455,7 +455,7 @@ An implementation conforming to the Disclosure and Export Profile:
 - MUST preserve the distinction between author-originated facts, canonical records, canonical append attestations, and later disclosure or export artifacts,
 - MUST define which claims remain verifiable when payload readability is absent,
 - MUST define profile-specific audience scope where relevant,
-- MUST remain subordinate to the export guarantees of [Trellis Core] S12 and to [Export-Verification-Package].
+- MUST remain subordinate to the export guarantees of [Trellis Core] §9 and to [Export-Verification-Package].
 
 #### 10.4.1 Export Claim Classes
 
@@ -622,7 +622,7 @@ These examples are useful when documenting tradeoffs among:
 
 **Requirement class: Companion requirement**
 
-- Trust Profile declarations are themselves canonical facts and MUST NOT be altered after append ([Trellis Core] S5.2 invariant 1).
+- Trust Profile declarations are themselves canonical facts and MUST NOT be altered after append ([Trellis Core] §6.2 invariant 1).
 - Escalation of effective verification posture MUST NOT occur silently; posture transitions MUST be represented by explicit canonical facts (§7.3, Shared Ledger Binding S5).
 - Auditor access is bounded: auditors MAY observe metadata and timing but MUST NOT be required to access protected payloads (§12.1).
 - Metadata-budget declarations MUST account for all observable side channels, not just direct data access (§6).

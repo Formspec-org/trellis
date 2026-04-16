@@ -28,7 +28,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 The Forms and Respondent-History Sidecar companion will define concrete forms-family and respondent-history sidecar semantics — stable path semantics, item-key semantics, validation snapshots, amendment cycles, migration outcomes, change-set structure, respondent-visible history moments, and respondent-facing export views — that remain subordinate to Trellis Core canonical-truth invariants and to the Trust Profiles, Projection, Export, and Disclosure companions.
 
-This companion does not define Formspec processing semantics. Authored semantics for form fields, validation, calculation, and version pinning remain authoritative in Formspec Core (Core S1.4, Core S6.4) and MUST be delegated to a Formspec-conformant processor.
+This companion does not define Formspec processing semantics. Authored semantics for form fields, validation, calculation, and version pinning remain authoritative in Formspec Core ([Formspec Core §1.4 Conformance], [Formspec Core §6.4 Response Pinning]) and MUST be delegated to a Formspec-conformant processor.
 
 ## Purpose
 
@@ -38,7 +38,7 @@ Preserve stable respondent-visible meaning across drafts, submissions, amendment
 
 This companion, when ratified, MUST remain subordinate to:
 
-1. **Trellis Core** — canonical truth, canonical order, canonical hash construction, append-only invariants (Core S5.2).
+1. **Trellis Core** — canonical truth, canonical order, canonical hash construction, append-only invariants (Trellis Core §6.2).
 2. **Shared Ledger Binding** — Formspec-family admission rules and family-matrix minimum fields.
 3. **Trust Profiles** — custody and metadata-budget declarations governing respondent-visible material.
 4. **Projection and Runtime Discipline** — respondent-facing projections MUST carry watermarks and remain rebuildable from canonical records.
@@ -46,18 +46,7 @@ This companion, when ratified, MUST remain subordinate to:
 
 ## Inbound Requirements
 
-The following requirements from the companion requirements matrix [`../core/unified-ledger-companion-requirements-matrix.md`](../core/unified-ledger-companion-requirements-matrix.md) are owned by this companion and will be extracted into normative sections in a subsequent draft:
-
-| Inbound ID | Topic | Source in legacy draft |
-|---|---|---|
-| ULCOMP-R-181 | Stable path semantics | `DRAFTS/unified_ledger_companion.md` §6.2 |
-| ULCOMP-R-182 | Item-key semantics | `DRAFTS/unified_ledger_companion.md` §6.3 |
-| ULCOMP-R-183 | Validation snapshot structure | `DRAFTS/unified_ledger_companion.md` §6.4 |
-| ULCOMP-R-184 | Amendment cycle semantics | `DRAFTS/unified_ledger_companion.md` §6.5 |
-| ULCOMP-R-185 | Migration outcome semantics | `DRAFTS/unified_ledger_companion.md` §6.6 |
-| ULCOMP-R-186 | Respondent-history change-set structure | `DRAFTS/unified_ledger_companion.md` §6.7 |
-| ULCOMP-R-187 | Respondent-visible history moments | `DRAFTS/unified_ledger_companion.md` §6.8 |
-| ULCOMP-R-188 | Respondent-history export views | `DRAFTS/unified_ledger_companion.md` §6.9 |
+Requirements formerly tracked here (ULCOMP-R-181..188) have been retired from the Trellis companion matrix and moved upstream. See [`../cross-reference-map.md`](../cross-reference-map.md) for their current homes.
 
 ## Conformance
 

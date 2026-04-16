@@ -26,7 +26,7 @@ JSON syntax and data types are as defined in [RFC 8259].
 
 ## Abstract
 
-The Projection and Runtime Discipline companion defines strict rules for derived systems so that canonical truth never drifts into a hidden second truth. It specifies projection categories, watermarking, rebuild contracts, snapshot discipline, purge-cascade requirements, authorization-evaluator behavior, and the runtime boundary between canonical ledgers and derived processors. This companion adds projection semantics to the Trellis Core model (Core S4–S5). It does not define WOS runtime semantics.
+The Projection and Runtime Discipline companion defines strict rules for derived systems so that canonical truth never drifts into a hidden second truth. It specifies projection categories, watermarking, rebuild contracts, snapshot discipline, purge-cascade requirements, authorization-evaluator behavior, and the runtime boundary between canonical ledgers and derived processors. This companion adds projection semantics to the Trellis Core model (Core §5–§6). It does not define WOS runtime semantics.
 
 ## Table of Contents
 
@@ -57,11 +57,11 @@ The Projection and Runtime Discipline companion defines strict rules for derived
 
 This companion governs the discipline that derived systems — projections, evaluator state, caches, timelines, dashboards, queues, indexes, snapshots, and workflow runtime — MUST observe so that none of them silently become a second source of canonical truth.
 
-The companion adds operational rules to Trellis Core (S4–S5) for admission, watermarking, rebuild, snapshot, purge-cascade, and runtime boundary concerns. It does not redefine canonical append, order, hash, or attestation semantics, which remain authoritative in Trellis Core (S5–S7).
+The companion adds operational rules to Trellis Core (§5–§6) for admission, watermarking, rebuild, snapshot, purge-cascade, and runtime boundary concerns. It does not redefine canonical append, order, hash, or attestation semantics, which remain authoritative in Trellis Core (§6–§8).
 
 ### 1.2 Relationship to Trellis Core
 
-Trellis Core (S5.2, Invariant 2) establishes that **derived artifacts MUST NOT be treated as canonical truth**. This companion refines that invariant into operational requirements on the classes of derived artifact that deployments actually build.
+Trellis Core (§6.2, Invariant 2) establishes that **derived artifacts MUST NOT be treated as canonical truth**. This companion refines that invariant into operational requirements on the classes of derived artifact that deployments actually build.
 
 All normative requirements in this companion MUST be read as subordinate to Trellis Core. Where this companion's text appears to conflict with Trellis Core, Trellis Core prevails.
 
@@ -81,7 +81,7 @@ This companion defines the following conformance roles:
 
 A conforming implementation MUST satisfy all requirements applicable to each claimed role.
 
-Roles defined in Trellis Core (Core S2.1) remain applicable. An implementation that materializes projections is acting as a Derived Processor (Core S2.2) in addition to whichever role is claimed here.
+Roles defined in Trellis Core (Core §2.1) remain applicable. An implementation that materializes projections is acting as a Derived Processor (Core §2.5.4) in addition to whichever role is claimed here.
 
 ---
 
@@ -91,11 +91,11 @@ This section defines terms as used in this companion. Where a term is also used 
 
 ### 3.1 Canonical Truth
 
-The set of admitted canonical records, canonical append attestations, and canonical checkpoint material, as defined by Trellis Core (Core S5.1). Canonical truth excludes all derived runtime state. The canonical-versus-derived boundary itself is the Trellis instantiation of [WOS Kernel §12 Separation Principles].
+The set of admitted canonical records, canonical append attestations, and canonical checkpoint material, as defined by Trellis Core (Core §6.1). Canonical truth excludes all derived runtime state. The canonical-versus-derived boundary itself is the Trellis instantiation of [WOS Kernel §12 Separation Principles].
 
 ### 3.2 Derived Artifact
 
-Any runtime or materialized artifact computed from canonical records, including but not limited to queues, dashboards, indexes, caches, read models, materialized views, timelines, search projections, snapshots, and evaluator state. Cited in Trellis Core (Core S3.4). See [WOS Kernel §12 Separation Principles] for the generic separation framing.
+Any runtime or materialized artifact computed from canonical records, including but not limited to queues, dashboards, indexes, caches, read models, materialized views, timelines, search projections, snapshots, and evaluator state. Cited in Trellis Core (Core §4.5). See [WOS Kernel §12 Separation Principles] for the generic separation framing.
 
 ### 3.3 Projection
 
@@ -123,7 +123,7 @@ A decision that grants, denies, expands, contracts, delegates, or revokes access
 
 ### 3.9 Canonical Checkpoint
 
-A Trellis Core concept (Core S5.1) referring to the append-attested state at a declared canonical order position. Watermarks in this companion reference canonical checkpoints.
+A Trellis Core concept (Core §6.1) referring to the append-attested state at a declared canonical order position. Watermarks in this companion reference canonical checkpoints.
 
 ---
 
@@ -135,9 +135,9 @@ The generic separation principle — that audit and governance state are not aut
 
 ### 4.1 PRD-01 — No Derived Artifact Is Canonical Truth
 
-**PRD-01 (MUST).** No projection, evaluator state, cache, snapshot, timeline, dashboard, queue, index, read model, materialized view, workflow runtime state, or any other derived artifact is authoritative for canonical facts. Canonical truth is defined exclusively by Trellis Core (Core S5.1).
+**PRD-01 (MUST).** No projection, evaluator state, cache, snapshot, timeline, dashboard, queue, index, read model, materialized view, workflow runtime state, or any other derived artifact is authoritative for canonical facts. Canonical truth is defined exclusively by Trellis Core (Core §6.1).
 
-PRD-01 is the ledger-operational restatement of Trellis Core Invariant 3 (Core S5.2, "Derived Artifact Is Not Canonical Truth") and of [WOS Kernel §12 Separation Principles] for a canonical-ledger deployment. Every subsequent section of this companion that defines derived artifact behavior MUST be read as subordinate to PRD-01.
+PRD-01 is the ledger-operational restatement of Trellis Core Invariant 2 (Core §6.2, "No Second Canonical Truth") and of [WOS Kernel §12 Separation Principles] for a canonical-ledger deployment. Every subsequent section of this companion that defines derived artifact behavior MUST be read as subordinate to PRD-01.
 
 ### 4.2 Enforcement Posture
 
@@ -184,7 +184,7 @@ Projections delivered to a human consumer (staff or respondent). These MUST carr
 
 ### 6.2 System Projections
 
-Internal caches, indexes, read models, and materialized views used by the platform itself. System projections MUST be rebuildable from canonical records (Core S6, S8 of this companion) and MUST internally record the watermark fields of S7.1, but are exempt from the display requirements in S7.2. Purge-cascade rules (S14) apply.
+Internal caches, indexes, read models, and materialized views used by the platform itself. System projections MUST be rebuildable from canonical records (Core §7, S8 of this companion) and MUST internally record the watermark fields of S7.1, but are exempt from the display requirements in S7.2. Purge-cascade rules (S14) apply.
 
 ### 6.3 Category Declaration
 
@@ -307,7 +307,7 @@ Cryptographic-erasure events recorded as canonical lifecycle facts (see `key-lif
 
 **Requirement class: Companion requirement**
 
-The generic separation of lifecycle state from case state is owned by [WOS Kernel §12(1) Lifecycle vs. Case State Separation]. This section adds the ledger-specific canonical-admission rule that governs when a workflow event crosses into canonical truth in a Trellis deployment. Workflow runtime is a derived processor (Core S2.2) and is governed by PRD-01.
+The generic separation of lifecycle state from case state is owned by [WOS Kernel §12(1) Lifecycle vs. Case State Separation]. This section adds the ledger-specific canonical-admission rule that governs when a workflow event crosses into canonical truth in a Trellis deployment. Workflow runtime is a derived processor (Core §2.5.4) and is governed by PRD-01.
 
 ### 11.1 PRD-09 — Canonical-Admission Distinctions
 
@@ -319,7 +319,7 @@ The generic separation of lifecycle state from case state is owned by [WOS Kerne
 
 ### 11.2 Non-Elevation
 
-No operational sequencing, queue depth, scheduler event, or workflow runtime state is canonical truth solely by virtue of its operational role. Elevation to canonical status requires the workflow event to be admitted as a canonical record by the active binding (Core S6).
+No operational sequencing, queue depth, scheduler event, or workflow runtime state is canonical truth solely by virtue of its operational role. Elevation to canonical status requires the workflow event to be admitted as a canonical record by the active binding (Core §7).
 
 ---
 
@@ -335,7 +335,7 @@ This section adapts the unified ledger companion (§7.6) into this companion.
 
 1. trace derived outputs back to the canonical inputs from which they were computed,
 2. distinguish workflow interpretation from canonical truth, preserving the boundary established by PRD-01 and PRD-09,
-3. preserve provenance across export packaging, so that consumers of export artifacts can recover the derived-to-canonical trace (see `trellis-core.md` S8 for verifier obligations on export-package canonical provenance claims),
+3. preserve provenance across export packaging, so that consumers of export artifacts can recover the derived-to-canonical trace (see `trellis-core.md` §9 for verifier obligations on export-package canonical provenance claims),
 4. support rebuild of derived views from the preserved provenance, consistent with PRD-02 and PRD-04.
 
 ### 12.2 Interpretation Layers
@@ -406,11 +406,11 @@ See `key-lifecycle-operating-model.md` for the canonical lifecycle-fact semantic
 
 ### 15.1 PRD-14 — Workflow Runtime Is a Derived Processor
 
-**PRD-14 (MUST).** Workflow and orchestration engines are derived processors (Core S2.2), not canonical ledgers. Their runtime state is a derived artifact under PRD-01 and is subject to PRD-02.
+**PRD-14 (MUST).** Workflow and orchestration engines are derived processors (Core §2.5.4), not canonical ledgers. Their runtime state is a derived artifact under PRD-01 and is subject to PRD-02.
 
 ### 15.2 Binding-Declared Admission Only
 
-A workflow or orchestration engine contributes to canonical truth only by submitting facts through the Canonical Append Service under the active binding's admission rules (Core S6). The engine MUST NOT write canonical records out-of-band, replay them into canonical order independently, or reinterpret admitted records.
+A workflow or orchestration engine contributes to canonical truth only by submitting facts through the Canonical Append Service under the active binding's admission rules (Core §7). The engine MUST NOT write canonical records out-of-band, replay them into canonical order independently, or reinterpret admitted records.
 
 ---
 
@@ -461,10 +461,10 @@ This companion relates to the following upstream and Trellis documents. Citation
 **Trellis:**
 
 - **`trellis-core.md`** — the foundation specification. This companion refines:
-  - Invariant 3 (Core S5.2, "Derived Artifact Is Not Canonical Truth") → anchored here as PRD-01 (S4.1),
-  - canonical truth boundary (Core S5.1) → scoped here for derived artifacts (S4, S5),
-  - Derived Processor role (Core S2.2) → extended here with projection-specific obligations (S6–S9) and Authorization Evaluator obligations (S10),
-  - verifier obligations on export-package canonical provenance claims (Core S8) → referenced by S12.1.
+  - Invariant 2 (Core §6.2, "No Second Canonical Truth") → anchored here as PRD-01 (S4.1),
+  - canonical truth boundary (Core §6.1) → scoped here for derived artifacts (S4, S5),
+  - Derived Processor role (Core §2.5.4) → extended here with projection-specific obligations (S6–S9) and Authorization Evaluator obligations (S10),
+  - verifier obligations on export-package canonical provenance claims (Core §9) → referenced by S12.1.
 - **`trust-profiles.md`** — governs metadata budgets for respondent-facing and staff-facing views (S6.2, S17.1) and the Trust Profile inheritance posture that derived artifacts MUST respect.
 - **`key-lifecycle-operating-model.md`** — canonical lifecycle facts for cryptographic erasure and key destruction; cryptographic-erasure invalidation cascades into projection and evaluator state (S10.5, S14.3, S17.3).
 - **`monitoring-witnessing.md`** — observability posture for detecting projection drift, stale evaluator state, and purge-cascade incompleteness (S17.5).

@@ -24,13 +24,13 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 JSON syntax and data types are as defined in [RFC 8259]. URI syntax is as defined in [RFC 3986].
 
-Terminology in this document follows the Trellis Core controlled vocabulary (Trellis Core S3). The preferred terms — *author-originated fact*, *canonical fact*, *canonical record*, *canonical append attestation*, *derived artifact*, *disclosure or export artifact*, *append-head reference* — are used without restatement.
+Terminology in this document follows the Trellis Core controlled vocabulary (Trellis Core §4). The preferred terms — *author-originated fact*, *canonical fact*, *canonical record*, *canonical append attestation*, *derived artifact*, *disclosure or export artifact*, *append-head reference* — are used without restatement.
 
 ## Abstract
 
 The Export Verification Package companion defines normative requirements for offline-verifiable export packages assembled from Trellis canonical truth. It specifies required package contents, the verifier obligation set, export verification independence from runtime systems, claim classes that a package MAY support, provenance distinctions that a package MUST preserve, and algorithm agility requirements that keep historical exports verifiable across schema and algorithm evolution.
 
-This companion adds export-packaging semantics to the Trellis verification layer defined in Trellis Core (S8) and to the Disclosure and Export Profile in the companion family. It does not define Formspec or WOS semantics and does not modify canonical truth, canonical order, canonical append attestation, or trust-honesty semantics established by Trellis Core.
+This companion adds export-packaging semantics to the Trellis verification layer defined in Trellis Core (§9) and to the Disclosure and Export Profile in the companion family. It does not define Formspec or WOS semantics and does not modify canonical truth, canonical order, canonical append attestation, or trust-honesty semantics established by Trellis Core.
 
 ## Table of Contents
 
@@ -58,7 +58,7 @@ This companion adds export-packaging semantics to the Trellis verification layer
 
 This companion defines what an Export Verification Package MUST contain, what a verifier MUST be able to establish from it, and what the package MUST NOT depend on. It is the normative home for export packaging semantics in the Trellis specification family.
 
-Trellis Core S8 defines verification requirements on canonical truth in the abstract. This companion defines the **package shape** — the set of materials a producer assembles so that an offline verifier can discharge those obligations without access to the producing service.
+Trellis Core §9 defines verification requirements on canonical truth in the abstract. This companion defines the **package shape** — the set of materials a producer assembles so that an offline verifier can discharge those obligations without access to the producing service.
 
 ### 1.2 Out of Scope
 
@@ -80,7 +80,7 @@ An Export Verification Package MUST be a self-contained verifiable object. The p
 
 ### 2.1 Conformance Roles
 
-This companion defines requirements for two Trellis conformance roles (Trellis Core S2.1):
+This companion defines requirements for two Trellis conformance roles (Trellis Core §2.1):
 
 1. **Export Generator** — assembles Export Verification Packages from canonical truth.
 2. **Verifier** — validates Export Verification Packages offline.
@@ -91,14 +91,14 @@ A system conforms to this companion only if it satisfies every applicable MUST r
 
 Each normative requirement in this companion is tagged with one of:
 
-- **Constitutional semantic** — derived from or preserving Trellis Core invariants. A conflict with core governs in favor of core (Trellis Core S2.3).
+- **Constitutional semantic** — derived from or preserving Trellis Core invariants. A conflict with core governs in favor of core (Trellis Core §2.3).
 - **Profile constraint** — scoped to the Disclosure and Export Profile or a narrower declared profile.
 
 ### 2.3 Profile Subordination
 
 **Requirement class:** Profile constraint
 
-A profile or binding that defines audience-specific, family-specific, or deployment-specific export rules MUST remain subordinate to this companion and to Trellis Core S8. It MUST NOT weaken any MUST requirement in this document, and it MUST NOT reinterpret the claim classes in §8 in a way that permits a package to imply support for a claim class it cannot verify.
+A profile or binding that defines audience-specific, family-specific, or deployment-specific export rules MUST remain subordinate to this companion and to Trellis Core §9. It MUST NOT weaken any MUST requirement in this document, and it MUST NOT reinterpret the claim classes in §8 in a way that permits a package to imply support for a claim class it cannot verify.
 
 ---
 
@@ -106,9 +106,9 @@ A profile or binding that defines audience-specific, family-specific, or deploym
 
 **Requirement class:** Constitutional semantic
 
-A conforming implementation MUST support independently verifiable exports for at least one declared scope of canonical truth (Trellis Core S8, Trellis Core §12.1 legacy).
+A conforming implementation MUST support independently verifiable exports for at least one declared scope of canonical truth (Trellis Core §9).
 
-The declared export scope MUST identify the canonical append scope from which the package is drawn. Inclusion, consistency, position, and export claims apply only within that declared scope (Trellis Core S6.1).
+The declared export scope MUST identify the canonical append scope from which the package is drawn. Inclusion, consistency, position, and export claims apply only within that declared scope (Trellis Core §7.4).
 
 ---
 
@@ -178,7 +178,7 @@ A package MUST NOT assert or imply verifiability of any claim class for which th
 
 **Requirement class:** Constitutional semantic
 
-An Export Verification Package MUST preserve the distinctions among the primary object classes defined in Trellis Core S5.1. Specifically, the package MUST keep distinguishable:
+An Export Verification Package MUST preserve the distinctions among the primary object classes defined in Trellis Core §5.1. Specifically, the package MUST keep distinguishable:
 
 1. author-originated facts,
 2. canonical records,
@@ -227,7 +227,7 @@ Selective disclosure MUST NOT leak the existence of undisclosed claims through s
 
 **Requirement class:** Constitutional semantic
 
-An Export Verification Package exists to be verified at a time later than the time it was produced. Algorithm and schema evolution MUST NOT silently invalidate prior export verification, and it MUST NOT silently reinterpret historical records under newer rules (Trellis Core §16.6; companion Appendix C).
+An Export Verification Package exists to be verified at a time later than the time it was produced. Algorithm and schema evolution MUST NOT silently invalidate prior export verification, and it MUST NOT silently reinterpret historical records under newer rules (Trellis Core §12.2; companion Appendix C).
 
 A conforming Export Generator:
 
@@ -277,7 +277,7 @@ A Disclosure Manifest MAY be included as a member of an Export Verification Pack
 
 1. The manifest's declared claim classes MUST be a subset of the claim classes the package can verify under §5 and §8.
 2. The package MUST carry the material required to verify any provenance link the manifest asserts back to canonical records.
-3. The manifest remains a disclosure or export artifact under Trellis Core S5.1; it MUST NOT be treated as canonical truth, and its inclusion MUST NOT alter the provenance distinctions of §7.
+3. The manifest remains a disclosure or export artifact under Trellis Core §5.1; it MUST NOT be treated as canonical truth, and its inclusion MUST NOT alter the provenance distinctions of §7.
 
 The **manifest-vs-package boundary**: the manifest governs **disclosure policy and audience scope**; the package governs **offline verifiability of canonical and disclosed material together**. Either artifact MAY exist without the other. A package without a manifest is a raw verifiable export. A manifest without a package is an audience-scoped disclosure declaration whose offline verifiability is not asserted by this companion.
 
@@ -287,7 +287,7 @@ The **manifest-vs-package boundary**: the manifest governs **disclosure policy a
 
 ### 14.1 Security
 
-- Export Verification Packages MUST NOT include cryptographic secrets. Verification relies on public key material and canonical attestations (Trellis Core S8).
+- Export Verification Packages MUST NOT include cryptographic secrets. Verification relies on public key material and canonical attestations (Trellis Core §9).
 - Packages containing protected payloads or Trust Profile declarations MUST be protected in transit and at rest consistent with the active Trust Profile.
 - Implementers SHOULD consider key compromise, verifier or parser divergence, replay and reordering, service equivocation, and snapshot misuse. External anchoring (§4, §4 optional references) MAY strengthen detection of equivocation.
 
@@ -304,7 +304,7 @@ The **manifest-vs-package boundary**: the manifest governs **disclosure policy a
 
 ### 15.1 Trellis family
 
-- **Trellis Core:** `trellis/specs/core/trellis-core.md` — canonical truth, invariants, verification requirements (S8), conformance roles (S2).
+- **Trellis Core:** `trellis/specs/core/trellis-core.md` — canonical truth, invariants, verification requirements (§9), conformance roles (§2).
 - **Disclosure Manifest:** `trellis/specs/export/disclosure-manifest.md` — audience-scoped disclosure; boundary defined in §13.
 - **Trust Profiles:** `trellis/specs/trust/trust-profiles.md` — custody postures that determine what is exportable and under what confidentiality posture.
 - **Key Lifecycle Operating Model:** `trellis/specs/trust/key-lifecycle-operating-model.md` — key and algorithm lifecycle that underwrites historical verifiability (§10).

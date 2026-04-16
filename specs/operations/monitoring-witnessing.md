@@ -44,7 +44,7 @@ This companion is subordinate to Trellis Core. Nothing in this document redefine
 
 ### 1.1 Scope
 
-The Monitoring and Witnessing companion defines publication and verification seams for independent monitors, witnesses, and external anchoring services that observe the Trellis canonical substrate defined in Trellis Core (S4–S8). It specifies:
+The Monitoring and Witnessing companion defines publication and verification seams for independent monitors, witnesses, and external anchoring services that observe the Trellis canonical substrate defined in Trellis Core (§5–§9). It specifies:
 
 - the checkpoint publication interface exposed by a Canonical Append Service,
 - the append-head consistency checking protocol consumed by monitors,
@@ -57,7 +57,7 @@ This companion does not define witness network topology, consensus protocols, qu
 
 ### 1.2 Non-Redefinition
 
-Monitoring and witnessing are observational seams layered on top of the canonical append semantics defined in Trellis Core S9 (Canonical Order and Attestation). A witness, monitor, or anchor MUST NOT be treated as authoritative for canonical truth, canonical order, or canonical append attestation. The Canonical Append Service defined in Trellis Core remains the single issuer of canonical append attestations within a declared append scope.
+Monitoring and witnessing are observational seams layered on top of the canonical append semantics defined in Trellis Core §7 (Fact Admission, Canonicalization, and Order). A witness, monitor, or anchor MUST NOT be treated as authoritative for canonical truth, canonical order, or canonical append attestation. The Canonical Append Service defined in Trellis Core remains the single issuer of canonical append attestations within a declared append scope.
 
 ### 1.3 Design Goal
 
@@ -77,7 +77,7 @@ JSON syntax and data types are as defined in [RFC 8259]. URI syntax is as define
 
 For the purposes of this document, the following terms are defined. Where a term is also used in Trellis Core, the core definition governs and this companion narrows it to its monitoring and witnessing use.
 
-- **Append-head.** The append-head reference (Trellis Core S4.10) representing the current tip of canonical order within a declared append scope at a given logical time. An append-head commits to every prior canonical record within that scope.
+- **Append-head.** The append-head reference (Trellis Core §4.10) representing the current tip of canonical order within a declared append scope at a given logical time. An append-head commits to every prior canonical record within that scope.
 - **Checkpoint.** A published snapshot of an append-head at a declared append position (log index) within a declared append scope, suitable for independent observation. A checkpoint is not itself a canonical append attestation; it is a derived publication over canonical material.
 - **Consistency proof.** Proof material demonstrating that one append-head extends another within the same declared append scope — that is, that every canonical record committed by the earlier head is also committed by the later head in the same order. A consistency proof is specified by the active binding (for example, a transparency-log consistency proof over a Merkle append tree).
 - **Witness.** An independent observer that attests to having observed published checkpoint material and, where the profile requires, to having verified append-growth consistency between checkpoints. A witness does not issue canonical append attestations.
@@ -103,7 +103,7 @@ External witnessing:
 This section is the most important normative rule in this companion. It governs every other section. Three consequences follow:
 
 1. **Witness absence does not invalidate canonical records.** A canonical append attestation issued by a conforming Canonical Append Service remains canonical even when no witness has observed the corresponding checkpoint.
-2. **Witness disagreement does not rewrite canonical order.** If a witness reports inconsistency, canonical order as established by Trellis Core S9 is unchanged. Witness reports trigger detection workflows; they do not mutate canonical truth.
+2. **Witness disagreement does not rewrite canonical order.** If a witness reports inconsistency, canonical order as established by Trellis Core §7.4 is unchanged. Witness reports trigger detection workflows; they do not mutate canonical truth.
 3. **Profiles MAY elevate.** A profile or binding MAY declare that canonical correctness within its scope requires witness participation (for example, a profile requiring quorum-witnessed checkpoints before export issuance). Such elevation MUST be explicit in the profile or binding and MUST define the minimum witness participation required.
 
 ---
@@ -166,10 +166,10 @@ A checkpoint publication interface MUST expose at minimum:
 
 | Resource | Description |
 |---|---|
-| Append scope identifier | Stable identifier for the declared append scope (Trellis Core S9.1). |
+| Append scope identifier | Stable identifier for the declared append scope (Trellis Core §7.4). |
 | Checkpoint identifier | Stable identifier for the checkpoint within the declared append scope. |
-| Append position | Monotonic log index (Trellis Core S9.2) at checkpoint time. |
-| Append-head reference | Canonical append-head reference at the checkpoint's append position (Trellis Core S4.10, S9.2). |
+| Append position | Monotonic log index (Trellis Core §7.5) at checkpoint time. |
+| Append-head reference | Canonical append-head reference at the checkpoint's append position (Trellis Core §4.10, §7.5). |
 | Checkpoint time | Service-declared time at which the checkpoint was produced. |
 | Consistency proof material | Proof material (as defined by the active binding) sufficient to verify that this checkpoint's append-head extends any earlier published checkpoint within the same append scope. |
 | Inclusion proof material | Optional per-record inclusion proof material for records committed by this checkpoint, where the binding supports it. |
@@ -180,7 +180,7 @@ A checkpoint publication interface MUST expose at minimum:
 A conforming Canonical Append Service:
 
 - MUST publish checkpoints at a cadence declared by the active profile or binding,
-- MUST NOT publish checkpoints whose append-head reference does not correspond to a canonical append-head actually established under Trellis Core S9,
+- MUST NOT publish checkpoints whose append-head reference does not correspond to a canonical append-head actually established under Trellis Core §7,
 - MUST NOT revise a previously published checkpoint; corrections MUST be represented as later checkpoints and MUST NOT rewrite append position assignments,
 - MUST preserve sufficient proof material to allow consistency proofs between any two published checkpoints within the same declared append scope.
 
@@ -214,7 +214,7 @@ On detecting a consistency failure, a monitor:
 - MUST emit an alert to operators or relying parties within its declared governance scope,
 - SHOULD publish structured evidence of the failure in the format of S9.3 when the failure constitutes equivocation,
 - MAY, and under a declared enforcement profile SHOULD, suspend further reliance on append-head references from the affected Canonical Append Service pending investigation,
-- MUST NOT rewrite or annotate canonical records as a consequence of the failure; canonical records remain as appended under Trellis Core S9.
+- MUST NOT rewrite or annotate canonical records as a consequence of the failure; canonical records remain as appended under Trellis Core §7.
 
 Whether a monitor MUST halt reliance is an enforcement-posture decision and is governed by S10.
 
@@ -244,7 +244,7 @@ A witness attestation:
 
 ### 7.3 Witness-Versus-Canonical Distinction
 
-The Canonical Append Service issues canonical append attestations (Trellis Core S9.2): service-issued proofs that a canonical record was admitted into canonical order under the active append model. A witness issues witness attestations: independent observer statements about published checkpoint material and, optionally, about consistency, inclusion, or anchoring. The two are distinct object classes. A relying party MUST NOT substitute one for the other, and an export or disclosure artifact MUST preserve the distinction.
+The Canonical Append Service issues canonical append attestations (Trellis Core §7.5): service-issued proofs that a canonical record was admitted into canonical order under the active append model. A witness issues witness attestations: independent observer statements about published checkpoint material and, optionally, about consistency, inclusion, or anchoring. The two are distinct object classes. A relying party MUST NOT substitute one for the other, and an export or disclosure artifact MUST preserve the distinction.
 
 ### 7.4 Minimum Witness Attestation Content
 
@@ -330,7 +330,7 @@ Publication behavior constituting equivocation is not limited to explicit contra
 
 ### 9.2 Relationship to Core Canonical Order
 
-Under Trellis Core S9.1, canonical order has a declared scope, and the canonical append-attestation stream is the single ordered source of truth for canonical record inclusion and sequence. Equivocation is a violation of the single-ordered-source requirement at the publication layer. Equivocation does not retroactively "split" canonical truth; rather, it is evidence that the Canonical Append Service has published statements that cannot all be canonical. At most one of the published append-heads can be consistent with actual durable append state; any others are service misbehavior.
+Under Trellis Core §7.4, canonical order has a declared scope, and the canonical append-attestation stream is the single ordered source of truth for canonical record inclusion and sequence. Equivocation is a violation of the single-ordered-source requirement at the publication layer. Equivocation does not retroactively "split" canonical truth; rather, it is evidence that the Canonical Append Service has published statements that cannot all be canonical. At most one of the published append-heads can be consistent with actual durable append state; any others are service misbehavior.
 
 ### 9.3 Equivocation Evidence Format
 
@@ -468,7 +468,7 @@ Witnesses and monitors observe:
 - query timing and query volume,
 - anchor record timing and external log positions.
 
-Even in a trust profile where protected payloads are reader-held (Trellis Core S10.1), append-head and cadence observation can reveal information about append volume, activity patterns, and governance rhythm.
+Even in a trust profile where protected payloads are reader-held (see `trellis/specs/trust/trust-profiles.md` §9.3 Access Categories), append-head and cadence observation can reveal information about append volume, activity patterns, and governance rhythm.
 
 ### 14.2 What Witnesses MUST NOT Observe
 
@@ -489,7 +489,7 @@ The checkpoint publication interface SHOULD expose only the material required fo
 
 This companion is intended to be read alongside:
 
-- **Trellis Core** ([`../core/trellis-core.md`](../core/trellis-core.md)) — constitutional definitions of canonical truth, canonical order, canonical records, and canonical append attestations. Anchoring and witness semantics in this document are subordinate to Trellis Core S9.
+- **Trellis Core** ([`../core/trellis-core.md`](../core/trellis-core.md)) — constitutional definitions of canonical truth, canonical order, canonical records, and canonical append attestations. Anchoring and witness semantics in this document are subordinate to Trellis Core §7.
 - **Shared Ledger Binding** ([`../core/shared-ledger-binding.md`](../core/shared-ledger-binding.md)) — concrete proof model (inclusion and consistency proofs, append-head binding) invoked by S6, S7, and S8 of this companion.
 - **Export Verification Package** ([`../export/export-verification-package.md`](../export/export-verification-package.md)) — consistency proof and append-head binding material carried in export packages for independent verification.
 - **Assurance Traceability** ([`../assurance/assurance-traceability.md`](../assurance/assurance-traceability.md)) — how monitor, witness, and anchor material contributes to assurance claims traceable across canonical records, exports, and disclosure artifacts.

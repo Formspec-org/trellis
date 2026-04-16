@@ -16,7 +16,7 @@ status: draft
 
 ## Status of This Document
 
-This document is a **draft companion specification** to Trellis Core v0.1 (hereafter "Core"). It is subordinate to Core and is governed by the profile and binding subordination rule of Core §2.3 and the ontology discipline of Core §4.2: this binding MUST NOT redefine canonical truth, canonical order, canonical append attestation semantics, the canonical hash construction, or verification boundaries established by Core. Where this binding places additional constraints on conforming implementations, it does so only through mechanisms that remain consistent with Core.
+This document is a **draft companion specification** to Trellis Core v0.1 (hereafter "Core"). It is subordinate to Core and is governed by the profile and binding subordination rule of Core §2.3 and the ontology discipline of Core §5.2: this binding MUST NOT redefine canonical truth, canonical order, canonical append attestation semantics, the canonical hash construction, or verification boundaries established by Core. Where this binding places additional constraints on conforming implementations, it does so only through mechanisms that remain consistent with Core.
 
 This document defines the shared ledger binding: the wire-level, admission-level, and verifier-facing obligations for admitting Formspec-family, WOS-family, trust-family, and release-family facts into a single Trellis canonical substrate.
 
@@ -82,25 +82,25 @@ This companion does not define Formspec or WOS semantics — it governs admissio
 
 ### S1.1 Scope
 
-This binding instantiates Core §6 (Canonical Admission and Order) and Core §7 (Canonical Hash Construction) into a concrete wire format, an append-attestation proof model, idempotency identity, and a family-indexed admission matrix. It also fixes the minimum-field contract for the four families (Formspec, WOS, trust, release) admitted into the Trellis canonical substrate.
+This binding instantiates Core §7 (Fact Admission, Canonicalization, and Order) and Core §8 (Canonical Hash Construction) into a concrete wire format, an append-attestation proof model, idempotency identity, and a family-indexed admission matrix. It also fixes the minimum-field contract for the four families (Formspec, WOS, trust, release) admitted into the Trellis canonical substrate.
 
 This binding does **not** redefine or restrict:
 
 - Formspec Definition, Response, FEL, validation, or processing-model semantics (Formspec Core S1–S7);
 - WOS kernel lifecycle, case state, governance, or runtime semantics (WOS Kernel S3–S8; WOS Runtime S4–S12);
-- Core canonical truth, canonical order, canonical hash construction, or verification semantics (Core §5–§8).
+- Core canonical truth, canonical order, canonical hash construction, or verification semantics (Core §6–§9).
 
 ### S1.2 Subordination Statement
 
 **Requirement class: Companion requirement.**
 
-Per Core §2.3 (Profile and Binding Subordination) and Core §4.2 (Ontology Discipline), this binding is subordinate to Core. Nothing in this binding may be interpreted to:
+Per Core §2.3 (Profile and Binding Subordination) and Core §5.2 (Ontology Discipline), this binding is subordinate to Core. Nothing in this binding may be interpreted to:
 
-- alter the definition of canonical truth (Core §5.1),
-- create a second canonical order for any governed scope (Core §5.2 invariant 3),
-- redefine the canonical event hash construction (Core §5.2 invariant 4, Core §7),
-- weaken independent verification requirements (Core §8), or
-- redefine cross-repository authority (Core §9).
+- alter the definition of canonical truth (Core §6.1),
+- create a second canonical order for any governed scope (Core §6.2 invariant 3),
+- redefine the canonical event hash construction (Core §6.2 invariant 4, Core §8),
+- weaken independent verification requirements (Core §9), or
+- redefine cross-repository authority (Core §10).
 
 Where this binding appears to conflict with Core, Core prevails.
 
@@ -116,11 +116,11 @@ Provide one verifier-facing admission and proof model that works uniformly acros
 
 This binding imposes obligations on all five Core conformance roles (Core §2.1):
 
-1. **Fact Producer** (Core §2.2) — binding producer obligations in S2.2.1.
-2. **Canonical Append Service** (Core §2.2) — binding append-service obligations in S2.2.2.
-3. **Verifier** (Core §2.2) — binding verifier obligations in S2.2.3.
-4. **Derived Processor** (Core §2.2) — binding derived-processor obligations in S2.2.4.
-5. **Export Generator** (Core §2.2) — binding export-generator obligations in S2.2.5.
+1. **Fact Producer** (Core §2.5.1) — binding producer obligations in S2.2.1.
+2. **Canonical Append Service** (Core §2.5.2) — binding append-service obligations in S2.2.2.
+3. **Verifier** (Core §2.5.3) — binding verifier obligations in S2.2.3.
+4. **Derived Processor** (Core §2.5.4) — binding derived-processor obligations in S2.2.4.
+5. **Export Generator** (Core §2.5.5) — binding export-generator obligations in S2.2.5.
 
 A conforming implementation MUST satisfy all binding obligations for each Core role it claims.
 
@@ -135,7 +135,7 @@ A conforming Fact Producer MUST:
 - emit each author-originated fact in a form that can be mapped to a canonical record envelope (S6) satisfying minimum-field obligations for its declared family (S5);
 - include a `construction_id` (S15) on the payload digest that it binds into the fact;
 - preserve the four-layer separation of S9 when the fact carries protected payload or access material;
-- refrain from rewriting previously emitted facts (Core §2.2); corrections MUST be new facts linked by cross-family reference (S12).
+- refrain from rewriting previously emitted facts (Core §2.5.1); corrections MUST be new facts linked by cross-family reference (S12).
 
 #### S2.2.2 Canonical Append Service
 
@@ -143,9 +143,9 @@ A conforming Fact Producer MUST:
 
 A conforming Canonical Append Service MUST:
 
-- enforce append-only canonical order per governed scope (Core §5.2 invariants 1 and 3, Core §6.2);
+- enforce append-only canonical order per governed scope (Core §6.2 invariants 1 and 3, Core §7.4);
 - produce canonical record envelopes (S6) deterministically serialized under the registered `construction_id` (S15);
-- compute the canonical event hash under the registered construction (Core §7);
+- compute the canonical event hash under the registered construction (Core §8);
 - issue append attestations carrying the inclusion and consistency proof material defined in S7;
 - enforce idempotency per S8 so that retries and replays resolve deterministically to the same canonical record reference or declared no-op outcome;
 - reject non-admissible submissions with a rejection code drawn from the registry in S10.2;
@@ -170,7 +170,7 @@ A conforming Verifier MUST, without recourse to derived runtime state:
 
 A conforming Derived Processor MUST:
 
-- treat canonical records as authoritative input (Core §2.2);
+- treat canonical records as authoritative input (Core §2.5.4);
 - rebuild deterministically from the canonical append order, without relying on operational receipt time or in-memory runtime state;
 - preserve provenance distinctions (S9) when re-presenting canonical facts in derived views;
 - **not** reinterpret a canonical record under a different `construction_id` than the one it was admitted under (S15.4).
@@ -179,7 +179,7 @@ A conforming Derived Processor MUST:
 
 **Requirement class: Companion requirement.**
 
-A conforming Export Generator MUST, per Core §2.2 and in coordination with the Export Verification Package companion (see S18):
+A conforming Export Generator MUST, per Core §2.5.5 and in coordination with the Export Verification Package companion (see S18):
 
 - include, for each exported canonical record, the envelope and append-attestation material sufficient for a Verifier (S2.2.3) to revalidate inclusion and consistency without contacting the originating append service;
 - embed or immutably reference the `construction_id` and registry entries (S16) needed to interpret every exported record;
@@ -189,11 +189,11 @@ A conforming Export Generator MUST, per Core §2.2 and in coordination with the 
 
 ## S3. Terminology
 
-Terms defined in Core §3 apply. This binding additionally defines:
+Terms defined in Core §4 apply. This binding additionally defines:
 
 ### S3.1 Canonical Record Envelope
 
-The JSON object defined in S6.1 that carries the author-originated fact, family identification, schema pinning, construction identifier, idempotency identity, and family-required minimum fields. The envelope is the pre-serialization input to the canonical event hash (Core §7).
+The JSON object defined in S6.1 that carries the author-originated fact, family identification, schema pinning, construction identifier, idempotency identity, and family-required minimum fields. The envelope is the pre-serialization input to the canonical event hash (Core §8).
 
 ### S3.2 Append Head
 
@@ -209,7 +209,7 @@ Integrity-verifiable evidence that one append head is a monotonic extension of a
 
 ### S3.5 Construction ID
 
-A registered identifier (S16.2) naming the exact serialization, digest, and append-attestation construction used for a canonical record. Baseline Trellis binds `construction_id = "trellis-jcs-sha256-v1"` to JCS + SHA-256 per Core §7.
+A registered identifier (S16.2) naming the exact serialization, digest, and append-attestation construction used for a canonical record. Baseline Trellis binds `construction_id = "trellis-jcs-sha256-v1"` to JCS + SHA-256 per Core §8.
 
 ### S3.6 Idempotency Identity
 
@@ -227,13 +227,13 @@ A registered identifier (S16.3) naming the access posture under which a protecte
 
 **Requirement class: Companion requirement.**
 
-This binding MUST admit Formspec-family, WOS-family, trust-family, and release-family facts into **one** governed canonical substrate per governed scope, using the shared append, hash, and verification rules of Core §5–§8 as instantiated by this binding.
+This binding MUST admit Formspec-family, WOS-family, trust-family, and release-family facts into **one** governed canonical substrate per governed scope, using the shared append, hash, and verification rules of Core §6–§9 as instantiated by this binding.
 
 ### S4.2 Non-Reinterpretation
 
 **Requirement class: Companion requirement.**
 
-This binding MUST NOT reinterpret Formspec or WOS semantic authority (Core §9). Family payloads remain authoritative in their source repositories. Trellis governs admission, order, attestation, and verification shape for bound records only.
+This binding MUST NOT reinterpret Formspec or WOS semantic authority (Core §10). Family payloads remain authoritative in their source repositories. Trellis governs admission, order, attestation, and verification shape for bound records only.
 
 ### S4.3 Delegation Requirement
 
@@ -255,7 +255,7 @@ The following minimum-field contract is normative. Every canonical record envelo
 
 | `family_id` | Authority | Required minimum fields | Notes |
 |---|---|---|---|
-| `formspec.authored` | Formspec Core S4–S7 | `family_id`, `schema_ref`, `authored_at` (RFC 3339), `author_ref`, `payload_ref` | Trellis binds; does not redefine authored semantics (Core §9). |
+| `formspec.authored` | Formspec Core S4–S7 | `family_id`, `schema_ref`, `authored_at` (RFC 3339), `author_ref`, `payload_ref` | Trellis binds; does not redefine authored semantics (Core §10). |
 | `wos.governance` | WOS Kernel S3–S8; WOS Runtime S4–S12 | `family_id`, `schema_ref`, `governance_scope`, `actor_ref`, `payload_ref` | Runtime meaning remains in WOS. |
 | `trellis.trust` | Trust Profiles S3 | `family_id`, `profile_ref`, `policy_ref`, `effective_at` (RFC 3339), `subject_ref` | MUST align with trust-profile declarations. |
 | `trellis.release` | Export Verification Package S3 | `family_id`, `package_ref`, `audience_ref`, `readability_ref`, `version_ref` | Used for verifier/export semantics. |
@@ -303,7 +303,7 @@ OPTIONAL: `access_material_ref`, `custody_mode`, `references`, `extensions`.
 
 **Requirement class: Binding or reference choice.**
 
-The canonical serialization of the envelope for hashing (Core §7) and for transmission between binding-conformant systems MUST be [RFC 8785] JSON Canonicalization Scheme (JCS) applied to the envelope as written in S6.1.
+The canonical serialization of the envelope for hashing (Core §8) and for transmission between binding-conformant systems MUST be [RFC 8785] JSON Canonicalization Scheme (JCS) applied to the envelope as written in S6.1.
 
 ### S6.3 Canonical Event Hash
 
@@ -315,7 +315,7 @@ Under baseline `construction_id = "trellis-jcs-sha256-v1"`, the canonical event 
 canonical_event_hash = SHA-256( JCS(envelope) )
 ```
 
-represented as a lowercase hex string. This is the instantiation of Core §7 for this binding. Future constructions MUST be registered per S16.2 before verifiers are required to accept them (S15.3).
+represented as a lowercase hex string. This is the instantiation of Core §8 for this binding. Future constructions MUST be registered per S16.2 before verifiers are required to accept them (S15.3).
 
 ### S6.4 Envelope Integrity Under Profiles
 
@@ -323,7 +323,7 @@ represented as a lowercase hex string. This is the instantiation of Core §7 for
 
 Profiles MAY add envelope fields under `extensions`. A profile MUST NOT introduce envelope fields that:
 
-- mutate meaning across time (the envelope is immutable once hashed, per Core §5.2 invariant 1);
+- mutate meaning across time (the envelope is immutable once hashed, per Core §6.2 invariant 1);
 - bypass the `construction_id` (every envelope carries exactly one);
 - create alternate paths for the idempotency identity of S8.
 
@@ -397,7 +397,7 @@ Under the default proof model, a consistency proof between two append heads `H_m
 
 A Verifier MUST, using `proof_path`, recompute the root at `from_tree_size` and the root at `to_tree_size` and MUST confirm both match their respective append heads.
 
-An append service MUST NOT publish an append head at `tree_size = n` whose consistency proof against any previously published head at `tree_size = m < n` would fail; doing so is an append-only violation under Core §5.2 invariant 1.
+An append service MUST NOT publish an append head at `tree_size = n` whose consistency proof against any previously published head at `tree_size = m < n` would fail; doing so is an append-only violation under Core §6.2 invariant 1.
 
 ### S7.5 Proof Portability
 
@@ -421,7 +421,7 @@ A conforming Fact Producer SHOULD generate `idempotency_key` as a stable functio
 
 **Requirement class: Companion requirement.**
 
-Per Companion §3.3.1 and Core §5.2 invariant 6, for a given idempotency identity within a declared governed scope, a Canonical Append Service (S2.2.2) MUST resolve every successful retry to exactly one of:
+Per Companion §3.3.1 and Core §6.2 invariant 6, for a given idempotency identity within a declared governed scope, a Canonical Append Service (S2.2.2) MUST resolve every successful retry to exactly one of:
 
 1. the same canonical record reference that was admitted on the first successful submission (idempotent admission), or
 2. the same declared no-op outcome (idempotent no-op).
@@ -461,7 +461,7 @@ Per Companion §3.6, a canonical record MUST preserve the semantic distinction a
 
 - The envelope (S6.1) MUST NOT inline protected-payload plaintext.
 - The envelope MAY carry `access_material_ref` (an identifier or URI) but MUST NOT inline key material that would grant provider-readable access when the active Trust Profile declares reader-held or delegated-compute custody (see S18 → Trust Profiles).
-- The append attestation (S7) MUST NOT depend on access-material state; attestation remains verifiable whether or not any given Verifier can decrypt the payload (Core §8).
+- The append attestation (S7) MUST NOT depend on access-material state; attestation remains verifiable whether or not any given Verifier can decrypt the payload (Core §9).
 
 ### S9.3 Custody Mode Field
 
@@ -485,9 +485,9 @@ A Canonical Append Service MUST:
 
 1. reject records missing required minimum fields for the declared family (S5);
 2. carry stable schema/version references (`schema_ref`) for verification portability (S11);
-3. preserve the canonical hash construction bound by `construction_id` without family-specific overrides (Core §7, S15);
+3. preserve the canonical hash construction bound by `construction_id` without family-specific overrides (Core §8, S15);
 4. reject records whose computed canonical event hash does not match the registered construction (`hash_construction_mismatch`);
-5. refuse to admit a record that would create competing canonical order for the same governed scope (Core §5.2 invariant 3).
+5. refuse to admit a record that would create competing canonical order for the same governed scope (Core §6.2 invariant 3).
 
 ### S10.2 Rejection Codes
 
@@ -500,13 +500,13 @@ The following rejection codes are normative and are registered per S16.5. Implem
 | `missing_required_field` | Record omits a field required for the declared family (S5) or the envelope (S6.1). | Add the missing field and resubmit. | Yes |
 | `invalid_schema_ref` | `schema_ref` does not resolve, does not match payload, or references an unknown schema. | Correct the schema reference or update the payload. | Yes |
 | `unsupported_major_version` | Major schema version not recognized by this append service (S11). | Upgrade to a supported version or declare a compatibility adapter. | No (requires adapter) |
-| `hash_construction_mismatch` | Canonical hash construction does not match the registered `construction_id` for this governed scope (Core §7, S15). | Use the registered construction. | No (construction is fixed per scope) |
-| `scope_order_conflict` | Record would create competing canonical order for the same governed scope (Core §5.2 invariant 3). | Verify scope assignment; resubmit to correct scope. | Yes (if scope was wrong) |
+| `hash_construction_mismatch` | Canonical hash construction does not match the registered `construction_id` for this governed scope (Core §8, S15). | Use the registered construction. | No (construction is fixed per scope) |
+| `scope_order_conflict` | Record would create competing canonical order for the same governed scope (Core §6.2 invariant 3). | Verify scope assignment; resubmit to correct scope. | Yes (if scope was wrong) |
 | `idempotency_conflict` | Envelope shares idempotency identity with a prior admission but hashes differently under the same `construction_id` (S8.4). | Use a distinct idempotency key, or resolve the authored fact so that retries are byte-equivalent under JCS. | No |
-| `admission_prerequisite_unmet` | Binding-declared admission prerequisite (e.g., causal dependency, delegation fact) is not yet admitted (Core §6.1). | Admit the prerequisite fact first, then retry. | Yes |
+| `admission_prerequisite_unmet` | Binding-declared admission prerequisite (e.g., causal dependency, delegation fact) is not yet admitted (Core §7.1). | Admit the prerequisite fact first, then retry. | Yes |
 | `custody_mode_inconsistent` | Declared `custody_mode` or `access_material_ref` is inconsistent with the active Trust Profile (S9, S18). | Align the envelope with the active Trust Profile. | Yes (after alignment) |
 
-Rejections MUST be explicit and auditable (Core §6.3).
+Rejections MUST be explicit and auditable (Core §7.6).
 
 ---
 
@@ -580,9 +580,9 @@ Breaking-vs-additive classification applied to `schema_ref` follows [Formspec Ch
 
 **Requirement class: Companion requirement.**
 
-Binding-defined fields on the canonical append attestation (S7) — including ingest-time verification posture, payload-readiness class, or other admission-time commitments — are part of canonical truth for that append position (Core §5.1).
+Binding-defined fields on the canonical append attestation (S7) — including ingest-time verification posture, payload-readiness class, or other admission-time commitments — are part of canonical truth for that append position (Core §6.1).
 
-Such fields MUST NOT be rewritten, upgraded, or downgraded in place after the append attestation is issued (Core §5.2 invariant 1). Changes to verification or readability posture MUST be represented as new canonical facts or attestations per S12 and S13, not by mutating prior receipt fields.
+Such fields MUST NOT be rewritten, upgraded, or downgraded in place after the append attestation is issued (Core §6.2 invariant 1). Changes to verification or readability posture MUST be represented as new canonical facts or attestations per S12 and S13, not by mutating prior receipt fields.
 
 ---
 
@@ -616,7 +616,7 @@ Verifiers encountering a record whose `construction_id` is not registered MUST r
 
 **Requirement class: Binding or reference choice.**
 
-Core §5.2 invariant 4 ("One Canonical Event Hash Construction") is instantiated as: exactly one `construction_id` is in force for a given governed scope at a given point in its append order. Two records at the same append position MUST carry the same `construction_id`.
+Core §6.2 invariant 4 ("One Canonical Event Hash Construction") is instantiated as: exactly one `construction_id` is in force for a given governed scope at a given point in its append order. Two records at the same append position MUST carry the same `construction_id`.
 
 ---
 
@@ -639,7 +639,7 @@ Profiles MAY register additional family IDs (e.g., `trellis.lifecycle`).
 
 ### S16.2 Construction IDs
 
-Registers `construction_id` values. Initial entry (the baseline mandated by Core §7):
+Registers `construction_id` values. Initial entry (the baseline mandated by Core §8):
 
 - `trellis-jcs-sha256-v1` — JCS ([RFC 8785]) serialization, SHA-256 digest, RFC 6962-compatible Merkle tree with domain-separated leaf and interior hashes (S7.2).
 
@@ -659,7 +659,7 @@ An implementation MAY support a subset; any supported kind MUST be represented a
 
 ### S16.5 Rejection Codes
 
-Registers the rejection codes enumerated in S10.2. The code `hash_construction_mismatch` referenced in Core §7 is registered here (moved from Core for operationalization). Additional codes MAY be registered by profiles; code identifiers are immutable once registered.
+Registers the rejection codes enumerated in S10.2. The code `hash_construction_mismatch` referenced in Core §8 is registered here (moved from Core for operationalization). Additional codes MAY be registered by profiles; code identifiers are immutable once registered.
 
 ### S16.6 Registry Discipline
 
@@ -682,13 +682,13 @@ This section operationalizes Companion Appendix D (Security Considerations Detai
 
 Implementations MUST consider at least the following:
 
-1. **Key compromise.** Append-service signing keys (S7.2 signature) and Fact Producer signing keys are high-value targets. Key lifecycle MUST follow the Key Lifecycle Operating Model companion (S18). Compromise recovery MUST NOT rewrite prior canonical records (Core §5.2 invariant 1).
+1. **Key compromise.** Append-service signing keys (S7.2 signature) and Fact Producer signing keys are high-value targets. Key lifecycle MUST follow the Key Lifecycle Operating Model companion (S18). Compromise recovery MUST NOT rewrite prior canonical records (Core §6.2 invariant 1).
 2. **Verifier or parser divergence.** Divergent JCS ([RFC 8785]) or digest implementations produce different canonical event hashes from the same logical envelope. Implementations MUST conformance-test against a reference serializer and MUST treat any parser-level inconsistency as `hash_construction_mismatch`.
 3. **Metadata leakage.** The envelope (S6.1) is largely in-the-clear for verification. Implementations MUST minimize metadata per Companion §3.9.1: visible metadata SHOULD be limited to what is required for canonical verification, schema lookup, required audit-visible declarations, conflict gating, and append processing.
-4. **Replay and reordering attacks.** Idempotency identity (S8) prevents replay from creating duplicate canonical positions. Reordering attacks against a Canonical Append Service are prevented by Core §5.2 invariant 1 and by consistency-proof verification (S7.4). Verifiers MUST revalidate consistency on every append-head change.
+4. **Replay and reordering attacks.** Idempotency identity (S8) prevents replay from creating duplicate canonical positions. Reordering attacks against a Canonical Append Service are prevented by Core §6.2 invariant 1 and by consistency-proof verification (S7.4). Verifiers MUST revalidate consistency on every append-head change.
 5. **Recovery abuse.** Recovery authorities declared under `reader-held-with-recovery` or `threshold` custody (S9.3) MUST emit auditable lifecycle facts (S16.4) when exercised. Silent recovery is prohibited.
 6. **Authorization drift between canonical facts and derived evaluators.** Derived evaluators (Companion §3.1.3) MUST be traceable to canonical grant/revocation facts and MUST NOT override canonical semantics. See the Projection Runtime Discipline companion (S18).
-7. **Snapshot misuse.** Snapshots (Companion §3.7) are derived artifacts; treating them as canonical truth is a Core §5.2 invariant 2 violation.
+7. **Snapshot misuse.** Snapshots (Companion §3.7) are derived artifacts; treating them as canonical truth is a Core §6.2 invariant 2 violation.
 8. **Service equivocation.** An append service presenting different append heads for the same governed scope to different verifiers MUST be detectable via the Monitoring and Witnessing companion (S18) consistency-proof cross-checks.
 9. **Delayed offline submission edge cases.** The Offline Authoring Profile (Companion §2.1) governs these; idempotency identity (S8) covers replay on reconnection.
 10. **Over-broad delegated compute grants.** Delegated compute access (Companion §2.3, §3.2) MUST be scoped and attributable; this binding does not weaken those constraints.
@@ -727,7 +727,7 @@ This binding is subordinate to and cites the following upstream specifications. 
 - **WOS Governance** — `wos-spec/specs/governance/workflow-governance.md`. Authoritative for workflow governance structural requirements. This binding cites it for `governance_scope` and `actor_ref` structural conformance (S13.2).
 - **Formspec Core** — `specs/core/spec.md`. Authoritative for Definition, Response, FEL, validation, processing model, and version pinning. This binding cites [Formspec Core §1.3 Scope] and [Formspec Core §6 Version Pinning VP-01, VP-02] for response-fact delegation (S4.3, S13.1) and [Formspec Core §1.4 Conformance] for processor conformance (S4.3).
 - **Formspec Changelog** — `specs/registry/changelog-spec.md`. Authoritative for breaking-vs-additive classification. This binding cites [Formspec Changelog §4 Impact Classification] for `schema_ref` version compatibility (S11).
-- **Formspec Respondent Ledger** — `specs/audit/respondent-ledger-spec.md`. Authoritative for respondent-facing audit change tracking when Formspec-authored facts carry draft, reopen, or amendment history. This binding does not redefine the respondent-ledger contract; where a `formspec.authored` admission carries respondent-ledger material, that material remains authoritative in the source repository per Core §9.
+- **Formspec Respondent Ledger** — `specs/audit/respondent-ledger-spec.md`. Authoritative for respondent-facing audit change tracking when Formspec-authored facts carry draft, reopen, or amendment history. This binding does not redefine the respondent-ledger contract; where a `formspec.authored` admission carries respondent-ledger material, that material remains authoritative in the source repository per Core §10.
 
 ### S18.2 Trellis Companion Specifications
 

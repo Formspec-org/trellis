@@ -18,7 +18,7 @@ status: draft
 
 This document is a **draft specification**. It is a companion to the Trellis Core specification (hereafter "Trellis Core") and is subordinate to two upstream documents:
 
-1. **Trellis Core v0.1** — Sections 5 (Canonical Truth and Invariants), 6 (Canonical Admission and Order), and the Lifecycle and Cryptographic Inaccessibility requirements at Trellis Core S16.5 and Versioning and Algorithm Agility requirements at Trellis Core S16.6 govern this companion.
+1. **Trellis Core v0.1** — Sections §6 (Canonical Truth and Invariants), §7 (Fact Admission, Canonicalization, and Order), and the Versioning and Algorithm Agility requirements at Trellis Core §12.2 govern this companion. The lifecycle-fact and cryptographic-inaccessibility requirements formerly carried in Trellis Core are now owned by this companion under the delegation from Trellis Core §11.
 2. **Trellis Companion — Trust Profiles v0.1** — declarations made under Trust Profiles S5 (Baseline Profiles), S6 (Mandatory Profile Declarations), and S11 (Profile declaration schema) constrain which key-lifecycle behaviors a deployment is authorized to perform. In particular, this companion implements the operational requirements implied by the Trust Profile fields `recovery_mode`, `destruction_semantics`, and `disclosure_authority`.
 
 This document does not modify Formspec or WOS processing semantics. It does not redefine constitutional semantics owned by Trellis Core. It does not redefine custody, readability, or disclosure posture owned by Trust Profiles. Where the requirements of Trellis Core and this companion conflict, Trellis Core prevails. Where the requirements of Trust Profiles and this companion conflict, Trust Profiles prevails.
@@ -81,7 +81,7 @@ A conforming implementation MUST satisfy all requirements applicable to each cla
 A conforming implementation MUST classify each managed key into one of the following classes. The class governs which lifecycle operations apply, which state transitions are permitted, and which evidence-artifact requirements bind.
 
 1. **Tenant root or policy keys** — keys that anchor a tenant's cryptographic policy.
-2. **Scope or ledger keys** — keys whose authority is bounded to a declared canonical scope (Trellis Core S6).
+2. **Scope or ledger keys** — keys whose authority is bounded to a declared canonical scope (Trellis Core §7).
 3. **Subject or record encryption keys** — keys that protect a single record or a small set of related records.
 4. **Signing or attestation keys** — keys used to sign canonical facts, append attestations, or export artifacts.
 5. **Recovery-only keys** — keys whose sole purpose is participation in declared recovery pathways (§10). Recovery-only keys MUST NOT be used for ordinary signing or decryption.
@@ -94,7 +94,7 @@ Each managed key MUST be assigned exactly one class. Classes MUST NOT be silentl
 
 **Requirement class:** Companion requirement
 
-A conforming implementation MUST represent each managed key's current state as one of the following. Transitions MUST be represented as canonical lifecycle facts (Trellis Core S16.5).
+A conforming implementation MUST represent each managed key's current state as one of the following. Transitions MUST be represented as canonical lifecycle facts (owned by this companion under the delegation from Trellis Core §11).
 
 | State | Meaning | Allowed transitions |
 |---|---|---|
@@ -144,7 +144,7 @@ Grace windows MUST be bounded; an implementation MUST NOT declare an unbounded g
 
 **Requirement class:** Companion requirement
 
-This section defines normative requirements for the seven canonical lifecycle operations enumerated in Trellis Core S16.5. An implementation MAY support a subset, including none. If an implementation supports an operation as part of its canonical or compliance-relevant behavior, the operation MUST be represented as a lifecycle fact (Trellis Core S16.5). If the operation affects compliance posture, retention posture, or recoverability claims, the lifecycle fact MUST be a canonical fact.
+This section defines normative requirements for the seven canonical lifecycle operations owned by this companion under the delegation from Trellis Core §11. An implementation MAY support a subset, including none. If an implementation supports an operation as part of its canonical or compliance-relevant behavior, the operation MUST be represented as a lifecycle fact. If the operation affects compliance posture, retention posture, or recoverability claims, the lifecycle fact MUST be a canonical fact.
 
 ### 5.1 Retention
 
@@ -198,7 +198,7 @@ If an implementation uses cryptographic erasure or key destruction, it MUST docu
 A destruction evidence artifact is the verifiable record that a destruction operation completed under declared authority. A conforming implementation MUST produce, for each completed destruction operation, an artifact containing at minimum:
 
 1. **Key material reference** — the destroyed key's stable identity, key-version, and a cryptographic digest of the key material as it existed immediately prior to destruction. The digest MUST be computed under the algorithm-version active for the key (§11). The artifact MUST NOT contain the key material itself.
-2. **Timestamp attestation** — an attested effective time for the destruction event, bound to the canonical append attestation that admitted the destruction fact (Trellis Core S6).
+2. **Timestamp attestation** — an attested effective time for the destruction event, bound to the canonical append attestation that admitted the destruction fact (Trellis Core §7).
 3. **Witness signature** — a signature over the artifact by an authority distinct from the actor that initiated destruction. The witness authority MUST be declared in the Trust Profile (`disclosure_authority`).
 4. **Countersigner record** — when the deployment's destruction class requires multi-party authorization, the artifact MUST list each countersigner identity and MUST include a countersignature for each. The required countersigner count for sufficiency MUST be declared by the deployment and MUST equal or exceed any threshold required by §9 when threshold custody applies.
 
@@ -256,7 +256,7 @@ A threshold destruction operation that does not produce a sufficient artifact MU
 
 **Requirement class:** Companion requirement
 
-The implementation MUST preserve an auditable record of custodian participation that allows a Key Lifecycle Auditor to verify, after the fact, that the declared quorum was reached for each protected operation. The record MUST be canonical (Trellis Core S16.5) and MUST NOT be redacted from audit trails even after the underlying key material is destroyed (Trellis Core S5.2 invariant 1).
+The implementation MUST preserve an auditable record of custodian participation that allows a Key Lifecycle Auditor to verify, after the fact, that the declared quorum was reached for each protected operation. The record MUST be canonical (owned by this companion under the delegation from Trellis Core §11) and MUST NOT be redacted from audit trails even after the underlying key material is destroyed (Trellis Core §6.2 invariant 1).
 
 ### 9.4 Exceptional-Access Posture
 
@@ -276,7 +276,7 @@ Generic recovery-authority declaration (recovery posture, recovery class conditi
 
 **Requirement class:** Companion requirement
 
-Each completed recovery operation MUST produce an auditable canonical fact that identifies the recovery class, the authorizing condition, the participating assistors, the effective time, and the post-recovery custody posture. When threshold custody applies, the recovery quorum MUST equal or exceed the relevant quorum count declared under §9.1, and the recovery evidence artifact MUST include the per-custodian participation records described in §9.2. Recovery facts MUST NOT be redacted from audit trails (Trellis Core S5.2 invariant 1).
+Each completed recovery operation MUST produce an auditable canonical fact that identifies the recovery class, the authorizing condition, the participating assistors, the effective time, and the post-recovery custody posture. When threshold custody applies, the recovery quorum MUST equal or exceed the relevant quorum count declared under §9.1, and the recovery evidence artifact MUST include the per-custodian participation records described in §9.2. Recovery facts MUST NOT be redacted from audit trails (Trellis Core §6.2 invariant 1).
 
 ---
 
@@ -306,7 +306,7 @@ Each canonical key-lifecycle fact MUST carry, at minimum:
 2. **Key-version** — the monotonically increasing version of the affected key.
 3. **Algorithm-version reference** — an immutable reference (digest, embedded copy, or registry-bound version identifier preserved alongside the fact) sufficient to identify the cryptographic algorithm family and parameters in effect for this key-version.
 4. **Semantic-version reference** — an immutable reference to the lifecycle-fact schema version under which the fact was authored.
-5. **Effective time** — the canonical effective time for the lifecycle event, distinct from append admission time (Trellis Core S6.1).
+5. **Effective time** — the canonical effective time for the lifecycle event, distinct from append admission time (Trellis Core §7.1).
 
 ### 11.2 Verifier Discovery of Active Algorithm Version
 
@@ -320,7 +320,7 @@ If algorithm-version identification depends on an external registry, the impleme
 
 **Requirement class:** Companion requirement
 
-When an export-issuance fact (§5.6) references an algorithm family that is later retired, the export verification package MUST remain verifiable under the algorithms and parameters in effect at issuance. The implementation MUST NOT delete, rotate away, or make inaccessible any interpretation material on which historical export verification depends without first migrating verifiability under an explicit migration mechanism (Trellis Core S16.6).
+When an export-issuance fact (§5.6) references an algorithm family that is later retired, the export verification package MUST remain verifiable under the algorithms and parameters in effect at issuance. The implementation MUST NOT delete, rotate away, or make inaccessible any interpretation material on which historical export verification depends without first migrating verifiability under an explicit migration mechanism (Trellis Core §12.2).
 
 If an algorithm family is retired and no migration mechanism is provided, the implementation MUST disclose, in the export-issuance fact's recoverability metadata, that subsequent verification depends on preserved historical algorithm support.
 
@@ -343,6 +343,6 @@ This section is normative. Generic privacy-disclosure obligations are defined in
 - Key destruction and crypto-shredding are irreversible. Recovery from destruction requires separate recovery-key infrastructure that MUST NOT reuse destroyed key material.
 - Grace-period windows (§4) create intervals where both old and new key material are valid. Deployments MUST declare and bound these intervals in the Trust Profile (Trust Profiles S6).
 - Purge-cascade completion evidence MUST NOT reveal plaintext content of purged projections (Projection S4).
-- Key-lifecycle facts are canonical facts. They MUST NOT be redacted from audit trails even after key destruction (Trellis Core S5.2 invariant 1).
+- Key-lifecycle facts are canonical facts. They MUST NOT be redacted from audit trails even after key destruction (Trellis Core §6.2 invariant 1).
 - Threshold participation records (§9.3) and recovery facts (§10.1) reveal organizational topology. Deployments SHOULD account for this metadata exposure in the Trust Profile metadata budget (Trust Profiles S7).
 - Cryptographic inaccessibility claims MUST include scope, authority, and effective-time semantics. Key-destruction claims MUST be distinguishable from payload-redaction or disclosure-filtering events. Historical verification across key evolution MUST remain possible where declared by policy.
