@@ -16,6 +16,12 @@ When materials below use words like *decision* or *ADR*, read them as **structur
 
 ---
 
+## Licensing
+
+Trellis is part of the Formspec monorepo. All specification documents, drafts, and research materials here are licensed under **Apache-2.0**. See the root [`LICENSE`](../LICENSE) for full terms and [`LICENSING.md`](../LICENSING.md) for the open-core model.
+
+---
+
 ## How the pieces relate
 
 The work clusters into three threads that **converge on one shared ledger** Formspec runtimes and WOS case workflows both need.
