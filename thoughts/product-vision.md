@@ -111,19 +111,47 @@ Five Trellis architectural visions → four sequenced product phases, each a str
 
 Trellis is a signed export bundle format. Runtimes use whatever storage they like (Postgres default). At submission, sealing, case close, or FOIA boundary, the runtime serializes a COSE-signed bundle with hash chain, inclusion proofs, and provenance distinctions intact. Auditors, IGs, journalists, opposing counsel verify offline via `trellis verify`.
 
-**Unlocks.** The "cryptographic audit infrastructure" moat the enterprise-feature-gaps doc names. FOIA and litigation production get an evidence-grade answer. Respondent Ledger Profile A. Not on the critical path for first gov sale (leaves FedRAMP engineering capacity for reviewer dashboard, document storage).
+**Unlocks.** The "cryptographic audit infrastructure" moat the enterprise-feature-gaps doc names. FOIA and litigation production get an evidence-grade answer. Not on the critical path for first gov sale (leaves FedRAMP engineering capacity for reviewer dashboard, document storage).
 
 **Shipping shape.** ~60–90 pages of Trellis spec, ~50 test vectors, ~3–5k lines of Rust across a small crate workspace, one CLI binary. Weeks–months, not quarters.
 
+**Trust posture, stated honestly.** Trellis does not claim system-owner-proof tamper resistance in Phase 1. It claims: tampering requires the operator to replace signed export bundles already in third-party hands, and any reissue is detectable by checkpoint divergence against prior recipients. Transparency witnessing (Phase 4) raises this bar to equivocation-proof; Phase 1 sets it at "difficult and obvious," which is the actual product requirement.
+
+### Phase 1 envelope invariants (non-negotiable)
+
+Phase 1 ships a small spec. That smallness is a discipline, not an excuse to defer architecture. The following decisions MUST land in the first envelope format and its manifest, because every one of them is cheap to include now and requires a wire-format break to retrofit. If any cannot be committed to, the agreement document is not ready to sign.
+
+1. **Canonical CBOR profile is pinned.** Trellis specifies one deterministic encoding (dCBOR or an explicitly named equivalent) in §"Canonical encoding." Byte-exact test vectors are meaningless without this. No "pre-implementation spike" wording.
+
+2. **Signature suite is identified, not assumed.** Every signed artifact carries a `suite_id`. The spec names the Phase 1 suite (e.g. Ed25519/COSE_Sign1), reserves `suite_id` space for hybrid and post-quantum suites (ML-DSA, SLH-DSA), and states the migration obligation — a 2045 verifier MUST be able to resolve a 2026 signature after key and suite rotations. Phase 1 does not ship a PQ suite; it reserves the seam and names the obligation.
+
+3. **Signing-key registry is part of the export.** A COSE signature without a resolvable key is unverifiable after rotation. Exports include a signing-key registry snapshot (`SigningKeyEntry`, Active/Revoked lifecycle) so verification is self-contained at any future date.
+
+4. **Hashes are over ciphertext, not plaintext.** Payloads are encrypted before hashing so that per-subject key destruction ("crypto-shredding") is possible without invalidating the chain. This is the only GDPR Art. 17 / FOIA-redaction story that survives an append-only chain; hashing plaintext forecloses it permanently.
+
+5. **Ordering model is named.** The spec states whether `prev_hash` denotes strict linear sequence or a causal DAG (HLC + explicit dependencies). Phase 2 runtime-time integrity across concurrent devices cannot add causal ordering later without a header-version break. If linear-only is chosen in Phase 1, the header reserves the causal-dependency field.
+
+6. **Registry-snapshot binding in the manifest.** The export manifest includes a content-addressed digest of the domain registry (event taxonomy, role vocabulary, governance rules) in force at the time of signing. Signature verification without this proves byte integrity only — not semantic verification. A 2045 verifier needs to know *what the fields meant* in 2026.
+
+7. **`key_bag` / author-event-hash is immutable under rotation.** Any key re-wrap that would change `author_event_hash` is forbidden; re-wrapping produces an append-only `LedgerServiceWrapEntry`. Historical hashes MUST reproduce after a Long-lived Authority Key rotation, or the chain breaks across its own lifecycle.
+
+8. **Redaction-aware commitment slots are reserved.** The envelope header has field positions for per-field commitments (Pedersen, Merkle leaves, or equivalent). BBS+ / selective-disclosure *implementation* is deferred; the *slot* is not. Without this, Phase 3 portable case files force either all-or-nothing disclosure or envelope reissue.
+
+9. **Plaintext-vs-committed header policy is explicit.** The spec lists which header fields are plaintext (routing, audit classification) and which are commitments to encrypted or private values (determination outcomes, subject metadata). Header-tag leakage of HIPAA- or adjudication-sensitive values is a spec decision, not an implementation choice.
+
+10. **Phase 1 envelope IS the Phase 3 ledger event format.** The continuity commitment is stated normatively: the byte shape produced by Phase 1 export is the byte shape of a Phase 3 unified-ledger event. Phase 2 and 3 are strict supersets — they add runtime attestation and case-scoped composition; they do not redefine the event. Without this commitment, the "strict superset" claim of the phase arc is false.
+
+11. **Profile letters are not overloaded with phase tiers.** The Respondent Ledger spec retains Profile A/B/C as orthogonal posture axes (privacy × identity × integrity anchoring). The product-vision refers to Trellis capability tiers by phase name ("attested-export tier," "runtime-integrity tier," "portable-case tier"). The binding between posture and phase is a matrix in the Respondent Ledger spec, not an alias in the vision. Case-scoped ledger is defined normatively alongside the existing response-scoped ledger — this is a spec extension, not a nesting note.
+
 ### Phase 2 — **Runtime-time integrity** (Trellis Vision 1: shared library)
 
-Trellis becomes a Rust crate both runtimes link against. Every write is attested as it happens, not just at export boundaries. Formspec uses it through the Respondent Ledger extension point; WOS uses it through `custodyHook`. Respondent Ledger Profile B is the operating mode.
+Trellis becomes a Rust crate both runtimes link against. Every write is attested as it happens, not just at export boundaries. Formspec uses it through the Respondent Ledger extension point; WOS uses it through `custodyHook`.
 
 **Unlocks.** SOC 2 / ISO 27001 enterprise expansion. "Tamper-evident by default" is procurement-language literal.
 
 ### Phase 3 — **Portable case files** (Trellis Vision 2: unified canonical ledger)
 
-One Trellis ledger per case, spanning Formspec responses and WOS governance events. A complete case — drafts, submissions, amendments, determinations, appeals — exports as a single verifiable bundle that travels across agencies, across years, across operators. Respondent Ledger Profile C is the operating mode.
+One Trellis ledger per case, spanning Formspec responses and WOS governance events. A complete case — drafts, submissions, amendments, determinations, appeals — exports as a single verifiable bundle that travels across agencies, across years, across operators.
 
 **Unlocks.** Multi-agency federal programs (Medicaid across states, SSDI federal↔state DDS, grants federal↔pass-through). The strategic Adobe/ServiceNow displacement narrative at the product-category level. "A case is a file — hand it over."
 
@@ -192,7 +220,7 @@ Per enterprise-feature-gaps.md, these are the genuinely-unspecified critical pat
 
 ### Track E — Cross-cutting bindings
 
-21. **Close the Respondent Ledger ↔ Trellis binding.** One sentence in the Respondent Ledger spec: *"When an event is wrapped by a Trellis envelope, `eventHash` MUST equal the envelope canonical hash at that sequence."* Plus the one-paragraph nesting note for response-scoped vs case-scoped ledgers.
+21. **Close the Respondent Ledger ↔ Trellis binding.** Two parts, neither of them a one-liner. (a) Promote §6.2 `eventHash`/`priorEventHash` from SHOULD to MUST when a Trellis envelope wraps the event, and define the binding against both the per-event layer (§6.2) and the per-range checkpoint layer (§13) — they are different hashes covering different scopes. (b) Define a case-scoped ledger object alongside the existing response-scoped one, with explicit composition rules for how multiple response-scoped ledgers aggregate into a case-scoped Trellis export. This is a spec extension, not a nesting note.
 22. **Close the WOS `custodyHook` ↔ Trellis binding.** Document how a WOS runtime uses Trellis as its custody backend without redefining either spec.
 
 ---
