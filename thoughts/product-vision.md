@@ -107,6 +107,16 @@ The diagnostic: **Formspec and WOS are running the loop. Trellis has not entered
 
 Five Trellis architectural visions → four sequenced product phases, each a strict superset of the prior.
 
+**Terminology — ledger vs log.** This stack uses three nested scopes of append-only structure; the phase descriptions and invariants below rely on these distinctions.
+
+- **Event** — an atomic append (one field edit, one governance action, one signature).
+- **Response ledger** — a hash-chained sequence of events for one Formspec response. Scoped to a single respondent session; sealed at submission.
+- **Case ledger** — a hash-chained sequence of governance events for one case, composing one or more sealed response-ledger heads with WOS governance events. Scoped to a single adjudicatory matter. This is the "portable case file" of Phase 3.
+- **Agency log** — an append-only log of case-ledger heads (plus metadata and witness timestamps) maintained by an operator. Proves that a case existed at time T and was not quietly deleted. CT-style log-of-cases; structurally what Trillian builds.
+- **Federation log** — a log of agency-log heads witnessed by an independent operator (Phase 4). Detects cross-operator equivocation.
+
+"Ledger" is always qualified by scope (response ledger, case ledger). "Log" is reserved for structures whose entries are other ledgers' heads. All five are Trellis-shaped — same envelope format, same hash construction, same signing profile — applied at different scopes.
+
 ### Phase 1 — **Attested exports** (Trellis Vision 4: export-only)
 
 Trellis is a signed export bundle format. Runtimes use whatever storage they like (Postgres default). At submission, sealing, case close, or FOIA boundary, the runtime serializes a COSE-signed bundle with hash chain, inclusion proofs, and provenance distinctions intact. Auditors, IGs, journalists, opposing counsel verify offline via `trellis verify`.
@@ -139,9 +149,11 @@ Phase 1 ships a small spec. That smallness is a discipline, not an excuse to def
 
 9. **Plaintext-vs-committed header policy is explicit.** The spec lists which header fields are plaintext (routing, audit classification) and which are commitments to encrypted or private values (determination outcomes, subject metadata). Header-tag leakage of HIPAA- or adjudication-sensitive values is a spec decision, not an implementation choice.
 
-10. **Phase 1 envelope IS the Phase 3 ledger event format.** The continuity commitment is stated normatively: the byte shape produced by Phase 1 export is the byte shape of a Phase 3 unified-ledger event. Phase 2 and 3 are strict supersets — they add runtime attestation and case-scoped composition; they do not redefine the event. Without this commitment, the "strict superset" claim of the phase arc is false.
+10. **Phase 1 envelope IS the Phase 3 case-ledger event format.** The continuity commitment is stated normatively: the byte shape produced by Phase 1 export is the byte shape of a Phase 3 case-ledger event. Phase 2 and 3 are strict supersets — they add runtime attestation and case-scoped composition; they do not redefine the event. Without this commitment, the "strict superset" claim of the phase arc is false.
 
-11. **Profile letters are not overloaded with phase tiers.** The Respondent Ledger spec retains Profile A/B/C as orthogonal posture axes (privacy × identity × integrity anchoring). The product-vision refers to Trellis capability tiers by phase name ("attested-export tier," "runtime-integrity tier," "portable-case tier"). The binding between posture and phase is a matrix in the Respondent Ledger spec, not an alias in the vision. Case-scoped ledger is defined normatively alongside the existing response-scoped ledger — this is a spec extension, not a nesting note.
+11. **Profile letters are not overloaded with phase tiers.** The Respondent Ledger spec retains Profile A/B/C as orthogonal posture axes (privacy × identity × integrity anchoring). The product-vision refers to Trellis capability tiers by phase name ("attested-export tier," "runtime-integrity tier," "portable-case tier"). The binding between posture and phase is a matrix in the Respondent Ledger spec, not an alias in the vision. The case ledger is defined normatively as a composition of sealed response-ledger heads plus governance events; the agency log is defined normatively as the log-of-case-ledger-heads; these are three distinct structures at three distinct scopes, not one term used three ways.
+
+12. **Head formats compose forward; agency log is a Phase 3 superset.** The case-ledger head format in Phase 3 is a strict superset of Phase 1's checkpoint format — same fields, additional fields only (e.g. references to sealed response-ledger heads, case-scope metadata). The agency log is introduced in Phase 3, but its entries are case-ledger heads as produced in Phase 1 plus arrival metadata and optional witness signatures. Without this commitment, agency-log adoption is a wire-format break for every Phase 1 export already in the field.
 
 ### Phase 2 — **Runtime-time integrity** (Trellis Vision 1: shared library)
 
@@ -151,7 +163,7 @@ Trellis becomes a Rust crate both runtimes link against. Every write is attested
 
 ### Phase 3 — **Portable case files** (Trellis Vision 2: unified canonical ledger)
 
-One Trellis ledger per case, spanning Formspec responses and WOS governance events. A complete case — drafts, submissions, amendments, determinations, appeals — exports as a single verifiable bundle that travels across agencies, across years, across operators.
+One case ledger per case, composing sealed response-ledger heads with WOS governance events. A complete case — drafts, submissions, amendments, determinations, appeals — exports as a single verifiable bundle that travels across agencies, across years, across operators. Alongside the case ledger, the operating agency maintains an **agency log** of case-ledger heads; this is what proves that a case existed at time T and was not quietly deleted, and what FOIA/litigation completeness claims actually rest on.
 
 **Unlocks.** Multi-agency federal programs (Medicaid across states, SSDI federal↔state DDS, grants federal↔pass-through). The strategic Adobe/ServiceNow displacement narrative at the product-category level. "A case is a file — hand it over."
 
@@ -220,7 +232,7 @@ Per enterprise-feature-gaps.md, these are the genuinely-unspecified critical pat
 
 ### Track E — Cross-cutting bindings
 
-21. **Close the Respondent Ledger ↔ Trellis binding.** Two parts, neither of them a one-liner. (a) Promote §6.2 `eventHash`/`priorEventHash` from SHOULD to MUST when a Trellis envelope wraps the event, and define the binding against both the per-event layer (§6.2) and the per-range checkpoint layer (§13) — they are different hashes covering different scopes. (b) Define a case-scoped ledger object alongside the existing response-scoped one, with explicit composition rules for how multiple response-scoped ledgers aggregate into a case-scoped Trellis export. This is a spec extension, not a nesting note.
+21. **Close the Respondent Ledger ↔ Trellis binding.** Three parts, none of them a one-liner. (a) Promote §6.2 `eventHash`/`priorEventHash` from SHOULD to MUST when a Trellis envelope wraps the event, and define the binding against both the per-event layer (§6.2) and the per-range checkpoint layer (§13) — they are different hashes covering different scopes. (b) Define the **case ledger** as a new top-level object that composes sealed response-ledger heads with WOS governance events; specify the response→case composition rule. (c) Define the **agency log** as the operator-maintained log of case-ledger heads; specify the case→agency-log composition rule and the agency log's head format. This is a spec extension, not a nesting note.
 22. **Close the WOS `custodyHook` ↔ Trellis binding.** Document how a WOS runtime uses Trellis as its custody backend without redefining either spec.
 
 ---
