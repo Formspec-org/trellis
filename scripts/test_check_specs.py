@@ -21,6 +21,7 @@ FIX = Path(__file__).resolve().parent / "check-specs-fixtures"
 
 def run_lint(scenario: str) -> subprocess.CompletedProcess:
     env = os.environ.copy()
+    env.pop("TRELLIS_SKIP_COVERAGE", None)
     env["TRELLIS_LINT_ROOT"] = str(FIX / scenario)
     return subprocess.run(
         ["python3", str(LINT)],
@@ -44,6 +45,34 @@ class TestCoverageLint(unittest.TestCase):
         result = run_lint("forbidden-import")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("forbidden import", result.stderr.lower())
+
+    # I3 — relative imports in _generator/ must be rejected
+    def test_relative_generator_import_fails(self):
+        result = run_lint("forbidden-import")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("relative imports forbidden", result.stderr.lower())
+
+    # I4 — stdlib modules beyond the original six must be accepted
+    def test_stdlib_base64_import_passes(self):
+        result = run_lint("stdlib-base64")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    # C1 / M6 — invariant-gap: hash-prefixed and multi-value cells are parsed correctly
+    def test_invariant_gap_fails(self):
+        result = run_lint("invariant-gap")
+        self.assertNotEqual(result.returncode, 0)
+        # Invariants #1 and #4 (from '#1, #4' in TR-CORE-006) are uncovered;
+        # invariant #5 (from '#5' in TR-CORE-005) is covered by the vector.
+        self.assertIn("#1", result.stderr)
+        self.assertIn("#4", result.stderr)
+        # #5 must NOT appear as an uncovered invariant
+        self.assertNotIn("invariant #5 has no", result.stderr)
+
+    # M6 — declared-vs-derived invariant mismatch is reported
+    def test_declared_mismatch_fails(self):
+        result = run_lint("declared-mismatch")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("declared invariants", result.stderr.lower())
 
 
 if __name__ == "__main__":

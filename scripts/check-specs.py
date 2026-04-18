@@ -46,10 +46,15 @@ PROFILE_ALLOWED_CONTEXT = re.compile(
 
 PHASE_1_INVARIANTS = set(range(1, 16))  # #1..#15
 
-GENERATOR_ALLOWED_IMPORTS = {
-    "hashlib", "cryptography", "cbor2", "pathlib", "tomllib", "json",
-    "os", "sys", "typing", "dataclasses", "struct", "datetime", "re",
-}
+GENERATOR_ALLOWED_IMPORTS = set(sys.stdlib_module_names) | {"cryptography", "cbor2"}
+
+
+def parse_invariants_cell(cell: str) -> set[int]:
+    """Parse an Invariant-column cell. Handles '#5', '#1, #4', '1', '—'/'-' → empty."""
+    result: set[int] = set()
+    for m in re.finditer(r"#?(\d+)", cell):
+        result.add(int(m.group(1)))
+    return result
 
 
 def read(path: Path) -> str:
@@ -147,11 +152,8 @@ def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
     derived: set[int] = set()
     row_id_set = set(row_ids)
     for r in matrix_rows():
-        if r["id"] in row_id_set and r["invariant"] not in ("—", "-"):
-            try:
-                derived.add(int(r["invariant"]))
-            except ValueError:
-                pass
+        if r["id"] in row_id_set:
+            derived.update(parse_invariants_cell(r["invariant"]))
     return derived
 
 
@@ -188,11 +190,8 @@ def check_invariant_coverage(errors: list[str]) -> None:
     for r in rows:
         if "test-vector" not in r["verification"]:
             continue
-        try:
-            inv = int(r["invariant"])
-        except (ValueError, TypeError):
-            continue
-        testable_by_invariant.setdefault(inv, []).append(r["id"])
+        for inv in parse_invariants_cell(r["invariant"]):
+            testable_by_invariant.setdefault(inv, []).append(r["id"])
 
     covered_ids: set[str] = set()
     for path, manifest in vector_manifests():
@@ -233,6 +232,12 @@ def check_generator_imports(errors: list[str]) -> None:
                             f"'{alias.name}' (allowed top-levels: {sorted(GENERATOR_ALLOWED_IMPORTS)})"
                         )
             elif isinstance(node, ast.ImportFrom):
+                if node.level > 0:
+                    errors.append(
+                        f"{py_file.relative_to(ROOT)}:{node.lineno}: relative imports forbidden in _generator/ "
+                        f"(level={node.level})"
+                    )
+                    continue
                 top = (node.module or "").split(".")[0]
                 if top and top not in GENERATOR_ALLOWED_IMPORTS:
                     errors.append(
