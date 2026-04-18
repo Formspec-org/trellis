@@ -22,12 +22,13 @@ Branch: `main`.
    evidence convention, matrix-driven coverage lint, data-only runner contract,
    disciplined Python generator, RFC-style pinned keys).
 9. **`thoughts/specs/2026-04-18-trellis-g3-fixture-scaffold-plan.md`** — 12-task
-   implementation plan. **Resume at Task 10.** Tasks 1–9 are committed.
+   implementation plan. **All 12 tasks complete.** First reference vector
+   `fixtures/vectors/append/001-minimal-inline-payload/` committed at `e1ab065`.
 
 Skip `thoughts/specs/2026-04-17-trellis-normalization-handoff.md` unless you are
 archeologizing a Core section. The handoff is closed.
 
-## Current state (as of 2026-04-18, e1895ae)
+## Current state (as of 2026-04-18, 227b212)
 
 - Specs converged on two normative W3C-style documents: Core + Operational
   Companion. Previous 8-spec family is in `specs/archive/`. Don't cite it as
@@ -39,31 +40,28 @@ archeologizing a Core section. The handoff is closed.
   G-3 lint), **G-3** (~50 byte-exact test vectors), **G-4** (`trellis-*` Rust
   crate workspace), **G-5** (independent second implementation byte-matching),
   **O-3/O-4/O-5** (Companion conformance fixtures).
-- **G-3 progress:** fixture system design + implementation plan + lint
-  infrastructure committed and post-review-hardened. Scaffold, test harness
-  (7 tests, up from 3), four coverage rules (now with correct `#N` / `#N, #M`
-  invariant parsing), pinned issuer-001 COSE_Key, and pinned sample payload
-  all in place. Design + plan amended per review findings F1/F2/F4/F5.
-  First reference vector (`fixtures/vectors/append/001-minimal-inline-payload/`)
-  **blocked — see Core gap list below.**
-- Lint bypass `TRELLIS_SKIP_COVERAGE=1` is transitional; the amended design
-  commits to replacing it with a per-invariant allowlist
-  (`_pending-invariants.toml`) — a separate follow-on plan. With bypass:
-  `python3 scripts/check-specs.py` → green. Without bypass: meaningful gap
-  list — specific uncovered `TR-CORE-*` rows + 11 uncovered byte-testable
-  invariants (not all 15 — non-byte-testable invariants are audited via
-  separate G-2 work per amended design F2).
-- **Task 10 UNBLOCKED.** The three blocking Core gaps (B1/B2/B3) are closed
-  in commits `6ad24ab` (§7.4 COSE labels), `1b66eed` (§6.8 three event
-  surfaces), `a844e4a` (§10.6 AppendHead struct). Four secondary gaps
-  (S1/S2/S3/S5) closed in `e1895ae`. Resolution detail at
-  `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`. The
-  ratification bar worked as intended: G-3 surfaced specific Core
-  under-specifications before they became G-5 interop failures, and Core
-  is now tighter for it.
-- **Plan Task 10 citations need updating before re-dispatch.** Plan cites
-  §§6/7/8/11 for constructions that now live at §§6.1+6.8 / §7.4 / §9.5 /
-  §9.2 / §10.6. The gap-list doc carries the correct mapping.
+- **G-3 fixture scaffold plan: closed.** All 12 tasks committed. Infrastructure
+  in place: directory layout, TOML manifest format, narrative derivation
+  template, lint test harness (7 tests), four coverage rules (testable-row,
+  declared-vs-derived, invariant coverage, generator-import AST scan), pinned
+  issuer-001 COSE_Key + sample payload, plus the first reference vector
+  `fixtures/vectors/append/001-minimal-inline-payload/` (commit `e1ab065`)
+  exercising authored/canonical/signed event surfaces (§6.8), author_event_hash
+  (§9.5), COSE_Sign1 with pinned -65537 suite_id label (§7.4), canonical_event_hash
+  (§9.2), and AppendHead (§10.6). Vector is deterministic — regeneration
+  produces byte-identical output.
+- **Core amendments:** B1 (§7.4 COSE header labels `-65537/-65538`),
+  B2 (§6.8 three event surfaces), B3 (§10.6 AppendHead struct), plus S1/S2
+  (§14.6 `x-trellis-test/` prefix), S3 (§6.4 nonce `.size 12`), S5 (§8.3 kid
+  derivation) all landed in commits `6ad24ab / 1b66eed / a844e4a / e1895ae`.
+  Core gap resolution trail at `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`.
+- **Lint state:** with `TRELLIS_SKIP_COVERAGE=1`, green. Without bypass,
+  meaningful gap list: 61 `TR-CORE-*` rows uncovered (down from 65 pre-T10)
+  + 7 byte-testable invariants uncovered (down from 11 pre-T10). Invariants
+  newly covered by the first reference vector: #1 (dCBOR), #2 (COSE_Sign1),
+  #4 (canonical hash), #5 (scoped vocabulary). Bypass remains transitional
+  pending the per-invariant allowlist (`_pending-invariants.toml`)
+  follow-on from design F5.
 
 ## Conventions
 
@@ -87,25 +85,37 @@ archeologizing a Core section. The handoff is closed.
 
 ## Most useful next work
 
-**Top priority: re-dispatch Task 10** (author `append/001-minimal-inline-payload`
-end-to-end). Core is now unblocked. Before re-dispatching:
+G-3 scaffold is closed. Four candidates for the next session, in rough priority:
 
-1. **Update plan Task 10 citations** to reflect the post-amendment Core:
-   - AuthoredEvent / CanonicalEvent naming → §6.1 + §6.8
-   - `author_event_hash` preimage + domain separation → §9.5 + §9.1
-   - COSE_Sign1 procedure + header labels → §7.4
-   - `canonical_event_hash` → §9.2
-   - `kid` derivation → §8.3
-   - Chain invariant → §10.2
-   - `AppendHead` return artifact → §10.6
-   - Reserved test identifiers → §14.6
-2. **Consider renaming** `expected-next-head.cbor` → `expected-append-head.cbor`
-   to match the new Core term `AppendHead`. Minor; either works.
-3. **Re-dispatch the T10 implementer subagent.** Same prompt as before but
-   with updated section citations. The vector author now has enough in Core
-   to produce byte-exact output: pinned header labels, named surfaces, pinned
-   nonce size, pinned kid derivation, pinned reserved test identifiers, and
-   an explicit return artifact.
+1. **Replace `TRELLIS_SKIP_COVERAGE=1` with `_pending-invariants.toml`
+   allowlist.** Design F5 committed to this. Small Python change to
+   `scripts/check-specs.py` (remove the three bypass early-returns;
+   load a TOML file at `fixtures/vectors/_pending-invariants.toml`
+   enumerating invariants not yet covered; emit errors both for missing-
+   and-not-listed *and* for listed-but-now-covered). New harness scenario.
+   Preserves ratification signal during rollout. ~1 focused session.
+
+2. **Next vector batch: append/002..00N.** Targets the remaining byte-
+   testable invariants `{3, 6, 7, 8, 10, 12, 13}`. Candidate batch (rough):
+   - `append/002-rotation-signing-key` — invariant #8 (key rotation).
+   - `append/003-external-payload-ref` — invariant #6 (external payload).
+   - `append/004-hpke-wrapped-inline` — a real HPKE wrap with pinned
+     ephemeral X25519 keypair (first vector deferred this per S4).
+   - `append/005-multi-signer` — invariant around co-signing if applicable.
+   - `append/006-prior-head-chain` — explicit `prev_hash` linkage (non-
+     genesis), invariant #7.
+   - A tamper vector exercising signature-invalid detection.
+   Each batch is its own plan per the scaffold plan's "Follow-on signals"
+   section; brainstorm before writing.
+
+3. **G-4: Rust reference impl.** Per Core-spec Track A step 7. Public API
+   `append` / `verify` / `export`. Consumes `fixtures/vectors/` as its test
+   corpus. Independent of G-3's remaining vector batches — byte-matching
+   the first vector alone is a legitimate G-4 milestone.
+
+4. **Operational Companion conformance fixtures** for O-3/O-4/O-5 (projections,
+   delegated-compute declarations, posture transitions). Separate fixture
+   system; design precedes implementation.
 
 Parallel low-risk work (does NOT block on Core amendments):
 
