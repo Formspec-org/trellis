@@ -6,6 +6,8 @@
 **Unblocks:** G-4 (Rust reference impl — vectors become its test corpus), G-5 (stranger-test second implementation — vectors are the ratification artifact).
 **Does not cover:** authoring the ~50 vectors themselves, the Rust reference impl, or the second-implementation runner. Each of those is a separate plan consuming this design.
 
+**Amended 2026-04-18:** closes review findings F1 (invariant derivation unsound), F2 (G-2 fold-in over-claim), F4 (matrix column reconciliation), F5 (bypass → allowlist).
+
 ## Context
 
 Ratification bar per `ratification/ratification-checklist.md` G-3 and the stranger test in `specs/trellis-agreement.md` §10: an independent implementor who reads only Core + Companion + Agreement must be able to implement `append` / `verify` / `export` and byte-match against a shared set of fixtures. "Reproducible from Core prose alone" is load-bearing — if fixtures come from a reference impl rather than from the prose, the stranger test collapses into "stranger matches impl" rather than "stranger matches spec."
@@ -52,7 +54,7 @@ description = "Minimal append to fresh ledger; exercises canonical_event_hash pr
 [coverage]
 tr_core       = ["TR-CORE-014", "TR-CORE-021", "TR-CORE-032"]   # canonical
 core_sections = ["§6.2", "§7.3", "§8.1", "§11.2"]               # optional; if declared, lint-verified equal to matrix-derived set
-invariants    = [1, 3, 7, 11]                                    # optional; if declared, lint-verified equal to matrix-derived set
+# invariants = [1, 3, 7, 11]                                    # optional commentary; lint issues a warning (not an error) on mismatch
 
 [derivation]
 document = "derivation.md"
@@ -96,7 +98,9 @@ zip         = "expected-export.zip"
 zip_sha256  = "..."                              # convenience mirror; canonical source is the zip
 ```
 
-**Coverage rule**: `tr_core` is the canonical list. `core_sections` and `invariants`, when declared, are lint-verified equal to the set derived from the matrix via `tr_core` lookup. This preserves author intent as commentary while preventing drift.
+**Coverage rule**: `tr_core` is the canonical coverage anchor. `core_sections`, when declared, is lint-verified equal to the set derived from its `tr_core` list via matrix lookup — a mismatch is an error. `invariants`, when declared, is commentary only: the lint uses it for an informational cross-check and emits a warning (not an error) if the declared set disagrees with the union of `Invariant` cells for the vector's `tr_core` rows. No bidirectional equality is enforced for invariants.
+
+Rationale: matrix rows with `Invariant=—` are intentionally lossy under the derivation. Enforcing bidirectional equality would pressure authors to cherry-pick `tr_core` entries to match a declared `invariants` set rather than letting `tr_core` represent the maximum set of rows the bytes actually exercise. That degrades coverage signal. Making `invariants` commentary-only removes the perverse incentive while preserving author context for human readers.
 
 **Inline `[expected.report]`**: structured small-data outputs stay in the manifest; byte outputs go to sibling files. Uniformity loses to ergonomics — a reviewer should not have to open a second file to see a four-field boolean table.
 
@@ -119,20 +123,24 @@ Format rationale for (a) narrative over (b) structured step list or (c) hybrid: 
 
 ## Coverage enforcement
 
-`specs/trellis-requirements-matrix.md` grows two columns per TR-CORE row:
-
-- `testable_bytes: bool` — human-set flag. True means "this row's MUST is byte-level testable via fixtures."
-- `invariants: [int]` — optional list of Phase 1 envelope invariants (#1–#15) this row covers.
+The matrix's existing `Verification` and `Invariant` columns carry the data needed for coverage enforcement. `Verification` values containing the literal substring `test-vector` flag byte-level testability; the `Invariant` column (values like `#5` or `#1, #4`) carries the invariant link. No column additions to the matrix are required.
 
 `scripts/check-specs.py` extends with:
 
-1. Every matrix row where `testable_bytes = true` MUST have ≥1 vector whose `coverage.tr_core` contains that row's ID.
-2. Every vector's declared `core_sections` and `invariants` MUST equal the set *derived* from its canonical `tr_core` list via matrix lookup.
-3. Every invariant #1–#15 MUST be covered by ≥1 matrix row where `testable_bytes = true` AND ≥1 vector referencing such a row.
+1. Every matrix row where `Verification` contains `test-vector` MUST have ≥1 vector whose `coverage.tr_core` contains that row's ID.
+2. Every vector's declared `core_sections` MUST equal the set *derived* from its canonical `tr_core` list via matrix lookup (error on mismatch). A vector's declared `invariants`, if present, is checked informally — a mismatch emits a warning, not an error.
+3. (Narrowed — see "Invariant audit paths" below.) Every invariant for which the matrix contains ≥1 row with `Verification` containing `test-vector` MUST be covered by ≥1 vector whose `coverage.tr_core` includes such a row.
 
-Rule (3) folds G-2 (invariant coverage audit) into the G-3 lint: once the matrix is annotated and vectors exist for the byte-level invariants, the lint's exit code is the audit.
+### Invariant audit paths
 
-Some TR-CORE rows are prose-level obligations (e.g., "MUST document the custody model") and are not byte-level testable. Those carry `testable_bytes = false` and are not gated by the lint. Human judgment sets the flag.
+Not all 15 Phase 1 invariants are byte-testable. The matrix's `Verification` column already distinguishes two paths:
+
+- **Byte-testable invariants** — those for which the matrix contains ≥1 row with `Verification` containing `test-vector`. These are audited by the G-3 lint (rule 3 above). A vector must reference such a row in its `coverage.tr_core` for the invariant to be considered covered.
+- **Non-byte-testable invariants** — those whose matrix rows carry `Verification` values in {`model-check`, `declaration-doc-check`, `spec-cross-ref`, `projection-rebuild-drill`, `manual-review`}. These are not gated by the G-3 lint. They are audited outside this system — through model checking, manual doc review, or spec cross-reference passes.
+
+A follow-on audit pass (tracked as the remaining G-2 work, not part of G-3) will assign each of the 15 invariants to a path and confirm coverage in the appropriate channel. That pass must complete before G-2 closes. The G-3 lint's rule 3 covers only the byte-testable subset — it does not claim to close G-2 on its own.
+
+Some TR-CORE rows are prose-level obligations (e.g., "MUST document the custody model") and are not byte-level testable. Their `Verification` column will not contain `test-vector` and they are not gated by rule 1.
 
 ## Conformance runner contract
 
@@ -187,9 +195,12 @@ No derivation procedure — bytes are authoritative. Seeded derivation was consi
 ## Open items (resolved during implementation)
 
 - **First-batch priority.** Candidate: the 15 invariants first, then canonical_event_hash preimage, COSE_Sign1 signing, deterministic export ZIP layout. Final call at plan time.
-- **Matrix column additions.** `testable_bytes` and `invariants` columns need exact placement; TR-CORE row IDs may need renumbering if column insertion shifts layout.
 - **verify/ subdirectory split.** Whether to split into `verify/success/` and `verify/negative-nontamper/` — defer until first batch reveals need.
 - **Vector slug convention.** `append/001-minimal-inline-payload` style is proposed; formalize once first batch is authored.
+
+## Follow-ons
+
+- **Replace `TRELLIS_SKIP_COVERAGE=1` blanket bypass with per-invariant allowlist.** The implementation plan uses `TRELLIS_SKIP_COVERAGE=1` as a transitional mechanism while vectors are authored in batches. This blanket toggle is too blunt: it silently neutralizes the audit for an extended period. The follow-on design: the lint reads `fixtures/vectors/_pending-invariants.toml` listing invariant numbers that are currently uncovered (by author declaration). The lint fails if an invariant is on the pending list but IS covered (forces list cleanup) or if an invariant is NOT on the list and is NOT covered. This preserves full audit signal throughout the rollout and drives the pending list to zero. Tracked separately; the allowlist design takes effect as a follow-on plan after initial vector batches land.
 
 ## Consumers
 

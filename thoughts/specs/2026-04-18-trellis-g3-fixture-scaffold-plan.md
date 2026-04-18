@@ -4,7 +4,9 @@
 
 **Goal:** Scaffold `fixtures/vectors/` per the design in `thoughts/specs/2026-04-18-trellis-g3-fixture-system-design.md`, extend `scripts/check-specs.py` with the coverage lint, and author one reference vector end-to-end (`append/001-minimal-inline-payload`) as proof the system works. Subsequent vector batches are follow-on plans.
 
-**Architecture:** Directory-per-vector layout. Each vector owns its `manifest.toml`, `derivation.md`, and committed binary siblings (inputs, intermediates, expected outputs). Pinned keys/payloads under `_keys/` and `_inputs/`. A Python authoring aid under `_generator/`, subject to an AST-enforced allowed-imports list. Coverage enforced by extending the existing `scripts/check-specs.py`: every matrix row with `Verification` containing `test-vector` must have ≥1 vector whose `coverage.tr_core` includes that row's ID; declared `core_sections` / `invariants` in each manifest must equal the matrix-derived set; every Phase 1 invariant #1–#15 must be covered by ≥1 vector via ≥1 testable row.
+**Amended 2026-04-18:** closes review findings F1 (invariant derivation unsound), F2 (G-2 fold-in over-claim), F4 (matrix column reconciliation), F5 (bypass → allowlist).
+
+**Architecture:** Directory-per-vector layout. Each vector owns its `manifest.toml`, `derivation.md`, and committed binary siblings (inputs, intermediates, expected outputs). Pinned keys/payloads under `_keys/` and `_inputs/`. A Python authoring aid under `_generator/`, subject to an AST-enforced allowed-imports list. Coverage enforced by extending the existing `scripts/check-specs.py`: every matrix row with `Verification` containing `test-vector` must have ≥1 vector whose `coverage.tr_core` includes that row's ID; declared `core_sections` in each manifest must equal the matrix-derived set (error on mismatch); declared `invariants` in each manifest is commentary-only (warning on mismatch, not an error); every invariant for which the matrix contains ≥1 row with `Verification=test-vector` must be covered by ≥1 such vector (F2: narrowed rule — byte-testable invariants only; non-byte-testable invariants are audited via the separate G-2 work, not by this lint).
 
 **Tech Stack:** Python 3.11+ stdlib (`tomllib`, `hashlib`, `pathlib`, `ast`, `re`), `cbor2` (for the generator only, installed via pip at authoring time — not a runtime dependency of the lint), `cryptography` (Ed25519 in the generator only). No new Rust code in this plan; Rust reference impl is G-4.
 
@@ -463,6 +465,8 @@ Cleanest: add a bypass env var `TRELLIS_SKIP_COVERAGE=1` for the main repo's cur
 
 Apply: wrap the body of `check_vector_coverage` with `if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1": return`. Document in the `README.md` of fixtures/vectors/ that the bypass exists and will be removed after Task 10.
 
+**Note (F5):** `TRELLIS_SKIP_COVERAGE=1` is accepted as a transitional mechanism for this plan only. A follow-on task will replace it with a per-invariant allowlist (`fixtures/vectors/_pending-invariants.toml`): the lint fails if an invariant is on the pending list but is already covered (forcing list cleanup), or if an invariant is absent from the list and not covered. The allowlist design is specified in the design doc's "Follow-ons" section and is out of scope for this plan.
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -523,7 +527,7 @@ def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
 - [ ] **Step 2: Add `check_vector_declared_coverage`**
 
 ```python
-def check_vector_declared_coverage(errors: list[str]) -> None:
+def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> None:
     for path, manifest in vector_manifests():
         coverage = manifest.get("coverage", {})
         tr_core = coverage.get("tr_core", [])
@@ -538,22 +542,24 @@ def check_vector_declared_coverage(errors: list[str]) -> None:
                     f"does not equal matrix-derived={sorted(derived)}"
                 )
         if declared_invariants is not None:
+            # invariants is commentary-only (F1/F2): mismatch is a warning, not an error.
+            # Matrix rows with Invariant=— are intentionally lossy under derivation.
             derived = derived_invariants_for_tr_core(tr_core)
             if declared_invariants != derived:
-                errors.append(
+                warnings.append(
                     f"{path.relative_to(ROOT)}: declared invariants={sorted(declared_invariants)} "
-                    f"does not equal matrix-derived={sorted(derived)}"
+                    f"differs from matrix-derived={sorted(derived)} (commentary mismatch — warning only)"
                 )
 ```
 
 - [ ] **Step 3: Register and run harness**
 
-Add call in `main()` after rule 1. Run:
+Add call in `main()` after rule 1, passing both `errors` and `warnings` lists. Run:
 ```bash
 python3 scripts/test_check_specs.py
 ```
 
-Expected: `minimal-valid` still passes (its manifest declares `invariants = [1]` matching matrix).
+Expected: `minimal-valid` still passes (its manifest declares `invariants = [1]` matching matrix — no warning emitted because the value agrees).
 
 - [ ] **Step 4: Commit**
 
@@ -562,13 +568,18 @@ git add scripts/check-specs.py
 git commit -m "feat(trellis): lint rule — declared vector coverage must match matrix-derived
 
 Adds check_vector_declared_coverage: when a manifest declares
-core_sections or invariants, the declared set must equal the set derived
-from the canonical tr_core list via matrix and Core prose."
+core_sections, the declared set must equal the matrix-derived set (error).
+When a manifest declares invariants, mismatch is a warning only — invariants
+is commentary; matrix rows with Invariant=— are intentionally lossy (F1/F2)."
 ```
 
 ---
 
-### Task 7: Implement rule 3 — every invariant covered, and rule 4 — generator import discipline
+### Task 7: Implement rule 3 — byte-testable invariants covered, and rule 4 — generator import discipline
+
+**Note (F2):** The actual implementation uses the narrowed rule: `check_invariant_coverage` only audits invariants for which the matrix already contains ≥1 row with `Verification=test-vector`. Invariants that are exclusively `model-check`, `declaration-doc-check`, `spec-cross-ref`, or similar non-byte paths are outside the scope of this lint and are tracked by the remaining G-2 gate (a separate audit pass, not this plan).
+
+**Note (F5):** `TRELLIS_SKIP_COVERAGE=1` is used here as a transitional mechanism. A follow-on task will replace this blanket bypass with a per-invariant allowlist (`fixtures/vectors/_pending-invariants.toml`) per the design amendment. For this plan, the bypass is acceptable to keep the main repo lint green while vectors are authored in batches.
 
 **Files:**
 - Modify: `scripts/check-specs.py` (add `check_invariant_coverage`, `check_generator_imports`)
@@ -576,10 +587,13 @@ from the canonical tr_core list via matrix and Core prose."
 - [ ] **Step 1: Add `check_invariant_coverage`**
 
 ```python
-PHASE_1_INVARIANTS = set(range(1, 16))  # #1..#15
-
 def check_invariant_coverage(errors: list[str]) -> None:
+    # F2: only audits invariants that have >=1 row with Verification=test-vector.
+    # Non-byte-testable invariants (model-check, declaration-doc-check, etc.) are
+    # audited separately through the remaining G-2 work, not here.
     if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
+        # F5: transitional bypass. Will be replaced by per-invariant allowlist
+        # (_pending-invariants.toml) in a follow-on plan.
         return
     rows = matrix_rows()
     testable_by_invariant: dict[int, list[str]] = {}
@@ -596,14 +610,11 @@ def check_invariant_coverage(errors: list[str]) -> None:
     for path, manifest in vector_manifests():
         covered_ids.update(manifest.get("coverage", {}).get("tr_core", []))
 
-    for inv in sorted(PHASE_1_INVARIANTS):
-        testable_rows = testable_by_invariant.get(inv, [])
-        if not testable_rows:
-            errors.append(
-                f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
-                f"row with Verification=test-vector"
-            )
-            continue
+    # Only iterate invariants that are byte-testable (have >=1 test-vector row).
+    # Invariants absent from testable_by_invariant are non-byte-testable and are
+    # excluded from this check (audited via G-2's separate pass).
+    for inv in sorted(testable_by_invariant.keys()):
+        testable_rows = testable_by_invariant[inv]
         if not any(rid in covered_ids for rid in testable_rows):
             errors.append(
                 f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
@@ -671,9 +682,11 @@ Expected: "Trellis spec checks passed." (Generator dir doesn't exist yet at main
 git add scripts/check-specs.py
 git commit -m "feat(trellis): lint rules — invariant coverage and generator imports
 
-check_invariant_coverage: every Phase 1 invariant #1-#15 must have >=1
-row with Verification=test-vector AND >=1 vector covering such a row.
-Bypassed by TRELLIS_SKIP_COVERAGE=1 until first vector lands.
+check_invariant_coverage: every byte-testable invariant (those with >=1
+matrix row where Verification=test-vector) must have >=1 vector covering
+such a row. Non-byte-testable invariants are excluded — audited via the
+separate G-2 pass. Bypassed by TRELLIS_SKIP_COVERAGE=1 until first vector
+lands; follow-on plan replaces bypass with per-invariant allowlist (F5).
 
 check_generator_imports: AST-scans fixtures/vectors/_generator/**/*.py
 against an allowed top-level import list (hashlib, cryptography, cbor2,
