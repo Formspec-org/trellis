@@ -77,7 +77,7 @@ This is the consolidated traceability matrix for the Trellis spec family. It rep
 |---|---|---|---|---|---|---|---|
 | TR-CORE-030 | core | #1, #4 | Canonical append semantics MUST use exactly one authoritative canonical event hash construction over the sealed canonical record package; deterministic canonical serialization (the pinned CBOR profile, dCBOR or explicitly named equivalent) is REQUIRED; subordinate hashes MAY exist for specialized purposes but MUST NOT redefine canonical append semantics. | Invariant #1 (pinned canonical CBOR) + invariant #4 (hashes over ciphertext): byte-exact vectors demand both a single construction and a pinned encoding. | test-vector | ULCR-044, ULCR-096 | Merges the one-hash-construction rule with the pinned-encoding requirement. |
 | TR-CORE-031 | core | #4 | Hashes MUST be computed over ciphertext, not plaintext, for payloads subject to per-subject key destruction ("crypto-shredding"). | Invariant #4 — the only GDPR Art. 17 / FOIA-redaction story that survives an append-only chain. | test-vector | — | New invariant row. |
-| TR-CORE-032 | core | — | Future canonical hash constructions MUST be registered before verifiers are required to accept them; until a dedicated registry companion is published, the single mandatory construction is dCBOR per RFC 8949 §4.2.2 with SHA-256 and the Core-defined Trellis hash preimages. | Pre-empts registry-less silent extension. | spec-cross-ref | ULCR-109 | Corrects the legacy JCS contradiction; Core §5 and §9 govern. |
+| TR-CORE-032 | core | #1 | The Phase 1 canonical encoding MUST be deterministic CBOR (dCBOR) per RFC 8949 §4.2.2 paired with SHA-256 over the Core-defined Trellis hash preimages (§9); future canonical hash constructions MUST be registered via a dedicated registry companion before verifiers are required to accept them. | Invariant #1 pins dCBOR as the one deterministic encoding; byte-exact cross-implementation fixtures require a single named construction and pre-empt registry-less silent extension. | test-vector, spec-cross-ref | ULCR-109 | Corrects the legacy JCS contradiction. Verification covers fixtures under `fixtures/vectors/encoding/` proving byte-exact round-trip through any conformant dCBOR encoder (see Core §5.1 and §9.2). |
 
 ### 1.5 Signature Suite and Signing-Key Registry
 
@@ -210,15 +210,18 @@ This is the consolidated traceability matrix for the Trellis spec family. It rep
 | TR-OP-006 | operational | — | Projection conformance tests MUST validate watermark presence and stale-status behavior. | Makes the discipline testable. | projection-rebuild-drill | ULCOMP-R-220 | |
 | TR-OP-007 | operational | — | Each conforming deployment MUST define ongoing projection correctness checks including at least sampled rebuild comparison or checkpoint-bound equivalence; access-grant or authorization-expanding projections SHOULD be checked more frequently than general read models. | Projection integrity policy. | projection-rebuild-drill | ULCOMP-R-223 | |
 
-### 2.2 Custody Models (Provider / Reader / Delegated / Threshold / Organizational)
+### 2.2 Custody Models (CM-A … CM-F)
+
+Canonical list: Companion §9 (Custody Models), in particular §9.2 (The Six Standard Custody Models). Rows below cite Companion §9 by anchor; each row names one `CM-*` identifier. A sixth identifier `CM-F` (Client-Origin Sovereign) is tracked in §4.3 and Core §21.3 but has no per-model requirement row here beyond the general Custody-Model honesty obligations in TR-OP-015, TR-OP-016, and Companion §9.4 / §9.6.
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-010 | operational | — | A Posture Declaration using a provider-readable custody model MUST say so plainly and MUST NOT imply provider blindness. | Custody Model (formerly "Profile A" in legacy companion). | declaration-doc-check | ULCOMP-R-176 | See §4 renaming. |
-| TR-OP-011 | operational | — | A reader-held Custody Model Posture Declaration MUST describe who can assist recovery and under what conditions. | Custody Model (formerly "Profile B"). | declaration-doc-check | ULCOMP-R-177 | |
-| TR-OP-012 | operational | — | A delegated-compute Custody Model Posture Declaration MUST state whether plaintext is visible to any provider-operated components during delegation. | Custody Model (formerly "Profile C"). | declaration-doc-check | ULCOMP-R-178 | |
-| TR-OP-013 | operational | — | A threshold Custody Model MUST declare recovery conditions, quorum thresholds, and exceptional access; threshold participation MUST NOT be overstated. | Custody Model (formerly "Profile D"). | declaration-doc-check | ULCOMP-R-179 | |
-| TR-OP-014 | operational | — | An organizational-trust Custody Model MUST identify the scope of organizational authority and exceptional-access controls; MUST distinguish provider-readable from organization-controlled where they differ. | Custody Model (formerly "Profile E"). | declaration-doc-check | ULCOMP-R-180 | |
+| TR-OP-010 | operational | — | A Posture Declaration using the `CM-A` (Provider-Readable Custodial) Custody Model MUST say so plainly and MUST NOT imply provider blindness. | Companion §9.2, §9.4 CM-A obligations (legacy companion letter: A). | declaration-doc-check | ULCOMP-R-176 | See §4.3 renaming. |
+| TR-OP-011 | operational | — | A Posture Declaration using the `CM-B` (Reader-Held with Recovery Assistance) Custody Model MUST describe who can assist recovery and under what conditions. | Companion §9.2, §9.4 CM-B obligations (legacy companion letter: B). | declaration-doc-check | ULCOMP-R-177 | |
+| TR-OP-012 | operational | — | A Posture Declaration using the `CM-C` (Delegated Compute) Custody Model MUST state whether plaintext is visible to any provider-operated components during delegation. | Companion §9.2, §9.4 CM-C obligations (legacy companion letter: C). | declaration-doc-check | ULCOMP-R-178 | |
+| TR-OP-013 | operational | — | A Posture Declaration using the `CM-D` (Threshold-Assisted Custody) Custody Model MUST declare recovery conditions, quorum thresholds, and exceptional access; threshold participation MUST NOT be overstated. | Companion §9.2, §9.4 CM-D obligations (legacy companion letter: D). | declaration-doc-check | ULCOMP-R-179 | |
+| TR-OP-014 | operational | — | A Posture Declaration using the `CM-E` (Organizational Trust) Custody Model MUST identify the scope of organizational authority and exceptional-access controls; MUST distinguish provider-readable from organization-controlled access where they differ. | Companion §9.2, §9.4 CM-E obligations (legacy companion letter: E). | declaration-doc-check | ULCOMP-R-180 | |
+| TR-OP-017 | operational | — | A Posture Declaration using the `CM-F` (Client-Origin Sovereign) Custody Model MUST identify the client-origin key authority, the presence or absence of operator recovery, and the consequences of client key loss; MUST NOT imply legal or operational availability beyond what the key-custody design supports. | Companion §9.2, §9.4 CM-F obligations (no legacy companion letter; CM-F is new to the unified namespace). | declaration-doc-check | — | See §4.3 renaming. |
 | TR-OP-015 | operational | — | A reader-held custody model MUST declare ordinary service operation does not require general plaintext access for declared protected content; MUST identify which principals may decrypt within scope; MUST identify whether the provider can assist recovery; MUST remain consistent with the active Posture Declaration; MUST distinguish reader-held access from provider-readable access and from delegated-compute access. | Unified reader-held custody rules. | declaration-doc-check | ULCOMP-R-029, ULCOMP-R-030, ULCOMP-R-031, ULCOMP-R-032, ULCOMP-R-033, ULCOMP-R-034 | |
 | TR-OP-016 | operational | — | Reader-held access MUST NOT be described as provider-readable ordinary operation; MAY coexist with recovery assistance if the Posture Declaration declares it honestly; MAY coexist with delegated compute if delegation remains explicit, scoped, and auditable. | Reader-held honesty rule. | declaration-doc-check | ULCOMP-R-035, ULCOMP-R-036, ULCOMP-R-037 | |
 
@@ -310,6 +313,12 @@ This is the consolidated traceability matrix for the Trellis spec family. It rep
 | TR-OP-121 | operational | — | The operational companion MAY define custody-model-specific constraints, binding/sidecar interpretation layers, and reusable companion requirements that refine but do not reinterpret the core; additional requirements MUST be interpreted consistently with the core specification; MUST remain subordinate to the constitutional semantics of Trellis Core. | Operational-scope subordination. | spec-cross-ref | ULCOMP-R-001, ULCOMP-R-002, ULCOMP-R-003, ULCOMP-R-004, ULCOMP-R-005 | |
 | TR-OP-122 | operational | — | Custody-model, binding, and sidecar exports MUST preserve author / canonical-record / attestation / disclosure distinctions and provenance distinctions when presenting scoped timelines, deltas, or interpretations; MUST NOT imply broader workflow/governance/custody/compliance/disclosure coverage than the declared scope includes. | Scoped-export honesty. | test-vector | ULCOMP-R-092, ULCOMP-R-093, ULCOMP-R-094 | |
 
+### 2.14 Versioned Registries (Operator-Side Complement to Invariant #6)
+
+| ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
+|---|---|---|---|---|---|---|---|
+| TR-OP-130 | operational | #6 | Implementations SHOULD define versioned registries for the identifier and kind categories referenced by canonical records (event taxonomy, role vocabulary, governance rules, and any binding-declared registries); each registry MUST be resolvable to a content-addressed digest for inclusion in the export manifest per TR-CORE-070. | Invariant #6 fixes a snapshot digest in the manifest but presumes the registries themselves exist and are versioned; without this operator-side duty the manifest digest has nothing semantically meaningful to bind to. | declaration-doc-check, test-vector | ULCOMP-R-197 | Reinstated from gap-log §5.4 — the prior "owned upstream by WOS Governance App. A" justification was incorrect (WOS Governance has no Appendix A; `cross-reference-map.md` confirms no upstream home). |
+
 ---
 
 ## Section 3 — Mapping Tables
@@ -320,12 +329,12 @@ Every invariant gets at least one row. Invariants that generate operational duti
 
 | Invariant | Name (short) | TR-CORE rows | TR-OP rows |
 |---|---|---|---|
-| #1 | Canonical CBOR profile pinned | TR-CORE-030 | — |
+| #1 | Canonical CBOR profile pinned | TR-CORE-030, TR-CORE-032 | — |
 | #2 | Signature suite identified, migration obligation | TR-CORE-035, TR-CORE-036 | TR-OP-110 |
 | #3 | Signing-key registry in export | TR-CORE-037 | — |
 | #4 | Hashes over ciphertext | TR-CORE-030, TR-CORE-031 | — |
 | #5 | Ordering model named (linear vs causal DAG) | TR-CORE-020, TR-CORE-021, TR-CORE-022, TR-CORE-023, TR-CORE-024, TR-CORE-025 | — |
-| #6 | Registry-snapshot binding in manifest | TR-CORE-070 | — |
+| #6 | Registry-snapshot binding in manifest | TR-CORE-070 | TR-OP-130 |
 | #7 | `key_bag` / author-event-hash immutable under rotation | TR-CORE-038 | — |
 | #8 | Redaction-aware commitment slots reserved | TR-CORE-071 | TR-OP-071 |
 | #9 | Plaintext-vs-committed header policy explicit | TR-CORE-072 | TR-OP-040 |
@@ -371,6 +380,7 @@ Every load-bearing legacy ID appears in the `Legacy` column of exactly one conso
 | ULCOMP-R-159..168 (erasure, sealing, legal sufficiency, privacy) | TR-CORE-111, TR-CORE-112, TR-OP-080, TR-OP-100, TR-OP-101 |
 | ULCOMP-R-169..172 (metadata minimization) | TR-CORE-113 |
 | ULCOMP-R-173..180 (sidecar discipline, custody-model examples) | TR-CORE-142, TR-OP-010..014 |
+| ULCOMP-R-197 (versioned registries) | TR-OP-130 (reinstated; see §5.4) |
 | ULCOMP-R-198..208 (rejection, versioning) | TR-CORE-052, TR-CORE-110, TR-OP-110 |
 | ULCOMP-R-209..212 (security testing, migration guidance) | TR-OP-111, TR-OP-112 |
 | ULCOMP-R-213..214 (conformance boundary) | TR-CORE-126 |
@@ -401,13 +411,13 @@ Three legacy namespaces shared the letters A–E/F. This matrix applies the rena
 
 ### 4.1 Respondent Ledger posture axes — *retain "Profile A/B/C"*
 
-Owner: Formspec Respondent Ledger (upstream). The letters are kept because they denote orthogonal posture axes (privacy × identity × integrity-anchoring), not custody modes.
+Owner: Formspec Respondent Ledger (upstream, `specs/audit/respondent-ledger-spec.md` §15A). The letters are kept because they denote orthogonal posture axes (privacy × identity × integrity-anchoring), not custody modes. Within Trellis prose these are always qualified as **"Respondent Ledger Profile A/B/C"** to avoid collision with the legacy companion letters (renamed in §4.3) and the legacy core-draft names (renamed in §4.2).
 
 | Letter | Axis | Retained? |
 |---|---|---|
-| Profile A | Privacy posture | yes |
-| Profile B | Identity posture | yes |
-| Profile C | Integrity-anchoring posture | yes |
+| Respondent Ledger Profile A | Privacy posture | yes |
+| Respondent Ledger Profile B | Identity posture | yes |
+| Respondent Ledger Profile C | Integrity-anchoring posture | yes |
 
 ### 4.2 Legacy core-draft profiles — *renamed "Conformance Classes"*
 
@@ -423,17 +433,18 @@ Owner: Trellis Core (this spec family). Semantically these are conformance tiers
 | User-Held profile | Conformance Class: User-Held (now owned upstream by Formspec Respondent Ledger) |
 | Respondent-History profile | Conformance Class: Respondent-History (now owned upstream by Formspec Respondent Ledger) |
 
-### 4.3 Legacy companion-draft Profiles A–E — *renamed "Custody Models"*
+### 4.3 Legacy companion-draft Profiles A–E — *renamed "Custody Models" (CM-A … CM-F)*
 
-Owner: Trellis Operational Companion (this spec family). Semantically these are custody arrangements.
+Owner: Trellis Operational Companion (this spec family). Semantically these are custody arrangements. The canonical identifier set and definitions live in Operational Companion §9.2 (The Six Standard Custody Models); the table below records the legacy→current rename and cross-references the relevant `TR-OP-*` row. CM-F is new to the unified namespace — it has no legacy companion letter.
 
-| Legacy companion letter | Posture described | New name (Custody Model) | Row |
+| Legacy companion letter | Posture described | Current identifier (Custody Model) | Row |
 |---|---|---|---|
-| Profile A | Provider-readable | Custody Model: Provider-Readable | TR-OP-010 |
-| Profile B | Reader-held with recovery | Custody Model: Reader-Held with Recovery | TR-OP-011 |
-| Profile C | Delegated compute | Custody Model: Delegated Compute | TR-OP-012 |
-| Profile D | Threshold / quorum | Custody Model: Threshold | TR-OP-013 |
-| Profile E | Organizational trust | Custody Model: Organizational Trust | TR-OP-014 |
+| Legacy Profile A | Provider-readable | `CM-A` — Provider-Readable Custodial (Companion §9.2) | TR-OP-010 |
+| Legacy Profile B | Reader-held with recovery | `CM-B` — Reader-Held with Recovery Assistance (Companion §9.2) | TR-OP-011 |
+| Legacy Profile C | Delegated compute | `CM-C` — Delegated Compute (Companion §9.2) | TR-OP-012 |
+| Legacy Profile D | Threshold / quorum | `CM-D` — Threshold-Assisted Custody (Companion §9.2) | TR-OP-013 |
+| Legacy Profile E | Organizational trust | `CM-E` — Organizational Trust (Companion §9.2) | TR-OP-014 |
+| *(no legacy letter — new)* | Client-origin sovereign | `CM-F` — Client-Origin Sovereign (Companion §9.2) | TR-OP-017 |
 
 ### 4.4 Phase-scoped Trellis capability tiers — *referred to by phase name*
 
@@ -450,47 +461,62 @@ The product-vision refers to Trellis capability tiers by phase name, not by "pro
 
 ## Section 5 — Gap Log (Legacy Rows Dropped)
 
-Every legacy row not migrated into a `TR-*` row is listed here with a one-sentence justification. Legacy IDs remain permanently retired (not reused) regardless of drop category.
+Every legacy row not migrated into a `TR-*` row is listed here with a one-sentence justification and a disposition annotation:
 
-### 5.1 Dropped: superseded by a product-vision invariant
+- `[confirmed]` — drop is sound against invariants #1–#15 and/or an upstream spec §N.
+- `[corrected]` — drop is sound but the original justification cited the wrong invariant, `TR-*` row, or upstream section; the cell below supplies the correct citation.
+- `[reinstated as TR-*-NNN]` — drop was unsound; the requirement has been reinstated as a new row in Section 1 or Section 2.
 
-| Legacy ID | Why dropped |
-|---|---|
-| ULCR-041 | Superseded by TR-CORE-010 + TR-CORE-040 (object-distinction invariant is now one row, not a Legacy-§7.1 invariant restatement). |
-| ULCR-042 | Superseded by TR-CORE-013 (fact-vs-record distinction is carried by the canonical-record object-class row). |
-| ULCR-045 | Superseded by TR-CORE-100 (delegated-compute-not-provider-plaintext is now the trust-honesty floor, invariant #15). |
-| ULCR-046 | Superseded by invariant #15 and upstream WOS Assurance (disclosure-vs-assurance is owned upstream; Trellis no longer restates it). |
-| ULCR-044 | Merged into TR-CORE-030; not an independent drop — the companion posture invariant is covered by invariant #15 and folds into TR-CORE-100. |
+Legacy IDs remain permanently retired (not reused) regardless of drop category.
+
+### 5.1 Dropped: superseded by a product-vision invariant or consolidated `TR-*` row
+
+| Legacy ID | Why dropped | Disposition |
+|---|---|---|
+| ULCR-041 | Append-only canonical history ("canonical records MUST NOT be rewritten in-place") is covered by TR-CORE-132 (Canonical Append Service MUST NOT rewrite prior canonical records) and TR-CORE-131 (Fact Producer MUST NOT rewrite previously emitted facts). Previous justification citing TR-CORE-010 + TR-CORE-040 was incorrect — those rows cover object-class distinctions, not append-only semantics. | [corrected] |
+| ULCR-042 | "Derived artifacts MUST NOT be treated as canonical truth" is covered by TR-CORE-002 (Derived Artifact Contract) and TR-CORE-011 / TR-CORE-012 (derived and disclosure artifacts MUST NOT collapse into canonical truth; implementations MUST NOT treat derived artifacts as authoritative). Previous justification citing TR-CORE-013 was incorrect — TR-CORE-013 distinguishes canonical records from their underlying authored content, a different distinction. | [corrected] |
+| ULCR-044 | "Canonical append semantics MUST bind to exactly one canonical hash construction" is merged into TR-CORE-030 (which unifies the one-hash-construction rule with the invariant #1 / #4 pinned-encoding and ciphertext-hashing requirements). Previous justification's trailing reference to invariant #15 / TR-CORE-100 was a copy-paste error and has been removed. | [corrected] |
+| ULCR-045 | "Canonical verification MUST NOT depend on workflow runtime internals" is covered by TR-CORE-061 (Verifier MUST NOT require access to derived runtime state to verify canonical integrity). Previous justification citing TR-CORE-100 / invariant #15 was incorrect — TR-CORE-100 is the trust-posture-honesty floor, unrelated to verification independence. | [corrected] |
+| ULCR-046 | "Append idempotency — equivalent admitted canonical inputs MUST NOT create duplicate canonical order positions" is covered by invariant #13 and TR-CORE-050 / TR-CORE-051 (idempotency key contract and merged companion idempotency rows). Previous justification citing invariant #15 and upstream WOS Assurance was incorrect — idempotency is a Trellis-owned wire-contract concern, not an assurance taxonomy concern. | [corrected] |
 
 ### 5.2 Dropped: out of scope (owned upstream by Formspec Respondent Ledger or WOS)
 
-| Legacy ID | Why dropped |
-|---|---|
-| ULCR-063 | Disclosure-vs-assurance taxonomy; owned upstream by WOS Assurance §2/§4. |
-| ULCR-080 | User-held record reuse capability; owned upstream by Formspec Respondent Ledger §6.6A. |
-| ULCR-081 | Respondent history capability; owned upstream by Formspec Respondent Ledger §6.7. |
-| ULCR-112 | Generic Disclosure-vs-Assurance invariant; owned upstream by WOS Assurance §4 Invariant 6. |
-| ULCOMP-R-067..075 | User-Held Reuse; owned upstream by Formspec Respondent Ledger. |
-| ULCOMP-R-076..087 | Respondent History; owned upstream by Formspec Respondent Ledger. |
-| ULCOMP-R-135..138 | Identity / signing mechanics; owned upstream by WOS Assurance. |
-| ULCOMP-R-139 | User-signing evidence distinction; owned upstream by WOS Assurance (authored-auth vs canonical-append-attestation distinction is TR-CORE-040). |
-| ULCOMP-R-140..143 | Assurance-vs-disclosure taxonomy; owned upstream by WOS Assurance + Formspec Respondent Ledger. |
-| ULCOMP-R-155..158 | Generic lifecycle (retention, legal hold, archival, sealing, schema upgrade); owned upstream by WOS Governance §2.9 + §7.15. |
-| ULCOMP-R-161..162 | Sealing / retention precedence; owned upstream by WOS Governance. |
-| ULCOMP-R-181..188 | Forms respondent-history sidecar (stable paths, item keys, validation snapshots, amendment cycles, migration outcomes, change sets, history moments, respondent export views); owned upstream by Formspec Respondent Ledger. |
-| ULCOMP-R-189..196 | Workflow governance sidecar (workflow mapping, governance facts, review semantics, approval/recovery, provenance family, conflict families, workflow export views); owned upstream by WOS Governance. |
-| ULCOMP-R-197 | Registry conventions; owned upstream by WOS Governance App. A. |
+Citations below are verified against the current upstream spec files; see `specs/cross-reference-map.md` for the authoritative concept-to-section index.
+
+| Legacy ID | Why dropped | Disposition |
+|---|---|---|
+| ULCR-063 | Disclosure-vs-assurance taxonomy; owned upstream by WOS Assurance §2 (Assurance Levels) + §4 (Invariant 6: Disclosure Posture Is Not Assurance Level) and Formspec Respondent Ledger §6.6 (`privacyTier`) / §6.6.1 (`assuranceLevel`). | [confirmed] |
+| ULCR-080 | User-held record reuse capability; owned upstream by Formspec Respondent Ledger §6.6A (Identity and implementation decoupling) + §6.7 (Disclosure tier and assurance are independent). | [confirmed] |
+| ULCR-081 | Respondent-history capability; owned upstream by Formspec Respondent Ledger §5 (RespondentLedger object), §6 (RespondentLedgerEvent), and §8 (Event taxonomy). Previous citation ("§6.7") was imprecise; the respondent-history capability is the whole purpose of that spec and not localized to §6.7. | [corrected] |
+| ULCR-112 | Legacy Invariant 6 (Disclosure posture and assurance posture MUST remain distinct and MUST NOT be conflated); owned upstream by WOS Assurance §4 (Invariant 6). | [confirmed] |
+| ULCOMP-R-067..075 | User-held record reuse; owned upstream by Formspec Respondent Ledger §6.6A + §6.7. | [confirmed] |
+| ULCOMP-R-076..087 | Respondent history; owned upstream by Formspec Respondent Ledger §5, §6, §6.6A, §6.7, §8. | [corrected] |
+| ULCOMP-R-135..138 | Identity / signing mechanics; owned upstream by WOS Assurance §3 (Subject Continuity) + §5 (Provider-Neutral Attestation). Previous citation ("WOS Assurance" bare) was insufficiently specific. | [corrected] |
+| ULCOMP-R-139 | User-signing evidence distinction (authored authentication vs canonical append attestation); the ledger-side distinction is carried by TR-CORE-040 (five object classes include author-originated fact and canonical append attestation as distinct categories). Upstream identity-signing semantics are owned by WOS Assurance §3 + §5. | [corrected] |
+| ULCOMP-R-140..143 | Assurance-vs-disclosure taxonomy and subject continuity; owned upstream by WOS Assurance §2 + §3 + §4 (Invariant 6) and Formspec Respondent Ledger §6.6 + §6.6A + §6.6.1. Previous citation was insufficiently specific. | [corrected] |
+| ULCOMP-R-155..158 | Generic lifecycle (retention, legal hold, archival, sealing, schema upgrade); owned upstream by WOS Governance §2.9 (Schema Upgrade as Named Lifecycle Operation) + §7.15 (Legal Hold). Ledger-specific cryptographic lifecycle (key destruction, export issuance) is retained at TR-CORE-111 / TR-CORE-112. | [confirmed] |
+| ULCOMP-R-161..162 | Sealing / retention precedence; owned upstream by WOS Governance §7.15 (Legal Hold) which establishes precedence over retention policies. Previous citation ("WOS Governance" bare) was insufficiently specific. | [corrected] |
+| ULCOMP-R-181..188 | Forms respondent-history sidecar (stable paths, item keys, validation snapshots, amendment cycles, migration outcomes, change sets, history moments, respondent export views); owned upstream by Formspec Respondent Ledger §6.6A + §6.7 (and §7 ChangeSetEntry for change-set semantics, §9 for materiality, §8 for event taxonomy). | [corrected] |
+| ULCOMP-R-189..196 | Workflow governance sidecar (workflow mapping, governance facts, review semantics, approval/recovery, provenance family, conflict families, workflow export views); owned upstream by WOS Governance workflow-governance.md §§3–4 (Due Process, Review Protocols) + §8 (Rejection and Remediation) + §11 (Delegation of Authority). Previous citation ("WOS Governance" bare) was insufficiently specific. | [corrected] |
 
 ### 5.3 Dropped: duplicate of another consolidated row
 
-| Legacy ID | Why dropped |
-|---|---|
-| ULCR-073 | "Companion discipline MUST NOT alter core semantics" is entirely restated by TR-CORE-015 / TR-CORE-016. |
-| ULCR-113 | "Author-fact vs append-attestation" is subsumed by TR-CORE-010 + TR-CORE-040. |
-| ULCR-114 | "Canonical fact vs canonical record" is subsumed by TR-CORE-013. |
-| ULCR-075 | Scoped-export rule folded into TR-OP-122 (equivalent content at operational scope). |
+| Legacy ID | Why dropped | Disposition |
+|---|---|---|
+| ULCR-073 | "Companion discipline MUST NOT alter core semantics" is entirely restated by TR-CORE-015 + TR-CORE-016. | [confirmed] |
+| ULCR-113 | "Author-fact vs append-attestation distinction" is subsumed by TR-CORE-010 + TR-CORE-040 (object-class distinction includes author-originated fact and canonical append attestation as two of the five classes). | [confirmed] |
+| ULCR-114 | "Canonical fact vs canonical record distinction" is subsumed by TR-CORE-013 (canonical record MUST remain distinguishable from underlying authored content). | [confirmed] |
+| ULCR-075 | Scoped-export rule folded into TR-OP-122 (custody-model / binding / sidecar exports MUST preserve author / canonical-record / attestation / disclosure distinctions, and MUST NOT imply broader coverage than the declared scope includes). | [confirmed] |
 
-### 5.4 Contradictions between legacy matrices (resolution recorded inline)
+### 5.4 Reinstated: drop was unsound
+
+The following legacy rows were flagged during the gap-log soundness audit as lacking both (a) coverage by any of invariants #1–#15 and (b) a verified upstream home, and have been reinstated as new `TR-*` rows. The original legacy IDs remain retired; reinstated rows carry new IDs in Section 1 or Section 2.
+
+| Legacy ID | Original justification (rejected) | Reinstated as | New home |
+|---|---|---|---|
+| ULCOMP-R-197 | "Registry conventions; owned upstream by WOS Governance App. A." WOS Governance has no Appendix A, and `specs/cross-reference-map.md` confirms "no confirmed upstream home — registry conventions are not defined in current WOS specs." The obligation (implementations SHOULD define versioned registries for listed identifier/kind categories) is a companion-scope operator duty complementing invariant #6 (which covers the manifest-side snapshot-binding but presumes versioned registries exist). | TR-OP-130 | New row added in §2.14. |
+
+### 5.5 Contradictions between legacy matrices (resolution recorded inline)
 
 Prior-draft conflicts resolved in favor of product-vision invariants, per the authoring contract:
 

@@ -256,8 +256,10 @@ A *Custody Model* is a named operational posture covering custody, readability, 
 
 - "Custody Model" = operator-side custody posture (this §9).
 - "Posture Declaration" = the declarative object of §11, which carries a Custody Model reference.
-- "Profile A/B/C" = Respondent Ledger posture axes (owned by Formspec; do not redefine here).
+- "Respondent Ledger Profile A/B/C" = Respondent Ledger posture axes (owned by Formspec; do not redefine here).
 - "Conformance Class" = Core byte-level implementation class (owned by Trellis Core; not a custody term).
+
+**This companion §9 is the canonical list of Custody Models.** The identifier set `CM-A` … `CM-F` and the normative semantics of each model are defined here. Trellis Core §21 (Posture / Custody / Conformance-Class Vocabulary) cites this section and does not restate the identifier set. The Trellis Requirements Matrix §2.2 and §4.3 cite this section and track the same identifier set.
 
 ### 9.2 The Six Standard Custody Models
 
@@ -517,7 +519,7 @@ The watermark MUST include at minimum:
 
 ### 14.2 No Second Canonical Truth
 
-**OC-33 (MUST NOT).** No projection, evaluator state, cache, snapshot, timeline, dashboard, queue, index, read model, materialized view, workflow runtime state, or any other derived artifact is authoritative for canonical facts. This is the operational restatement of Trellis Core invariant §6.2 ("No Second Canonical Truth"); it applies regardless of the artifact's durability, retention, signing, or operational centrality.
+**OC-33 (MUST NOT).** No projection, evaluator state, cache, snapshot, timeline, dashboard, queue, index, read model, materialized view, workflow runtime state, or any other derived artifact is authoritative for canonical facts. This is the operational restatement of the derived-artifact rule fixed by Core §15 (Snapshot and Watermark Discipline) — every derived artifact carries a watermark and a rebuild path precisely because it is not itself canonical truth; it applies regardless of the artifact's durability, retention, signing, or operational centrality.
 
 ### 14.3 Canonical Resolution
 
@@ -771,7 +773,7 @@ Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `c
 
 ### 20.3 Crypto-Shredding Scope
 
-**OC-75 (MUST).** The Core specification (Core §9 (Hash Construction)) governs the cryptographic mechanics of key destruction. This companion adds the **operational** obligation: cryptographic erasure is **incomplete** until the **purge cascade** completes across every derived artifact holding plaintext or plaintext-derived material subject to the erasure event.
+**OC-75 (MUST).** Trellis Core owns the cryptographic mechanics that make crypto-shredding work: Core §9 (Hash Construction) requires `content_hash` over ciphertext so that destroying the payload DEK leaves the chain verifiable, and the HPKE key-bag wrap defined therein holds the DEK that erasure destroys. This companion adds the **operational** obligation: cryptographic erasure is **incomplete** until the **purge cascade** completes across every derived artifact holding plaintext or plaintext-derived material subject to the erasure event.
 
 ### 20.4 Purge-Cascade Obligation
 
@@ -892,7 +894,7 @@ An Operator MAY define additional rejection classes; it MUST document each in it
 
 ### 22.6 Registry Discipline
 
-**OC-93 (SHOULD).** Operators SHOULD define versioned registries for at least: fact kinds, schema or semantic digests, Custody Model identifiers, lifecycle-fact kinds, disclosure or export artifact kinds, and sidecar identifiers where used. Registry snapshots referenced by an export MUST be content-addressed (Core invariant #6).
+**OC-93 (SHOULD; TR-OP-130).** Operators SHOULD define versioned registries for at least: fact kinds, schema or semantic digests, Custody Model identifiers, lifecycle-fact kinds, disclosure or export artifact kinds, and sidecar identifiers where used. Each registry MUST be resolvable to a content-addressed digest for inclusion in the export manifest under Core §18 (Export Package Layout), satisfying invariant #6 (Registry-snapshot binding).
 
 ---
 
@@ -1338,7 +1340,7 @@ Implementations MUST NOT attach high-stakes outcomes — adverse action, selecti
 
 ### 29.1 Normative References
 
-- **[Trellis Core]** — Trellis Core Specification v0.1. Canonical byte-level substrate for Trellis.
+- **[Trellis Core]** — Trellis Core Specification v1.0.0-draft.1. Canonical byte-level substrate for Trellis.
 - **[RFC 2119]** — Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels," BCP 14, RFC 2119, March 1997.
 - **[RFC 8174]** — Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words," BCP 14, RFC 8174, May 2017.
 - **[RFC 8259]** — Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format," STD 90, RFC 8259, December 2017.
@@ -1579,7 +1581,7 @@ This non-normative appendix anchors the traceability matrix rows that correspond
 Operational traceability rows:
 
 - TR-OP-001, TR-OP-002, TR-OP-003, TR-OP-004, TR-OP-005, TR-OP-006, TR-OP-007
-- TR-OP-010, TR-OP-011, TR-OP-012, TR-OP-013, TR-OP-014, TR-OP-015, TR-OP-016
+- TR-OP-010, TR-OP-011, TR-OP-012, TR-OP-013, TR-OP-014, TR-OP-015, TR-OP-016, TR-OP-017
 - TR-OP-020, TR-OP-021, TR-OP-022
 - TR-OP-030, TR-OP-031, TR-OP-032, TR-OP-033, TR-OP-034
 - TR-OP-040, TR-OP-041
@@ -1591,6 +1593,7 @@ Operational traceability rows:
 - TR-OP-100, TR-OP-101
 - TR-OP-110, TR-OP-111, TR-OP-112
 - TR-OP-120, TR-OP-121, TR-OP-122
+- TR-OP-130
 
 ---
 

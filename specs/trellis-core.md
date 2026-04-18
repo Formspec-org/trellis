@@ -290,6 +290,29 @@ An Event signature is the RFC 9052 COSE_Sign1 signature over `EventPayload` usin
 
 `payload` is the exact dCBOR bytes of `EventPayload`. `external_aad` is the zero-length byte string for Phase 1. The COSE protected header MUST contain `alg`, `kid`, and `suite_id` (§7.4). No signature bytes are present in `EventPayload`, so event signing is non-circular by construction.
 
+### 6.7 Extension Registration
+
+`EventPayload.extensions`, `EventHeader.extensions`, and `CheckpointPayload.extensions` (§11.6) are keyed by text-string identifiers drawn from an IANA-style namespace rooted at the `trellis.` prefix. The registration discipline is:
+
+- Keys starting with `trellis.` are reserved to this specification family and registered by the Trellis Working Group (later: IANA).
+- Keys starting with `x-` are vendor / deployment local and MUST NOT be relied on across operators.
+- A registered key specifies: the container it lives in (`EventPayload.extensions`, `EventHeader.extensions`, `CheckpointPayload.extensions`, `ExportManifestPayload.extensions`), its CDDL type, the Phase that produces it, and the verification obligation (ignore-if-unknown vs. reject-if-unknown-at-version).
+- Registration is append-only; meaning does not change after registration.
+
+Example registered extension identifiers (Phase 2/3 reservations):
+
+| Container | Identifier | Phase | Purpose |
+|---|---|---|---|
+| `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
+| `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
+| `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
+| `CheckpointPayload.extensions` | `trellis.agency_log.arrival_timestamp.v1` | 3 | Agency-log arrival timestamp at witness-operator ingest. |
+| `CheckpointPayload.extensions` | `trellis.agency_log.witness_signature.v1` | 3 | Agency-log per-head witness cosignature. |
+| `CheckpointPayload.extensions` | `trellis.case_ledger.composed_response_heads.v1` | 3 | Case-ledger head composition manifest. |
+| `CheckpointPayload.extensions` | `trellis.case_ledger.case_scope_metadata.v1` | 3 | Case-scope adjudication metadata. |
+
+Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps. Phase 1 verifiers MUST reject unknown top-level fields (Fix 5 strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
+
 ---
 
 ## 7. Signature Profile
@@ -914,7 +937,7 @@ Callers may substitute a deterministic hash of the authored fact's causal identi
 
 ### 17.3 Resolution semantics
 
-An idempotency identity is the pair `(ledger_scope, idempotency_key)`. The identity is permanent within that ledger scope. A Canonical Append Service MUST NOT reuse the same idempotency identity for a different authored payload after a clock interval, API TTL, dedup-store compaction, or operator lifecycle event. Retry budgets, API TTLs, and dedup-store lifecycle are operational policy owned by the Trellis Operational Companion; they do not relax this Core identity rule.
+An idempotency identity is the pair `(ledger_scope, idempotency_key)`. **The identity is permanent within that ledger scope.** For a given `ledger_scope`, a specific `idempotency_key` value identifies exactly one canonical event forever; key reuse within the same ledger scope after any TTL expiry is forbidden. A Canonical Append Service MUST NOT reuse the same idempotency identity for a different authored payload after a clock interval, API TTL, dedup-store compaction, or operator lifecycle event. Retry budgets, API TTLs, and dedup-store lifecycle are operational policy and are explicitly deferred to the Trellis Operational Companion §18 (Append Idempotency (Operational)); those operator-layer concerns do not relax this Core identity rule.
 
 For a given `idempotency_key` within a declared ledger scope, a Canonical Append Service MUST resolve every successful retry to exactly one of:
 
@@ -926,7 +949,7 @@ The service MUST NOT, on retry, create a new canonical order position with a dif
 
 ### 17.4 Operational retry policy boundary
 
-Core defines the permanent idempotency identity and deterministic replay/rejection semantics. The Operational Companion defines retry budgets, API-facing TTLs, dedup-store retention lifecycle, and how operators document storage compaction. No operational policy may cause `(ledger_scope, idempotency_key)` to accept a different payload after any expiry.
+Core defines the permanent, scope-permanent idempotency identity and deterministic replay/rejection semantics. The Operational Companion §18 (Append Idempotency (Operational)) defines retry budgets, API-facing TTLs, dedup-store retention lifecycle, and how operators document storage compaction. No operational policy may cause `(ledger_scope, idempotency_key)` to accept a different payload after any expiry; operator policy may only decide how long the *accept-or-reject decision* stays fast (before falling back to a replay-from-chain lookup), never what the decision is.
 
 ### 17.5 Rejection codes
 
@@ -957,18 +980,45 @@ Additional codes MAY be registered in Phase 2+.
 
 An export package is a deterministic ZIP archive. "Deterministic" means:
 
-- entries ordered in byte-wise lexicographic order of their UTF-8 filename,
-- entry names are prefixed so the single lexicographic order is the required processing order,
-- compression method is `STORED` (ZIP method 0) for every entry; DEFLATE is not conformant because library parameters are not deterministic across implementations,
+- entries ordered in byte-wise lexicographic order of their UTF-8 filename — this single lexicographic order IS the required processing order; there is no separate "manifest first" rule because the `000-` prefix on the manifest filename already places it first lexicographically,
+- entry names are prefixed (`000-`, `010-`, `020-`, `030-`, `040-`, `050-`, `060-`, `090-`, `098-`, `099-`) so that lexicographic ordering produces the required processing order deterministically,
+- compression method is **`STORED` (ZIP method 0) only** for every entry; DEFLATE is forbidden because DEFLATE output is not deterministic across libraries without fully pinning every DEFLATE parameter, and this specification refuses to open that door,
 - local file headers have extra-field length zero,
-- file modification time is fixed to `1980-01-01T00:00:00Z`,
+- file modification time is fixed to `1980-01-01T00:00:00Z` in DOS time (the ZIP epoch minimum),
 - external file attributes are zero,
-- no ZIP64 unless the package exceeds 4 GiB,
-- `000-manifest.cbor` appears first in the archive so that a truncated-read verifier can bail fast.
+- the ZIP central-directory entries are written in the same order as local-file entries (i.e., lexicographic by filename),
+- no ZIP64 unless the package exceeds 4 GiB or an entry exceeds 4 GiB.
 
 The archive name SHOULD follow the pattern `trellis-export-<scope>-<tree_size>-<short_head_hash>.zip`.
 
-A conforming implementation can reproduce the archive layout with a `zip -0` style invocation over files already named with the prefixes below, provided it suppresses extra fields and normalizes timestamps and attributes as required above.
+A conforming implementation can reproduce the archive layout with a `zip -X -0` style invocation over files already named with the prefixes below, provided it suppresses extra fields and normalizes timestamps and attributes as required above. Example recipe (schematic; shell-level determinism still requires suppressing the zip tool's default extended-timestamp and UID/GID attributes):
+
+```sh
+# Build a deterministic Trellis export ZIP (Fix-4 recipe)
+# -X     strip extra file attributes (UID/GID, extended timestamps)
+# -0     compression method STORED only
+# Files already carry the 000-/010-/... prefixes so lexicographic order
+# equals required processing order.
+TZ=UTC find trellis-export-<scope>-<tree_size>-<shorthash>/ -type f -print0 \
+  | sort -z \
+  | xargs -0 touch -d "1980-01-01T00:00:00Z"
+zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
+  trellis-export-<scope>-<tree_size>-<shorthash>/000-manifest.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/010-events.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/020-inclusion-proofs.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/025-consistency-proofs.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/030-signing-key-registry.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/040-checkpoints.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/050-registries/... \
+  trellis-export-<scope>-<tree_size>-<shorthash>/060-payloads/... \
+  trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
+  trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
+  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-x86_64 \
+  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-aarch64 \
+  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-darwin-arm64
+```
+
+Implementations that cannot coerce a platform `zip` into fully deterministic output MUST use a library-level ZIP writer that emits the fixed fields above directly.
 
 ### 18.2 Required archive members
 
@@ -987,6 +1037,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
   099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
+  099-trellis-verify-linux-aarch64 ; OPTIONAL — statically linked verifier binary
   099-trellis-verify-darwin-arm64 ; OPTIONAL — statically linked verifier binary
   099-trellis-verify-windows-x86_64.exe ; OPTIONAL — statically linked verifier binary
 ```
@@ -1272,16 +1323,9 @@ These are three orthogonal concerns and MUST NOT share a namespace.
 
 ### 21.3 Custody models enumerated
 
-Phase 1 recognizes the following custody-model identifiers as values in the Custody Models registry (§26.3). Each identifier is a text string; semantics are defined by the Operational Companion §9.
+Phase 1 recognizes the custody-model identifiers `CM-A` through `CM-F` as values in the Custody Models registry (§26.3). Each identifier is a text string; both the identifier set and its semantics are defined normatively by Trellis Operational Companion §9 (Custody Models), §9.2 (The Six Standard Custody Models) in particular. Core does not restate those definitions: Companion §9.2 is the canonical list, and this section is a pointer.
 
-- `CM-A` — Provider-readable.
-- `CM-B` — Reader-held with recovery.
-- `CM-C` — Delegated compute.
-- `CM-D` — Threshold or quorum custody.
-- `CM-E` — Organizational trust.
-- `CM-F` — Client-origin sovereign / respondent-held custody.
-
-Phase 2+ MAY register additional models. Registration is append-only; semantics do not change after registration.
+Phase 2+ MAY register additional models via the Custody Models registry (§26.3). Registration is append-only; semantics do not change after registration.
 
 ### 21.4 Scope distinction: event / response ledger / case ledger / agency log / federation log
 
@@ -1377,13 +1421,14 @@ When Trellis behavior depends on WOS evaluation semantics — whether a proposed
 
 An **agency log** is an operator-maintained append-only log whose entries are **case-ledger heads** plus arrival metadata and optional witness signatures. It proves that a case existed at time `T` and was not quietly deleted; it is structurally what CT logs are for certificates, applied to cases.
 
-An agency-log entry is itself a Trellis event (§6) with:
+An agency-log entry is, **byte-for-byte, a Phase 1 Checkpoint (§11.2) structure** whose `CheckpointPayload` fields are the Phase 1 fields defined in §11.2, plus registered entries in the reserved `CheckpointPayload.extensions` container for arrival metadata and witness signatures. There are **no top-level agency-log-specific fields**; all agency-log-specific data lives inside `extensions`, under registered identifiers per §6.7. Specifically:
 
-- `event_type = "trellis.case-head"`,
-- payload referencing the case-ledger head by digest,
-- `commitments` (or header fields in Phase 3's declared construction) binding the case-scope metadata, the case-ledger's `tree_head_hash`, and optional witness cosignatures.
+- `trellis.agency_log.arrival_timestamp.v1` — arrival timestamp at the witness-operator at ingest.
+- `trellis.agency_log.witness_signature.v1` — optional witness signature(s) attesting to ingest observation.
+- `trellis.case_ledger.composed_response_heads.v1` — digests of sealed response-ledger heads composed into this case-ledger head.
+- `trellis.case_ledger.case_scope_metadata.v1` — case-scope adjudication metadata (case ID, agency, phase).
 
-Agency-log heads are Trellis checkpoints (§11) at Phase 3's head format version. They preserve the Phase 1 checkpoint payload and carry Phase 3 additions in `CheckpointPayload.extensions`, per §11.6 and §18.7.
+A Phase 3 agency-log **entry** is a Trellis event (§6) of `event_type = "trellis.case-head"` whose payload references the case-ledger head by digest; its own `EventPayload.extensions` may likewise carry agency-log arrival metadata. A Phase 3 agency-log **head** is a Trellis checkpoint (§11) whose `CheckpointPayload` preserves the Phase 1 shape of §11.2 unchanged and carries Phase 3 additions only under the registered identifiers in `CheckpointPayload.extensions`.
 
 ### 24.2 Phase 1 preservation obligation
 
