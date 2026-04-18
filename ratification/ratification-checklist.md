@@ -6,6 +6,8 @@ Define a concrete stopping condition for moving [`../specs/trellis-core.md`](../
 
 The acceptance bar is the **stranger test** from [`../specs/trellis-agreement.md`](../specs/trellis-agreement.md) §10: a second implementor reads Agreement + Core + Operational Companion, then implements `append`, `verify`, and `export` against fixtures without asking which document wins or how to encode a signed byte.
 
+**This file is the evidence-of-record.** Each gate carries inline commit SHAs and artifact pointers. Tactical work needed to close open gates is tracked in [`../TODO.md`](../TODO.md). A separate `ratification-evidence.md` registry existed briefly as a parallel view; it was removed because the inline evidence pointers here are sufficient and the duplication drifted.
+
 ## Global gates
 
 - [x] **G-1 — Normalization handoff complete.** Every task in [`../thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](../thoughts/specs/2026-04-17-trellis-normalization-handoff.md) Groups A–D is closed. *(evidence: 3a143a1)*
