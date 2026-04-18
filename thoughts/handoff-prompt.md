@@ -27,7 +27,7 @@ Branch: `main`.
 Skip `thoughts/specs/2026-04-17-trellis-normalization-handoff.md` unless you are
 archeologizing a Core section. The handoff is closed.
 
-## Current state (as of 2026-04-18, ec5e391)
+## Current state (as of 2026-04-18, 9ead7cf)
 
 - Specs converged on two normative W3C-style documents: Core + Operational
   Companion. Previous 8-spec family is in `specs/archive/`. Don't cite it as
@@ -40,15 +40,30 @@ archeologizing a Core section. The handoff is closed.
   crate workspace), **G-5** (independent second implementation byte-matching),
   **O-3/O-4/O-5** (Companion conformance fixtures).
 - **G-3 progress:** fixture system design + implementation plan + lint
-  infrastructure committed. Scaffold, test harness, four coverage rules, pinned
-  issuer-001 COSE_Key, and pinned sample payload all in place. First reference
-  vector (`fixtures/vectors/append/001-minimal-inline-payload/`) **pending —
-  Task 10 of the scaffold plan.**
-- Lint bypass `TRELLIS_SKIP_COVERAGE=1` is active for rules 1–3. Remove it in
-  Task 10 once the first vector covers enough rows/invariants to pass without
-  it. With bypass: `python3 scripts/check-specs.py` → green. Without bypass:
-  65 "no vector covers TR-CORE-XXX" errors + 15 "invariant has no vector"
-  errors (the expected gap list).
+  infrastructure committed and post-review-hardened. Scaffold, test harness
+  (7 tests, up from 3), four coverage rules (now with correct `#N` / `#N, #M`
+  invariant parsing), pinned issuer-001 COSE_Key, and pinned sample payload
+  all in place. Design + plan amended per review findings F1/F2/F4/F5.
+  First reference vector (`fixtures/vectors/append/001-minimal-inline-payload/`)
+  **blocked — see Core gap list below.**
+- Lint bypass `TRELLIS_SKIP_COVERAGE=1` is transitional; the amended design
+  commits to replacing it with a per-invariant allowlist
+  (`_pending-invariants.toml`) — a separate follow-on plan. With bypass:
+  `python3 scripts/check-specs.py` → green. Without bypass: meaningful gap
+  list — specific uncovered `TR-CORE-*` rows + 11 uncovered byte-testable
+  invariants (not all 15 — non-byte-testable invariants are audited via
+  separate G-2 work per amended design F2).
+- **Task 10 BLOCKED on Core prose gaps.** The T10 implementer subagent read
+  Core §§5–12 + Appendix A in full and escalated NEEDS_CONTEXT rather than
+  fabricate bytes. Three blocking gaps + five secondary gaps documented at
+  `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`:
+  - **B1**: no COSE protected-header label pinned for `suite_id` (§7.4).
+  - **B2**: vocabulary drift — plan uses AuthoredEvent/CanonicalEvent;
+    current Core uses `EventPayload` / `AuthorEventHashPreimage` / `Event`.
+  - **B3**: `expected-next-head.cbor` shape undefined — §11 is Merkle
+    checkpoint; §10.2 defines `prev_hash` but no CBOR head artifact.
+  The ratification bar worked as intended: G-3 surfaced specific Core
+  under-specifications before they became G-5 interop failures.
 
 ## Conventions
 
@@ -72,30 +87,44 @@ archeologizing a Core section. The handoff is closed.
 
 ## Most useful next work
 
-**Top priority: Task 10 of the fixture scaffold plan** — author
-`fixtures/vectors/append/001-minimal-inline-payload/` end-to-end. This is the
-load-bearing test of the design ("reproducible from Core prose alone"):
+**Top priority: resolve the three Core gaps so Task 10 can proceed.** Read
+`thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md` first. The
+doc recommends Path 1 (amend Core now) vs Path 2 (defer Task 10). Path 1
+requires spec-authoring judgment on three decisions:
 
-- Pinned inputs already committed: `issuer-001.cose_key`, `sample-payload-001.bin`.
-- Constructions to derive, each citing Core prose: AuthoredEvent encoding
-  (§6), `author_event_hash` preimage with domain separation (§7), COSE_Sign1
-  via RFC 9052 `Sig_structure` (§8), CanonicalEvent, and
-  `canonical_event_hash` / `next_head` chaining (§11).
-- Deliverable: `manifest.toml` + `derivation.md` (cites Core prose only, never
-  the generator) + 6 sibling `.cbor`/`.bin` files (inputs, intermediates,
-  expected outputs) + a new `gen_append_001.py` in `_generator/`.
-- Success: deterministic — running the generator twice produces identical
-  bytes. Lint-with-bypass continues to pass. Lint-without-bypass shows a
-  shrunken gap list (rows/invariants the vector covers now drop off).
+1. **B1 — pin `suite_id` COSE header label.** Add a row to `specs/trellis-core.md`
+   §7.4's header table with a Trellis-reserved integer label. Pin
+   `artifact_type` too if used. Recommended: Trellis-reserved negative
+   integer per RFC 9052 §1.4.
+2. **B2 — name the three event surfaces.** Add a paragraph to Core §6 (or
+   an annex) naming "authored form" (`AuthorEventHashPreimage`), "canonical
+   form" (`EventPayload`), "signed form" (`Event = COSESign1Bytes`).
+   Alternative: update the fixture plan's filenames to use CDDL-native names.
+3. **B3 — define `LedgerHead` / `AppendHead` CBOR struct.** Add to Core a
+   minimal CBOR shape for the post-append / pre-checkpoint state, even if
+   it holds only `{scope, sequence, canonical_event_hash}`. This is what
+   `append` returns; G-4 reference impl will need it regardless.
 
-Then Tasks 11–12: link fixture scaffold from top-level `README.md` + update
-G-3 evidence in `ratification/ratification-checklist.md`, and run final
-verification (test harness + lint with and without bypass + determinism diff).
+Once those land, Task 10 of
+`thoughts/specs/2026-04-18-trellis-g3-fixture-scaffold-plan.md` can be
+re-dispatched. Section-numbering drift in the plan itself (§6/7/8/11 →
+actual §6/7/9/10/11) should also be corrected as part of the Task 10 resume.
 
-After the scaffold plan closes, follow-on plans author the remaining ~49
-vectors in batches (likely one plan per op-dir: a batch of ~15 append, ~15
-verify, ~10 export, ~10 tamper). Each follow-on plan consumes the design spec
-and the scaffold as its substrate.
+Parallel low-risk work (does NOT block on Core amendments):
+
+- **Replace `TRELLIS_SKIP_COVERAGE=1` with `_pending-invariants.toml`
+  allowlist.** Design committed to this via F5. Small Python change, new test
+  scenario, update of the plan's "Follow-ons" tracking. Improves ratification
+  signal during rollout.
+- **Secondary Core gaps (S1–S5).** `event_type` / `classification`
+  registration, `PayloadInline.nonce` size pin, HPKE-roundtrip vs structural
+  latitude for `key_bag`, `kid` construction byte encoding. Independent of
+  B1–B3; could be batched with them.
+
+After Task 10 lands: Tasks 11–12 (link fixture scaffold from top-level
+`README.md` + update G-3 evidence in `ratification/ratification-checklist.md`,
+then final verification). Then follow-on plans author the remaining ~49
+vectors in batches.
 
 ## Tracks running in parallel
 
