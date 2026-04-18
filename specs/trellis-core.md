@@ -358,13 +358,17 @@ Trellis uses RFC 9052 COSE_Sign1 directly. Implementations MUST use a normal COS
 
 For every Trellis COSE_Sign1 artifact, the protected header MUST contain:
 
-| Header | Value |
-|---|---|
-| `alg` | COSE algorithm identifier. Phase 1: `-8` (EdDSA). |
-| `kid` | 16-byte signing-key identifier resolvable in `signing-key-registry.cbor` (§8). |
-| `suite_id` | Trellis signature-suite identifier. Phase 1: `1`. |
+| Header | Label (integer key) | Value |
+|---|---|---|
+| `alg` | `1` (per [RFC 9052] §3.1) | COSE algorithm identifier. Phase 1: `-8` (EdDSA). |
+| `kid` | `4` (per [RFC 9052] §3.1) | 16-byte signing-key identifier resolvable in `signing-key-registry.cbor` (§8). |
+| `suite_id` | `-65537` | Trellis signature-suite identifier. Phase 1: `1`. |
 
-The protected header MAY additionally carry `artifact_type` with values `event`, `checkpoint`, `manifest`, or another registered value. If present, a verifier MUST check that it matches the containing artifact. If absent, the containing archive member or enclosing structure supplies the artifact type.
+The protected header MAY additionally carry `artifact_type` under integer label `-65538` with values `"event"`, `"checkpoint"`, `"manifest"`, or another registered value. If present, a verifier MUST check that it matches the containing artifact. If absent, the containing archive member or enclosing structure supplies the artifact type.
+
+**Label rationale and registry.** `alg` and `kid` use the integer labels registered in [RFC 9052] §3.1. The Trellis-specific headers `suite_id` and `artifact_type` use negative integer labels in the COSE private-use range (per [RFC 9052] §1.4 / §11.3), placed below `-65536` to stay clear of the 16-bit-wide IANA-assigned ranges. Future Trellis-introduced protected-header keys MUST be assigned sequentially-descending integer labels from this namespace and registered alongside the `suite_id` registry (§26.2). Implementations MUST NOT use text-string labels for these headers; the integer labels above are the only conformant encoding.
+
+**Protected-header map serialization.** The COSE protected header is itself a CBOR map wrapped in a bstr; its bytes determine the `Sig_structure` preimage and therefore the signature. The protected-header map MUST be serialized per the dCBOR rules of §5.1. Because §5.1 specifies byte-wise lexicographic ordering of the canonical CBOR encoding of each key, CBOR integer keys are effectively ordered by numeric value for single-byte-encoded keys and by their encoded bytes otherwise; duplicate keys MUST be rejected. A verifier MUST recompute `Sig_structure` using the exact protected-header bstr bytes present in the COSE envelope; it MUST NOT re-serialize the map.
 
 To sign an Event, Checkpoint, or Export Manifest:
 
