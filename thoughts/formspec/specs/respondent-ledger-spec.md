@@ -229,6 +229,18 @@ Each event **MUST** contain at least:
 - `sessionRef` **SHOULD** be present when the implementation distinguishes respondent sessions.
 - `amendmentRef` **SHOULD** be present when an event belongs to a particular reopening/amendment cycle.
 
+### 6.2.1 Promotion when wrapped by a Trellis envelope
+
+When a Respondent-Ledger event is wrapped by a Trellis envelope as defined in Trellis Core §22 (Composition with Respondent Ledger), the SHOULD-level requirement on `priorEventHash` and `eventHash` in §6.2 is promoted to **MUST**, and the following two bindings are normative:
+
+1. **Per-event layer binding.** The Respondent-Ledger event's `eventHash` (§6.2) **MUST** equal the Trellis event's `canonical_event_hash` for that event (Trellis Core §9.2). The Respondent-Ledger event's `priorEventHash` **MUST** equal the Trellis event's `prev_hash` (Trellis Core §10.2).
+
+2. **Per-range checkpoint layer binding.** The Respondent-Ledger `LedgerCheckpoint.batchHash` (§13.2) **MUST** match the Trellis `Checkpoint.tree_head_hash` (Trellis Core §11) over the corresponding event range `[fromSequence, toSequence]`, reproducible under the Merkle construction of Trellis Core §11.3.
+
+These two bindings cover **different scopes**: `eventHash` is the per-event canonical hash, and `batchHash` / `tree_head_hash` is the per-range Merkle tree head. They are different hashes and **MUST NOT** be conflated; both bindings are normative when a Trellis envelope is present.
+
+When a Trellis envelope is **not** present, the original SHOULD-level behavior of §6.2 applies and the Respondent Ledger remains usable standalone. Nothing in this sub-clause requires a processor to adopt Trellis; it only defines the binding precisely for processors that do.
+
 ### 6.3 Field semantics
 
 - `eventId` — unique event identifier within the ledger.
@@ -720,6 +732,204 @@ This specification does not mandate any specific signature suite or external anc
 
 ---
 
+## 13A. Case ledger (composition above the response ledger)
+
+### 13A.1 Purpose
+
+A **case ledger** is a superset composition that aggregates one or more sealed response-ledger heads together with WOS (or comparable) governance events under a single `caseId`. It is the "portable case file" shape: drafts, submissions, amendments, determinations, and appeals for one adjudicatory matter, all hash-chained as a single append-only sequence.
+
+Where §4.1 states that each ledger document corresponds to exactly one current `responseId` (i.e. the response ledger is strictly response-scoped), this section defines a *distinct* object — the case ledger — whose scope is a case and whose entries reference response-ledger heads rather than replacing them. The response ledger remains intact and canonical for its own response.
+
+### 13A.2 Normative definition
+
+A case ledger **MUST**:
+
+- correspond to exactly one `caseId`,
+- be append-only in the same sense as §12.2,
+- use the same hash-chain and checkpoint mechanisms as §6.2 and §13 (i.e. chained `priorEventHash` / `eventHash` per entry, periodic checkpoint sealing of contiguous ranges),
+- identify each composed response-ledger head by a `ResponseHeadReference` (§13A.5),
+- permit governance-event entries whose schemas are defined by an external governance specification (e.g. WOS) but which participate in the case ledger's hash chain identically to response-head entries.
+
+### 13A.3 Response → case composition rule
+
+When a response is **sealed** (submission complete, no further amendments permitted; equivalently, the response ledger has been finalized with a terminal `LedgerCheckpoint` per §13), its sealed head **MUST** be appended as the next event in the case ledger. Concretely:
+
+1. The response ledger's final `LedgerCheckpoint` is produced per §13.
+2. A `CaseLedgerEvent` of `eventType = "response.head-sealed"` (or an equivalent case-ledger event type defined by the implementation's registry) is appended to the case ledger.
+3. The event's payload carries a `ResponseHeadReference` (§13A.5) identifying the sealed response by `(responseId, sealed_head_hash)`.
+4. The case ledger's `priorEventHash` / `eventHash` chain extends by one event.
+
+The response ledger itself is not rewritten, merged, or invalidated by this composition. It remains the canonical per-response history; the case ledger references its head.
+
+### 13A.4 Governance events
+
+Governance events (e.g. WOS determinations, deontic transitions, reviewer actions) appear in the case ledger with their own schemas. They **MUST** carry the case-ledger chain fields (`eventId`, `sequence`, `priorEventHash`, `eventHash`, `occurredAt`, `recordedAt`) so the case ledger remains a single hash-chained sequence regardless of entry provenance.
+
+### 13A.5 CDDL / JSON Schema sketches
+
+The following sketches are illustrative; companion schemas MAY refine them.
+
+```cddl
+CaseLedger = {
+  $formspecCaseLedger: tstr,          ; spec version for this object family
+  caseLedgerId: tstr,
+  caseId: tstr,
+  status: tstr,
+  createdAt: tstr,
+  lastEventAt: tstr,
+  eventCount: uint,
+  headEventId: tstr,
+  ? composedResponseIds: [* tstr],    ; responseIds referenced by this case
+  ? checkpointRefs: [* tstr],
+  ? extensions: { * tstr => any },
+  events: [* CaseLedgerEvent]
+}
+
+CaseLedgerEvent = {
+  eventId: tstr,
+  sequence: uint,
+  eventType: tstr,                    ; e.g. "response.head-sealed", "wos.determination"
+  occurredAt: tstr,
+  recordedAt: tstr,
+  caseId: tstr,
+  actor: Actor,                       ; §6.4
+  source: Source,                     ; §6.5
+  ? priorEventHash: tstr,
+  ? eventHash: tstr,
+  ? responseHeadRef: ResponseHeadReference,  ; present when eventType binds a sealed response head
+  ? payload: any,                     ; governance-event schema or domain-specific body
+  ? extensions: { * tstr => any }
+}
+
+ResponseHeadReference = {
+  responseId: tstr,
+  sealed_head_hash: tstr,             ; digest of the sealed response-ledger head
+  ? ledgerId: tstr,                   ; RespondentLedger.ledgerId, when available
+  ? checkpointId: tstr,               ; final LedgerCheckpoint.checkpointId
+  ? fromSequence: uint,
+  ? toSequence: uint,
+  ? definitionUrl: tstr,
+  ? definitionVersion: tstr
+}
+```
+
+Equivalent JSON Schema sketch for `ResponseHeadReference`:
+
+```json
+{
+  "type": "object",
+  "required": ["responseId", "sealed_head_hash"],
+  "properties": {
+    "responseId": { "type": "string" },
+    "sealed_head_hash": { "type": "string" },
+    "ledgerId": { "type": "string" },
+    "checkpointId": { "type": "string" },
+    "fromSequence": { "type": "integer", "minimum": 0 },
+    "toSequence": { "type": "integer", "minimum": 0 },
+    "definitionUrl": { "type": "string", "format": "uri" },
+    "definitionVersion": { "type": "string" }
+  }
+}
+```
+
+### 13A.6 Trellis wrapping
+
+Case-ledger bytes, when wrapped by a Trellis envelope, **MUST** use the Trellis Core Event format (Trellis Core invariant #10: the Phase 1 envelope IS the Phase 3 case-ledger event format). A conforming implementation **MUST NOT** define a separate wire shape for case-ledger events when Trellis is present; case-ledger events and response-ledger events share the envelope, and their distinction is carried in `event_type` and payload content, not in format.
+
+### 13A.7 What the case ledger proves
+
+A verified case ledger proves, for one `caseId`: the ordered sequence of sealed response heads and governance events admitted to the case, their chained integrity, and the identity of the response-ledger heads they reference. It does **not**, by itself, prove that no case existed outside this record or that the operator has not deleted other cases; that stronger property is what the agency log (§13B) is for.
+
+---
+
+## 13B. Agency log (operator-maintained log of case-ledger heads)
+
+### 13B.1 Purpose
+
+An **agency log** is an append-only log whose entries are **case-ledger heads**, augmented with arrival metadata and — in Phase 4 deployments — witness signatures. It is what an operating agency publishes (or reveals at FOIA / litigation / audit time) to prove that a given case *existed* at time `T` and was not quietly deleted. It is structurally analogous to a Certificate Transparency log, applied to cases instead of certificates.
+
+### 13B.2 Normative definition
+
+An agency log **MUST**:
+
+- be append-only in the same sense as §12.2 and §13A.2,
+- contain entries whose body is a **case-ledger head** as published at a defined composition boundary (see §13B.3),
+- carry arrival metadata (timestamp, operator signature) on each entry,
+- permit optional witness cosignatures (Phase 4 federation),
+- preserve the case-ledger head **byte-for-byte** inside each entry and add metadata only via reserved extension containers (see §13B.5).
+
+### 13B.3 Case → agency-log composition rule
+
+A case-ledger head is appended to the agency log when any of the following occurs:
+
+1. **Sealing boundary.** The case transitions to a sealed or closed status (e.g. determination issued, appeal exhausted).
+2. **FOIA / export boundary.** A FOIA production, litigation discovery, or comparable external disclosure causes the head to be published.
+3. **Operational cadence.** The operator's declared cadence (e.g. daily close-of-business, per-checkpoint) elapses and the current case-ledger head is appended.
+
+At each such moment, the current case-ledger head (a checkpoint in the sense of §13, issued over the case ledger) is appended to the agency log with arrival metadata (§13B.5). Multiple appends of the same head under different boundaries are permitted and **MUST** produce byte-identical head bytes; only the arrival metadata differs.
+
+### 13B.4 Superset head format
+
+The agency log's entry format is a **strict superset** of the case-ledger head format (Trellis Core invariant #12: head formats compose forward; the agency log is a Phase 3 superset). Every field of the case-ledger head **MUST** appear, byte-for-byte, inside the agency-log entry. Agency-log-specific metadata (arrival timestamp, operator signature, witness cosignatures) **MUST** be carried in reserved `extensions` containers on the agency-log entry, not by altering the embedded head.
+
+### 13B.5 CDDL / JSON Schema sketches
+
+```cddl
+AgencyLog = {
+  $formspecAgencyLog: tstr,
+  agencyLogId: tstr,
+  operatorId: tstr,
+  createdAt: tstr,
+  lastEntryAt: tstr,
+  entryCount: uint,
+  ? extensions: { * tstr => any },
+  entries: [* AgencyLogEntry]
+}
+
+AgencyLogEntry = {
+  entryId: tstr,
+  sequence: uint,
+  caseLedgerHead: CaseLedgerHead,     ; byte-for-byte embedded; see §13B.4
+  arrival: ArrivalMetadata,
+  ? priorEntryHash: tstr,
+  ? entryHash: tstr,
+  ? extensions: {
+      ? witnessSignatures: [* WitnessSignature],  ; Phase 4
+      * tstr => any
+    }
+}
+
+ArrivalMetadata = {
+  receivedAt: tstr,
+  reason: tstr,                       ; e.g. "sealing", "foia", "cadence"
+  operatorSignature: tstr,            ; operator attestation over the entry
+  ? operatorKeyId: tstr
+}
+
+WitnessSignature = {
+  witnessId: tstr,
+  signedAt: tstr,
+  signature: tstr,
+  ? keyId: tstr
+}
+
+CaseLedgerHead = {
+  ; opaque to this spec; whatever the case-ledger emits as a head /
+  ; checkpoint per §13 applied to a case ledger
+  * tstr => any
+}
+```
+
+The `extensions` container pattern is deliberate: arrival metadata and witness signatures are carried there (not by mutating the embedded head) so that an agency-log entry produced today remains verifiable by a future verifier that knows only the case-ledger head format, and so that Phase 4 witness adoption does not invalidate earlier entries.
+
+### 13B.6 What the agency log proves and does not prove
+
+The agency log's integrity proves **case existence at time `T`** and **detects deletion**: an observer who has received a head for a case at time `T` can detect if a later version of the agency log omits that case, and an observer comparing two agency-log views for the same operator can detect split-view / equivocation.
+
+The agency log does **not** prove **per-case internal integrity**. That is the job of the case ledger (§13A) itself. An agency log that is byte-perfect can still contain a case whose internal hash chain is broken; verifying the case ledger is a separate verification step with a separate failure mode. Implementations **MUST NOT** describe agency-log verification as a substitute for case-ledger verification.
+
+---
+
 ## 14. Recommended JSON shape
 
 The following non-exhaustive example shows one possible document layout:
@@ -945,6 +1155,15 @@ Recommended characteristics:
 - stronger checkpoint, export, and proof controls enabled according to deployment policy.
 
 Processors **SHOULD NOT** force Profile C requirements into Profile A or B deployments, because doing so would over-collect identity data and make low-friction respondent history harder to adopt.
+
+### 15A.4 Disambiguation — three orthogonal namespaces
+
+The Profile A/B/C identifiers defined in §§15A.1–15A.3 are **posture axes** covering this add-on's privacy × identity × integrity-anchoring configuration. They are not conformance classes, and they are not custody models. Three prior-draft namespaces have historically used overlapping letters; this add-on's Profile A/B/C **MUST NOT** be conflated with either of the following:
+
+- **Trellis Core "Conformance Classes"** — the renamed legacy core-draft profiles (Core / Offline / Reader-Held / Delegated-Compute / Disclosure / User-Held / Respondent-History). These describe *what role an implementation plays in the Trellis verification contract* and have no bearing on this add-on's posture axes.
+- **Trellis Operational Companion "Custody Models"** — the renamed legacy companion-draft profiles (provider-readable / reader-held / delegated / threshold / organizational trust-custody models). These describe *who holds keys and reads payloads* in a Trellis-wrapped deployment.
+
+These are three orthogonal namespaces: a deployment has **one value in each** (one Respondent-Ledger Profile, one Trellis Conformance Class, one Trellis Custody Model). Implementations and procurement documents **MUST** name them unambiguously — for example "Respondent-Ledger Profile B, Trellis Conformance Class Reader-Held, Trellis Custody Model provider-readable" — rather than collapsing them into a single letter.
 
 ## 16. Conformance summary
 
