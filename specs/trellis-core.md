@@ -313,6 +313,18 @@ Example registered extension identifiers (Phase 2/3 reservations):
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps. Phase 1 verifiers MUST reject unknown top-level fields (Fix 5 strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
+### 6.8 Three event surfaces (authored / canonical / signed)
+
+An event exists as three distinct CDDL-level surfaces during its production lifecycle. Each surface has a defined CBOR byte shape, and the three shapes are **not interchangeable**: they differ in which fields are present and in whether the bytes are wrapped in a COSE_Sign1 envelope. Fixture vectors and cross-implementation byte-match tests (§27) refer to these surfaces by name.
+
+- **Authored form.** The `AuthorEventHashPreimage` CDDL struct (§9.5). This is the event map an author constructs **before** computing `author_event_hash`: it carries every field that contributes to the author-originated integrity digest but does **not** carry `author_event_hash` itself, and carries no COSE signature material. Its dCBOR serialization is the input to the `trellis-author-event-v1` hash (§9.5). A fixture that pins "the authored bytes" refers to `dCBOR(AuthorEventHashPreimage)`.
+
+- **Canonical form.** The `EventPayload` CDDL struct (§6.1). This is the full event map **including** the computed `author_event_hash`, ready to be signed. It contains no COSE signature bytes — signing is external to the payload. Its dCBOR serialization is the input to the `trellis-event-v1` hash (§9.2) — wrapped in `CanonicalEventHashPreimage` for domain separation — and is the exact payload bytes placed inside the COSE_Sign1 envelope. A fixture that pins "the canonical bytes" refers to `dCBOR(EventPayload)`.
+
+- **Signed form (wire form).** The `Event = COSESign1Bytes` CDDL type (§6.1, §7.4). This is the COSE_Sign1 tag-18 envelope carrying the canonical form as its payload bstr, the Ed25519 signature over the RFC 9052 `Sig_structure`, and the protected-header map pinned by §7.4. This is what appears in `010-events.cbor` (§18.4), in ledger storage, and on the wire. A fixture that pins "the signed bytes" or "the wire bytes" refers to the full COSE_Sign1 tag-18 CBOR encoding.
+
+The three forms have different bytes, different CDDL types, and different roles. An implementor producing test vectors MUST emit each form separately when requested; a verifier decoding a wire event reconstructs the canonical form by extracting the COSE payload, and reconstructs the authored form by projecting the canonical form onto the `AuthorEventHashPreimage` shape (dropping `author_event_hash`). The Phase 1 CDDL grammar does not introduce new type names for these surfaces beyond the three already defined; the names "authored form", "canonical form", and "signed form" are spec-level vocabulary for referring to the existing CDDL types.
+
 ---
 
 ## 7. Signature Profile
