@@ -157,7 +157,7 @@ def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
     return derived
 
 
-def check_vector_declared_coverage(errors: list[str]) -> None:
+def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> None:
     if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
         return
     for path, manifest in vector_manifests():
@@ -173,12 +173,15 @@ def check_vector_declared_coverage(errors: list[str]) -> None:
                     f"{path.relative_to(ROOT)}: declared core_sections={sorted(declared_sections)} "
                     f"does not equal matrix-derived={sorted(derived)}"
                 )
+        # Per amended design F1: invariants is commentary-only. Mismatch is a
+        # warning (non-fatal), not an error. Matrix rows with Invariant=— make
+        # bidirectional enforcement incoherent; tr_core is the canonical anchor.
         if declared_invariants is not None:
             derived = derived_invariants_for_tr_core(tr_core)
             if declared_invariants != derived:
-                errors.append(
+                warnings.append(
                     f"{path.relative_to(ROOT)}: declared invariants={sorted(declared_invariants)} "
-                    f"does not equal matrix-derived={sorted(derived)}"
+                    f"does not equal matrix-derived={sorted(derived)} (commentary only)"
                 )
 
 
@@ -197,14 +200,13 @@ def check_invariant_coverage(errors: list[str]) -> None:
     for path, manifest in vector_manifests():
         covered_ids.update(manifest.get("coverage", {}).get("tr_core", []))
 
-    for inv in sorted(PHASE_1_INVARIANTS):
-        testable_rows = testable_by_invariant.get(inv, [])
-        if not testable_rows:
-            errors.append(
-                f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
-                f"row with Verification=test-vector"
-            )
-            continue
+    # Per amended design F2: narrowed rule. Only invariants that have ≥1
+    # matrix row with Verification=test-vector are audited here (the byte-
+    # testable subset). Invariants without any test-vector row are handled
+    # via the separate G-2 non-byte-testable audit path (model-check,
+    # declaration-doc-check, spec-cross-ref, etc.) and are NOT flagged here.
+    for inv in sorted(testable_by_invariant.keys()):
+        testable_rows = testable_by_invariant[inv]
         if not any(rid in covered_ids for rid in testable_rows):
             errors.append(
                 f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
@@ -346,6 +348,7 @@ def check_archived_inputs(errors: list[str]) -> None:
 
 def main() -> int:
     errors: list[str] = []
+    warnings: list[str] = []
     check_forbidden_terms(errors)
     check_core_section_references(errors)
     check_requirement_ids(errors)
@@ -353,9 +356,12 @@ def main() -> int:
     check_bare_profile(errors)
     check_archived_inputs(errors)
     check_vector_coverage(errors)
-    check_vector_declared_coverage(errors)
+    check_vector_declared_coverage(errors, warnings)
     check_invariant_coverage(errors)
     check_generator_imports(errors)
+
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
 
     if errors:
         for error in errors:

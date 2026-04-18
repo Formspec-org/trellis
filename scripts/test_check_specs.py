@@ -68,11 +68,15 @@ class TestCoverageLint(unittest.TestCase):
         # #5 must NOT appear as an uncovered invariant
         self.assertNotIn("invariant #5 has no", result.stderr)
 
-    # M6 — declared-vs-derived invariant mismatch is reported
-    def test_declared_mismatch_fails(self):
+    # F1 / M6 — declared-vs-derived invariant mismatch is a WARNING, not an error.
+    # Matrix rows with Invariant=— make bidirectional enforcement incoherent;
+    # invariants declaration is commentary-only per amended design.
+    def test_declared_invariants_mismatch_warns(self):
         result = run_lint("declared-mismatch")
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, msg=f"stderr={result.stderr!r}")
+        self.assertIn("warning:", result.stderr.lower())
         self.assertIn("declared invariants", result.stderr.lower())
+        self.assertIn("commentary only", result.stderr.lower())
 
 
 if __name__ == "__main__":
