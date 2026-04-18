@@ -4,4 +4,4 @@ COSE_Key CBOR-encoded Ed25519 signing keys. Bytes are authoritative — no deriv
 
 | File | Role | Added |
 |------|------|-------|
-| (none yet) | | |
+| issuer-001.cose_key | Primary issuer — append happy-path vectors | 2026-04-18 |
