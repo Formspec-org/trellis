@@ -65,6 +65,65 @@ def matrix_ids() -> list[str]:
     return re.findall(r"^\| (TR-(?:CORE|OP)-[0-9]{3}) \|", text, re.MULTILINE)
 
 
+def matrix_rows() -> list[dict]:
+    """Return parsed matrix rows: {id, scope, invariant, verification, ...}."""
+    text = read(SPECS / "trellis-requirements-matrix.md")
+    row_pattern = re.compile(r"^\| (TR-(?:CORE|OP)-[0-9]{3}) \|(.+)$", re.MULTILINE)
+    rows = []
+    for m in row_pattern.finditer(text):
+        row_id = m.group(1)
+        # Split remaining cells by '|'; matrix has columns:
+        # Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes
+        cells = [c.strip() for c in m.group(2).split("|")]
+        # cells[0]=Scope, cells[1]=Invariant, cells[2]=Requirement,
+        # cells[3]=Rationale, cells[4]=Verification
+        verification = cells[4] if len(cells) > 4 else ""
+        rows.append({"id": row_id, "verification": verification})
+    return rows
+
+
+def testable_row_ids() -> set[str]:
+    """Return IDs of matrix rows where Verification contains 'test-vector'."""
+    return {r["id"] for r in matrix_rows() if "test-vector" in r["verification"]}
+
+
+def vector_manifests() -> list[tuple[Path, dict]]:
+    """Return (manifest_path, parsed_toml) for every vector manifest under fixtures/vectors/."""
+    import tomllib
+
+    manifests = []
+    if not FIXTURES.exists():
+        return manifests
+    for op_dir in ["append", "verify", "export", "tamper"]:
+        op_path = FIXTURES / op_dir
+        if not op_path.exists():
+            continue
+        for vector_dir in sorted(op_path.iterdir()):
+            if not vector_dir.is_dir():
+                continue
+            manifest_path = vector_dir / "manifest.toml"
+            if not manifest_path.exists():
+                continue
+            with manifest_path.open("rb") as f:
+                manifests.append((manifest_path, tomllib.load(f)))
+    return manifests
+
+
+def check_vector_coverage(errors: list[str]) -> None:
+    if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
+        return
+    testable = testable_row_ids()
+    covered: set[str] = set()
+    for _path, manifest in vector_manifests():
+        covered.update(manifest.get("coverage", {}).get("tr_core", []))
+    for row_id in sorted(testable - covered):
+        errors.append(
+            f"specs/trellis-requirements-matrix.md: no vector covers {row_id} "
+            f"(row has Verification=test-vector but no fixtures/vectors/*/manifest.toml "
+            f"references it in coverage.tr_core)"
+        )
+
+
 def check_forbidden_terms(errors: list[str]) -> None:
     for path in TOP_LEVEL_SPECS:
         text = read(path)
@@ -156,6 +215,7 @@ def main() -> int:
     check_traceability_anchors(errors)
     check_bare_profile(errors)
     check_archived_inputs(errors)
+    check_vector_coverage(errors)
 
     if errors:
         for error in errors:
