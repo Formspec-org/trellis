@@ -1,0 +1,35 @@
+id          = "append/001-minimal-inline-payload"
+op          = "append"
+description = """Genesis append of a 64-byte inline payload. Exercises authored / \
+canonical / signed event surfaces (Core §6.1, §6.8), author_event_hash preimage + \
+domain separation (§9.5, §9.1), RFC 9052 COSE_Sign1 signing with pinned protected-header \
+integer labels and Ed25519 signature (§7.1, §7.4), content_hash over ciphertext bytes \
+(§9.3), canonical_event_hash (§9.2), and AppendHead return artifact (§10.6). \
+Structural-only vector: KeyBag is empty and the PayloadInline ciphertext carries the \
+pinned plaintext bytes opaquely; HPKE wrap is exercised by a later vector in this series."""
+
+# TR-CORE rows whose Verification column contains `test-vector` and whose
+# Invariant column matches one or more invariants this vector exercises.
+# See derivation.md for the mapping from each row to the construction(s)
+# that demonstrate it.
+[coverage]
+tr_core = [
+    "TR-CORE-021",  # inv #5 — ledger_scope declared; genesis sequence = 0
+    "TR-CORE-030",  # inv #1, #4 — dCBOR encoding + canonical event hash construction
+    "TR-CORE-031",  # inv #4 — content_hash computed over ciphertext bytes
+    "TR-CORE-035",  # inv #2 — suite_id=1 (Ed25519/COSE_Sign1) in protected header
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+payload        = "../../_inputs/sample-payload-001.bin"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
