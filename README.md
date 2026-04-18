@@ -1,102 +1,98 @@
 # Trellis
 
-**Trellis is the primary place to develop the shared ledger** between **[Formspec](https://github.com/Formspec-org/formspec)** and **[wos-spec](https://github.com/Formspec-org/wos-spec)** (case lifecycle, provenance, and governance on the WOS side). This directory holds cross-cutting design: research, ADRs, normative drafts, proposals, and reviews for the unified respondent ledger, privacy-preserving client/server chains, and related crypto and sync semantics. Paths below are relative to `trellis/`.
+**Trellis is the cryptographic integrity substrate** for the **[Formspec](https://github.com/Formspec-org/formspec)** (intake) + **[WOS](https://github.com/Formspec-org/wos-spec)** (governance) stack. It specifies the envelope, chain, checkpoint, and export-bundle format by which a Formspec response and its downstream WOS governance events become a single append-only, signed, offline-verifiable record.
 
-*Authoritative specs may still live in each repo; Trellis is where joint evolution is coordinated before changes land in Formspec, wos-spec, or both.*
+Trellis does not replace Formspec or WOS. It concretely answers two already-written deferrals: the Respondent Ledger §13 `LedgerCheckpoint` seam and the WOS `custodyHook` (§10.5). What survives when the system, the vendor, and the years go away is the Trellis export.
 
-**Heading-level outlines** (every H1/H2 with short blurbs) live in [`REFERENCE.md`](REFERENCE.md).
+Paths below are relative to `trellis/`.
+
+---
 
 ## Status
 
-Trellis is **actively being refined**: drafts get rewritten, alternatives get compared, and whole threads may be **discarded or replaced**. **No document here is an accepted or final decision** for Formspec, wos-spec, or any shipped system. This is **greenfield** work—no production legacy to preserve, no requirement to keep earlier sketches for backwards compatibility.
+Trellis is **actively being refined**. The repository contains normative drafts (under [`specs/`](specs/)), the product vision and roadmap (under [`thoughts/`](thoughts/)), and valuable prior research that informed both (under [`thoughts/research/`](thoughts/research/) and [`thoughts/reviews/`](thoughts/reviews/)).
 
-**Lens:** **Compute is cheap, time is cheaper, development is free** next to the long-term cost of **technical debt** locked in by the wrong seams (data model, crypto boundaries, event taxonomy, sync contracts). Treat expensive mistakes as architectural, not editorial: prefer a clean rethink over carrying a weak compromise forward.
+**No document here is an accepted final decision** for Formspec, WOS, or any shipped system. Trellis is greenfield: no production legacy to preserve, no backwards-compatibility obligation.
 
-When materials below use words like *decision* or *ADR*, read them as **structured arguments**—candidates to adopt, amend, or reject—not as ratified policy.
+**Operating lens:** compute is cheap, time is cheaper, development is near-free next to the long-term cost of architectural debt. Expensive mistakes are architectural (data model, crypto boundaries, event taxonomy, sync contracts), not editorial. Prefer clean rethink over carrying a weak compromise forward. The [product vision](thoughts/product-vision.md) and the [Phase 1 envelope invariants](thoughts/product-vision.md#phase-1-envelope-invariants-non-negotiable) encode this: Phase 1 must name byte-exact decisions now because each is cheap to include and wire-breaking to retrofit.
 
 ---
 
 ## Licensing
 
-Trellis is part of the Formspec monorepo. All specification documents, drafts, and research materials here are licensed under **Apache-2.0**. See the root [`LICENSE`](../LICENSE) for full terms and [`LICENSING.md`](../LICENSING.md) for the open-core model.
+Trellis is part of the Formspec monorepo. All specification documents, drafts, and research materials here are licensed under **Apache-2.0**. See the root [`LICENSE`](../LICENSE) and [`LICENSING.md`](../LICENSING.md).
 
 ---
 
-## How the pieces relate
+## The four top-level documents
 
-The work clusters into three threads that **converge on one shared ledger** Formspec runtimes and WOS case workflows both need.
+Start here. Read in order.
 
-### 1. Formspec add-on: respondent-facing history (without replacing `Response`)
+| Document | Role |
+|---|---|
+| [`thoughts/product-vision.md`](thoughts/product-vision.md) | Authoritative product roadmap. Four-phase arc, 15 non-negotiable Phase 1 envelope invariants, ledger/log vocabulary, delivery shape, tracks A–E. |
+| [`specs/trellis-agreement.md`](specs/trellis-agreement.md) | Non-normative decision gate. Scope, primitives, seams, delivery shape, success criterion. A sign-off here authorizes the rest of Track A. |
+| [`specs/trellis-core.md`](specs/trellis-core.md) | **Normative.** Phase 1 byte protocol: envelope, canonical encoding, signature profile, chain, checkpoint, export, verification. |
+| [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) | **Normative.** Phase 2+ operator obligations: custody models, projection discipline, metadata budgets, delegated-compute honesty, sidecars. |
 
-The **user-side audit proposal** argued for an optional companion document: material, path-native events alongside the frozen `Response`. The **respondent ledger spec (v0.1)** drafts the normative shape of that add-on (`RespondentLedger`, events, `ChangeSetEntry`, checkpoints, conformance). **ADR-0054** sits above both: it **argues for** chaining client capture → server authority → platform audit and export, with tiered crypto (encryption first; zk/MPC/HE where justified) and a provider-neutral identity model. It assumes the respondent ledger stays additive to core Formspec and ties forward to platform audit ADRs (e.g. 0003)—all subject to the status note above.
+Supporting:
 
-### 2. WOS + Formspec: one canonical event store for the case lifecycle
+- [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) — Traceability matrix (79 TR-CORE + 47 TR-OP rows, legacy ULCR/ULCOMP-R provenance, gap log). Prose in Core and the Companion wins on conflict.
+- [`specs/cross-reference-map.md`](specs/cross-reference-map.md) — Upstream-rehoming map for concepts owned by Formspec Respondent Ledger or WOS.
+- [`specs/README.md`](specs/README.md) — Reading order, authority claims, archive pointers.
 
-**ADR-0059** (draft) **reframes** the problem for the **shared** system: stop treating respondent ledger, WOS provenance, and “the database” as separate sources of truth. It **proposes** a **single append-only ledger** as the portable, ciphertext-hashed case record from intake through WOS governance, with **Temporal** limited to orchestration and projections—not as a second ledger of record. **Part 4** (unified event taxonomy) is the intended handshake surface with **wos-spec** (governance and provenance kinds) and Formspec (intake / coprocessor-shaped events), if that direction holds.
-
-The **concrete proposal** (2026-04-10) is the engineering expansion of ADR-0059: identity and keys, envelope v2, sync and merge, coprocessor transition, **WOS provenance integration**, projections, disclosure, export, and crate layout—explicitly “build the real thing,” not a stub roadmap.
-
-### 3. Evidence, pushback, and hardening
-
-The **technology survey** maps ADR-0059’s capability areas to concrete OSS and managed components (immutable storage, COSE, BBS+, anchoring, KMS, DIDs) and proposes a phased stack. The **expert panel review** stress-tests ADR-0059 plus the survey: unanimous themes, a critical-issues list, and a **Phase 1 vs later** split. The **crypto expert concrete solutions** doc answers that review with protocol-level fixes (ordering, rotation, commitments, header privacy, GDPR shredding, nonce discipline) and a consolidated **Header V2**.
-
-**Ledger risk reduction** is a counterweight to the concrete proposal: it argues for **standard, composable** pieces (transparency-log patterns, COSE, SD-JWT-first disclosure, authz engines, formal methods) wherever bespoke design does not buy clear leverage—so the relationship to the proposal stack is *tension + refinement*, not a separate product line.
-
-### 4. Cross-cutting vocabulary: tiered privacy / TPIF
-
-The **tiered privacy white paper** is broader than Formspec or WOS: it defines a five-tier identity and authenticity framework (PoP VC, consortium chain, advanced crypto). **ADR-0054** references this framing for **tiered privacy and assurance**; it informs language and deployment profiles rather than replacing Formspec or WOS normative text.
+Open-ended review, outstanding work, and architectural debt are tracked in [`thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/specs/2026-04-17-trellis-normalization-handoff.md).
 
 ---
 
-## Reading order (suggested)
+## Research and reviews (reference material, not normative)
+
+These informed the current specs and remain cited where their insights survive. None are normative.
+
+- [`thoughts/research/2026-04-10-unified-ledger-technology-survey.md`](thoughts/research/2026-04-10-unified-ledger-technology-survey.md) — OSS and managed component survey (COSE, Merkle, OpenTimestamps, Trillian, KMS, DIDs) with phase assignments.
+- [`thoughts/research/ledger-risk-reduction.md`](thoughts/research/ledger-risk-reduction.md) — Standards-first counterweight: where to prefer composable pieces (transparency-log patterns, COSE, SD-JWT) over bespoke crypto.
+- [`thoughts/research/tiered-privacy-white-paper-3-24-2025.md`](thoughts/research/tiered-privacy-white-paper-3-24-2025.md) — TPIF framework (proof of personhood, tiered identity/authenticity). Informs Phase 4 Sovereign framing.
+- [`thoughts/research/unified_implementation_proposal.md`](thoughts/research/unified_implementation_proposal.md) — Substrate-selection matrix (Temporal / OpenFGA / OpenFisca / CloudEvents / PROV / MCP / Postgres) for the surrounding stack. **Not** a Trellis spec; informs Track B/D engineering.
+- [`thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md`](thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md) — Multi-expert review; Phase 1 vs later split; critical issues list.
+- [`thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md`](thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md) — Protocol-level fixes (ordering, rotation, commitments, header privacy, GDPR shredding).
+
+---
+
+## Upstream-owned (referenced, not authored here)
+
+- [`thoughts/formspec/specs/respondent-ledger-spec.md`](thoughts/formspec/specs/respondent-ledger-spec.md) — Formspec Respondent Ledger add-on (v0.1). Owns `Profile A/B/C` (privacy × identity × integrity-anchoring posture). Trellis binds to its §6.2 `eventHash`/`priorEventHash` and §13 `LedgerCheckpoint` seams; a Track E §21 spec extension adds normative case-ledger and agency-log objects.
+- Formspec Core, WOS Kernel, WOS Assurance, WOS Governance — referenced by Trellis Core composition sections (§22, §23) and by the cross-reference map for upstream-rehomed requirements.
+
+---
+
+## Historical material (archived, not normative)
+
+- [`specs/archive/`](specs/archive/) — The previous 8-spec family (`core/`, `trust/`, `projection/`, `export/`, `operations/`, `forms/`, `workflow/`, `assurance/`). Superseded by the two-spec model; retained for provenance. **Do not cite as normative.**
+- [`thoughts/archive/drafts/`](thoughts/archive/drafts/) — Legacy DRAFTS mined into the current specs: `unified_ledger_core`, `unified_ledger_companion`, both legacy requirements matrices, and the eight-spec normalization plan.
+- [`thoughts/archive/specs/2026-04-10-unified-ledger-concrete-proposal.md`](thoughts/archive/specs/2026-04-10-unified-ledger-concrete-proposal.md) — 160K omnibus proposal; §§3, 3b, 8, 11, 16 mined into `trellis-core.md`.
+- [`thoughts/formspec/adrs/0054-privacy-preserving-client-server-ledger-chain.md`](thoughts/formspec/adrs/0054-privacy-preserving-client-server-ledger-chain.md) — Historical ADR; informed Phase 4 Sovereign variant.
+- [`thoughts/formspec/adrs/0059-unified-ledger-as-canonical-event-store.md`](thoughts/formspec/adrs/0059-unified-ledger-as-canonical-event-store.md) — Historical ADR; "unified canonical event store now" decision superseded by the phased arc (Phase 1 export bundles → Phase 3 unified case ledger).
+- [`thoughts/formspec/proposals/user-side-audit-ledger-add-on-proposal.md`](thoughts/formspec/proposals/user-side-audit-ledger-add-on-proposal.md) — Originating proposal for the Respondent Ledger add-on; user-side framing adopted into Phase 4 Sovereign.
+
+---
+
+## Process
+
+- [`ratification/`](ratification/) — Readiness gates and evidence for moving the two normative specs toward ratification.
+- [`scripts/check-specs.py`](scripts/check-specs.py) — Lint enforcing forbidden patterns (signature zero-fill prose, JCS references, stale version strings, unarchived per-family paths, Profile-namespace hygiene).
+
+---
+
+## Reading order by goal
 
 | If you want to… | Start here |
-|-----------------|------------|
-| Understand the Formspec-only add-on | `user-side-audit-ledger-add-on-proposal.md` → `respondent-ledger-spec.md` |
-| See how client/server/platform chain together | `0054-privacy-preserving-client-server-ledger-chain.md` |
-| See the draft unified Formspec + WOS ledger direction (ADR-0059) | `0059-unified-ledger-as-canonical-event-store.md` |
-| Drill into implementation shape | `2026-04-10-unified-ledger-concrete-proposal.md` |
-| Pick components and phases | `2026-04-10-unified-ledger-technology-survey.md` |
-| See external scrutiny and phased delivery | `2026-04-10-expert-panel-unified-ledger-review.md` |
-| See crypto/protocol responses | `2026-04-11-crypto-expert-concrete-solutions.md` |
-| Pressure-test bespoke vs standards | `ledger-risk-reduction.md` |
-| See the convergence normalization plan for Trellis spec-family boundaries | `DRAFTS/trellis_spec_family_normalization_plan.md` |
-| Start the split-out drafts from core + companion into spec-family docs | `specs/core/trellis-core.md` and companion drafts under `specs/*/` |
-| See the draft dependency order and ownership map for the spec family | `specs/README.md` |
-| Ratification gates and evidence (process, not normative specs) | `ratification/README.md` |
-| Tiered identity / privacy background | `tiered-privacy-white-paper-3-24-2025.md` |
+|---|---|
+| Understand the roadmap and why the architecture looks the way it does | [`thoughts/product-vision.md`](thoughts/product-vision.md) |
+| Gate the project for sign-off | [`specs/trellis-agreement.md`](specs/trellis-agreement.md) |
+| Implement append/verify/export against fixtures | [`specs/trellis-core.md`](specs/trellis-core.md) |
+| Understand operator obligations (custody, projections, sidecars) | [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) |
+| Trace a legacy ULCR/ULCOMP-R row to its current home | [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) + [`specs/cross-reference-map.md`](specs/cross-reference-map.md) |
+| See outstanding architectural work | [`thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/specs/2026-04-17-trellis-normalization-handoff.md) |
+| Understand how the crypto choices were reached | Research + reviews folders |
 
----
-
-## One-line summaries
-
-| Document | What it is |
-|----------|------------|
-| `thoughts/formspec/proposals/user-side-audit-ledger-add-on-proposal.md` | Product/architecture pitch for an optional respondent ledger beside `Response`. |
-| `thoughts/formspec/specs/respondent-ledger-spec.md` | Normative v0.1 add-on: objects, events, materiality, checkpoints, conformance. |
-| `thoughts/formspec/adrs/0054-privacy-preserving-client-server-ledger-chain.md` | Draft ADR: layered trust chain and tiered crypto/identity from client to export. |
-| `thoughts/formspec/adrs/0059-unified-ledger-as-canonical-event-store.md` | Draft ADR: one canonical ledger for Formspec + WOS lifecycle; Temporal as execution only. |
-| `thoughts/specs/2026-04-10-unified-ledger-concrete-proposal.md` | Full-stack engineering proposal extending ADR-0059 (sync, crypto, WOS hooks). |
-| `thoughts/research/2026-04-10-unified-ledger-technology-survey.md` | OSS/managed survey aligned to ADR-0059’s building blocks and phases. |
-| `trellis/thoughts/reviews/2026-04-10-expert-panel-unified-ledger-review.md` | Multi-expert review of ADR-0059 + survey; synthesis and roadmap. |
-| `trellis/thoughts/reviews/2026-04-11-crypto-expert-concrete-solutions.md` | Detailed crypto/protocol answers; Header V2. |
-| `thoughts/research/ledger-risk-reduction.md` | Standards-first risk memo relative to the concrete proposal. |
-| `DRAFTS/trellis_spec_family_normalization_plan.md` | Convergence pass plan that normalizes Trellis into a core + companion family with explicit Trellis/Formspec/WOS boundaries. |
-| `specs/core/trellis-core.md` | New split-out constitutional core draft started from `unified_ledger_core.md` as the first step of normalization. |
-| `specs/core/shared-ledger-binding.md` | New companion draft for Formspec/WOS/trust/release family binding and canonization rules. |
-| `specs/trust/trust-profiles.md` | New companion draft for trust posture declarations and metadata budgets. |
-| `specs/trust/key-lifecycle-operating-model.md` | New companion draft for key classes, lifecycle states, rotation, grace periods, recovery, and crypto-shredding completeness. |
-| `specs/projection/projection-runtime-discipline.md` | New companion draft for provenance watermarking, rebuild contract, snapshot discipline, and purge-cascade obligations. |
-| `specs/export/export-verification-package.md` | New companion draft for offline-verifiable export package requirements and payload readability declarations. |
-| `specs/export/disclosure-manifest.md` | New companion draft for audience-scoped disclosure claim semantics and provenance-preserving selective disclosure. |
-| `specs/operations/monitoring-witnessing.md` | New minimal seam-oriented companion draft for checkpoint publication and anti-equivocation-compatible monitoring. |
-| `specs/assurance/assurance-traceability.md` | New companion draft mapping core invariants to TLA+/Alloy/tests/fuzzing/drill evidence artifacts. |
-| `ratification/ratification-checklist.md` | Draft readiness gates and stopping criteria for moving the spec family from draft to normative ratification. |
-| `ratification/ratification-evidence.md` | Draft evidence registry linking checklist gates to concrete spec artifacts and identifying remaining auto-evidence gaps. |
-| `ratification/README.md` | Index for ratification checklist and evidence (sits beside `specs/`, not inside it). |
-| `specs/README.md` | Draft spec-family index with dependency order, Trellis/Formspec/WOS boundaries, and next extraction passes. |
-| `thoughts/research/tiered-privacy-white-paper-3-24-2025.md` | TPIF white paper: tiered identity and strong crypto at internet scale. |
-
----
-
-*Update [`REFERENCE.md`](REFERENCE.md) when you add files or restructure headings; keep this README’s relationship narrative in sync when the architecture story changes. None of that implies acceptance—only that the map matches the current draft set.*
+Heading-level inventories for every active document live in [`REFERENCE.md`](REFERENCE.md).
