@@ -25,7 +25,7 @@ This is the **Phase 1 Core** deliverable of the Trellis specification family: th
 
 Operational guarantees that depend on live system behavior — projection snapshot policy, metadata-budget declaration tables, posture-transition auditability, rights-impacting evaluator rebuild — are normatively delegated to the **Trellis Operational Companion** (Phase 2 deliverable), which is a separate document. This core does not block on the companion: Phase 1 ships complete without it.
 
-This core is the first Trellis document that may be cited in production procurement. Previous `DRAFTS/*` material and earlier split-out companion drafts now archived under `specs/archive/` are consolidated and superseded by this file for all Phase 1 normative purposes. Where the earlier documents contained material that is operational rather than constitutional, that material migrates to the Operational Companion and not to this document.
+This core is the first Trellis document that may be cited in production procurement. Previous `thoughts/archive/drafts/*` material and earlier split-out companion drafts now archived under `specs/archive/` are consolidated and superseded by this file for all Phase 1 normative purposes. Where the earlier documents contained material that is operational rather than constitutional, that material migrates to the Operational Companion and not to this document.
 
 ## Table of Contents
 
@@ -143,9 +143,9 @@ RFC 2119 keywords in this document govern byte-level wire format (§§5–11), v
 - **Response ledger / case ledger / agency log / federation log.** See §1.2.
 - **Conformance class.** See §2.1. Legacy drafts called these "profiles"; this document renames them to eliminate the tri-namespace overload (§21).
 - **Custody model.** See §21. The legacy companion draft's "Profiles A–E" (provider-readable / reader-held / delegated / threshold / organizational) are renamed "Custody Models" here.
-- **Posture.** See §21. The Respondent Ledger spec's "Profile A/B/C" (privacy × identity × integrity-anchoring) is renamed "Posture" in the Trellis vocabulary. Its normative home remains Respondent Ledger §15A.
+- **Posture.** See §21. The Respondent Ledger spec's Profile A/B/C letters name posture axes (privacy × identity × integrity-anchoring); Trellis refers to them as "Respondent Ledger Profile A/B/C" without renaming. Their normative home remains Respondent Ledger §15A.
 
-When a normative clause below uses one of these terms, it means exactly what is defined here — not the same term as it may appear in `DRAFTS/` material or in superseded drafts.
+When a normative clause below uses one of these terms, it means exactly what is defined here — not the same term as it may appear in `thoughts/archive/drafts/` material or in superseded drafts.
 
 ---
 
@@ -696,7 +696,7 @@ Exports that bundle anchor-proof material (for example, `bitcoin/headers.cbor` b
 
 ### 11.6 Head-format extension container
 
-`CheckpointPayload.extensions` is the only Phase 1 reservation for Phase 3 case-ledger head data. Phase 1 producers MUST emit `extensions` as `null` or an empty map. Phase 1 verifiers MUST reject unknown top-level fields in `CheckpointPayload`, but MUST preserve and ignore unknown registered keys inside `extensions`.
+`CheckpointPayload.extensions` is the only Phase 1 reservation for Phase 3 case-ledger head data. Phase 1 emission and rejection rules for this container are governed by §6.7 (authoritative); in summary, Phase 1 producers MUST emit `extensions` as `null` or an empty map, and Phase 1 verifiers MUST reject unknown top-level fields in `CheckpointPayload` while preserving and ignoring unknown registered keys inside `extensions`.
 
 Phase 3 case-ledger heads MUST embed or preserve the Phase 1 checkpoint payload unchanged. Additional head data is carried only in `extensions`, for example:
 
@@ -724,7 +724,7 @@ The event header is where Trellis makes an explicit, normatively-enumerated trad
 EventHeader = {
   event_type:    bstr,                    ; registered event-type identifier (§14)
   authored_at:   uint,                    ; Unix seconds UTC; plaintext
-  retention_tier: uint,                   ; 0..3; plaintext
+  retention_tier: uint .size 1,           ; 0..3; plaintext
   classification: bstr,                   ; registered classification identifier; plaintext
   outcome_commitment: digest / null,      ; §12.2; commitment, NOT plaintext outcome
   subject_ref_commitment: digest / null,  ; §12.2; commitment, NOT plaintext subject
@@ -763,7 +763,7 @@ where `commitment_nonce` is a fresh 16-byte random value stored inside the encry
 
 ### 12.3 `extensions` sub-map
 
-`extensions` is a map from text-string keys to arbitrary CBOR values. Implementations MAY use it for deployment-specific additive metadata. A key that begins with `trellis-` is reserved for this specification family and MUST NOT be defined by third parties. Unknown keys MUST be preserved by intermediaries (round-tripped) and MAY be ignored by verifiers. `extensions` MUST NOT be used to smuggle fields that belong in the committed layer (outcome, subject, sensitive tags); doing so is a trust-posture-honesty violation (§20).
+`EventHeader.extensions` is a map from text-string keys to arbitrary CBOR values governed by the same registration discipline as every other `*.extensions` container: see §6.7. Keys beginning with `trellis.` are reserved to this specification family; keys beginning with `x-` are vendor / deployment local. Unknown registered keys MUST be preserved by intermediaries (round-tripped) and MAY be ignored by verifiers. `extensions` MUST NOT be used to smuggle fields that belong in the committed layer (outcome, subject, sensitive tags); doing so is a trust-posture-honesty violation (§20).
 
 ### 12.4 Event-type granularity
 
@@ -879,6 +879,8 @@ A derived artifact's `Watermark` MUST be verifiable against the canonical chain:
 ### 15.3 Rebuild path
 
 `rebuild_path` is a deterministic identifier that, combined with the canonical events up to `tree_size` and with the declared configuration history of the derived processor, allows a recipient to rebuild the derived artifact and confirm byte-for-byte equivalence. The rebuild path is not a guarantee of performance; it is a guarantee that the derived artifact is not authoritative and can be regenerated.
+
+**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry derived artifacts, and Watermark records are not members of a Phase 1 export package. Watermarks are runtime state consumed by Companion projection discipline, not Phase 1 export content. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
 
 ### 15.4 Rule applies to agency-log entries
 
@@ -1064,7 +1066,7 @@ ExportManifestPayload = {
   inclusion_proofs_digest: digest,        ; SHA-256 of inclusion-proofs.cbor
   consistency_proofs_digest: digest,      ; SHA-256 of consistency-proofs.cbor
   payloads_inlined: bool,                 ; true if 060-payloads/ is present
-  external_anchors: [* ExternalAnchor],   ; §16.3; optional
+  external_anchors: [* ExternalAnchor],   ; §16.3; optional (see Appendix A §28 for ExternalAnchor)
   posture_declaration: PostureDeclaration, ; §20
   head_format_version: uint,              ; §18.7; Phase 1 = 1
   omitted_payload_checks: [* OmittedPayloadCheck], ; §16.4, §19
@@ -1112,6 +1114,8 @@ A dCBOR array of all `Checkpoint` COSE_Sign1 records issued for this scope up to
 
 The `head_format_version` field identifies the checkpoint / head format. Phase 1 ships version 1. Phase 3 case-ledger heads are a strict superset at a later version number: they preserve the Phase 1 `CheckpointPayload` fields unchanged and carry additional fields only in `CheckpointPayload.extensions` (§11.6). A Phase 1 verifier reading a later head format under a Phase-1-declared scope MAY return `unknown_head_format`, but it MUST NOT accept unknown top-level checkpoint fields as though they were Phase 1.
 
+**Relationship to `CheckpointPayload.version`.** `ExportManifestPayload.head_format_version` (§18.3) and `CheckpointPayload.version` (§11.2) are distinct fields with distinct meanings. `head_format_version` names the envelope profile a verifier should apply to the head composition; `CheckpointPayload.version` is the version of the Checkpoint structure itself. In Phase 1 both values are `1`. Phase 3 will bump `head_format_version` to `2` (case-ledger head composition), while `CheckpointPayload.version` MAY remain `1` because the Checkpoint structure itself is a strict superset, not a redefinition — Phase 3 additions go in `CheckpointPayload.extensions`. A verifier MUST select its Phase behavior from `head_format_version`, not from `CheckpointPayload.version`.
+
 This is invariant #12 lifted normatively: **agency-log adoption is not a wire-format break for any Phase 1 export already in the field.**
 
 ### 18.8 `verify.sh`
@@ -1129,6 +1133,13 @@ This is invariant #12 lifted normatively: **agency-log adoption is not a wire-fo
 **Requirement class:** Verifier.
 
 Given an export ZIP `E`, a verifier MUST implement the following algorithm. All steps MUST run without network access. Time and memory bounds: linear in the number of events for structure and integrity, O(log N) per inclusion proof, O(log N) per consistency proof. The output separates structure, ciphertext integrity, and payload readability because exports may intentionally omit ciphertext bytes or decryption material.
+
+**Failure classes (normative).** The algorithm distinguishes two classes of failure:
+
+- **Fatal failures.** The verifier MUST abort immediately and return a report with `structure_verified = false`. Fatal failures are: invalid manifest structure, manifest signature invalid, archive-member digest mismatch against the manifest, signing-key-registry resolution failure for any manifest or checkpoint `kid`, and checkpoint signature invalid.
+- **Localizable failures.** The verifier MUST continue, accumulate the failure in the report's per-artifact failure list, and report on a per-event or per-proof basis. Localizable failures are: individual event hash mismatches, individual event signature failures, individual payload integrity failures (including ciphertext-hash mismatches), individual inclusion-proof failures, and individual consistency-proof failures between non-head checkpoints.
+
+The intent is that a single tampered event does not hide other tampering: localizable failures are enumerated, not short-circuited.
 
 ```text
 VERIFY(E) -> VerificationReport
@@ -1345,17 +1356,17 @@ These are three distinct structures at three distinct scopes, not one term used 
 
 ### 22.1 The seam
 
-The Formspec Respondent Ledger specification (`specs/audit/respondent-ledger-spec.md`) defines the per-response event model, including `eventHash` and `priorEventHash` fields at §6.2 (per-event integrity chaining) and `LedgerCheckpoint` objects at §13 (per-range integrity checkpoints). Respondent Ledger §13.4 explicitly defers "specific signature suite or external anchor" to a downstream layer. Trellis is that downstream layer.
+The Formspec Respondent Ledger specification (in-tree reference: `thoughts/formspec/specs/respondent-ledger-spec.md`; the authoritative upstream RL spec may live in a separate repo under `specs/audit/` — treat the in-tree thoughts copy as the reference for this document) defines the per-response event model, including `eventHash` and `priorEventHash` fields at §6.2 (per-event integrity chaining) and `LedgerCheckpoint` objects at §13 (per-range integrity checkpoints). Respondent Ledger §13.4 explicitly defers "specific signature suite or external anchor" to a downstream layer. Trellis is that downstream layer.
 
 ### 22.2 Per-event binding (Track E §21(a))
 
-**When a Trellis envelope wraps a Respondent-Ledger event, Respondent Ledger §6.2 `eventHash` and `priorEventHash` are promoted from SHOULD to MUST.** Concretely:
+**When a Trellis envelope wraps a Respondent-Ledger event, Respondent Ledger §6.2 `eventHash` and `priorEventHash` are promoted from SHOULD to MUST.** These are structurally different hashes — the Respondent-Ledger `eventHash` is computed over author-defined JSON per Respondent Ledger §14, while the Trellis `canonical_event_hash` is computed over dCBOR(`CanonicalEventHashPreimage`) under a domain tag per §9.2 — so the binding is a *store-the-digest* rule, not a compute-and-check-equal rule. Concretely, when a Trellis envelope wraps the event:
 
 - The Respondent-Ledger event, serialized per Respondent Ledger §14, MUST appear as the event's plaintext-committed authored-fact material (within the encrypted payload if `reader_held`; within the plaintext audit material if `provider_readable` per the declared posture).
-- The Respondent-Ledger event's `eventHash` MUST equal the Trellis event's `canonical_event_hash` (§9.2).
-- The Respondent-Ledger event's `priorEventHash` MUST equal the Trellis event's `prev_hash` (§6.2).
+- The Respondent-Ledger `eventHash` field MUST carry the value of the Trellis event's `canonical_event_hash` (§9.2). (The field stores the Trellis digest rather than an independently-computed RL digest.)
+- The Respondent-Ledger `priorEventHash` field MUST carry the value of the Trellis event's `prev_hash` (§10.2).
 
-This is the integrity-chaining binding that the Respondent Ledger spec names but does not implement. Trellis implements it normatively for Trellis-wrapped Respondent-Ledger events.
+Standalone Respondent Ledger usage without a Trellis envelope retains its own serialization and hash construction per Respondent Ledger §14. This is the integrity-chaining binding that the Respondent Ledger spec names but does not implement on its own. Trellis implements it normatively for Trellis-wrapped Respondent-Ledger events.
 
 ### 22.3 Per-range binding (Track E §21(b))
 
@@ -1363,7 +1374,7 @@ Respondent Ledger §13 `LedgerCheckpoint` and Trellis §11 `Checkpoint` are **di
 
 - A Respondent-Ledger `LedgerCheckpoint` (§13.2 minimum fields: `checkpointId`, `ledgerId`, `fromSequence`, `toSequence`, `batchHash`, `signedAt`) is the per-range sealing artifact from the Formspec side.
 - A Trellis `Checkpoint` (§11.2) is the signed tree head from the Trellis side.
-- When a Trellis envelope wraps a Respondent Ledger, the Trellis `Checkpoint.tree_head_hash` MUST cover exactly the sequence range `[fromSequence, toSequence]` declared by the Respondent Ledger `LedgerCheckpoint`, and the Respondent Ledger `batchHash` MUST be reproducible from the canonical event hashes in that range under the construction of §11.3.
+- When a Trellis envelope wraps a Respondent Ledger, the Trellis `Checkpoint.tree_head_hash` MUST cover exactly the sequence range `[fromSequence, toSequence]` declared by the Respondent Ledger `LedgerCheckpoint`. The Respondent Ledger `LedgerCheckpoint.batchHash` MUST equal the Trellis `Checkpoint.tree_head_hash` for the same `[fromSequence, toSequence]` range (i.e., the batch hash is reproducible from the canonical event hashes in that range under the construction of §11.3, and the result is the tree-head hash).
 
 They are not the same hash, and MUST NOT be conflated; they attest to the same events at different layers (Formspec range vs. Trellis tree).
 
@@ -1826,6 +1837,8 @@ VerificationFailure = {
 ## 29. Appendix B — Example Events and Exports
 
 *This appendix is informative; the authoritative grammar is Appendix A and the authoritative bytes are the fixture vectors (§27).*
+
+**Key-order caveat.** Example payloads in this appendix are shown with keys in a logical/reading order for human orientation. Actual dCBOR serialization MUST sort map keys in byte-wise lexicographic order of their canonical CBOR encoding per §5.1; for example, in `EventPayload` the first three keys by that ordering are `version` (`0x67 …`), `sequence` (`0x68 …`), `ledger_scope` (`0x6c …`), not `version → ledger_scope → sequence`. The authoritative bytes for every worked example live in `fixtures/vectors/append/...` and related fixture directories; where the prose below and the fixtures disagree, the fixtures are normative.
 
 ### 29.1 A minimal first event (hex-decoded dCBOR)
 

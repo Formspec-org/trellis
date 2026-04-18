@@ -92,7 +92,7 @@ Normative Phase 1 byte protocol. dCBOR canonical encoding, Ed25519/COSE_Sign1 si
 | 30. Traceability Anchors | TR-CORE-NNN row anchors for cross-reference from the matrix. |
 | 31. References | Normative + informative. |
 
-**Known issues (handoff Group A):** §7.4 uses a custom "signature field zeroed" scheme instead of RFC 9052 `Sig_structure`; hash preimages need explicit structures; `ciphertext_ref` payload-reference semantics ambiguous; ZIP determinism has a lexicographic-vs-manifest-first conflict; "strict superset" not yet defined as reserved-extension preservation; §24 agency-log extension points may need CDDL reservation in §11. Tracked in `thoughts/specs/2026-04-17-trellis-normalization-handoff.md`.
+**Handoff status:** Groups A/B/C closed in commit `3a143a1`.
 
 ---
 
@@ -142,7 +142,7 @@ Normative Phase 2+ operator obligations. Custody models, posture-transition audi
 | Appendix B — Sidecar Examples | B.1 respondent history, B.2 workflow governance, B.3 disclosure manifest, B.4 delegated-compute grant, B.5 projection watermark. |
 | C. Traceability Anchors | TR-OP-NNN row anchors. |
 
-**Known issues (handoff Group B):** stale `Core §N` references require repair; version strings may need alignment once Core version lands. Tracked in the handoff.
+**Handoff status:** Groups A/B/C closed in commit `3a143a1`.
 
 ---
 
@@ -162,7 +162,7 @@ Traceability matrix. 79 TR-CORE + 47 TR-OP rows, legacy ULCR-* / ULCOMP-R-* prov
 | Section 5 — Gap Log (Legacy Rows Dropped) | 23 gap-log entries with justification buckets (superseded by invariant, upstream-owned, duplicate). |
 | References | Cross-spec references. |
 
-**Known issues (handoff task 13):** TR-CORE-032 specifies JCS; must be corrected to dCBOR. Gap-log soundness audit pending.
+**Handoff status:** Groups A/B/C closed in commit `3a143a1`.
 
 ---
 

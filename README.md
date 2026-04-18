@@ -37,11 +37,11 @@ Start here. Read in order.
 
 Supporting:
 
-- [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) — Traceability matrix (79 TR-CORE + 47 TR-OP rows, legacy ULCR/ULCOMP-R provenance, gap log). Prose in Core and the Companion wins on conflict.
+- [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) — Traceability matrix (79 TR-CORE + 49 TR-OP rows, legacy ULCR/ULCOMP-R provenance, gap log). Prose in Core and the Companion wins on conflict.
 - [`specs/cross-reference-map.md`](specs/cross-reference-map.md) — Upstream-rehoming map for concepts owned by Formspec Respondent Ledger or WOS.
 - [`specs/README.md`](specs/README.md) — Reading order, authority claims, archive pointers.
 
-Open-ended review, outstanding work, and architectural debt are tracked in [`thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/specs/2026-04-17-trellis-normalization-handoff.md).
+Completed handoff log — Groups A/B/C resolved in commit `3a143a1`. See [`thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/specs/2026-04-17-trellis-normalization-handoff.md) for the original task breakdown and evidence.
 
 ---
 

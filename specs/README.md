@@ -25,7 +25,7 @@ The previous per-family spec drafts are superseded inputs and live under [`archi
 
 | Archived folder | Prior role |
 |---|---|
-| `archive/core/` | Constitutional core draft, shared-ledger binding, and legacy matrices. |
+| `archive/core/` | Constitutional core draft, shared-ledger binding, and both legacy requirements matrices. |
 | `archive/trust/` | Trust posture and key-lifecycle drafts. |
 | `archive/projection/` | Projection runtime discipline draft. |
 | `archive/export/` | Export package and disclosure manifest drafts. |

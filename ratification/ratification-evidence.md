@@ -27,21 +27,21 @@ Provide evidence references for each gate in [`ratification-checklist.md`](ratif
 
 | Gate | Description | Status | Evidence / dependency |
 |---|---|---|---|
-| C-1 | COSE_Sign1 signature model | PENDING-HANDOFF | Handoff Group A task 1. Currently uses custom signature-zeroing (lines 252, 297–303, 403, 542, 654, 893). |
-| C-2 | Explicit hash preimages | PENDING-HANDOFF | Handoff Group A task 2. |
-| C-3 | Tagged payload references + 3-way verifier output | PENDING-HANDOFF | Handoff Group A task 3. |
-| C-4 | Deterministic export ZIP | PENDING-HANDOFF | Handoff Group A task 4. |
-| C-5 | Strict-superset semantics | PENDING-HANDOFF | Handoff Group A task 5. |
-| C-6 | Idempotency identity scope-permanent | PENDING-HANDOFF | Handoff Group A task 6. Core §17 partial today. |
-| C-7 | Agency-log extension points | PENDING-HANDOFF | Handoff Group A task 7. Core §24 may need §11 CDDL reservation. |
-| C-8 | Profile/Custody/Conformance-Class vocabulary | PROSE (partial) | Core §21. Final audit under handoff task 11. |
+| C-1 | COSE_Sign1 signature model | PROSE | Commit 3a143a1 — specs/trellis-core.md §7, §11, §18, §19, §29; no zero-fill prose remains. |
+| C-2 | Explicit hash preimages | PROSE | Commit 3a143a1 — specs/trellis-core.md §9 defines explicit preimage structures with domain separation tags; ledger scope included in signed material. |
+| C-3 | Tagged payload references + 3-way verifier output | PROSE | Commit 3a143a1 — specs/trellis-core.md §6 defines tagged PayloadRef / PayloadInline / PayloadExternal; verifier reports `structure_verified` / `integrity_verified` / `readability_verified` independently. |
+| C-4 | Deterministic export ZIP | PROSE | Commit 3a143a1 — specs/trellis-core.md §18 pins deterministic ZIP construction (prefix-ordered filenames, pinned local-file-header fields). |
+| C-5 | Strict-superset semantics | PROSE | Commit 3a143a1 — specs/trellis-core.md §6.7 + §24 define strict superset as reserved-extension preservation; Phase 1 verifiers reject unknown top-level fields. |
+| C-6 | Idempotency identity scope-permanent | PROSE | Commit 3a143a1 — specs/trellis-core.md §17 defines scope-permanent idempotency (same key + same payload → same reference; same key + different payload → deterministic rejection). |
+| C-7 | Agency-log extension points | PROSE | Commit 3a143a1 — specs/trellis-core.md §11 reserves CDDL extension slots referenced by §24. |
+| C-8 | Profile/Custody/Conformance-Class vocabulary | PROSE | Commit 3a143a1 — specs/trellis-core.md §21 unifies the three-namespace vocabulary. |
 
 ### `../specs/trellis-operational-companion.md`
 
 | Gate | Description | Status | Evidence / dependency |
 |---|---|---|---|
-| O-1 | Core §N references resolve | PENDING-HANDOFF | Handoff Group B task 10. Known stale refs: §15 (should be §13), §12 (should be §18), §9 (should be §19), Canonical Append Service (§2, not §7). |
-| O-2 | Custody-model identifier set unified | PENDING-HANDOFF | Handoff Group C task 11. |
+| O-1 | Core §N references resolve | PROSE | Commit 3a143a1 — all Core §N references in specs/trellis-operational-companion.md resolve to current Core headings. |
+| O-2 | Custody-model identifier set unified | PROSE | Commit 3a143a1 — custody-model identifiers unified at CM-A..CM-F across Core §21.3, Companion §9.2, Matrix §2.2/§4.3. |
 | O-3 | Projection discipline testable | PROSE (partial) | Companion §§14–17. Conformance fixtures pending (PENDING-AUTO). |
 | O-4 | Delegated-compute declarations | PROSE | Companion §19. |
 | O-5 | Posture-transition auditability | PROSE | Companion §10. |
@@ -50,9 +50,9 @@ Provide evidence references for each gate in [`ratification-checklist.md`](ratif
 
 | Gate | Description | Status | Evidence / dependency |
 |---|---|---|---|
-| M-1 | Factual consistency with Core (JCS → dCBOR + row coverage) | PENDING-HANDOFF | Handoff Group C task 13. TR-CORE-032 specifies JCS; must become dCBOR. Cross-reference coverage is handoff task 8. |
-| M-2 | Gap-log soundness | PENDING-HANDOFF | Handoff Group C task 12. 23 gap-log entries to audit against invariants #1–#15. |
-| M-3 | Invariant coverage | PROSE (partial) | Matrix §3. Full audit under handoff task 12. |
+| M-1 | Factual consistency with Core (JCS → dCBOR + row coverage) | PROSE | Commit 3a143a1 — TR-CORE-032 now pins dCBOR; MUST-to-row coverage audited. |
+| M-2 | Gap-log soundness | PROSE | Commit 3a143a1 — gap-log audit complete (1 reinstated, 13 corrected, 9 confirmed). |
+| M-3 | Invariant coverage | PROSE | Commit 3a143a1 — Matrix §3.1 covers all 15 invariants; reviewer audit of table §3.1 done. |
 
 ## Follow-up to move gates to complete
 

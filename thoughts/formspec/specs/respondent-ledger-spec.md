@@ -763,11 +763,13 @@ The response ledger itself is not rewritten, merged, or invalidated by this comp
 
 ### 13A.4 Governance events
 
-Governance events (e.g. WOS determinations, deontic transitions, reviewer actions) appear in the case ledger with their own schemas. They **MUST** carry the case-ledger chain fields (`eventId`, `sequence`, `priorEventHash`, `eventHash`, `occurredAt`, `recordedAt`) so the case ledger remains a single hash-chained sequence regardless of entry provenance.
+Governance events (e.g. WOS determinations, deontic transitions, reviewer actions) appear in the case ledger with their own schemas and **MUST** carry chain-linking material so the case ledger remains a single hash-chained sequence regardless of entry provenance.
+
+When a case ledger is maintained **without** a Trellis envelope wrapping each event (i.e., Respondent Ledger standalone mode), a `CaseLedgerEvent` **MUST** carry `priorEventHash` and `eventHash` chain fields (together with `eventId`, `sequence`, `occurredAt`, `recordedAt`) as defined in the CDDL sketch of §13A.5. When wrapped by a Trellis envelope (§13A.6), those chain fields are materialized as Trellis Core's `prev_hash` and `canonical_event_hash` per Trellis Core invariant #10 and §13A.6; the case ledger **MUST NOT** redefine the event wire shape.
 
 ### 13A.5 CDDL / JSON Schema sketches
 
-The following sketches are illustrative; companion schemas MAY refine them.
+The following sketches are illustrative (the authoritative wire shape under Trellis is Trellis Core §6); they describe the standalone-mode projection of §13A.4. Companion schemas MAY refine them, and Trellis-wrapped deployments instead use the envelope of Trellis Core §6 per §13A.6.
 
 ```cddl
 CaseLedger = {

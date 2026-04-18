@@ -10,7 +10,7 @@ This map records the upstream home for every concept removed from Trellis specs 
 
 | ULCR ID | Concept | New home |
 |---|---|---|
-| ULCR-063 | Disclosure posture vs assurance level taxonomy (MUST distinguish; MUST NOT require identity disclosure for higher assurance; MAY support subject continuity) | [WOS Assurance §2 assurance taxonomy], [WOS Assurance §4 Invariant 6], [WOS Assurance §3 subject continuity], [Formspec Respondent Ledger §6.6.1 assuranceLevel], [Formspec Respondent Ledger §6.6A Subject Continuity] |
+| ULCR-063 | Disclosure posture vs assurance level taxonomy (MUST distinguish; MUST NOT require identity disclosure for higher assurance; MAY support subject continuity) | [WOS Assurance §2 assurance taxonomy], [WOS Assurance §4 Invariant 6], [WOS Assurance §3 subject continuity], [Formspec Respondent Ledger §6.4 Actor object `assuranceLevel` and §6.6 Identity attestation object `assuranceLevel`], [Formspec Respondent Ledger §6.6A Identity and implementation decoupling (subject continuity)] |
 | ULCR-080 | User-held record reuse capability (reusable prior records, binding reused content into canonical truth) | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCR-081 | Respondent history capability (respondent-originated/visible history, timelines as derived artifacts) | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCR-091 | Cryptographic lifecycle facts — RESCOPED: narrowed to ledger-specific cryptographic operations (key destruction, export issuance). Generic lifecycle operations (retention, legal hold, archival, sealing, schema upgrade) delegated upstream. | [WOS Governance §2.9 Schema Upgrade], [WOS Governance §7.15 Legal Hold] |
@@ -45,9 +45,9 @@ This map records the upstream home for every concept removed from Trellis specs 
 | ULCOMP-R-136 | Identity & attestation — provider-specific issuers/adapters operational only | [WOS Assurance §3 identity/attestation semantics] |
 | ULCOMP-R-137 | User signing — SHOULD support user-originated signatures | [WOS Assurance §3 authentication/signing] |
 | ULCOMP-R-138 | User signing — MAY support offline user-originated signing | [WOS Assurance §3 authentication/signing] |
-| ULCOMP-R-140 | Assurance & disclosure — MUST distinguish assurance from disclosure posture | [WOS Assurance §2 assurance taxonomy, §4 Invariant 6], [Formspec Respondent Ledger §6.6.1 assuranceLevel] |
-| ULCOMP-R-141 | Assurance & disclosure — MUST NOT treat higher assurance as requiring greater identity disclosure | [WOS Assurance §4 Invariant 6], [Formspec Respondent Ledger §6.6A Subject Continuity] |
-| ULCOMP-R-142 | Assurance & disclosure — MAY support subject continuity without full identity disclosure | [WOS Assurance §3 subject continuity], [Formspec Respondent Ledger §6.6A Subject Continuity] |
+| ULCOMP-R-140 | Assurance & disclosure — MUST distinguish assurance from disclosure posture | [WOS Assurance §2 assurance taxonomy, §4 Invariant 6], [Formspec Respondent Ledger §6.4 Actor object `assuranceLevel` and §6.6 Identity attestation object `assuranceLevel`] |
+| ULCOMP-R-141 | Assurance & disclosure — MUST NOT treat higher assurance as requiring greater identity disclosure | [WOS Assurance §4 Invariant 6], [Formspec Respondent Ledger §6.6A Identity and implementation decoupling] |
+| ULCOMP-R-142 | Assurance & disclosure — MAY support subject continuity without full identity disclosure | [WOS Assurance §3 subject continuity], [Formspec Respondent Ledger §6.6A Identity and implementation decoupling] |
 | ULCOMP-R-155 | Lifecycle — MAY define lifecycle facts (retention, hold, archival, etc.) | [WOS Governance §2.9 Schema Upgrade, §7.15 Legal Hold] |
 | ULCOMP-R-156 | Lifecycle — MAY support subset or none of lifecycle operations | [WOS Governance §2.9, §7.15] |
 | ULCOMP-R-157 | Lifecycle — MUST represent compliance-relevant operations as lifecycle facts | [WOS Governance §2.9, §7.15] |
@@ -70,19 +70,19 @@ This map records the upstream home for every concept removed from Trellis specs 
 | ULCOMP-R-194 | Workflow sidecar — provenance family (trace derived to canonical) | [WOS Governance §§3–4, §8, §11] |
 | ULCOMP-R-195 | Workflow sidecar — conflict family distinctions | [WOS Governance §§3–4, §8, §11] |
 | ULCOMP-R-196 | Workflow sidecar — export views preserve provenance/scope honesty | [WOS Governance §§3–4, §8, §11] |
-| ULCOMP-R-197 | Appendix A — versioned registries for identifier/kind categories | (no confirmed upstream home — registry conventions are not defined in current WOS specs; deployment-defined) |
+| ULCOMP-R-197 | Appendix A — versioned registries for identifier/kind categories | **Reinstated as TR-OP-130** in `specs/trellis-requirements-matrix.md §2.14` (Versioned Registries — Operator-Side Complement to Invariant #6); no longer removed. Retained here for historical provenance: the original "owned upstream by WOS Governance App. A" rationale was unsound (WOS Governance has no Appendix A), and no upstream home was found, so the obligation was reinstated in the consolidated matrix. |
 
 ## Concept-to-home map (summary)
 
 | Concept | Upstream home |
 |---|---|
-| L1–L4 assurance-level taxonomy | [WOS Assurance §2] and [Formspec Respondent Ledger §6.6.1] |
-| Subject continuity primitive | [WOS Assurance §3] and [Formspec Respondent Ledger §6.6A] |
+| L1–L4 assurance-level taxonomy | [WOS Assurance §2] and [Formspec Respondent Ledger §6.4 Actor object (`assuranceLevel` field) and §6.6 Identity attestation object (`assuranceLevel` field)] |
+| Subject continuity primitive | [WOS Assurance §3] and [Formspec Respondent Ledger §6.6A Identity and implementation decoupling] |
 | Invariant 6 (Disclosure Posture ≠ Assurance Level) | [WOS Assurance §4] |
-| Provider-neutral attestation | [WOS Assurance §5] |
-| Legal-sufficiency disclaimer | [WOS Assurance §6] and [Formspec Respondent Ledger §2.4] |
-| Authored signature semantics | [Formspec Respondent Ledger §6.8] |
-| Disclosure posture enumeration (anonymous/pseudonymous/identified/public) | [Formspec Respondent Ledger §6.6 `privacyTier`] |
+| Provider-neutral attestation | [WOS Assurance §5] and [Formspec Respondent Ledger §6.6 Identity attestation object (provider-neutral normalization)] |
+| Legal-sufficiency disclaimer | [WOS Assurance §6] — the Respondent Ledger spec does not carry a standalone legal-sufficiency disclaimer section (no §2.4); related non-normative commentary appears in §15A.3 (Respondent Ledger Profile C — identity-bound guidance on legal attestations) |
+| Authored signature semantics | [Formspec Respondent Ledger §13 Integrity checkpoints (`signature` field and §13.2 Minimum fields), §13.4 Integrity behavior] — no standalone §6.8 exists; authored-signature semantics are carried by the integrity-checkpoint section |
+| Disclosure posture enumeration (anonymous/pseudonymous/identified/public) | [Formspec Respondent Ledger §6.4 Actor object (`privacyTier` field) and §6.6 Identity attestation object (`privacyTier` field)] — no standalone §6.6 heading isolates `privacyTier`; the field is declared in both §6.4 and §6.6 |
 | Posture Declaration seam | [WOS Kernel §10.5 `custodyHook`] — delegates custody and posture object definition to [Trellis Operational Companion §9 and §11] |
 | Generic lifecycle ops (retention, hold, archival, sealing, schema-upgrade) | [WOS Governance §2.9, §7.15] |
 | Schema upgrade as lifecycle operation | [WOS Governance §2.9] |
