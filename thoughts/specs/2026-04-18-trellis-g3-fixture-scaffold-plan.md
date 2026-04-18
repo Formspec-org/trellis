@@ -35,7 +35,7 @@ Files created:
 - `fixtures/vectors/append/001-minimal-inline-payload/sig-structure.bin` (intermediate)
 - `fixtures/vectors/append/001-minimal-inline-payload/expected-canonical-event.cbor`
 - `fixtures/vectors/append/001-minimal-inline-payload/expected-signed-event.cbor`
-- `fixtures/vectors/append/001-minimal-inline-payload/expected-next-head.cbor`
+- `fixtures/vectors/append/001-minimal-inline-payload/expected-append-head.cbor`
 - `scripts/test_check_specs.py` — test harness for the lint extensions
 - `scripts/check-specs-fixtures/…` — minimal synthetic fixture trees used by lint tests
 
@@ -832,32 +832,41 @@ This is the largest task in the plan. It produces a complete byte-level referenc
 - Create: 6 sibling `.cbor` / `.bin` binary files
 
 **Prerequisite read:** The engineer MUST read `specs/trellis-core.md` sections covering:
-- §6 — Event schema (AuthoredEvent and CanonicalEvent CDDL)
-- §7 — `author_event_hash` preimage + domain separation
-- §8 — COSE_Sign1 signing (`Sig_structure` assembly per RFC 9052 §4.4)
-- §11 — `canonical_event_hash` and head-chain construction
+- §6.1 — `EventPayload` CDDL shape (the canonical form)
+- §6.8 — named surface vocabulary (authored / canonical / signed forms)
+- §7.4 — Signature Profile: COSE protected-header integer labels (`alg=1`, `kid=4`, `suite_id=-65537`, `artifact_type=-65538`), Ed25519 signing procedure, `Sig_structure` assembly per RFC 9052 §4.4
+- §8.2, §8.3 — Signing-Key Registry and `kid` derivation (`SHA-256(dCBOR(suite_id) || pubkey_raw)[0..16]`)
+- §9.1 — Hash construction framing and domain separation tags
+- §9.2 — `canonical_event_hash` construction
+- §9.5 — `author_event_hash` preimage construction (`AuthorEventHashPreimage` CDDL)
+- §10.2 — `prev_hash` / chain invariant
+- §10.6 — `AppendHead` return artifact CDDL (`{scope, sequence, canonical_event_hash}`)
+- §14.6 — reserved `x-trellis-test/` event-type and classification prefix
+- Appendix A (§28) — consolidated CDDL listing
 
 **Vector inputs (pinned):**
 - `signing_key`: `fixtures/vectors/_keys/issuer-001.cose_key`
-- `payload`: `fixtures/vectors/_inputs/sample-payload-001.bin` (inline, 64 bytes)
-- `prior_head`: none (genesis)
-- `timestamp`: `1745000000` (chosen for tidiness; will appear in AuthoredEvent CBOR)
+- `payload`: `fixtures/vectors/_inputs/sample-payload-001.bin` (inline, 64 bytes, nonce-encrypted per §9.4 if this vector exercises HPKE; see S4 open item)
+- `prior_head`: none (genesis; sequence = 0)
+- `timestamp`: `1745000000` (integer Unix seconds, chosen for tidiness)
+- `event_type`: `"x-trellis-test/append-minimal"` (reserved test prefix per §14.6)
+- `classification`: `"x-trellis-test/unclassified"` (reserved test prefix per §14.6)
 - `issuer_id`: `"issuer-001"` (string)
-- `ledger_scope`: `"test-response-ledger"` (string — exercises scoped-vocabulary invariant)
+- `ledger_scope`: `"test-response-ledger"` (bstr — exercises scoped-vocabulary invariant; encoded as bstr per §10.6's AppendHead CDDL)
 
 - [ ] **Step 1: Write `gen_append_001.py`**
 
 Spec-interpretive code only. Every construction block carries an inline comment citing a Core §. The script:
-1. Loads `issuer-001.cose_key` via cbor2
-2. Loads `sample-payload-001.bin`
-3. Builds `AuthoredEvent` CBOR per Core §6 — write the map out field-by-field with comments
-4. Computes `author_event_hash` preimage per Core §7 — write preimage CBOR and commit as `author-event-preimage.bin`
-5. Computes SHA-256 — commit as `author-event-hash.bin`
-6. Builds `Sig_structure` per RFC 9052 §4.4 (`"Signature1"` + protected headers + external AAD `b""` + payload = hash) — commit as `sig-structure.bin`
-7. Ed25519-signs the `Sig_structure`
-8. Assembles COSE_Sign1 CBOR — commit as `expected-signed-event.cbor`
-9. Builds CanonicalEvent (adds id, hash, signed wrapper) — commit as `expected-canonical-event.cbor`
-10. Computes `canonical_event_hash` and `next_head` per Core §11 — commit as `expected-next-head.cbor`
+1. Loads `issuer-001.cose_key` via cbor2.
+2. Loads `sample-payload-001.bin`.
+3. Builds the **authored form** — `AuthorEventHashPreimage` CDDL per §6.8 / §9.5 — with the pinned inputs as fields. Write as `input-author-event-hash-preimage.cbor` (the authored form is the input the `append` API consumes before hashing).
+4. Computes `author_event_hash` preimage bytes per §9.5, dCBOR-serialized with the §9.1 domain-separation tag (`"trellis-author-event-v1"` or whatever §9.1 pins). Commit preimage bytes as `author-event-preimage.bin`.
+5. SHA-256 the preimage. Commit 32-byte digest as `author-event-hash.bin`.
+6. Builds the **canonical form** — `EventPayload` CDDL per §6.1 / §6.8, including the `author_event_hash` field. dCBOR-serialize. Commit as `expected-event-payload.cbor`.
+7. Builds `Sig_structure` per RFC 9052 §4.4: `["Signature1", protected_bstr, external_aad=h'', payload_bstr]` where `payload_bstr = dCBOR(EventPayload)` (the canonical-form bytes from Step 6) and `protected_bstr` is dCBOR of the protected-header map `{1: -8, 4: <kid>, -65537: 1, -65538: "<event-type-or-omit>"}` per §7.4's pinned integer labels. Commit as `sig-structure.bin`.
+8. Ed25519-signs the `Sig_structure` using the secret seed from the COSE_Key.
+9. Assembles COSE_Sign1 tag-18 wire bytes — the **signed form** `Event = COSESign1Bytes` per §6.8. Commit as `expected-event.cbor` (or keep the plan's `expected-signed-event.cbor`).
+10. Computes `canonical_event_hash` per §9.2 (SHA-256 of the canonical-form bytes with §9.1 domain separation). Assembles `AppendHead` per §10.6 (`{scope: <bstr>, sequence: 0, canonical_event_hash: <32-byte bstr>}`). dCBOR-serialize. Commit as `expected-append-head.cbor`.
 
 Every intermediate file written with a terminal print of its hex for easy copy into derivation.md.
 
@@ -874,30 +883,30 @@ Expected: All 6 sibling files under `append/001-minimal-inline-payload/` appear,
 ```toml
 id          = "append/001-minimal-inline-payload"
 op          = "append"
-description = "Genesis append of a 64-byte inline payload. Exercises AuthoredEvent encoding (Core §6), author_event_hash preimage and domain separation (§7), COSE_Sign1 signing via RFC 9052 Sig_structure (§8), CanonicalEvent construction, and canonical_event_hash / next_head chaining (§11)."
+description = "Genesis append of a 64-byte inline payload. Exercises authored/canonical/signed surfaces (§6.1, §6.8), author_event_hash preimage + domain separation (§9.5, §9.1), COSE_Sign1 signing with pinned protected-header labels (§7.4), canonical_event_hash (§9.2), and AppendHead return (§10.6)."
 
 [coverage]
 tr_core    = [ <pick the 2-4 TR-CORE row IDs that cover these sections — e.g., the one bound to invariant #1 (dCBOR), to §8 COSE_Sign1, to §11 head chaining> ]
 # core_sections / invariants omitted — rely on matrix derivation
 
 [inputs]
-signing_key    = "../../_keys/issuer-001.cose_key"
-authored_event = "input-authored-event.cbor"
+signing_key       = "../../_keys/issuer-001.cose_key"
+authored_event    = "input-author-event-hash-preimage.cbor"  # the authored form per §6.8
 
 [expected]
-canonical_event = "expected-canonical-event.cbor"
-signed_event    = "expected-signed-event.cbor"
-next_head       = "expected-next-head.cbor"
+canonical_event   = "expected-event-payload.cbor"   # the canonical form (EventPayload) per §6.8
+signed_event      = "expected-event.cbor"           # the signed / wire form (COSE_Sign1 tag-18) per §6.8
+append_head       = "expected-append-head.cbor"     # the AppendHead return artifact per §10.6
 
 [derivation]
 document = "derivation.md"
 ```
 
-Note: the `input-authored-event.cbor` is itself a generated output of gen_append_001.py (the unsigned AuthoredEvent CBOR that becomes the input to the `append` operation). Commit it as a sibling file alongside the expected files.
+Note: `input-author-event-hash-preimage.cbor` is itself a generated output of gen_append_001.py (the authored form that becomes the input to the `append` operation). Commit it as a sibling file alongside the expected files.
 
 - [ ] **Step 4: Author `derivation.md`**
 
-Follow the template at `fixtures/vectors/_templates/derivation-template.md`. For each of the five constructions (AuthoredEvent, author_event_hash, Sig_structure + signature, CanonicalEvent, canonical_event_hash/next_head):
+Follow the template at `fixtures/vectors/_templates/derivation-template.md`. For each of the five constructions (authored form / `AuthorEventHashPreimage`, `author_event_hash`, canonical form / `EventPayload`, `Sig_structure` + Ed25519 signature → signed form, `canonical_event_hash` + `AppendHead`):
 - Quote the load-bearing sentence from Core
 - Show input bytes in hex
 - Describe the operation
