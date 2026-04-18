@@ -644,6 +644,25 @@ Canonical order is scoped to a declared **ledger scope** — one Formspec Respon
 
 A Canonical Append Service MUST NOT rewrite a canonical event once it has been admitted. "Admitted" means: `canonical_event_hash` is computed, the append attestation is issued, and any subscribed verifier is entitled to expect byte-for-byte reproduction of the event on demand. Correction is always a new event; there is no in-place edit.
 
+### 10.6 Append head artifact
+
+Every successful `append` operation returns a structured **append head** describing the post-append state of the targeted ledger scope. This artifact is the structural companion to the `prev_hash` invariant (§10.2): the next event's `prev_hash` is equal to the previous append's `AppendHead.canonical_event_hash` field, by construction.
+
+```cddl
+AppendHead = {
+  scope:                bstr,            ; ledger scope identifier, equal to the
+                                         ; just-appended event's ledger_scope
+  sequence:             uint,            ; sequence of the just-appended event
+                                         ; (0-indexed, monotonic within scope)
+  canonical_event_hash: digest,          ; canonical_event_hash of the just-appended
+                                         ; event per §9.2
+}
+```
+
+An `AppendHead` is serialized as dCBOR (§5.1). Its bytes are fully determined by the just-appended event's canonical form (§6.8); a verifier or a second implementation that recomputes `canonical_event_hash` for the same event and constructs the same `(scope, sequence, canonical_event_hash)` tuple will produce byte-identical `AppendHead` bytes. The artifact carries no signature: it is an integrity-derived return value, not an independent attestation. Append attestation over a range of events is the Checkpoint artifact of §11; `AppendHead` names the single-event post-append state and is the contract between `append` and its caller.
+
+`AppendHead` does not appear in the Phase 1 export package (§18); exports carry the full event sequence plus checkpoints, from which every intermediate `AppendHead` is reproducible. It is a return-value artifact for in-process use, for API responses, and for fixture vectors that pin the expected post-append state.
+
 ---
 
 ## 11. Checkpoint Format
@@ -1698,6 +1717,14 @@ AuthorEventHashPreimage = {
   key_bag:         KeyBag,
   idempotency_key: bstr .size (1..64),
   extensions:      { * tstr => any } / null,
+}
+
+; --- Append Head (post-append return artifact, §10.6) ---------------
+
+AppendHead = {
+  scope:                bstr,
+  sequence:             uint,
+  canonical_event_hash: digest,
 }
 
 ; --- Signing-Key Registry --------------------------------------------
