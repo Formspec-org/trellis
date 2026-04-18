@@ -27,7 +27,7 @@ Branch: `main`.
 Skip `thoughts/specs/2026-04-17-trellis-normalization-handoff.md` unless you are
 archeologizing a Core section. The handoff is closed.
 
-## Current state (as of 2026-04-18, 9ead7cf)
+## Current state (as of 2026-04-18, e1895ae)
 
 - Specs converged on two normative W3C-style documents: Core + Operational
   Companion. Previous 8-spec family is in `specs/archive/`. Don't cite it as
@@ -53,17 +53,17 @@ archeologizing a Core section. The handoff is closed.
   list — specific uncovered `TR-CORE-*` rows + 11 uncovered byte-testable
   invariants (not all 15 — non-byte-testable invariants are audited via
   separate G-2 work per amended design F2).
-- **Task 10 BLOCKED on Core prose gaps.** The T10 implementer subagent read
-  Core §§5–12 + Appendix A in full and escalated NEEDS_CONTEXT rather than
-  fabricate bytes. Three blocking gaps + five secondary gaps documented at
-  `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`:
-  - **B1**: no COSE protected-header label pinned for `suite_id` (§7.4).
-  - **B2**: vocabulary drift — plan uses AuthoredEvent/CanonicalEvent;
-    current Core uses `EventPayload` / `AuthorEventHashPreimage` / `Event`.
-  - **B3**: `expected-next-head.cbor` shape undefined — §11 is Merkle
-    checkpoint; §10.2 defines `prev_hash` but no CBOR head artifact.
-  The ratification bar worked as intended: G-3 surfaced specific Core
-  under-specifications before they became G-5 interop failures.
+- **Task 10 UNBLOCKED.** The three blocking Core gaps (B1/B2/B3) are closed
+  in commits `6ad24ab` (§7.4 COSE labels), `1b66eed` (§6.8 three event
+  surfaces), `a844e4a` (§10.6 AppendHead struct). Four secondary gaps
+  (S1/S2/S3/S5) closed in `e1895ae`. Resolution detail at
+  `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`. The
+  ratification bar worked as intended: G-3 surfaced specific Core
+  under-specifications before they became G-5 interop failures, and Core
+  is now tighter for it.
+- **Plan Task 10 citations need updating before re-dispatch.** Plan cites
+  §§6/7/8/11 for constructions that now live at §§6.1+6.8 / §7.4 / §9.5 /
+  §9.2 / §10.6. The gap-list doc carries the correct mapping.
 
 ## Conventions
 
@@ -87,28 +87,25 @@ archeologizing a Core section. The handoff is closed.
 
 ## Most useful next work
 
-**Top priority: resolve the three Core gaps so Task 10 can proceed.** Read
-`thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md` first. The
-doc recommends Path 1 (amend Core now) vs Path 2 (defer Task 10). Path 1
-requires spec-authoring judgment on three decisions:
+**Top priority: re-dispatch Task 10** (author `append/001-minimal-inline-payload`
+end-to-end). Core is now unblocked. Before re-dispatching:
 
-1. **B1 — pin `suite_id` COSE header label.** Add a row to `specs/trellis-core.md`
-   §7.4's header table with a Trellis-reserved integer label. Pin
-   `artifact_type` too if used. Recommended: Trellis-reserved negative
-   integer per RFC 9052 §1.4.
-2. **B2 — name the three event surfaces.** Add a paragraph to Core §6 (or
-   an annex) naming "authored form" (`AuthorEventHashPreimage`), "canonical
-   form" (`EventPayload`), "signed form" (`Event = COSESign1Bytes`).
-   Alternative: update the fixture plan's filenames to use CDDL-native names.
-3. **B3 — define `LedgerHead` / `AppendHead` CBOR struct.** Add to Core a
-   minimal CBOR shape for the post-append / pre-checkpoint state, even if
-   it holds only `{scope, sequence, canonical_event_hash}`. This is what
-   `append` returns; G-4 reference impl will need it regardless.
-
-Once those land, Task 10 of
-`thoughts/specs/2026-04-18-trellis-g3-fixture-scaffold-plan.md` can be
-re-dispatched. Section-numbering drift in the plan itself (§6/7/8/11 →
-actual §6/7/9/10/11) should also be corrected as part of the Task 10 resume.
+1. **Update plan Task 10 citations** to reflect the post-amendment Core:
+   - AuthoredEvent / CanonicalEvent naming → §6.1 + §6.8
+   - `author_event_hash` preimage + domain separation → §9.5 + §9.1
+   - COSE_Sign1 procedure + header labels → §7.4
+   - `canonical_event_hash` → §9.2
+   - `kid` derivation → §8.3
+   - Chain invariant → §10.2
+   - `AppendHead` return artifact → §10.6
+   - Reserved test identifiers → §14.6
+2. **Consider renaming** `expected-next-head.cbor` → `expected-append-head.cbor`
+   to match the new Core term `AppendHead`. Minor; either works.
+3. **Re-dispatch the T10 implementer subagent.** Same prompt as before but
+   with updated section citations. The vector author now has enough in Core
+   to produce byte-exact output: pinned header labels, named surfaces, pinned
+   nonce size, pinned kid derivation, pinned reserved test identifiers, and
+   an explicit return artifact.
 
 Parallel low-risk work (does NOT block on Core amendments):
 

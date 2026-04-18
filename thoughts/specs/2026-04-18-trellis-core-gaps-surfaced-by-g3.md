@@ -1,9 +1,25 @@
 # Core gaps surfaced by G-3 fixture authoring
 
 **Date:** 2026-04-18
-**Status:** open — blocks Task 10 of `thoughts/specs/2026-04-18-trellis-g3-fixture-scaffold-plan.md`
+**Status:** **resolved 2026-04-18** — Core amendments landed. Task 10 is unblocked.
 **Source:** T10 implementer subagent escalation (NEEDS_CONTEXT) after prerequisite read of `specs/trellis-core.md` §§5, 6, 7, 9, 10, 11, 12, 26, 27, 29, 30 and Appendix A (§28).
 **Reviewer independently-flagged-risk:** yes — semi-formal review A Finding 3 ("Task 10 is severely underspecified for its claimed role") predicted this.
+
+**Resolution commits:**
+
+| Gap | Commit | Core §N added/amended |
+|-----|--------|-----------------------|
+| B1 (COSE header labels) | `6ad24ab` | §7.4 — `suite_id = -65537`, `artifact_type = -65538`; protected-header serialization pinned |
+| B2 (three event surfaces) | `1b66eed` | §6.8 — authored / canonical / signed forms named (no CDDL renames) |
+| B3 (AppendHead struct) | `a844e4a` | §10.6 — `{scope, sequence, canonical_event_hash}` CBOR return artifact + Appendix A CDDL |
+| S1 + S2 (test identifiers) | `e1895ae` | §14.6 — `x-trellis-test/` prefix reserved |
+| S3 (nonce length) | `e1895ae` | §6.4 — `nonce: bstr .size 12` |
+| S5 (kid derivation) | `e1895ae` | §8.3 — `kid = SHA-256(dCBOR(suite_id) \|\| pubkey_raw)[0..16]` |
+| S4 (HPKE latitude) | deferred | fixture-system concern, not Core |
+
+See the subagent report in session transcript 2026-04-18 for editorial rationale on each decision (integer-label choice, text vs integer CDDL keys for AppendHead, subsection placement rationale, etc.).
+
+**Plan updates needed (not yet done):** `thoughts/specs/2026-04-18-trellis-g3-fixture-scaffold-plan.md` Task 10 still cites §§6/7/8/11 for constructions that now live at §§6.1+6.8/7.4/9.5/9.2/10.6 — section-citation drift to fix before re-dispatching Task 10. See "Section-numbering drift in the scaffold plan" below for the mapping.
 
 ## Why this exists
 
