@@ -248,7 +248,7 @@ PayloadRef = PayloadInline / PayloadExternal
 PayloadInline = {
   ref_type:   "inline",
   ciphertext: bstr,
-  nonce:      bstr,
+  nonce:      bstr .size 12,
 }
 
 PayloadExternal = {
@@ -267,6 +267,8 @@ AvailabilityHint = &(
 ```
 
 For `PayloadInline`, `content_hash` MUST equal the hash of `ciphertext`. For `PayloadExternal`, `EventPayload.content_hash` MUST equal `PayloadExternal.content_hash`; if ciphertext bytes are not present in the export, an offline verifier reports that payload integrity and readability checks could not run (§19) rather than pretending they succeeded.
+
+`PayloadInline.nonce` is pinned to a 12-byte `bstr` to match the ChaCha20-Poly1305 AEAD nonce size fixed by the Phase 1 HPKE suite in §9.4. A future HPKE suite registration (§9.4) that changes the AEAD algorithm MAY require a different nonce length; such a suite MUST introduce a replacement `PayloadRef` variant rather than silently widening this constraint.
 
 ### 6.5 Phase-superset extension points
 
@@ -426,7 +428,23 @@ SigningKeyStatus = &(
 
 ### 8.3 `kid` format
 
-`kid` is a 16-byte opaque identifier. An implementation MAY derive it as the first 16 bytes of `SHA-256(suite_id || pubkey)`, or MAY assign it by administrative policy; either MUST produce a `kid` unique within the registry.
+`kid` is a 16-byte opaque identifier. An implementation MAY derive it, or MAY assign it by administrative policy; either MUST produce a `kid` unique within the registry.
+
+**Derived `kid` construction (pinned).** When a `kid` is derived, it MUST be the first 16 bytes of:
+
+```
+SHA-256( dCBOR_encode_uint(suite_id_integer) || pubkey_raw )
+```
+
+where:
+
+- `dCBOR_encode_uint(x)` is the canonical dCBOR encoding of the unsigned integer `x` per §5.1 (smallest representation; for example, `suite_id = 1` encodes as the single byte `0x01`),
+- `pubkey_raw` is the raw public-key bytes for the suite (for Phase 1 `suite_id = 1`, the 32-byte Ed25519 public key per [RFC 8032]),
+- `||` denotes byte-string concatenation.
+
+Byte order is fixed: the dCBOR-encoded `suite_id` precedes `pubkey_raw`. Implementations MUST NOT re-order, re-prefix, or re-length-delimit the concatenation; the two byte sequences are concatenated directly.
+
+**Administratively assigned `kid`.** An administrative assignment MAY produce any `bstr` of 1..32 bytes (the `SigningKeyEntry.kid` CDDL is pinned to `bstr .size 16` for Phase 1; administrative assignment within Phase 1 MUST therefore produce exactly 16 bytes). The assignment MUST be consistent with dCBOR-decodability — the `kid` is carried as a `bstr` in the COSE key structure and in the COSE protected header (§7.4). Administrative `kid` values MUST NOT overlap any derived `kid` value already present in the registry; uniqueness within the registry is required regardless of assignment method.
 
 ### 8.4 Lifecycle
 
@@ -769,6 +787,8 @@ EventHeader = {
 }
 ```
 
+`event_type` and `classification` resolve against the bound registry snapshot per §14.4. The reserved test prefix `x-trellis-test/` (§14.6) exempts conformance-fixture identifiers from live registry lookup; production deployments MUST NOT admit events whose `event_type` or `classification` bear that prefix.
+
 ### 12.2 Plaintext vs. committed declaration table
 
 The following declaration is normative. Phase 1 events MUST place each field in the named layer; Phase 1 verifiers MUST reject an event whose header places a field in the wrong layer.
@@ -883,6 +903,14 @@ A verifier resolving `event_type` (or any other registry-bound field) for an eve
 ### 14.5 Registry migration discipline
 
 Registry changes that affect interpretation (event-type semantics, commitment layout, privacy tier) MUST emit a new `RegistryBinding` fact in the canonical ledger before events using the new interpretation are admitted. This is the same rule that governs `construction_id` migration in the prior binding draft, applied to the registry-snapshot layer here.
+
+### 14.6 Reserved test identifiers
+
+The text-string prefix `x-trellis-test/` is reserved across every registry-bound identifier namespace (`event_type`, `classification`, and any future Phase 1 registry-bound string field in `EventHeader`). Identifiers bearing this prefix are reserved for use by conformance fixtures (§27) and interoperability test vectors; they are not resolvable against any deployed registry binding and are not governed by §14.4's verifier-obligation to resolve against a `RegistryBinding`.
+
+A fixture vector MAY use any identifier matching the pattern `x-trellis-test/<slug>` (for example, `x-trellis-test/append-minimal` as an `event_type`, or `x-trellis-test/unclassified` as a `classification`) without pinning a corresponding entry in an external registry. A verifier processing a test vector MUST accept `x-trellis-test/*` identifiers in the bound registry without live-resolution, provided the embedded registry snapshot declares them.
+
+Production deployments MUST NOT accept events bearing `x-trellis-test/*` identifiers. A Canonical Append Service operating under a non-test deployment binding MUST reject any submission whose `event_type` or `classification` begins with `x-trellis-test/`. The `x-` prefix family remains reserved for vendor / deployment-local identifiers per §6.7; the `x-trellis-test/` sub-prefix is specifically reserved within that family for Trellis Working Group conformance fixtures.
 
 ---
 
@@ -1658,7 +1686,7 @@ PayloadRef = PayloadInline / PayloadExternal
 PayloadInline = {
   ref_type:   "inline",
   ciphertext: bstr,
-  nonce:      bstr,
+  nonce:      bstr .size 12,
 }
 
 PayloadExternal = {
