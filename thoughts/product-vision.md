@@ -1,7 +1,7 @@
 # Formspec + WOS + Trellis — Product Vision & Roadmap
 
-**Date:** 2026-04-17
-**Status:** Synthesized vision with sequenced delivery plan
+**Date:** 2026-04-17 (status updates 2026-04-18)
+**Status:** Synthesized vision with sequenced delivery plan. Track A steps 1–5 landed; step 6 (test vectors) is in progress — see status table and Track A section below.
 
 ---
 
@@ -97,9 +97,9 @@ Treating all three specs with the same lint-heavy discipline overbuilds Trellis.
 |---|---|---|---|---|---|---|---|
 | **Formspec** | clear | mature (Core, Respondent Ledger, Mapping, References, Ontology, Locale, Screener, Assist, Theme, Component) | mature | present | present | TS engine shipped, Rust + Python reference | webcomponent, studio (partial), MCP server |
 | **WOS** | clear (`POSITIONING.md`) | 19 specs, ~6.7k lines | 19 schemas | 197-rule matrix (T1/T2/T3) | 105 fixtures | `wos-core` + `wos-runtime` in active development | `wos-cli` pending, `wos-formspec-binding` shipped |
-| **Trellis** | **not reached** (11 mutually arguing drafts) | 15 fragmented files, 5.6k lines of constitutional prose | none | none | none | none | none |
+| **Trellis** | reached (`specs/trellis-agreement.md`) | two normative W3C-style specs (`trellis-core.md` + `trellis-operational-companion.md`, ~30k words total) plus requirements matrix (79 TR-CORE + 49 TR-OP) | CDDL inline in Core Appendix A | `scripts/check-specs.py` with 4 coverage rules + 7-test harness | fixture system + 1 byte-exact reference vector (`append/001-minimal-inline-payload`); ~49 more vectors pending | open (G-4) | open (G-4 CLI + WASM) |
 
-The diagnostic: **Formspec and WOS are running the loop. Trellis has not entered it.** The Trellis work so far has produced valuable research (ADRs, expert-panel reviews, crypto-solutions memo, risk-reduction analysis) but no convergence — the existing spec files are attempting to codify agreement that doesn't yet exist.
+The diagnostic has moved. **All three specs are running the loop.** Trellis entered the loop mid-April 2026: the eight-spec family converged to two normative docs; Phase 1 envelope invariants #1–#15 landed in Core; a fixture system design + coverage lint + first byte-exact reference vector are committed; the ratification bar ("reproducible from Core prose alone") is operationally testable and has already driven Core amendments (COSE header labels, named event surfaces, AppendHead struct). Remaining Track A work is ~49 more vectors, the Rust reference implementation, and the stranger-test second implementation.
 
 ---
 
@@ -200,21 +200,19 @@ Sequenced by what unblocks what, not by what sounds most strategic.
 
 Not on the critical path for first gov sale; runs in parallel with certification/engineering tracks.
 
-1. **Write the Trellis agreement document** (≤5 pages). Scope, primitives (envelope, chain, checkpoint, export), non-goals, seams (Respondent Ledger `LedgerCheckpoint`, WOS `custodyHook`), invariants (append-only, content-addressed, offline-verifiable, storage-agnostic). The synthesis from the preceding strategy conversation is ~80% of it. **Owner: product strategy. Timeline: 1–2 weeks.**
-2. **Sign it off.** Explicit yes/no from the people who own "are we building this thing." Not a committee exercise — a gate.
-3. **Mine, then archive the prior drafts — selectively, not wholesale.** Not every draft is archive-only. After a swarm review against the invariants, the disposition is:
-   - **Retain as Track A step 4 input:** `DRAFTS/unified-ledger-requirements-matrix.md` — ~40 rows of constitutional requirements (contracts, verification independence, idempotency semantics, durable-append boundary, trust-profile transition auditability) that the invariants do not cover. Update for vocabulary and missing invariants, then feed directly into the core spec.
-   - **Retain as Phase 2 companion input:** `DRAFTS/unified-ledger-companion-requirements-matrix.md` — projections discipline, metadata budgets, delegated-compute honesty, rights-impacting evaluator rebuild. Operational-scope; belongs in the operational companion, not the core.
-   - **Mine then archive:** `DRAFTS/unified_ledger_core.md` (constitutional semantics — contracts, fact-admission state machine, conformance classes), `DRAFTS/unified_ledger_companion.md` (Trust Profiles, access taxonomy, respondent-history sidecar, offline-authoring profile), `DRAFTS/trellis_spec_family_normalization_plan.md` (§7.1 append idempotency, §7.2 snapshot-from-day-one, §7.3 assurance traceability matrix, §7.4 metadata-budget-as-table, §4 repo-boundary clauses). Extract normative-worthy content inline into the new spec/companion; archive the originals.
-   - **Relocate out of Trellis drafts entirely:** `DRAFTS/unified_implementation_proposal.md` — it is a Track B/D substrate-selection matrix (Temporal/OpenFGA/OpenFisca/CloudEvents/PROV/MCP/Postgres), not a Trellis proposal. Move it to the appropriate track directory and stop citing it against Trellis.
-4. **Write two W3C-style Trellis specs** — not one, not eight. **Trellis Core** (Phase 1 deliverable, ~30–40 pages): envelope format, canonical CBOR, hash construction, signature profile, chain construction, checkpoint format, export package layout, verification algorithm, verification-independence contract, append idempotency contract, security and privacy considerations, composition with Respondent Ledger and `custodyHook`. **Trellis Operational Companion** (Phase 2 deliverable, ~30–50 pages): projections and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, trust-profile transition auditability, snapshot watermarks, rebuild semantics. The split follows the drafts' consistent core/companion decomposition because it lets Phase 1 procurement read a focused core; the companion does not block Phase 1 ship. **Core timeline: 3–4 weeks. Companion: Phase 2.**
-5. **Derive `envelope.cddl` + `export-manifest.schema.json`.** Referenced explicitly by spec sections. Schema does not lead; it follows.
-6. **Author ~50 test vectors.** Language-neutral JSON files under `fixtures/vectors/{append,verify,export,tamper}/`. Every byte-level claim in the spec corresponds to at least one vector.
-7. **Write the reference implementation.** Rust crates: `trellis-core`, `trellis-cose`, `trellis-store-postgres`, `trellis-store-memory`, `trellis-verify`, `trellis-cli`, `trellis-conformance`. Public API is three functions: `append`, `verify`, `export`. Passes every fixture vector.
-8. **Ship the CLI + WASM bindings.** `trellis verify | append | export`. WASM for browser-side verification (respondent-facing).
-9. **Stand up a second implementation.** `trellis-py` or `trellis-go`, written by someone who only reads the spec. Passes every vector byte-for-byte. This is the proof the spec works.
+Status legend: ✅ done · 🟡 in progress · ⬜ open.
 
-**Phase 1 success criterion:** a stranger writes a second conformant implementation from the spec alone, and every fixture matches byte-for-byte.
+1. ✅ **Write the Trellis agreement document.** Landed as `specs/trellis-agreement.md` — non-normative decision gate naming scope, primitives, seams, and the Phase 1 stranger-test success criterion.
+2. ✅ **Sign off.** Agreement accepted as the decision gate for Track A.
+3. ✅ **Mine, then archive the prior drafts.** Eight-spec family and DRAFTS mined and relocated: constitutional content folded into Core and Operational Companion, requirements matrices consolidated into `specs/trellis-requirements-matrix.md`, operational content split into the Companion, Track B/D substrate selection moved out of Trellis. Originals live under `specs/archive/` and `thoughts/archive/drafts/` for provenance; not cited as normative.
+4. ✅ **Write two W3C-style Trellis specs.** `specs/trellis-core.md` (~16k words — envelope format, dCBOR, hash construction, signature profile with pinned COSE header labels, chain construction, checkpoint format, export package layout, verification algorithm, append idempotency, AppendHead return artifact, security and privacy considerations, composition with Respondent Ledger and `custodyHook`) and `specs/trellis-operational-companion.md` (~14k words — projections and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, trust-profile transition auditability, snapshot watermarks, rebuild semantics).
+5. ✅ **CDDL derived inline in Core Appendix A (§28).** Every normative CDDL type — `EventPayload`, `AuthorEventHashPreimage`, `Event = COSESign1Bytes`, `PayloadInline` / `PayloadExternal`, `AppendHead`, `Checkpoint`, `ExportManifest`, etc. — is consolidated there. Schema follows prose, not the reverse.
+6. 🟡 **Author ~50 test vectors** under `fixtures/vectors/{append,verify,export,tamper}/`. Fixture system design + 12-task scaffold plan committed; first byte-exact reference vector (`append/001-minimal-inline-payload`) is live and covers invariants #1/#2/#4/#5. Remaining ~49 vectors authored in follow-on batches — tracked in `TODO.md` and the ratification checklist (G-3). Coverage enforced by `scripts/check-specs.py` lint rules; every byte-level claim resolves to at least one vector once the batch rollout completes.
+7. ⬜ **Write the reference implementation.** Rust crates: `trellis-core`, `trellis-cose`, `trellis-store-postgres`, `trellis-store-memory`, `trellis-verify`, `trellis-cli`, `trellis-conformance`. Public API is three functions: `append`, `verify`, `export`. Passes every fixture vector. Byte-matching the first vector alone is a legitimate first milestone; full corpus match closes ratification gate G-4.
+8. ⬜ **Ship the CLI + WASM bindings.** `trellis verify | append | export`. WASM for browser-side verification (respondent-facing). Same crate workspace as step 7.
+9. ⬜ **Stand up a second implementation** (`trellis-py` or `trellis-go`), written by someone who only reads the specs. Passes every vector byte-for-byte. This is the stranger test — the proof the spec works. Closes ratification gate G-5.
+
+**Phase 1 success criterion:** a stranger writes a second conformant implementation from the spec alone, and every fixture matches byte-for-byte. The infrastructure to test this (vector corpus, coverage lint, deterministic generators) is in place; the corpus is being filled and the stranger implementation has not yet been commissioned.
 
 ### Track B — Finish the in-flight specs and runtimes
 
