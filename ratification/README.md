@@ -14,7 +14,8 @@ Companion documents:
 
 Files:
 
-- [`ratification-checklist.md`](ratification-checklist.md) — global and per-document gates.
-- [`ratification-evidence.md`](ratification-evidence.md) — gate-to-evidence registry.
+- [`ratification-checklist.md`](ratification-checklist.md) — global and per-document gates. Evidence-of-record: each gate row carries inline commit SHAs and artifact pointers.
+
+Tactical work to close open gates lives in [`../TODO.md`](../TODO.md). A parallel `ratification-evidence.md` registry existed briefly; it was removed (commit `617f9ae`) because the inline evidence pointers in the checklist made it redundant and it had drifted.
 
 Archived per-family-spec gates (C-1, B-1, T-1, K-1, P-1, E-1, D-1, M-1, A-1) were superseded when the eight-spec family was consolidated into Core + Operational Companion. They live in the git history of this directory and in [`../specs/archive/`](../specs/archive/) but are not reinstated.
