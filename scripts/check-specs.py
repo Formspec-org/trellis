@@ -77,8 +77,9 @@ def matrix_rows() -> list[dict]:
         cells = [c.strip() for c in m.group(2).split("|")]
         # cells[0]=Scope, cells[1]=Invariant, cells[2]=Requirement,
         # cells[3]=Rationale, cells[4]=Verification
+        invariant = cells[1] if len(cells) > 1 else "—"
         verification = cells[4] if len(cells) > 4 else ""
-        rows.append({"id": row_id, "verification": verification})
+        rows.append({"id": row_id, "invariant": invariant, "verification": verification})
     return rows
 
 
@@ -107,6 +108,68 @@ def vector_manifests() -> list[tuple[Path, dict]]:
             with manifest_path.open("rb") as f:
                 manifests.append((manifest_path, tomllib.load(f)))
     return manifests
+
+
+def derived_sections_for_tr_core(row_ids: list[str]) -> set[str]:
+    """Scan Core prose to find which §N heading each TR-CORE-XXX anchor lives under."""
+    core_text = read(SPECS / "trellis-core.md")
+    # Matches headings like "## 6. Event Format" or "## §6 Event Format" or "### 6.2 Foo"
+    heading_pattern = re.compile(r"^(#{2,3})\s+(?:§\s*)?([0-9]+(?:\.[0-9]+)*)\.?\s+(.+)$", re.MULTILINE)
+    sections: list[tuple[int, str]] = []
+    for m in heading_pattern.finditer(core_text):
+        sections.append((m.start(), f"§{m.group(2)}"))
+    derived: set[str] = set()
+    for row_id in row_ids:
+        anchor = core_text.find(row_id)
+        if anchor == -1:
+            continue
+        current_section = None
+        for start, label in sections:
+            if start <= anchor:
+                current_section = label
+            else:
+                break
+        if current_section:
+            derived.add(current_section)
+    return derived
+
+
+def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
+    """Return the set of invariant numbers declared for the given TR-CORE rows in the matrix."""
+    derived: set[int] = set()
+    row_id_set = set(row_ids)
+    for r in matrix_rows():
+        if r["id"] in row_id_set and r["invariant"] not in ("—", "-"):
+            try:
+                derived.add(int(r["invariant"]))
+            except ValueError:
+                pass
+    return derived
+
+
+def check_vector_declared_coverage(errors: list[str]) -> None:
+    if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
+        return
+    for path, manifest in vector_manifests():
+        coverage = manifest.get("coverage", {})
+        tr_core = coverage.get("tr_core", [])
+        declared_sections = set(coverage.get("core_sections", [])) if "core_sections" in coverage else None
+        declared_invariants = set(coverage.get("invariants", [])) if "invariants" in coverage else None
+
+        if declared_sections is not None:
+            derived = derived_sections_for_tr_core(tr_core)
+            if declared_sections != derived:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: declared core_sections={sorted(declared_sections)} "
+                    f"does not equal matrix-derived={sorted(derived)}"
+                )
+        if declared_invariants is not None:
+            derived = derived_invariants_for_tr_core(tr_core)
+            if declared_invariants != derived:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: declared invariants={sorted(declared_invariants)} "
+                    f"does not equal matrix-derived={sorted(derived)}"
+                )
 
 
 def check_vector_coverage(errors: list[str]) -> None:
@@ -216,6 +279,7 @@ def main() -> int:
     check_bare_profile(errors)
     check_archived_inputs(errors)
     check_vector_coverage(errors)
+    check_vector_declared_coverage(errors)
 
     if errors:
         for error in errors:
