@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -42,6 +43,13 @@ PROFILE_ALLOWED_CONTEXT = re.compile(
     r"profile identifier",
     re.IGNORECASE,
 )
+
+PHASE_1_INVARIANTS = set(range(1, 16))  # #1..#15
+
+GENERATOR_ALLOWED_IMPORTS = {
+    "hashlib", "cryptography", "cbor2", "pathlib", "tomllib", "json",
+    "os", "sys", "typing", "dataclasses", "struct", "datetime", "re",
+}
 
 
 def read(path: Path) -> str:
@@ -172,6 +180,67 @@ def check_vector_declared_coverage(errors: list[str]) -> None:
                 )
 
 
+def check_invariant_coverage(errors: list[str]) -> None:
+    if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
+        return
+    rows = matrix_rows()
+    testable_by_invariant: dict[int, list[str]] = {}
+    for r in rows:
+        if "test-vector" not in r["verification"]:
+            continue
+        try:
+            inv = int(r["invariant"])
+        except (ValueError, TypeError):
+            continue
+        testable_by_invariant.setdefault(inv, []).append(r["id"])
+
+    covered_ids: set[str] = set()
+    for path, manifest in vector_manifests():
+        covered_ids.update(manifest.get("coverage", {}).get("tr_core", []))
+
+    for inv in sorted(PHASE_1_INVARIANTS):
+        testable_rows = testable_by_invariant.get(inv, [])
+        if not testable_rows:
+            errors.append(
+                f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
+                f"row with Verification=test-vector"
+            )
+            continue
+        if not any(rid in covered_ids for rid in testable_rows):
+            errors.append(
+                f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
+                f"vector via any of its testable rows {testable_rows}"
+            )
+
+
+def check_generator_imports(errors: list[str]) -> None:
+    gen_dir = FIXTURES / "_generator"
+    if not gen_dir.exists():
+        return
+    for py_file in sorted(gen_dir.rglob("*.py")):
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        except SyntaxError as e:
+            errors.append(f"{py_file.relative_to(ROOT)}: syntax error at line {e.lineno}")
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split(".")[0]
+                    if top not in GENERATOR_ALLOWED_IMPORTS:
+                        errors.append(
+                            f"{py_file.relative_to(ROOT)}:{node.lineno}: forbidden import "
+                            f"'{alias.name}' (allowed top-levels: {sorted(GENERATOR_ALLOWED_IMPORTS)})"
+                        )
+            elif isinstance(node, ast.ImportFrom):
+                top = (node.module or "").split(".")[0]
+                if top and top not in GENERATOR_ALLOWED_IMPORTS:
+                    errors.append(
+                        f"{py_file.relative_to(ROOT)}:{node.lineno}: forbidden import "
+                        f"'from {node.module}' (allowed top-levels: {sorted(GENERATOR_ALLOWED_IMPORTS)})"
+                    )
+
+
 def check_vector_coverage(errors: list[str]) -> None:
     if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
         return
@@ -280,6 +349,8 @@ def main() -> int:
     check_archived_inputs(errors)
     check_vector_coverage(errors)
     check_vector_declared_coverage(errors)
+    check_invariant_coverage(errors)
+    check_generator_imports(errors)
 
     if errors:
         for error in errors:
