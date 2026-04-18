@@ -4,8 +4,8 @@ version: 1.0.0
 date: 2026-04-17
 status: draft
 supersedes:
-  - specs/core/unified-ledger-requirements-matrix.md
-  - specs/core/unified-ledger-companion-requirements-matrix.md
+  - specs/archive/core/unified-ledger-requirements-matrix.md
+  - specs/archive/core/unified-ledger-companion-requirements-matrix.md
   - DRAFTS/unified-ledger-requirements-matrix.md
   - DRAFTS/unified-ledger-companion-requirements-matrix.md
 ---
@@ -14,11 +14,11 @@ supersedes:
 
 ## Purpose
 
-This is the single consolidated requirements matrix for the Trellis spec family. It replaces the four legacy matrices — the `specs/core/` and `DRAFTS/` copies of both the core matrix (`ULCR-*`) and the companion matrix (`ULCOMP-R-*`) — and adds rows for the Phase 1 envelope invariants (#1–#15 of `thoughts/product-vision.md`) that the prior matrices predated. Every normative obligation governing a conforming Trellis implementation is enumerated here with a stable `TR-CORE-NNN` or `TR-OP-NNN` identifier, its mapped invariant, its verification method, and a `Legacy` column preserving prior IDs for traceability. The Trellis Core spec references this matrix for every core-scope obligation; the Trellis Operational Companion references it for every operational-scope obligation. Where product-vision invariants contradict prior-matrix text, the invariants govern and the conflict is noted in the row.
+This is the consolidated traceability matrix for the Trellis spec family. It replaces the four legacy matrices — the archived `specs/archive/core/` and `DRAFTS/` copies of both the core matrix (`ULCR-*`) and the companion matrix (`ULCOMP-R-*`) — and adds rows for the Phase 1 envelope invariants (#1-#15 of `thoughts/product-vision.md`) that the prior matrices predated. Trellis Core and the Trellis Operational Companion are the normative prose specifications; this matrix is not an independent source of conformance obligations. Where this matrix conflicts with normative prose, the prose governs and the matrix row is a bug to fix.
 
 ---
 
-## Column Schema (normative)
+## Column Schema (traceability)
 
 | Column | Definition |
 |---|---|
@@ -27,7 +27,7 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | **Invariant** | Phase 1 envelope invariant #1–#15 from `thoughts/product-vision.md`. `—` = constitutional requirement not covered by a specific invariant. |
 | **Requirement** | Normative MUST/MUST NOT/SHOULD/SHOULD NOT/MAY statement (BCP 14), one sentence. |
 | **Rationale** | One sentence on why the requirement exists. |
-| **Verification** | How the requirement is tested. Values: `test-vector` (fixture under `fixtures/vectors/…`), `projection-rebuild-drill`, `declaration-doc-check` (inspection of a required declaration document, e.g. Trust Profile), `model-check` (property-based / protocol fuzz / state-machine model), `spec-cross-ref` (enforced by cross-spec lint), `manual-review`. |
+| **Verification** | How the requirement is tested. Values: `test-vector` (fixture under `fixtures/vectors/...`), `projection-rebuild-drill`, `declaration-doc-check` (inspection of a required declaration document, e.g. Posture Declaration), `model-check` (property-based / protocol fuzz / state-machine model), `spec-cross-ref` (enforced by cross-spec lint), `manual-review`. |
 | **Legacy** | Prior matrix IDs (`ULCR-*`, `ULCOMP-R-*`). `—` = no antecedent. |
 | **Notes** | Optional: merge notes, conflict resolutions, renames. |
 
@@ -41,9 +41,9 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 |---|---|---|---|---|---|---|---|
 | TR-CORE-001 | core | — | Implementations MAY vary append, proof, or storage mechanisms but MUST preserve admission, canonical order, canonical record formation, and canonical append attestation semantics (Canonical Append Contract). | The contract is what interop rests on; mechanism is implementation detail. | test-vector, model-check | ULCR-030 | Constitutional. |
 | TR-CORE-002 | core | — | Derived artifacts MUST remain rebuildable from canonical truth and MUST NOT be authoritative for canonical facts (Derived Artifact Contract). | Prevents a second source of truth creeping in through indexes or caches. | projection-rebuild-drill | ULCR-031, ULCR-086 | |
-| TR-CORE-003 | core | — | Workflow state MUST remain operational unless later represented as canonical records under the active profile or binding (Workflow Contract). | Keeps orchestration out of the ledger. | spec-cross-ref, manual-review | ULCR-032 | |
+| TR-CORE-003 | core | — | Workflow state MUST remain operational unless later represented as canonical records under the active binding or declared conformance class (Workflow Contract). | Keeps orchestration out of the ledger. | spec-cross-ref, manual-review | ULCR-032 | |
 | TR-CORE-004 | core | — | Grant and revocation semantics MUST remain canonical; authorization evaluator state MUST remain derived (Authorization Contract). | Evaluators are caches; the grants are the truth. | projection-rebuild-drill | ULCR-033, ULCOMP-R-095, ULCOMP-R-096, ULCOMP-R-098, ULCOMP-R-099 | Merges core + companion rows on the same contract. |
-| TR-CORE-005 | core | — | Implementations MAY vary custody, key management, or delegated-compute mechanisms but the active Trust Profile MUST describe who can read, recover, delegate, attest, or administer access (Trust Contract). | Custody is pluggable; honesty about who holds the keys is not. | declaration-doc-check | ULCR-034 | |
+| TR-CORE-005 | core | — | Implementations MAY vary custody, key management, or delegated-compute mechanisms but the active Posture Declaration MUST describe who can read, recover, delegate, attest, or administer access (Trust Contract). | Custody is pluggable; honesty about who holds the keys is not. | declaration-doc-check | ULCR-034 | |
 | TR-CORE-006 | core | — | Implementations MAY vary export packaging but exports MUST preserve required provenance distinctions and verification claims (Export Contract). | Export packaging is negotiable; what the package proves is not. | test-vector | ULCR-035 | |
 | TR-CORE-007 | core | — | Bindings and implementations MUST preserve all core-to-implementation contracts when underlying mechanisms change. | Mechanism swaps must not silently relax contracts. | spec-cross-ref | ULCR-036 | |
 
@@ -56,7 +56,7 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | TR-CORE-012 | core | — | Implementations MUST NOT treat derived artifacts, workflow state, authorization evaluator state, indexes, caches, or unrecorded delegated-compute outputs as authoritative for canonical facts. | Closes every known "shortcut-as-truth" pattern. | projection-rebuild-drill, manual-review | ULCR-040 | |
 | TR-CORE-013 | core | — | A canonical record MUST remain distinguishable from the underlying authored content it represents. | Records carry admission and ordering metadata the content does not. | test-vector | ULCR-048 | |
 | TR-CORE-014 | core | — | A disclosure or export artifact MUST NOT be treated as identical to the underlying canonical record it references. | Disclosure-time assembly differs from canonical admission. | test-vector | ULCR-049 | |
-| TR-CORE-015 | core | — | Companion specifications MUST narrow or specialize core semantics and MUST NOT reinterpret them; on conflict, core governs. | Keeps "profile" from silently rewriting the constitution. | spec-cross-ref | ULCR-001, ULCR-002, ULCR-005 | Merges three subordination rows. |
+| TR-CORE-015 | core | — | Companion specifications MUST narrow or specialize core semantics and MUST NOT reinterpret them; on conflict, core governs. | Keeps companion-local wording from silently rewriting the constitution. | spec-cross-ref | ULCR-001, ULCR-002, ULCR-005 | Merges three subordination rows. |
 | TR-CORE-016 | core | — | Companion specifications MUST NOT redefine canonical truth or define a second canonical order for the same governed scope. | Paired with TR-CORE-011, TR-CORE-020. | spec-cross-ref | ULCR-003, ULCR-004 | |
 | TR-CORE-017 | core | — | Normative sections MUST use the controlled vocabulary defined in Trellis Core when discussing canonical truth, records, attestations, and derived artifacts. | Terminology drift has been the largest source of prior-draft disputes. | spec-cross-ref | ULCR-037 | Vocabulary reconciliation: see §3.3. |
 
@@ -77,7 +77,7 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 |---|---|---|---|---|---|---|---|
 | TR-CORE-030 | core | #1, #4 | Canonical append semantics MUST use exactly one authoritative canonical event hash construction over the sealed canonical record package; deterministic canonical serialization (the pinned CBOR profile, dCBOR or explicitly named equivalent) is REQUIRED; subordinate hashes MAY exist for specialized purposes but MUST NOT redefine canonical append semantics. | Invariant #1 (pinned canonical CBOR) + invariant #4 (hashes over ciphertext): byte-exact vectors demand both a single construction and a pinned encoding. | test-vector | ULCR-044, ULCR-096 | Merges the one-hash-construction rule with the pinned-encoding requirement. |
 | TR-CORE-031 | core | #4 | Hashes MUST be computed over ciphertext, not plaintext, for payloads subject to per-subject key destruction ("crypto-shredding"). | Invariant #4 — the only GDPR Art. 17 / FOIA-redaction story that survives an append-only chain. | test-vector | — | New invariant row. |
-| TR-CORE-032 | core | — | Future canonical hash constructions MUST be registered before verifiers are required to accept them; until a dedicated registry companion is published, the single mandatory construction is JSON Canonicalization Scheme (JCS, RFC 8785) with SHA-256. | Pre-empts registry-less silent extension. | spec-cross-ref | ULCR-109 | |
+| TR-CORE-032 | core | — | Future canonical hash constructions MUST be registered before verifiers are required to accept them; until a dedicated registry companion is published, the single mandatory construction is dCBOR per RFC 8949 §4.2.2 with SHA-256 and the Core-defined Trellis hash preimages. | Pre-empts registry-less silent extension. | spec-cross-ref | ULCR-109 | Corrects the legacy JCS contradiction; Core §5 and §9 govern. |
 
 ### 1.5 Signature Suite and Signing-Key Registry
 
@@ -93,7 +93,7 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
 | TR-CORE-040 | core | — | Implementations MUST keep distinguishable: author-originated fact, canonical record, canonical append attestation, derived artifact, disclosure/export artifact (object distinction, admission state). | The fact-admission state machine rests on the five classes. | test-vector | ULCR-047 | |
-| TR-CORE-041 | core | — | Companions MAY narrow admissibility (subset, predicates, actors) but MUST NOT reinterpret categories in a way that changes canonical truth or creates an alternate canonical order. | Profile-scoped narrowing is allowed; reinterpretation is not. | spec-cross-ref | ULCR-050 | |
+| TR-CORE-041 | core | — | Companions MAY narrow admissibility (subset, predicates, actors) but MUST NOT reinterpret categories in a way that changes canonical truth or creates an alternate canonical order. | Scope-specific narrowing is allowed; reinterpretation is not. | spec-cross-ref | ULCR-050 | |
 | TR-CORE-042 | core | — | A fact becomes canonical only when its canonical record has crossed the binding-declared durable-append boundary. | Canonicity is defined at the boundary, not at receipt. | test-vector | ULCR-051, ULCOMP-R-150, ULCOMP-R-151, ULCOMP-R-152 | |
 | TR-CORE-043 | core | — | A canonical append attestation proves inclusion and order under the active append model; by itself it does not prove the substantive correctness of the underlying content beyond the scope of admission and attestation. | Prevents overclaiming from attestation alone. | spec-cross-ref | ULCR-052 | |
 | TR-CORE-044 | core | — | A Canonical Append Service MUST return a canonical append attestation for canonical records that have crossed the durable-append boundary, and MUST NOT issue one before that boundary is crossed. | Pairs admission timing with attestation timing. | test-vector | ULCR-057, ULCR-058 | |
@@ -145,20 +145,20 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | TR-CORE-090 | core | #14 | Every derived artifact (projections, materialized views, indexes) and every agency-log entry MUST carry a watermark `(tree_size, tree_head_hash)` identifying the canonical state it was derived from, plus a rebuild path from the canonical chain. | Invariant #14 — full-replay-only is not valid at case-file scale. | projection-rebuild-drill | — | New invariant row; upstream for TR-OP-010, TR-OP-011. |
 | TR-CORE-091 | core | — | Canonical records MUST be stored durably and immutably from the perspective of ordinary append participants; implementations MUST declare the durable-append boundary; snapshots MAY be used for performance but MUST be treated as derived artifacts; replica completion state MUST remain operational rather than canonical. | Unified storage-and-snapshot discipline. | projection-rebuild-drill, declaration-doc-check | ULCR-090, ULCOMP-R-148, ULCOMP-R-149, ULCOMP-R-150, ULCOMP-R-151, ULCOMP-R-152, ULCOMP-R-153, ULCOMP-R-154 | |
 
-### 1.12 Trust Profile Honesty and Profile-Subordination
+### 1.12 Posture Honesty and Companion Subordination
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
 | TR-CORE-100 | core | #15 | Implementations MUST NOT describe trust posture more strongly than behavior supports; if payloads are provider-readable in ordinary operation, the declaration MUST say so; if "tamper-evident" depends on an external anchor or witness, the declaration MUST name the dependency; cryptographic controls alone MUST NOT be described as legal admissibility. | Invariant #15 — promoted from prose to normative floor. | declaration-doc-check, manual-review | ULCR-064, ULCR-074, ULCR-094, ULCOMP-R-106, ULCOMP-R-107, ULCOMP-R-108, ULCOMP-R-109, ULCOMP-R-110, ULCOMP-R-111, ULCOMP-R-163, ULCOMP-R-167, ULCOMP-R-175, ULCOMP-R-176 | Merges trust-honesty rows. |
-| TR-CORE-101 | core | — | A Trust Profile MUST semantically include profile identifier, scope, ordinary-operation readability posture, reader-held and delegated-compute postures, current and historical decryption authorities, recovery authorities and conditions, append-attestation control authorities, exceptional-access authorities, and metadata visibility. | Minimum semantic fields for every deployment mode. | declaration-doc-check | ULCR-061, ULCR-062 | |
-| TR-CORE-102 | core | — | On custody, readability, recovery, or delegated-compute change affecting protected content, implementations MUST treat the change as a Trust Profile transition, MUST make it auditable, MUST define whether it applies prospectively/retrospectively/both, and MUST NOT expand reader-held or delegated-compute access into provider-readable access without such an explicit transition. | Trust-profile transition auditability. | test-vector, declaration-doc-check | ULCR-065 | |
-| TR-CORE-103 | core | — | Profiles and bindings MUST remain subordinate to the active Trust Profile: distinguish provider-readable / reader-held / delegated-compute; MUST NOT imply stronger confidentiality than the Trust Profile supports; MUST NOT weaken Trust Profile requirements via profile-local wording. | Profile-subordination rule. | spec-cross-ref | ULCR-074, ULCOMP-R-088, ULCOMP-R-089, ULCOMP-R-090, ULCOMP-R-091 | |
+| TR-CORE-101 | core | — | A Posture Declaration MUST semantically include declaration identifier, scope, ordinary-operation readability posture, reader-held and delegated-compute postures, current and historical decryption authorities, recovery authorities and conditions, append-attestation control authorities, exceptional-access authorities, and metadata visibility. | Minimum semantic fields for every deployment mode. | declaration-doc-check | ULCR-061, ULCR-062 | |
+| TR-CORE-102 | core | — | On custody, readability, recovery, or delegated-compute change affecting protected content, implementations MUST treat the change as a posture transition, MUST make it auditable, MUST define whether it applies prospectively/retrospectively/both, and MUST NOT expand reader-held or delegated-compute access into provider-readable access without such an explicit transition. | Posture-transition auditability. | test-vector, declaration-doc-check | ULCR-065 | |
+| TR-CORE-103 | core | — | Conformance classes, custody models, and bindings MUST remain subordinate to the active Posture Declaration: distinguish provider-readable / reader-held / delegated-compute; MUST NOT imply stronger confidentiality than the Posture Declaration supports; MUST NOT weaken posture requirements via local wording. | Companion-subordination rule. | spec-cross-ref | ULCR-074, ULCOMP-R-088, ULCOMP-R-089, ULCOMP-R-090, ULCOMP-R-091 | |
 
 ### 1.13 Versioning, Lifecycle, and Metadata Minimization
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-CORE-110 | core | — | Implementations MUST version canonical algorithms and schema/semantic references; MUST version author-fact, canonical-record, append, export-verification, and trust-profile semantics where profile- or binding-specific; MUST preserve enough immutable interpretation material to verify historical records under the rules in effect when produced; MUST NOT silently reinterpret historical records without an explicit migration mechanism; MUST NOT silently invalidate prior export verification via evolution; MUST NOT rely on out-of-band operator knowledge to interpret historical records. | Versioning discipline unified across drafts. | test-vector | ULCR-093, ULCOMP-R-201, ULCOMP-R-202, ULCOMP-R-203, ULCOMP-R-204, ULCOMP-R-205, ULCOMP-R-206, ULCOMP-R-207, ULCOMP-R-208 | |
+| TR-CORE-110 | core | — | Implementations MUST version canonical algorithms and schema/semantic references; MUST version author-fact, canonical-record, append, export-verification, and posture semantics where custody-model- or binding-specific; MUST preserve enough immutable interpretation material to verify historical records under the rules in effect when produced; MUST NOT silently reinterpret historical records without an explicit migration mechanism; MUST NOT silently invalidate prior export verification via evolution; MUST NOT rely on out-of-band operator knowledge to interpret historical records. | Versioning discipline unified across drafts. | test-vector | ULCR-093, ULCOMP-R-201, ULCOMP-R-202, ULCOMP-R-203, ULCOMP-R-204, ULCOMP-R-205, ULCOMP-R-206, ULCOMP-R-207, ULCOMP-R-208 | |
 | TR-CORE-111 | core | — | Where an implementation supports ledger-specific cryptographic lifecycle operations (key destruction, export issuance) as part of canonical or compliance-relevant behavior, it MUST represent the operation as a lifecycle fact; where the fact affects recoverability claims, it MUST be a canonical fact. | Ledger-specific portion of lifecycle; generic lifecycle is upstream at WOS. | test-vector | ULCR-091 | |
 | TR-CORE-112 | core | — | Where cryptographic erasure or key destruction is used, implementations MUST document which content becomes irrecoverable, who retains access, what evidence of destruction is preserved, and what metadata remains; affected derived plaintext state MUST be invalidated, purged, or made unusable per declared policy. | Ties erasure to derived-view invalidation. | declaration-doc-check | ULCR-092, ULCOMP-R-159, ULCOMP-R-160 | |
 | TR-CORE-113 | core | — | Visible metadata SHOULD be limited to canonical verification, schema/semantic lookup, required audit-visible declarations, conflict gating, and append processing; SHOULD NOT be kept merely to accelerate derived artifacts; MUST NOT be retained merely for operational convenience where derived or scoped mechanisms suffice. | Metadata-minimization rule. | declaration-doc-check | ULCR-088, ULCOMP-R-169, ULCOMP-R-170, ULCOMP-R-171, ULCOMP-R-172 | |
@@ -173,14 +173,14 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | TR-CORE-123 | core | — | Trellis-bound Formspec processors MUST implement at least Formspec Core conformance; roles that present Formspec-backed tasks to end users additionally require Component conformance. | Sets the Formspec conformance floor. | declaration-doc-check | ULCR-106 | |
 | TR-CORE-124 | core | — | When a Trellis-bound deployment uses Formspec Screener evaluation, it MUST delegate to a Formspec-conformant Screener processor and MUST NOT alter the Screener evaluation algorithm. | Screener delegation. | spec-cross-ref | ULCR-107 | |
 | TR-CORE-125 | core | — | Trellis MUST bind Formspec-family and WOS-family facts (and related trust/release families per binding spec) into one governed canonical substrate with shared append, hash, and verification rules; the binding MUST NOT reinterpret Formspec or WOS meaning. | Substrate binding. | spec-cross-ref | ULCR-099 | Legacy "canonical substrate" → "governed canonical substrate" (response ledger / case ledger / agency log / federation log per vocabulary in §3.3). |
-| TR-CORE-126 | core | — | Baseline Trellis Core conformance MUST NOT be interpreted to require advanced selective disclosure, threshold custody, group-sharing protocols, advanced homomorphic or privacy-preserving computation, or cross-agency analytic protocols unless a declared profile, binding, or implementation specification explicitly requires them. | Keeps the baseline small. | spec-cross-ref | ULCR-100, ULCOMP-R-213, ULCOMP-R-214 | |
+| TR-CORE-126 | core | — | Baseline Trellis Core conformance MUST NOT be interpreted to require advanced selective disclosure, threshold custody, group-sharing protocols, advanced homomorphic or privacy-preserving computation, or cross-agency analytic protocols unless a declared conformance class, custody model, binding, or implementation specification explicitly requires them. | Keeps the baseline small. | spec-cross-ref | ULCR-100, ULCOMP-R-213, ULCOMP-R-214 | |
 
 ### 1.15 Conformance Roles
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
 | TR-CORE-130 | core | — | A conforming implementation MUST claim one or more of the five conformance roles (Fact Producer, Canonical Append Service, Verifier, Derived Processor, Export Generator) and MUST satisfy all requirements applicable to each claimed role. | Declaration of role set is the conformance unit. | declaration-doc-check | ULCR-006 | |
-| TR-CORE-131 | core | — | A Fact Producer MUST emit attributable facts admissible under the active profile or binding; MUST sign or authenticate facts where required; MUST preserve causal references when applicable; MUST NOT rewrite previously emitted facts. | Producer role duties. | test-vector | ULCR-010, ULCR-011, ULCR-012, ULCR-013 | |
+| TR-CORE-131 | core | — | A Fact Producer MUST emit attributable facts admissible under the active conformance class or binding; MUST sign or authenticate facts where required; MUST preserve causal references when applicable; MUST NOT rewrite previously emitted facts. | Producer role duties. | test-vector | ULCR-010, ULCR-011, ULCR-012, ULCR-013 | |
 | TR-CORE-132 | core | — | A Canonical Append Service MUST preserve append-only semantics, validate admissibility, form canonical records for admitted facts, append to canonical order within the governed scope, issue canonical append attestations, and MUST NOT rewrite prior canonical records or treat workflow state / projections / caches as canonical truth. | CAS role duties. | test-vector | ULCR-007, ULCR-014, ULCR-015, ULCR-016, ULCR-017, ULCR-018, ULCR-019 | |
 | TR-CORE-133 | core | — | A Derived Processor MUST treat canonical records as its only authoritative input; MUST record sufficient provenance to support rebuild from canonical state; MUST be discardable and rebuildable from canonical state without altering canonical truth. | Derived-processor role duties. | projection-rebuild-drill | ULCR-024, ULCR-025, ULCR-026 | |
 | TR-CORE-134 | core | — | An Export Generator MUST package canonical records, attestations, and verification material per declared export scope; MUST preserve provenance distinctions; MUST include enough material for an offline verifier to validate the declared export scope. | Export-generator role duties. | test-vector | ULCR-027, ULCR-028, ULCR-029 | |
@@ -214,19 +214,19 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-010 | operational | — | A profile using a provider-readable custody model MUST say so plainly and MUST NOT imply provider blindness. | Custody Model (formerly "Profile A" in legacy companion). | declaration-doc-check | ULCOMP-R-176 | See §4 renaming. |
-| TR-OP-011 | operational | — | A reader-held Custody Model Trust Profile MUST describe who can assist recovery and under what conditions. | Custody Model (formerly "Profile B"). | declaration-doc-check | ULCOMP-R-177 | |
-| TR-OP-012 | operational | — | A delegated-compute Custody Model Trust Profile MUST state whether plaintext is visible to any provider-operated components during delegation. | Custody Model (formerly "Profile C"). | declaration-doc-check | ULCOMP-R-178 | |
+| TR-OP-010 | operational | — | A Posture Declaration using a provider-readable custody model MUST say so plainly and MUST NOT imply provider blindness. | Custody Model (formerly "Profile A" in legacy companion). | declaration-doc-check | ULCOMP-R-176 | See §4 renaming. |
+| TR-OP-011 | operational | — | A reader-held Custody Model Posture Declaration MUST describe who can assist recovery and under what conditions. | Custody Model (formerly "Profile B"). | declaration-doc-check | ULCOMP-R-177 | |
+| TR-OP-012 | operational | — | A delegated-compute Custody Model Posture Declaration MUST state whether plaintext is visible to any provider-operated components during delegation. | Custody Model (formerly "Profile C"). | declaration-doc-check | ULCOMP-R-178 | |
 | TR-OP-013 | operational | — | A threshold Custody Model MUST declare recovery conditions, quorum thresholds, and exceptional access; threshold participation MUST NOT be overstated. | Custody Model (formerly "Profile D"). | declaration-doc-check | ULCOMP-R-179 | |
 | TR-OP-014 | operational | — | An organizational-trust Custody Model MUST identify the scope of organizational authority and exceptional-access controls; MUST distinguish provider-readable from organization-controlled where they differ. | Custody Model (formerly "Profile E"). | declaration-doc-check | ULCOMP-R-180 | |
-| TR-OP-015 | operational | — | A reader-held profile MUST declare ordinary service operation does not require general plaintext access for declared protected content; MUST identify which principals may decrypt within scope; MUST identify whether the provider can assist recovery; MUST remain consistent with the active Trust Profile; MUST distinguish reader-held access from provider-readable access and from delegated-compute access. | Unified reader-held profile rules. | declaration-doc-check | ULCOMP-R-029, ULCOMP-R-030, ULCOMP-R-031, ULCOMP-R-032, ULCOMP-R-033, ULCOMP-R-034 | |
-| TR-OP-016 | operational | — | Reader-held access MUST NOT be described as provider-readable ordinary operation; MAY coexist with recovery assistance if Trust Profile declares it honestly; MAY coexist with delegated compute if delegation remains explicit, scoped, and auditable. | Reader-held honesty rule. | declaration-doc-check | ULCOMP-R-035, ULCOMP-R-036, ULCOMP-R-037 | |
+| TR-OP-015 | operational | — | A reader-held custody model MUST declare ordinary service operation does not require general plaintext access for declared protected content; MUST identify which principals may decrypt within scope; MUST identify whether the provider can assist recovery; MUST remain consistent with the active Posture Declaration; MUST distinguish reader-held access from provider-readable access and from delegated-compute access. | Unified reader-held custody rules. | declaration-doc-check | ULCOMP-R-029, ULCOMP-R-030, ULCOMP-R-031, ULCOMP-R-032, ULCOMP-R-033, ULCOMP-R-034 | |
+| TR-OP-016 | operational | — | Reader-held access MUST NOT be described as provider-readable ordinary operation; MAY coexist with recovery assistance if the Posture Declaration declares it honestly; MAY coexist with delegated compute if delegation remains explicit, scoped, and auditable. | Reader-held honesty rule. | declaration-doc-check | ULCOMP-R-035, ULCOMP-R-036, ULCOMP-R-037 | |
 
 ### 2.3 Delegated Compute
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-020 | operational | — | A delegated-compute profile MUST distinguish delegated compute from provider-readable access; MUST make delegation explicit, attributable, and auditable; MUST define delegation scope and authority; SHOULD define purpose or time bounds; MUST define what audit facts or events are emitted for delegation and use; MUST NOT imply delegated compute grants general service readability. | Unified delegated-compute profile rules. | declaration-doc-check, test-vector | ULCOMP-R-038, ULCOMP-R-039, ULCOMP-R-040, ULCOMP-R-041, ULCOMP-R-042, ULCOMP-R-043, ULCOMP-R-044 | |
+| TR-OP-020 | operational | — | A delegated-compute custody model MUST distinguish delegated compute from provider-readable access; MUST make delegation explicit, attributable, and auditable; MUST define delegation scope and authority; SHOULD define purpose or time bounds; MUST define what audit facts or events are emitted for delegation and use; MUST NOT imply delegated compute grants general service readability. | Unified delegated-compute custody rules. | declaration-doc-check, test-vector | ULCOMP-R-038, ULCOMP-R-039, ULCOMP-R-040, ULCOMP-R-041, ULCOMP-R-042, ULCOMP-R-043, ULCOMP-R-044 | |
 | TR-OP-021 | operational | — | A delegated-compute grant MUST be explicit, attributable to a principal or policy authority, scoped to declared content or content classes, auditable, and MUST NOT be interpreted as conferring standing plaintext access; SHOULD be time- or purpose-bounded. | Grant discipline. | declaration-doc-check | ULCOMP-R-045, ULCOMP-R-046, ULCOMP-R-047, ULCOMP-R-048, ULCOMP-R-049, ULCOMP-R-050 | |
 | TR-OP-022 | operational | — | If a system relies materially on delegated-compute output, it MUST record the output as a canonical fact or canonical reference to a stable artifact; MUST preserve auditable links to the authorizing principal, compute agent identity, and scope of delegated access relevant to that output; MUST define whether the relied-upon output is advisory, recommendatory, or decision-contributory. | Material-reliance discipline. | test-vector | ULCOMP-R-051, ULCOMP-R-052, ULCOMP-R-053, ULCOMP-R-054, ULCOMP-R-055 | |
 
@@ -244,15 +244,15 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-040 | operational | #9 | Each declared trust profile MUST include a metadata budget by canonical fact family (visible fields, observer classes, timing/access-pattern leakage, linkage stability, delegated-compute effects). | Invariant #9 — metadata-leakage is a spec decision. | declaration-doc-check | ULCOMP-R-221 | |
+| TR-OP-040 | operational | #9 | Each declared Posture Declaration MUST include a metadata budget by canonical fact family (visible fields, observer classes, timing/access-pattern leakage, linkage stability, delegated-compute effects). | Invariant #9 — metadata-leakage is a spec decision. | declaration-doc-check | ULCOMP-R-221 | |
 | TR-OP-041 | operational | — | Tiered verification deployments MUST declare verification posture classes and which downstream workflow or release classes each posture MAY feed; MUST NOT attach high-stakes outcomes to records below the declared minimum posture for that class; posture escalation MUST NOT be silent (MUST use explicit canonical facts or binding-defined attestations). | Verification-posture tiering. | declaration-doc-check, test-vector | ULCOMP-R-222 | |
 
-### 2.6 Offline Authoring Profile
+### 2.6 Offline Authoring Conformance Class
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-050 | operational | — | An offline-authoring profile MUST permit author-originated facts to exist prior to canonical append; MUST preserve authored authentication semantics across delayed submission; MUST preserve authored time or authored context where available; MUST distinguish authored time from canonical append time unless equivalence is established explicitly; MUST define how local pending facts remain non-canonical until admitted; MUST define duplicate-submission and replay behavior for delayed submissions; MUST preserve provenance distinctions among authored fact, canonical record, and canonical append attestation. | Unified offline-authoring baseline. | test-vector | ULCOMP-R-011, ULCOMP-R-012, ULCOMP-R-013, ULCOMP-R-014, ULCOMP-R-015, ULCOMP-R-016, ULCOMP-R-017 | |
-| TR-OP-051 | operational | — | An offline-authoring profile SHOULD minimize local pending state to what is necessary for user-authoring continuity; SHOULD avoid treating broad local collaboration state as canonical truth; SHOULD define how rejected offline submissions are surfaced without implying canonical admission. | Offline-authoring hygiene. | manual-review | ULCOMP-R-018, ULCOMP-R-019, ULCOMP-R-020 | |
+| TR-OP-050 | operational | — | An offline-authoring conformance class MUST permit author-originated facts to exist prior to canonical append; MUST preserve authored authentication semantics across delayed submission; MUST preserve authored time or authored context where available; MUST distinguish authored time from canonical append time unless equivalence is established explicitly; MUST define how local pending facts remain non-canonical until admitted; MUST define duplicate-submission and replay behavior for delayed submissions; MUST preserve provenance distinctions among authored fact, canonical record, and canonical append attestation. | Unified offline-authoring baseline. | test-vector | ULCOMP-R-011, ULCOMP-R-012, ULCOMP-R-013, ULCOMP-R-014, ULCOMP-R-015, ULCOMP-R-016, ULCOMP-R-017 | |
+| TR-OP-051 | operational | — | An offline-authoring conformance class SHOULD minimize local pending state to what is necessary for user-authoring continuity; SHOULD avoid treating broad local collaboration state as canonical truth; SHOULD define how rejected offline submissions are surfaced without implying canonical admission. | Offline-authoring hygiene. | manual-review | ULCOMP-R-018, ULCOMP-R-019, ULCOMP-R-020 | |
 | TR-OP-052 | operational | — | Offline-originated facts MAY be submitted after delay; if accepted, MUST preserve authored authentication semantics; MUST distinguish later admission and later append attestation from earlier authorship; MUST NOT imply canonical append time is identical to authorship time unless equivalence is established. | Offline submission rules. | test-vector | ULCOMP-R-021, ULCOMP-R-022, ULCOMP-R-023, ULCOMP-R-024 | |
 | TR-OP-053 | operational | — | Local pending state before admission MUST remain non-canonical; MUST NOT define alternate canonical order; SHOULD remain separable from draft-collaboration state; MUST be transformable into submitted facts without silently rewriting prior authored facts. | Pending-state discipline. | test-vector | ULCOMP-R-025, ULCOMP-R-026, ULCOMP-R-027, ULCOMP-R-028 | |
 
@@ -261,17 +261,17 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
 | TR-OP-060 | operational | — | Canonical acceptance MUST define which durable write conditions are required; implementations MUST declare the durable-append boundary governing attestation, retry, and export issuance; proof or referenced state needed to recover or verify within export scope MUST be durably recoverable no later than that boundary. | Companion-scope durable-append boundary rules. | declaration-doc-check, test-vector | ULCOMP-R-148, ULCOMP-R-150, ULCOMP-R-151, ULCOMP-R-152, ULCOMP-R-153 | Core-scope invariant is TR-CORE-042; these are operational elaborations. |
-| TR-OP-061 | operational | — | Implementations MAY define conflict-sensitive fact categories; conflict handling MUST be evaluated within the declared append scope of affected canonical facts; append in unaffected scopes MUST continue; affected derived systems MAY gate on explicit resolution facts; derived artifacts MUST NOT silently rewrite canonical facts to resolve conflicts; conflict resolution SHOULD be via later canonical facts, explicit rejection, or profile-defined admission rules; MUST NOT stall unrelated append scopes solely because a conflict is unresolved in another scope. | Conflict-handling discipline. | test-vector, model-check | ULCOMP-R-128, ULCOMP-R-129, ULCOMP-R-130, ULCOMP-R-131, ULCOMP-R-132, ULCOMP-R-133, ULCOMP-R-134 | |
+| TR-OP-061 | operational | — | Implementations MAY define conflict-sensitive fact categories; conflict handling MUST be evaluated within the declared append scope of affected canonical facts; append in unaffected scopes MUST continue; affected derived systems MAY gate on explicit resolution facts; derived artifacts MUST NOT silently rewrite canonical facts to resolve conflicts; conflict resolution SHOULD be via later canonical facts, explicit rejection, or binding-defined admission rules; MUST NOT stall unrelated append scopes solely because a conflict is unresolved in another scope. | Conflict-handling discipline. | test-vector, model-check | ULCOMP-R-128, ULCOMP-R-129, ULCOMP-R-130, ULCOMP-R-131, ULCOMP-R-132, ULCOMP-R-133, ULCOMP-R-134 | |
 
 ### 2.8 Protected Payloads, Selective Disclosure, Disclosure Artifacts
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-070 | operational | — | Sensitive content SHOULD reside in protected payloads when Trust Profile or binding requires protection; implementations MUST define which data is visible for canonical verification vs payload-protected; canonical records with protected payloads MUST include or reference sufficient access material for authorized recipients per custody/binding; conforming representation MUST preserve the semantic distinction among author fact, payload content, access/key material, and append-attestation material. | Protected-payload discipline. | test-vector | ULCOMP-R-144, ULCOMP-R-145, ULCOMP-R-146, ULCOMP-R-147 | |
+| TR-OP-070 | operational | — | Sensitive content SHOULD reside in protected payloads when the Posture Declaration or binding requires protection; implementations MUST define which data is visible for canonical verification vs payload-protected; canonical records with protected payloads MUST include or reference sufficient access material for authorized recipients per custody/binding; conforming representation MUST preserve the semantic distinction among author fact, payload content, access/key material, and append-attestation material. | Protected-payload discipline. | test-vector | ULCOMP-R-144, ULCOMP-R-145, ULCOMP-R-146, ULCOMP-R-147 | |
 | TR-OP-071 | operational | #8 | Selective disclosure SHOULD occur through disclosure or export artifacts rather than overloading canonical records. | Invariant #8 — selective-disclosure slots live in the envelope; selective disclosure happens above. | test-vector | ULCOMP-R-063 | |
 | TR-OP-072 | operational | — | A disclosure-oriented artifact MAY present an audience-specific subset or presentation; MUST preserve provenance distinctions; MUST NOT be treated as a rewrite of canonical truth. | Disclosure-artifact discipline. | test-vector | ULCOMP-R-064, ULCOMP-R-065, ULCOMP-R-066 | |
-| TR-OP-073 | operational | — | A Disclosure and Export Profile MUST support at least one verifiable disclosure or export form; MUST preserve distinction among author facts, canonical records, attestations, and later disclosure/export artifacts; MUST define which claims remain verifiable when payload readability is absent; MUST define profile-specific audience scope where relevant; MUST remain subordinate to export guarantees of the core specification. | Profile rules. | test-vector | ULCOMP-R-056, ULCOMP-R-057, ULCOMP-R-058, ULCOMP-R-059, ULCOMP-R-060 | |
-| TR-OP-074 | operational | — | A Disclosure and Export Profile SHOULD state which claim classes are verifiable within that profile; implementations MUST NOT imply an export supports a claim class unless the export contains sufficient material to verify that class. | Claim-class honesty. | declaration-doc-check, test-vector | ULCOMP-R-061, ULCOMP-R-062 | |
+| TR-OP-073 | operational | — | A disclosure/export conformance class MUST support at least one verifiable disclosure or export form; MUST preserve distinction among author facts, canonical records, attestations, and later disclosure/export artifacts; MUST define which claims remain verifiable when payload readability is absent; MUST define audience scope where relevant; MUST remain subordinate to export guarantees of the core specification. | Disclosure/export rules. | test-vector | ULCOMP-R-056, ULCOMP-R-057, ULCOMP-R-058, ULCOMP-R-059, ULCOMP-R-060 | |
+| TR-OP-074 | operational | — | A disclosure/export conformance class SHOULD state which claim classes are verifiable within that class; implementations MUST NOT imply an export supports a claim class unless the export contains sufficient material to verify that class. | Claim-class honesty. | declaration-doc-check, test-vector | ULCOMP-R-061, ULCOMP-R-062 | |
 
 ### 2.9 Privacy / Metadata Minimization (operational elaboration)
 
@@ -283,9 +283,9 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
-| TR-OP-090 | operational | — | A CAS MUST validate append admissibility, preserve append-only, issue attestations, and retain/reference sufficient proof material for verification; by canonical role alone, a CAS MUST NOT be required to decrypt payloads, evaluate workflow policy, resolve workflow runtime, compute projections/indexes, or inspect protected content unless Trust Profile permits/requires it. | CAS operational scope. | declaration-doc-check, test-vector | ULCOMP-R-112, ULCOMP-R-113 | |
+| TR-OP-090 | operational | — | A CAS MUST validate append admissibility, preserve append-only, issue attestations, and retain/reference sufficient proof material for verification; by canonical role alone, a CAS MUST NOT be required to decrypt payloads, evaluate workflow policy, resolve workflow runtime, compute projections/indexes, or inspect protected content unless the Posture Declaration permits/requires it. | CAS operational scope. | declaration-doc-check, test-vector | ULCOMP-R-112, ULCOMP-R-113 | |
 | TR-OP-091 | operational | — | Implementations MUST present one verifier-facing canonical append proof model per declared append scope at a time; MUST NOT require verifiers to reconcile multiple overlapping append-attestation semantics for the same scope; if the proof model changes, MUST define an explicit migration boundary; SHOULD use transparency-log-style append with order, inclusion proofs, and consistency proofs between append heads. | Proof-model discipline. | test-vector | ULCOMP-R-120, ULCOMP-R-121, ULCOMP-R-122, ULCOMP-R-123 | |
-| TR-OP-092 | operational | — | Implementations MAY support external witnessing or anchoring; external witnessing MUST remain subordinate to core canonical append semantics; MUST NOT be required for correctness unless a profile or binding explicitly states otherwise; MAY strengthen equivocation detection or independent audit posture. | Witnessing discipline; supports Phase 4. | declaration-doc-check | ULCOMP-R-124, ULCOMP-R-125, ULCOMP-R-126, ULCOMP-R-127 | |
+| TR-OP-092 | operational | — | Implementations MAY support external witnessing or anchoring; external witnessing MUST remain subordinate to core canonical append semantics; MUST NOT be required for correctness unless a registered deployment class or binding explicitly states otherwise; MAY strengthen equivocation detection or independent audit posture. | Witnessing discipline; supports Phase 4. | declaration-doc-check | ULCOMP-R-124, ULCOMP-R-125, ULCOMP-R-126, ULCOMP-R-127 | |
 
 ### 2.11 Lifecycle, Erasure, Sealing, Legal Sufficiency (ledger-scoped)
 
@@ -307,8 +307,8 @@ This is the single consolidated requirements matrix for the Trellis spec family.
 | ID | Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes |
 |---|---|---|---|---|---|---|---|
 | TR-OP-120 | operational | — | Nothing in the operational companion creates a second canonical order, alters the definition of canonical truth, collapses derived artifacts into canonical truth, weakens trust-honesty requirements, or weakens export-verification guarantees. | Operational document-property rule. | spec-cross-ref | ULCOMP-R-006, ULCOMP-R-007, ULCOMP-R-008, ULCOMP-R-009, ULCOMP-R-010 | |
-| TR-OP-121 | operational | — | The operational companion MAY define profile-specific constraints, binding/sidecar interpretation layers, and reusable companion requirements that refine but do not reinterpret the core; additional requirements MUST be interpreted consistently with the core specification; MUST remain subordinate to the constitutional semantics of Trellis Core. | Operational-scope subordination. | spec-cross-ref | ULCOMP-R-001, ULCOMP-R-002, ULCOMP-R-003, ULCOMP-R-004, ULCOMP-R-005 | |
-| TR-OP-122 | operational | — | Profile, binding, and sidecar exports MUST preserve author / canonical-record / attestation / disclosure distinctions and provenance distinctions when presenting profile-specific timelines, deltas, or interpretations; MUST NOT imply broader workflow/governance/custody/compliance/disclosure coverage than the declared scope includes. | Scoped-export honesty. | test-vector | ULCOMP-R-092, ULCOMP-R-093, ULCOMP-R-094 | |
+| TR-OP-121 | operational | — | The operational companion MAY define custody-model-specific constraints, binding/sidecar interpretation layers, and reusable companion requirements that refine but do not reinterpret the core; additional requirements MUST be interpreted consistently with the core specification; MUST remain subordinate to the constitutional semantics of Trellis Core. | Operational-scope subordination. | spec-cross-ref | ULCOMP-R-001, ULCOMP-R-002, ULCOMP-R-003, ULCOMP-R-004, ULCOMP-R-005 | |
+| TR-OP-122 | operational | — | Custody-model, binding, and sidecar exports MUST preserve author / canonical-record / attestation / disclosure distinctions and provenance distinctions when presenting scoped timelines, deltas, or interpretations; MUST NOT imply broader workflow/governance/custody/compliance/disclosure coverage than the declared scope includes. | Scoped-export honesty. | test-vector | ULCOMP-R-092, ULCOMP-R-093, ULCOMP-R-094 | |
 
 ---
 
@@ -348,9 +348,9 @@ Every load-bearing legacy ID appears in the `Legacy` column of exactly one conso
 | ULCR-037..040 (terminology / ontology / canonical truth) | TR-CORE-010, TR-CORE-011, TR-CORE-012, TR-CORE-017 |
 | ULCR-041..046 (named invariants) | TR-CORE-020, TR-CORE-030, TR-CORE-051, TR-CORE-061, TR-CORE-132 (and see §5 drops) |
 | ULCR-047..060 (fact admission, order, attestation) | TR-CORE-040..046, TR-CORE-020..025 |
-| ULCR-061..065 (trust profile) | TR-CORE-100..102 |
+| ULCR-061..065 (posture declaration) | TR-CORE-100..102 |
 | ULCR-066..072 (export) | TR-CORE-062..067 |
-| ULCR-073..085 (profile discipline, bindings, sidecars) | TR-CORE-015, TR-CORE-103, TR-CORE-140..143 (and see §5 drops) |
+| ULCR-073..085 (companion discipline, bindings, sidecars) | TR-CORE-015, TR-CORE-103, TR-CORE-140..143 (and see §5 drops) |
 | ULCR-086..094 (supplementary constitutional) | TR-CORE-002, TR-CORE-091, TR-CORE-111..113, TR-OP-034 |
 | ULCR-095..103 (integrator-critical) | TR-CORE-020, TR-CORE-030, TR-CORE-060, TR-CORE-120, TR-CORE-125, TR-CORE-126, TR-CORE-046, TR-CORE-023, TR-CORE-143 |
 | ULCR-104..109 (Formspec/WOS integration, hash registry) | TR-CORE-121..124, TR-CORE-052, TR-CORE-032 |
@@ -360,7 +360,7 @@ Every load-bearing legacy ID appears in the `Legacy` column of exactly one conso
 | ULCOMP-R-011..028 (offline authoring) | TR-OP-050..053 |
 | ULCOMP-R-029..037 (reader-held) | TR-OP-015, TR-OP-016 |
 | ULCOMP-R-038..055 (delegated compute) | TR-OP-020..022 |
-| ULCOMP-R-056..066 (disclosure / export profile, selective disclosure) | TR-OP-071..074 |
+| ULCOMP-R-056..066 (disclosure / export conformance class, selective disclosure) | TR-OP-071..074 |
 | ULCOMP-R-088..094 (trust inheritance, scoped export) | TR-CORE-103, TR-OP-122 |
 | ULCOMP-R-095..105 (grants, revocations, evaluators) | TR-OP-030..034 |
 | ULCOMP-R-106..111 (provider/reader/delegated honesty) | TR-CORE-100 |
@@ -460,15 +460,15 @@ Every legacy row not migrated into a `TR-*` row is listed here with a one-senten
 | ULCR-042 | Superseded by TR-CORE-013 (fact-vs-record distinction is carried by the canonical-record object-class row). |
 | ULCR-045 | Superseded by TR-CORE-100 (delegated-compute-not-provider-plaintext is now the trust-honesty floor, invariant #15). |
 | ULCR-046 | Superseded by invariant #15 and upstream WOS Assurance (disclosure-vs-assurance is owned upstream; Trellis no longer restates it). |
-| ULCR-044 | Merged into TR-CORE-030; not an independent drop — the companion trust-posture invariant migrated to `trust-profiles.md` via ULCR-110/ULCR-111 which themselves fold into TR-CORE-100. |
+| ULCR-044 | Merged into TR-CORE-030; not an independent drop — the companion posture invariant is covered by invariant #15 and folds into TR-CORE-100. |
 
 ### 5.2 Dropped: out of scope (owned upstream by Formspec Respondent Ledger or WOS)
 
 | Legacy ID | Why dropped |
 |---|---|
 | ULCR-063 | Disclosure-vs-assurance taxonomy; owned upstream by WOS Assurance §2/§4. |
-| ULCR-080 | User-Held Record Reuse Profile; owned upstream by Formspec Respondent Ledger §6.6A. |
-| ULCR-081 | Respondent History Profile; owned upstream by Formspec Respondent Ledger §6.7. |
+| ULCR-080 | User-held record reuse capability; owned upstream by Formspec Respondent Ledger §6.6A. |
+| ULCR-081 | Respondent history capability; owned upstream by Formspec Respondent Ledger §6.7. |
 | ULCR-112 | Generic Disclosure-vs-Assurance invariant; owned upstream by WOS Assurance §4 Invariant 6. |
 | ULCOMP-R-067..075 | User-Held Reuse; owned upstream by Formspec Respondent Ledger. |
 | ULCOMP-R-076..087 | Respondent History; owned upstream by Formspec Respondent Ledger. |
@@ -485,10 +485,10 @@ Every legacy row not migrated into a `TR-*` row is listed here with a one-senten
 
 | Legacy ID | Why dropped |
 |---|---|
-| ULCR-073 | "Profile discipline MUST NOT alter core semantics" is entirely restated by TR-CORE-015 / TR-CORE-016. |
+| ULCR-073 | "Companion discipline MUST NOT alter core semantics" is entirely restated by TR-CORE-015 / TR-CORE-016. |
 | ULCR-113 | "Author-fact vs append-attestation" is subsumed by TR-CORE-010 + TR-CORE-040. |
 | ULCR-114 | "Canonical fact vs canonical record" is subsumed by TR-CORE-013. |
-| ULCR-075 | Profile-scoped export rule folded into TR-OP-122 (equivalent content at operational scope). |
+| ULCR-075 | Scoped-export rule folded into TR-OP-122 (equivalent content at operational scope). |
 
 ### 5.4 Contradictions between legacy matrices (resolution recorded inline)
 
@@ -503,7 +503,7 @@ Prior-draft conflicts resolved in favor of product-vision invariants, per the au
 ## References
 
 - `thoughts/product-vision.md` — Phase 1 envelope invariants (#1–#15), terminology block, Track E §21.
-- `specs/core/trellis-core.md` — Trellis Core Specification (references this matrix).
-- Trellis Operational Companion (forthcoming; references this matrix).
-- `specs/core/cross-reference-map.md` — per-row upstream-destination index for rows dropped to Formspec Respondent Ledger or WOS.
-- Legacy (non-normative): `DRAFTS/unified-ledger-requirements-matrix.md`, `DRAFTS/unified-ledger-companion-requirements-matrix.md`, `specs/core/unified-ledger-requirements-matrix.md`, `specs/core/unified-ledger-companion-requirements-matrix.md`.
+- `specs/trellis-core.md` — Trellis Core Specification.
+- `specs/trellis-operational-companion.md` — Trellis Operational Companion.
+- `specs/cross-reference-map.md` — per-row upstream-destination index for rows dropped to Formspec Respondent Ledger or WOS.
+- Legacy (non-normative): `DRAFTS/unified-ledger-requirements-matrix.md`, `DRAFTS/unified-ledger-companion-requirements-matrix.md`, `specs/archive/core/unified-ledger-requirements-matrix.md`, `specs/archive/core/unified-ledger-companion-requirements-matrix.md`.

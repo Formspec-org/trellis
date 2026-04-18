@@ -41,7 +41,7 @@ This core is the first Trellis document that may be cited in production procurem
 10. Chain Construction
 11. Checkpoint Format
 12. Header Policy
-13. Commitment Slots (Reserved)
+13. Commitment Slots Reserved
 14. Registry Snapshot Binding
 15. Snapshot and Watermark Discipline
 16. Verification Independence Contract
@@ -49,7 +49,7 @@ This core is the first Trellis document that may be cited in production procurem
 18. Export Package Layout
 19. Verification Algorithm
 20. Trust Posture Honesty
-21. Profile / Posture / Custody Vocabulary
+21. Posture / Custody / Conformance-Class Vocabulary
 22. Composition with Respondent Ledger
 23. Composition with WOS `custodyHook`
 24. Agency Log (Phase 3 Superset Preview)
@@ -201,32 +201,35 @@ digest = bstr .size 32   ; SHA-256, 32 bytes
 
 ### 6.1 Normative structure
 
-An **event** is the atomic append unit. Every append to any Trellis-shaped structure (response ledger, case ledger, agency log, federation log) is one event.
+An **event** is the atomic append unit. Every append to any Trellis-shaped structure (response ledger, case ledger, agency log, federation log) is one event. On the wire an event is a COSE_Sign1 object whose protected headers identify the signing suite and key, and whose payload is the dCBOR encoding of `EventPayload`.
 
 ```cddl
-Event = {
-  version:          uint .size 1,           ; wire-format version, = 1 for Phase 1
-  suite_id:         uint,                   ; signature suite, see §7.2
-  sequence:         uint,                   ; monotonic within ledger scope
-  prev_hash:        digest / null,          ; §10; null only for sequence == 0
-  causal_deps:      [* digest] / null,      ; §10.3 reserved; null or [] in Phase 1
-  author_event_hash: digest,                ; §9.5; binds envelope + ciphertext + key_bag
-  content_hash:     digest,                 ; SHA-256 over ciphertext, §9.3
-  header:           EventHeader,            ; §12
-  commitments:      [* Commitment] / null,  ; §13 reserved
-  ciphertext_ref:   bstr,                   ; opaque pointer OR inlined ciphertext bytes
-  key_bag:          KeyBag,                 ; §9.4
-  idempotency_key:  bstr .size (1..64),     ; §17
-  signature:        COSESign1Bytes,         ; §7, over canonical-form of this Event
+Event = COSESign1Bytes ; RFC 9052 COSE_Sign1 tagged CBOR value.
+
+EventPayload = {
+  version:           uint .size 1,          ; wire-format version, = 1 for Phase 1
+  ledger_scope:      bstr,                  ; replay boundary, §10.4
+  sequence:          uint,                  ; monotonic within ledger scope
+  prev_hash:         digest / null,         ; §10; null only for sequence == 0
+  causal_deps:       [* digest] / null,     ; §10.3 reserved; null or [] in Phase 1
+  author_event_hash: digest,                ; §9.5; excludes itself and signatures
+  content_hash:      digest,                ; SHA-256 over ciphertext, §9.3
+  header:            EventHeader,           ; §12
+  commitments:       [* Commitment] / null, ; §13 reserved
+  payload_ref:       PayloadRef,            ; inline or external ciphertext, §6.4
+  key_bag:           KeyBag,                ; §9.4
+  idempotency_key:   bstr .size (1..64),    ; §17
+  extensions:        { * tstr => any } / null, ; reserved top-level extension container
 }
 ```
 
-An Event is a CBOR map with exactly these keys. Additional top-level keys are reserved for future phases and MUST NOT be emitted by Phase 1 producers; Phase 1 verifiers encountering an unknown top-level key MUST reject the event. (Additive extension is performed via the `header.extensions` sub-map, §12.3, which is explicitly reserved for forward-compatible growth.)
+An `EventPayload` is a CBOR map with exactly these keys. Additional top-level keys are reserved for future phases and MUST NOT be emitted by Phase 1 producers; Phase 1 verifiers encountering an unknown top-level key MUST reject the event. Additive extension is performed via `EventPayload.extensions` and `EventHeader.extensions`, which are explicitly reserved for forward-compatible growth.
 
 ### 6.2 Sequence and prev_hash
 
 - `sequence` is a non-negative integer, monotonic within ledger scope. The first event in a ledger has `sequence = 0`.
-- `prev_hash` is `null` if and only if `sequence == 0`. Otherwise it MUST be the canonical event hash (§9.5) of the immediately preceding event.
+- `ledger_scope` is the response-ledger, case-ledger, agency-log, or federation-log identifier. It is signed and hashed so a genesis event or copied event cannot replay into another scope.
+- `prev_hash` is `null` if and only if `sequence == 0`. Otherwise it MUST be the canonical event hash (§9.2) of the immediately preceding event in the same `ledger_scope`.
 - Phase 1 chain construction is strict linear (§10). `causal_deps` MUST be either `null` or the empty array `[]` in Phase 1 events.
 
 ### 6.3 author_event_hash
@@ -235,22 +238,57 @@ An Event is a CBOR map with exactly these keys. Additional top-level keys are re
 
 ### 6.4 content_hash over ciphertext
 
-`content_hash` is `SHA-256` over the exact ciphertext bytes referenced by `ciphertext_ref`. This hash is over **ciphertext, not plaintext** (§9.3). This choice is load-bearing for crypto-shredding: destroying the per-subject content-encryption key erases the plaintext without invalidating the hash chain, because verification checks the ciphertext hash and the signature — neither of which depends on plaintext.
+`content_hash` is `SHA-256` over the exact ciphertext bytes named by `payload_ref`. This hash is over **ciphertext, not plaintext** (§9.3). This choice is load-bearing for crypto-shredding: destroying the per-subject content-encryption key erases the plaintext without invalidating the hash chain, because verification checks the ciphertext hash and the signature — neither of which depends on plaintext.
+
+`payload_ref` is one of two tagged structures:
+
+```cddl
+PayloadRef = PayloadInline / PayloadExternal
+
+PayloadInline = {
+  ref_type:   "inline",
+  ciphertext: bstr,
+  nonce:      bstr,
+}
+
+PayloadExternal = {
+  ref_type:       "external",
+  content_hash:   digest,
+  availability:   AvailabilityHint,
+  retrieval_hint: tstr / null,
+}
+
+AvailabilityHint = &(
+  InExport:     0,  ; bytes are present in the export payload directory
+  External:     1,  ; bytes are retrievable from a content-addressed external store
+  Withheld:     2,  ; bytes intentionally omitted for disclosure/readability reasons
+  Unavailable:  3,  ; bytes unavailable; verifier must report omitted checks
+)
+```
+
+For `PayloadInline`, `content_hash` MUST equal the hash of `ciphertext`. For `PayloadExternal`, `EventPayload.content_hash` MUST equal `PayloadExternal.content_hash`; if ciphertext bytes are not present in the export, an offline verifier reports that payload integrity and readability checks could not run (§19) rather than pretending they succeeded.
 
 ### 6.5 Phase-superset extension points
 
-The following extension points are reserved for Phase 2 / Phase 3 superset growth. Phase 1 producers MUST NOT populate them; Phase 1 verifiers MUST accept them as empty. Phase 2+ producers MUST populate them according to later-phase specifications; Phase 1+Phase 2 bridge verifiers MUST reject records whose extension-point usage violates this specification.
+The following extension points are reserved for Phase 2 / Phase 3 superset growth. Phase 1 producers MUST NOT populate them except as `null` or empty maps/lists; Phase 1 verifiers MUST accept them as empty. Phase 2+ producers MUST populate them according to later-phase specifications; Phase 1+Phase 2 bridge verifiers MUST reject records whose extension-point usage violates this specification.
 
 - `causal_deps` — Phase 2 HLC / DAG causal ordering.
 - `commitments` — Phase 2+ per-field redaction-aware commitments (§13).
+- `EventPayload.extensions` — additive top-level event metadata without top-level field growth.
 - `header.extensions` — additive header fields without a version bump (§12.3).
 - `header.witness_ref` — Phase 4 transparency-witness references.
 
-**Normative phase-superset commitment.** The byte shape produced by a Phase 1 Export Generator MUST be byte-identical to what a Phase 3 case-ledger event of the same logical content would produce at Phase 1 semantic equivalence. A later-phase event MAY add fields under the reserved extension points above, but MUST NOT rename, remove, reorder, or redefine any field of §6.1 in a way that breaks Phase 1 verification.
+**Normative phase-superset commitment.** The byte shape produced by a Phase 1 Export Generator MUST be byte-identical to what a Phase 3 case-ledger event of the same logical content would produce at Phase 1 semantic equivalence. A later-phase event MAY add fields under the reserved extension points above, but MUST NOT rename, remove, reorder, or redefine any field of §6.1 in a way that breaks Phase 1 verification. "Strict superset" means semantic and structural preservation through reserved extension containers. It does not mean Phase 1 verifiers accept unknown top-level fields.
 
 ### 6.6 Signature scope
 
-`signature` (§7) is a COSE_Sign1 over the dCBOR serialization of the Event with the `signature` field itself zeroed to a fixed-length placeholder during canonicalization; see §7.4 for the exact procedure. This prevents chicken-and-egg dependency between the signature bytes and the byte shape they cover.
+An Event signature is the RFC 9052 COSE_Sign1 signature over `EventPayload` using COSE's standard `Sig_structure` preimage:
+
+```text
+["Signature1", protected, external_aad, payload]
+```
+
+`payload` is the exact dCBOR bytes of `EventPayload`. `external_aad` is the zero-length byte string for Phase 1. The COSE protected header MUST contain `alg`, `kid`, and `suite_id` (§7.4). No signature bytes are present in `EventPayload`, so event signing is non-circular by construction.
 
 ---
 
@@ -258,13 +296,13 @@ The following extension points are reserved for Phase 2 / Phase 3 superset growt
 
 **Requirement class:** Fact Producer, Verifier.
 
-Every signed artifact in Trellis — events, checkpoints, signing-key-registry administrative entries — carries an explicit `suite_id` identifying the signature suite used. A verifier that encounters an unregistered `suite_id` MUST reject the artifact. The `suite_id` registry (§26.2) is part of the IANA considerations.
+Every signed artifact in Trellis — events, checkpoints, manifests, and signing-key-registry administrative entries — is a COSE_Sign1 value and carries an explicit `suite_id` identifying the signature suite used. A verifier that encounters an unregistered `suite_id` MUST reject the artifact. The `suite_id` registry (§26.2) is part of the IANA considerations.
 
 ### 7.1 Pinned Phase 1 suite
 
 **Phase 1 pins `suite_id = 1` to Ed25519-over-COSE_Sign1.** Concretely: the signature is COSE_Sign1 ([RFC 9052]) with `alg = -8` (EdDSA) and the signing key a 32-byte Ed25519 public key ([RFC 8032]). The digest algorithm used by dependent constructions (canonical event hash, content hash, checkpoint tree head) is SHA-256 ([FIPS 180-4]).
 
-A Phase 1 Fact Producer MUST use `suite_id = 1`. A Phase 1 Verifier MUST accept any registered `suite_id` whose suite it recognizes, and MUST reject any unregistered `suite_id`.
+A Phase 1 Fact Producer MUST use `suite_id = 1` in the COSE protected header. A Phase 1 Verifier MUST accept any registered `suite_id` whose suite it recognizes, and MUST reject any unregistered `suite_id`.
 
 ### 7.2 `suite_id` IANA-style registry
 
@@ -285,23 +323,35 @@ Future suites MUST be registered in the `suite_id` registry before any verifier 
 
 A verifier running in 2045 MUST be able to resolve a signature produced in 2026 after intervening key rotations, and MUST be able to resolve a signature produced with `suite_id = 1` after the Trellis family has migrated its active default to a post-quantum suite. This imposes three obligations on Phase 1 implementations:
 
-1. Every event MUST carry its `suite_id` in-band (§6.1). A verifier MUST use the event's `suite_id`, not the "current" suite.
-2. Every export MUST include a signing-key registry (§8) capable of resolving the signing `kid` referenced by every event and checkpoint in the export, as that key existed at signing time.
+1. Every signed artifact MUST carry its `suite_id` in the COSE protected header (§7.4). A verifier MUST use that `suite_id`, not the "current" suite.
+2. Every export MUST include a signing-key registry (§8) capable of resolving the signing `kid` referenced by every event, checkpoint, and manifest in the export, as that key existed at signing time.
 3. Crypto parameters (curve, digest, length constraints) MUST be determined by `suite_id`, not by the verifier's current default. A verifier that "upgrades" a 2026 signature to 2045 semantics by reinterpreting it is broken.
 
 Phase 1 does not ship a post-quantum suite. It pins the migration seam and the obligation.
 
-### 7.4 Canonical-form derivation for signing
+### 7.4 COSE protected headers and Sig_structure
 
-To sign an Event:
+Trellis uses RFC 9052 COSE_Sign1 directly. Implementations MUST use a normal COSE library's signing preimage, not a Trellis-specific self-reference workaround.
 
-1. Construct the Event with every field populated except `signature`, which is set to a fixed-length placeholder of 64 zero bytes (Ed25519 signature length).
-2. Serialize the result as dCBOR (§5).
-3. Compute `SHA-256(domain_tag || serialization)` where `domain_tag = "trellis-event-sign-v1"` as a UTF-8 byte string (length-prefixed per §9.1).
-4. Sign the resulting 32-byte digest with the Ed25519 private key corresponding to the `kid` referenced in `header.signing_kid` (§12.2).
-5. Overwrite the placeholder `signature` field with the 64-byte COSE_Sign1 signature bytes. The event is now final.
+For every Trellis COSE_Sign1 artifact, the protected header MUST contain:
 
-A verifier reverses the procedure: it reads `header.signing_kid`, resolves it to a public key via the signing-key registry (§8), reconstructs the canonical form by zeroing the `signature` field, recomputes the digest, and verifies the Ed25519 signature against the reconstructed digest. Signature verification is independent of all other verification steps.
+| Header | Value |
+|---|---|
+| `alg` | COSE algorithm identifier. Phase 1: `-8` (EdDSA). |
+| `kid` | 16-byte signing-key identifier resolvable in `signing-key-registry.cbor` (§8). |
+| `suite_id` | Trellis signature-suite identifier. Phase 1: `1`. |
+
+The protected header MAY additionally carry `artifact_type` with values `event`, `checkpoint`, `manifest`, or another registered value. If present, a verifier MUST check that it matches the containing artifact. If absent, the containing archive member or enclosing structure supplies the artifact type.
+
+To sign an Event, Checkpoint, or Export Manifest:
+
+1. Build the artifact payload map (`EventPayload`, `CheckpointPayload`, or `ExportManifestPayload`) with no signature field.
+2. Serialize the payload map as dCBOR (§5).
+3. Construct a COSE_Sign1 object whose payload is those bytes.
+4. Populate the protected header with `alg`, `kid`, and `suite_id`.
+5. Sign the RFC 9052 `Sig_structure` array `["Signature1", protected, external_aad, payload]`, with `external_aad` equal to the zero-length byte string for Phase 1.
+
+A verifier uses the protected-header `kid` to resolve the public key via the signing-key registry (§8), uses protected-header `suite_id` and `alg` to select the suite, and verifies the COSE_Sign1 signature over the standard `Sig_structure`. Signature verification is independent of all other verification steps.
 
 ---
 
@@ -367,7 +417,7 @@ LedgerServiceWrapEntry = {
   ephemeral_pubkey:   bstr .size 32,       ; fresh X25519 ephemeral public key
   wrapped_dek:        bstr,                ; HPKE-wrapped DEK, §9.4
   created_at:         uint,                ; Unix seconds UTC
-  signature:          COSESign1Bytes,      ; service signature, same profile as §7
+  signature:          COSESign1Bytes,      ; service signature, same COSE suite as §7
 }
 ```
 
@@ -401,18 +451,26 @@ The canonical event hash is:
 ```
 canonical_event_hash = SHA-256(
     "trellis-event-v1" domain-separated per §9.1 over
-    dCBOR(Event with signature field zeroed to fixed-length placeholder)
+    dCBOR(CanonicalEventHashPreimage)
 )
 ```
 
-The domain tag `trellis-event-v1` reserves the `-v1` slot for this construction; a future version bump would use `-v2`. Verifiers MUST match the domain tag to the event's `version` field.
+```cddl
+CanonicalEventHashPreimage = {
+  version:       uint .size 1,
+  ledger_scope:  bstr,
+  event_payload: EventPayload,
+}
+```
+
+`event_payload` is the decoded `EventPayload` carried as the COSE payload. It contains `author_event_hash`, but it contains no signature bytes. The domain tag `trellis-event-v1` reserves the `-v1` slot for this construction; a future version bump would use `-v2`. Verifiers MUST match the domain tag to the event payload's `version` field.
 
 ### 9.3 Content hash (`trellis-content-v1`, over ciphertext)
 
 ```
 content_hash = SHA-256(
     "trellis-content-v1" domain-separated per §9.1 over
-    the exact ciphertext bytes referenced by ciphertext_ref
+    the exact ciphertext bytes named by payload_ref
 )
 ```
 
@@ -447,28 +505,70 @@ Authentication note: HPKE Base mode provides no sender authentication at the wra
 ```
 author_event_hash = SHA-256(
     "trellis-author-event-v1" domain-separated per §9.1 over
-    || dCBOR(envelope_without_signature_and_ciphertext_and_key_bag)
-    || ciphertext_bytes
-    || dCBOR(key_bag)
+    dCBOR(AuthorEventHashPreimage)
 )
 ```
 
-`author_event_hash` binds the envelope, ciphertext, and key bag at the moment of signing. It is immutable under rotation because none of its inputs is altered by service-side re-wraps (§8.6); re-wraps produce append-only `LedgerServiceWrapEntry` records outside the author-event scope.
+```cddl
+AuthorEventHashPreimage = {
+  version:         uint .size 1,
+  ledger_scope:    bstr,
+  sequence:        uint,
+  prev_hash:       digest / null,
+  causal_deps:     [* digest] / null,
+  content_hash:    digest,
+  header:          EventHeader,
+  commitments:     [* Commitment] / null,
+  payload_ref:     PayloadRef,
+  key_bag:         KeyBag,
+  idempotency_key: bstr .size (1..64),
+  extensions:      { * tstr => any } / null,
+}
+```
+
+`author_event_hash` binds the envelope payload, payload reference, and key bag at the moment of signing. It excludes itself and all signature material by construction: `AuthorEventHashPreimage` has no `author_event_hash` field and no COSE signature field. It is immutable under rotation because none of its inputs is altered by service-side re-wraps (§8.6); re-wraps produce append-only `LedgerServiceWrapEntry` records outside the author-event scope.
 
 ### 9.6 Checkpoint digest (`trellis-checkpoint-v1`)
 
-See §11.2.
+```
+checkpoint_digest = SHA-256(
+    "trellis-checkpoint-v1" domain-separated per §9.1 over
+    dCBOR(CheckpointHashPreimage)
+)
+```
+
+```cddl
+CheckpointHashPreimage = {
+  version:            uint .size 1,
+  scope:              bstr,
+  checkpoint_payload: CheckpointPayload,
+}
+```
 
 ### 9.7 Export manifest digest (`trellis-export-manifest-v1`)
 
-The export manifest (§18.2) is itself integrity-bound by its dCBOR serialization under domain tag `trellis-export-manifest-v1`; the resulting digest is signed by the Export Generator (§18.5).
+```
+export_manifest_digest = SHA-256(
+    "trellis-export-manifest-v1" domain-separated per §9.1 over
+    dCBOR(ExportManifestHashPreimage)
+)
+```
+
+```cddl
+ExportManifestHashPreimage = {
+  version:          uint .size 1,
+  scope:            bstr,
+  manifest_payload: ExportManifestPayload,
+}
+```
+
+The export manifest (§18.3) is also signed as a COSE_Sign1 object. The digest construction above is used when another artifact needs to refer to the manifest by content address.
 
 ### 9.8 Domain-tag registry
 
 Phase 1 reserves these domain tags. An implementation MUST NOT use any of these tags for any purpose other than its defined construction. A future version's constructions MUST bump the version suffix and register the new tag.
 
 - `trellis-event-v1` — canonical event hash (§9.2)
-- `trellis-event-sign-v1` — signing pre-image (§7.4)
 - `trellis-author-event-v1` — author event hash (§9.5)
 - `trellis-content-v1` — content hash (§9.3)
 - `trellis-checkpoint-v1` — checkpoint digest (§11.2)
@@ -513,7 +613,7 @@ A Canonical Append Service MUST NOT rewrite a canonical event once it has been a
 
 ### 11.1 Purpose
 
-A **checkpoint** is a signed tree head over the Merkle tree of canonical event hashes in a ledger scope up to some `tree_size`. Checkpoints enable:
+A **checkpoint** is a COSE_Sign1 signed tree head over the Merkle tree of canonical event hashes in a ledger scope up to some `tree_size`. The COSE payload is `CheckpointPayload`. Checkpoints enable:
 
 - inclusion proofs (a given event hash appears at a given position),
 - consistency proofs (a later tree is an append-only extension of an earlier tree),
@@ -522,16 +622,17 @@ A **checkpoint** is a signed tree head over the Merkle tree of canonical event h
 ### 11.2 `Checkpoint` structure
 
 ```cddl
-Checkpoint = {
+Checkpoint = COSESign1Bytes ; payload is dCBOR(CheckpointPayload)
+
+CheckpointPayload = {
   version:       uint .size 1,          ; = 1 for Phase 1
-  suite_id:      uint,                  ; §7.2; Phase 1 = 1
   scope:         bstr,                  ; ledger scope identifier
   tree_size:     uint,                  ; count of events committed to
   tree_head_hash: digest,               ; Merkle root, §11.3
   timestamp:     uint,                  ; Unix seconds UTC at issuance
   anchor_ref:    bstr / null,           ; §11.5; Phase 1 optional
   prev_checkpoint_hash: digest / null,  ; previous checkpoint's digest, or null for the first
-  signature:     COSESign1Bytes,        ; §7, over this Checkpoint's canonical form
+  extensions:    { * tstr => any } / null, ; §11.6; reserved for Phase 3+ heads
 }
 ```
 
@@ -540,7 +641,7 @@ The checkpoint **digest** under domain tag `trellis-checkpoint-v1` is:
 ```
 checkpoint_digest = SHA-256(
     "trellis-checkpoint-v1" domain-separated per §9.1 over
-    dCBOR(Checkpoint with signature field zeroed)
+    dCBOR(CheckpointHashPreimage)
 )
 ```
 
@@ -566,9 +667,25 @@ Both proofs are included in exports (§18.3). A Canonical Append Service that pu
 
 ### 11.5 `anchor_ref` (reserved for Phase 2+ external witnessing)
 
-`anchor_ref` is an optional opaque reference to an external witness or anchor (for example, an OpenTimestamps Bitcoin anchor, a transparency-log cosignature, an RFC 3161 TSA receipt). Phase 1 MUST accept `null`, and MUST NOT require a non-null value. Phase 1 producers MAY emit a value; Phase 1 verifiers MUST NOT fail verification solely on the absence of an anchor. Phase 4 (federation) elevates anchoring to MUST under a separate profile.
+`anchor_ref` is an optional opaque reference to an external witness or anchor (for example, an OpenTimestamps Bitcoin anchor, a transparency-log cosignature, an RFC 3161 TSA receipt). Phase 1 MUST accept `null`, and MUST NOT require a non-null value. Phase 1 producers MAY emit a value; Phase 1 verifiers MUST NOT fail verification solely on the absence of an anchor. Phase 4 (federation) elevates anchoring to MUST under a separate registered deployment class.
 
-Exports that bundle anchor-proof material (for example, `bitcoin/headers.cbor` bundling Bitcoin block headers) do so under a Phase 2+ profile; Phase 1 verification MUST NOT depend on such material.
+Exports that bundle anchor-proof material (for example, `bitcoin/headers.cbor` bundling Bitcoin block headers) do so under a Phase 2+ registered deployment class; Phase 1 verification MUST NOT depend on such material.
+
+### 11.6 Head-format extension container
+
+`CheckpointPayload.extensions` is the only Phase 1 reservation for Phase 3 case-ledger head data. Phase 1 producers MUST emit `extensions` as `null` or an empty map. Phase 1 verifiers MUST reject unknown top-level fields in `CheckpointPayload`, but MUST preserve and ignore unknown registered keys inside `extensions`.
+
+Phase 3 case-ledger heads MUST embed or preserve the Phase 1 checkpoint payload unchanged. Additional head data is carried only in `extensions`, for example:
+
+```cddl
+CaseLedgerHeadExtensions = {
+  ? composed_response_heads: [* digest],
+  ? case_scope_metadata: CaseScope,
+  ? witness_signatures: [* WitnessSignature],
+}
+```
+
+The extension container is load-bearing for invariant #12: agency-log adoption is not a wire-format break for any Phase 1 checkpoint already in the field.
 
 ---
 
@@ -583,7 +700,6 @@ The event header is where Trellis makes an explicit, normatively-enumerated trad
 ```cddl
 EventHeader = {
   event_type:    bstr,                    ; registered event-type identifier (§14)
-  signing_kid:   bstr .size 16,           ; §8.3
   authored_at:   uint,                    ; Unix seconds UTC; plaintext
   retention_tier: uint,                   ; 0..3; plaintext
   classification: bstr,                   ; registered classification identifier; plaintext
@@ -602,7 +718,6 @@ The following declaration is normative. Phase 1 events MUST place each field in 
 | Field | Layer | Rationale |
 |---|---|---|
 | `event_type` | Plaintext header | Structural verification, registry lookup (§14). MUST be outcome-neutral (see §12.4). |
-| `signing_kid` | Plaintext header | Required to resolve signature without decryption. |
 | `authored_at` | Plaintext header | Routing, retention computation, audit timelines. MAY be coarsened per Operational Companion. |
 | `retention_tier` | Plaintext header | Required for retention enforcement without decryption. |
 | `classification` | Plaintext header | Required for routing and access-decision prefiltering. MUST NOT reveal outcome. |
@@ -633,7 +748,7 @@ Registered `event_type` values MUST be outcome-neutral. Concretely: `wos.determi
 
 ---
 
-## 13. Commitment Slots (Reserved)
+## 13. Commitment Slots Reserved
 
 **Requirement class:** Fact Producer, Verifier.
 
@@ -769,11 +884,11 @@ A Phase 1 verifier MUST NOT perform a live registry lookup to interpret an event
 
 ### 16.3 Optional external anchors
 
-A package MAY reference external anchoring (transparency log URL, Bitcoin block anchor, RFC 3161 TSA receipt). Such references MUST be marked explicitly as optional external proof material in the manifest and MUST NOT be required for baseline Phase 1 verification. A Phase 1 verifier that the package's signed tree head and consistency-proof material verify MUST return "verified" even if the external anchor cannot be fetched. Phase 4 deployments MAY register a profile that elevates external anchoring to required; absent such a profile, anchoring is additive.
+A package MAY reference external anchoring (transparency log URL, Bitcoin block anchor, RFC 3161 TSA receipt). Such references MUST be marked explicitly as optional external proof material in the manifest and MUST NOT be required for baseline Phase 1 verification. A Phase 1 verifier that the package's signed tree head and consistency-proof material verify MUST return "verified" even if the external anchor cannot be fetched. Phase 4 deployments MAY register a deployment class that elevates external anchoring to required; absent such a class, anchoring is additive.
 
 ### 16.4 Omitted-payload honesty
 
-If a package omits payload readability (because payloads are reader-held and the verifier is not a reader, or because payloads are intentionally redacted), the package MUST still verify integrity, provenance, and append claims. The verification algorithm (§19) returns a structured result identifying which claim classes verified and which were omitted. A package that silently fails — that omits both material and the declaration of omission — is non-conformant.
+If a package omits ciphertext bytes or payload readability material (because payloads are reader-held and the verifier is not a reader, or because payloads are intentionally redacted), the package MUST still verify the structure, signatures, provenance, and append claims that are verifiable from included bytes. The verification algorithm (§19) returns `structure_verified`, `integrity_verified`, and `readability_verified` separately, plus a list of omitted payload checks. A package that silently fails — that omits both material and the declaration of omission — is non-conformant.
 
 ---
 
@@ -799,17 +914,19 @@ Callers may substitute a deterministic hash of the authored fact's causal identi
 
 ### 17.3 Resolution semantics
 
+An idempotency identity is the pair `(ledger_scope, idempotency_key)`. The identity is permanent within that ledger scope. A Canonical Append Service MUST NOT reuse the same idempotency identity for a different authored payload after a clock interval, API TTL, dedup-store compaction, or operator lifecycle event. Retry budgets, API TTLs, and dedup-store lifecycle are operational policy owned by the Trellis Operational Companion; they do not relax this Core identity rule.
+
 For a given `idempotency_key` within a declared ledger scope, a Canonical Append Service MUST resolve every successful retry to exactly one of:
 
 1. **Same canonical reference.** The exact canonical event hash that was admitted on the first successful submission. The service returns the same `canonical_event_hash`, and the payload `content_hash` is byte-equal to the original.
 2. **Declared no-op.** A successful retry against a key that was admitted but whose subsequent retry carries a payload that is byte-identical (post-dCBOR canonicalization) returns a structured no-op response referencing the original canonical event hash.
-3. **Reject on conflict.** A retry that shares `idempotency_key` but whose envelope would hash to a different `canonical_event_hash` MUST be rejected with the structured error `idempotency_conflict` (§17.5). This is invariant #13 of the vision document, lifted to normative text: same key, different payload ⇒ rejection, auditable.
+3. **Reject on conflict.** A retry that shares `idempotency_key` but whose payload would produce a different `content_hash`, `author_event_hash`, or `canonical_event_hash` MUST be rejected with the structured error `IdempotencyKeyPayloadMismatch` (§17.5). This is invariant #13 of the vision document, lifted to normative text: same key, different payload means deterministic rejection, auditable.
 
 The service MUST NOT, on retry, create a new canonical order position with a different canonical event hash under the same `idempotency_key`. Duplication at the same `idempotency_key` with a different hash is undefined canonical order.
 
-### 17.4 Retry TTL
+### 17.4 Operational retry policy boundary
 
-An implementation MAY declare a retry TTL after which `idempotency_key` state may be garbage-collected. Retries within the TTL MUST replay per §17.3 semantics; retries after the TTL MAY be treated as fresh submissions and accepted as new canonical records — but this is a destructive operator choice and SHOULD be accompanied by an auditable lifecycle declaration. The default recommended TTL is unbounded (retries forever replay), which is the construction that makes long-tail offline retries (months after a kiosk session) deterministic.
+Core defines the permanent idempotency identity and deterministic replay/rejection semantics. The Operational Companion defines retry budgets, API-facing TTLs, dedup-store retention lifecycle, and how operators document storage compaction. No operational policy may cause `(ledger_scope, idempotency_key)` to accept a different payload after any expiry.
 
 ### 17.5 Rejection codes
 
@@ -817,11 +934,11 @@ The following rejection codes are normative for Phase 1. Each is a structured, v
 
 | Code | Meaning |
 |---|---|
-| `idempotency_conflict` | Same key, different canonical event hash — see §17.3. |
+| `IdempotencyKeyPayloadMismatch` | Same `(ledger_scope, idempotency_key)`, different payload/hash material — see §17.3. |
 | `prev_hash_mismatch` | `prev_hash` does not match the predecessor's canonical event hash (§10.2). |
 | `sequence_gap` | `sequence` is not `prev.sequence + 1`. |
 | `unknown_suite_id` | `suite_id` is not registered (§7.2). |
-| `unresolvable_kid` | `header.signing_kid` cannot be resolved in the active registry (§8.5). |
+| `unresolvable_kid` | COSE protected-header `kid` cannot be resolved in the active registry (§8.5). |
 | `registry_digest_mismatch` | Event's bound registry does not match export manifest (§14). |
 | `hash_construction_mismatch` | Event uses a hash construction not registered. |
 | `missing_required_field` | Envelope is missing a required field. |
@@ -841,32 +958,37 @@ Additional codes MAY be registered in Phase 2+.
 An export package is a deterministic ZIP archive. "Deterministic" means:
 
 - entries ordered in byte-wise lexicographic order of their UTF-8 filename,
-- entry metadata (mtime, external attributes) normalized to fixed values (mtime = `2020-01-01T00:00:00Z`, mode = `0o644` for files / `0o755` for directories),
-- no compression beyond `STORED` or `DEFLATE`, with the chosen method identical across all entries,
+- entry names are prefixed so the single lexicographic order is the required processing order,
+- compression method is `STORED` (ZIP method 0) for every entry; DEFLATE is not conformant because library parameters are not deterministic across implementations,
+- local file headers have extra-field length zero,
+- file modification time is fixed to `1980-01-01T00:00:00Z`,
+- external file attributes are zero,
 - no ZIP64 unless the package exceeds 4 GiB,
-- the manifest (§18.2) appears first in the archive so that a truncated-read verifier can bail fast.
+- `000-manifest.cbor` appears first in the archive so that a truncated-read verifier can bail fast.
 
 The archive name SHOULD follow the pattern `trellis-export-<scope>-<tree_size>-<short_head_hash>.zip`.
+
+A conforming implementation can reproduce the archive layout with a `zip -0` style invocation over files already named with the prefixes below, provided it suppresses extra fields and normalizes timestamps and attributes as required above.
 
 ### 18.2 Required archive members
 
 ```
 trellis-export-<scope>-<tree_size>-<shorthash>/
-  manifest.cbor                   ; §18.3 — dCBOR
-  events.cbor                     ; §18.4 — dCBOR array of Event
-  inclusion-proofs.cbor           ; §18.5 — dCBOR map leaf_index → proof
-  consistency-proofs.cbor         ; §18.5 — dCBOR array of consistency proofs
-  checkpoints.cbor                ; §18.6 — dCBOR array of Checkpoint
-  signing-key-registry.cbor       ; §8.5 — dCBOR array of SigningKeyEntry and LedgerServiceWrapEntry
-  registries/                     ; §14 — embedded domain-registry bytes
+  000-manifest.cbor               ; §18.3 — COSE_Sign1 over ExportManifestPayload
+  010-events.cbor                 ; §18.4 — dCBOR array of Event
+  020-inclusion-proofs.cbor       ; §18.5 — dCBOR map leaf_index → proof
+  025-consistency-proofs.cbor     ; §18.5 — dCBOR array of consistency proofs
+  030-signing-key-registry.cbor   ; §8.5 — dCBOR array of SigningKeyEntry and LedgerServiceWrapEntry
+  040-checkpoints.cbor            ; §18.6 — dCBOR array of Checkpoint
+  050-registries/                 ; §14 — embedded domain-registry bytes
     <registry_digest_hex>.cbor    ; one file per distinct RegistryBinding
-  payloads/                       ; OPTIONAL — encrypted payloads if inlined
+  060-payloads/                   ; OPTIONAL — encrypted payloads if inlined or included
     <content_hash_hex>.bin
-  verify.sh                       ; §18.8 — self-contained verifier invocation
-  trellis-verify-linux-x86_64     ; OPTIONAL — statically linked verifier binary
-  trellis-verify-darwin-arm64     ; OPTIONAL — statically linked verifier binary
-  trellis-verify-windows-x86_64.exe ; OPTIONAL — statically linked verifier binary
-  README.md                       ; §18.9 — human-readable orientation
+  090-verify.sh                   ; §18.8 — self-contained verifier invocation
+  098-README.md                   ; §18.9 — human-readable orientation
+  099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
+  099-trellis-verify-darwin-arm64 ; OPTIONAL — statically linked verifier binary
+  099-trellis-verify-windows-x86_64.exe ; OPTIONAL — statically linked verifier binary
 ```
 
 Files marked OPTIONAL may be omitted; a verifier MUST NOT fail solely on their absence.
@@ -874,32 +996,43 @@ Files marked OPTIONAL may be omitted; a verifier MUST NOT fail solely on their a
 ### 18.3 `ExportManifest`
 
 ```cddl
-ExportManifest = {
+SignedExportManifest = COSESign1Bytes ; payload is dCBOR(ExportManifestPayload)
+
+ExportManifestPayload = {
   format:           tstr,                 ; "trellis-export/1"
+  version:          uint .size 1,         ; = 1 for Phase 1
   generator:        tstr,                 ; generator identifier
   generated_at:     uint,                 ; Unix seconds UTC
   scope:            bstr,                 ; ledger scope
   tree_size:        uint,                 ; events covered
   head_checkpoint_digest: digest,         ; §11.2
   registry_bindings: [+ RegistryBinding], ; §14
-  signing_key_registry_digest: digest,    ; SHA-256 of signing-key-registry.cbor
-  events_digest:    digest,               ; SHA-256 of events.cbor
-  checkpoints_digest: digest,             ; SHA-256 of checkpoints.cbor
+  signing_key_registry_digest: digest,    ; SHA-256 of 030-signing-key-registry.cbor
+  events_digest:    digest,               ; SHA-256 of 010-events.cbor
+  checkpoints_digest: digest,             ; SHA-256 of 040-checkpoints.cbor
   inclusion_proofs_digest: digest,        ; SHA-256 of inclusion-proofs.cbor
   consistency_proofs_digest: digest,      ; SHA-256 of consistency-proofs.cbor
-  payloads_inlined: bool,                 ; true if payloads/ is present
+  payloads_inlined: bool,                 ; true if 060-payloads/ is present
   external_anchors: [* ExternalAnchor],   ; §16.3; optional
   posture_declaration: PostureDeclaration, ; §20
   head_format_version: uint,              ; §18.7; Phase 1 = 1
-  manifest_signature: COSESign1Bytes,     ; over this manifest with signature field zeroed
+  omitted_payload_checks: [* OmittedPayloadCheck], ; §16.4, §19
+  extensions:       { * tstr => any } / null,
 }
 ```
 
 The manifest binds every other archive member by digest. A verifier MUST check that every digest in the manifest matches the actual archive contents.
 
-### 18.4 `events.cbor`
+```cddl
+OmittedPayloadCheck = {
+  content_hash: digest,
+  reason:       tstr,
+}
+```
 
-A dCBOR array of `Event` records in canonical order, starting at `sequence = 0` up to `sequence = tree_size - 1`. Concatenation and ordering are canonical; byte-match reproducibility is mandatory.
+### 18.4 `010-events.cbor`
+
+A dCBOR array of `Event` COSE_Sign1 records in canonical order, starting at `sequence = 0` up to `sequence = tree_size - 1`. Concatenation and ordering are canonical; byte-match reproducibility is mandatory.
 
 ### 18.5 `inclusion-proofs.cbor` and `consistency-proofs.cbor`
 
@@ -920,23 +1053,23 @@ ConsistencyProof = {
 }
 ```
 
-### 18.6 `checkpoints.cbor`
+### 18.6 `040-checkpoints.cbor`
 
-A dCBOR array of all `Checkpoint` records issued for this scope up to and including the final checkpoint of the export. Checkpoints are ordered by `tree_size` ascending. Each checkpoint's `prev_checkpoint_hash` MUST match the previous checkpoint's digest.
+A dCBOR array of all `Checkpoint` COSE_Sign1 records issued for this scope up to and including the final checkpoint of the export. Checkpoints are ordered by `tree_size` ascending. Each checkpoint payload's `prev_checkpoint_hash` MUST match the previous checkpoint's digest.
 
 ### 18.7 Head format version and superset commitment
 
-The `head_format_version` field identifies the checkpoint / head format. Phase 1 ships version 1. Phase 3 case-ledger heads are a strict superset at a later version number: they add fields (for example, references to composed response-ledger heads, case-scope metadata) without removing, renaming, or reordering any Phase 1 field. A Phase 1 verifier reading a Phase 3 head under a Phase-1-declared scope MAY return "unknown head format" and fall back to Phase 1 fields it recognizes; Phase 1 verifiers MUST NOT reject a superset head solely because additional fields are present.
+The `head_format_version` field identifies the checkpoint / head format. Phase 1 ships version 1. Phase 3 case-ledger heads are a strict superset at a later version number: they preserve the Phase 1 `CheckpointPayload` fields unchanged and carry additional fields only in `CheckpointPayload.extensions` (§11.6). A Phase 1 verifier reading a later head format under a Phase-1-declared scope MAY return `unknown_head_format`, but it MUST NOT accept unknown top-level checkpoint fields as though they were Phase 1.
 
 This is invariant #12 lifted normatively: **agency-log adoption is not a wire-format break for any Phase 1 export already in the field.**
 
 ### 18.8 `verify.sh`
 
-`verify.sh` is a POSIX shell script that invokes the verifier binary appropriate for the current platform (detected via `uname`) and exits with `0` on verification success. The script MUST NOT require network access. Its full source SHOULD be at most a few dozen lines; its authority is the verifier binary, not the script.
+`090-verify.sh` is a POSIX shell script that invokes the verifier binary appropriate for the current platform (detected via `uname`) and exits with `0` on verification success. The script MUST NOT require network access. Its full source SHOULD be at most a few dozen lines; its authority is the verifier binary, not the script.
 
 ### 18.9 `README.md`
 
-A human-readable orientation file. Normative only in that it MUST state: the scope, the `tree_size`, the final `tree_head_hash`, the posture declaration (§20), and the verification invocation. It SHOULD NOT describe the export as legally admissible (§20.4).
+`098-README.md` is a human-readable orientation file. Normative only in that it MUST state: the scope, the `tree_size`, the final `tree_head_hash`, the posture declaration (§20), which payload checks were omitted offline, and the verification invocation. It SHOULD NOT describe the export as legally admissible (§20.4).
 
 ---
 
@@ -944,54 +1077,65 @@ A human-readable orientation file. Normative only in that it MUST state: the sco
 
 **Requirement class:** Verifier.
 
-Given an export ZIP `E`, a verifier MUST implement the following algorithm. All steps MUST run without network access. Time and memory bounds: linear in the number of events for integrity, O(log N) per inclusion proof, O(log N) per consistency proof.
+Given an export ZIP `E`, a verifier MUST implement the following algorithm. All steps MUST run without network access. Time and memory bounds: linear in the number of events for structure and integrity, O(log N) per inclusion proof, O(log N) per consistency proof. The output separates structure, ciphertext integrity, and payload readability because exports may intentionally omit ciphertext bytes or decryption material.
 
 ```text
-VERIFY(E) -> (verified: bool, report: VerificationReport)
+VERIFY(E) -> VerificationReport
 
 1. Open E as a deterministic ZIP (§18.1). If the ZIP layout is non-deterministic,
    abort with report.layout_error.
 
-2. Read manifest.cbor. Verify manifest_signature:
-     a. Resolve manifest.signing_kid via embedded signing-key-registry.cbor.
+2. Read 000-manifest.cbor as SignedExportManifest. Verify its COSE_Sign1:
+     a. Resolve protected-header kid via embedded 030-signing-key-registry.cbor.
         If unresolvable, abort with report.unresolvable_manifest_kid.
-     b. Reconstruct canonical form (§7.4 adapted to the manifest).
-     c. Verify signature per the manifest's suite_id. If invalid,
+     b. Verify protected-header alg and suite_id are registered and consistent.
+     c. Verify the RFC 9052 Sig_structure signature over the manifest payload.
+        If invalid,
         abort with report.manifest_signature_invalid.
+     d. Decode the COSE payload as ExportManifestPayload; reject unknown top-level fields.
 
 3. Verify digests bound by the manifest:
-     a. SHA-256(events.cbor) == manifest.events_digest
-     b. SHA-256(checkpoints.cbor) == manifest.checkpoints_digest
-     c. SHA-256(inclusion-proofs.cbor) == manifest.inclusion_proofs_digest
-     d. SHA-256(consistency-proofs.cbor) == manifest.consistency_proofs_digest
-     e. SHA-256(signing-key-registry.cbor) == manifest.signing_key_registry_digest
+     a. SHA-256(010-events.cbor) == manifest.events_digest
+     b. SHA-256(040-checkpoints.cbor) == manifest.checkpoints_digest
+     c. SHA-256(020-inclusion-proofs.cbor) == manifest.inclusion_proofs_digest
+     d. SHA-256(025-consistency-proofs.cbor) == manifest.consistency_proofs_digest
+     e. SHA-256(030-signing-key-registry.cbor) == manifest.signing_key_registry_digest
      f. For each RegistryBinding rb in manifest.registry_bindings:
-          SHA-256(registries/<rb.registry_digest>.cbor) == rb.registry_digest
+          SHA-256(050-registries/<rb.registry_digest>.cbor) == rb.registry_digest
    Any mismatch ⇒ abort with report.archive_integrity_failure.
 
-4. For each event e in events.cbor (in order):
-     a. Resolve e.header.signing_kid via signing-key-registry.cbor.
-     b. Verify e.signature per e.suite_id (§7.4).
-     c. Recompute canonical_event_hash(e) per §9.2.
-     d. Recompute author_event_hash(e) per §9.5. Check equals e.author_event_hash.
-     e. If payloads inlined: check SHA-256(payloads/<e.content_hash>.bin) == e.content_hash.
-     f. If e.sequence == 0: check e.prev_hash == null. Else check
-        e.prev_hash == canonical_event_hash(events[e.sequence - 1]).
-     g. Check e.causal_deps is null or [] (Phase 1 strict-linear, §10.3).
-     h. Resolve the RegistryBinding applicable to e.sequence per §14.4;
-        check e.header.event_type and related fields against the bound registry.
-     i. On any failure, record in report.event_failures and continue — do NOT abort;
+4. For each Event COSE_Sign1 e in 010-events.cbor (in order):
+     a. Resolve protected-header kid via 030-signing-key-registry.cbor.
+     b. Verify protected-header alg and suite_id, then verify the COSE Sig_structure (§7.4).
+     c. Decode the COSE payload as EventPayload; reject unknown top-level fields.
+     d. Recompute author_event_hash(payload) per §9.5. Check equals payload.author_event_hash.
+     e. Recompute canonical_event_hash(payload) per §9.2.
+     f. Check payload.ledger_scope == manifest.scope.
+     g. If payload.payload_ref is PayloadInline:
+          check SHA-256(payload_ref.ciphertext) under §9.3 == payload.content_hash.
+        If payload.payload_ref is PayloadExternal and 060-payloads/<content_hash>.bin exists:
+          check SHA-256(file bytes) under §9.3 == payload.content_hash.
+        If payload.payload_ref is PayloadExternal and bytes are absent:
+          record report.omitted_payload_checks[payload.content_hash] and continue
+          with the remaining structure and chain checks for this event.
+     h. If payload.sequence == 0: check payload.prev_hash == null. Else check
+        payload.prev_hash == canonical_event_hash(events[payload.sequence - 1]).
+     i. Check payload.causal_deps is null or [] (Phase 1 strict-linear, §10.3).
+     j. Resolve the RegistryBinding applicable to payload.sequence per §14.4;
+        check payload.header.event_type and related fields against the bound registry.
+     k. On any failure, record in report.event_failures and continue — do NOT abort;
         the final verdict is false, but the report enumerates every failure.
 
-5. For each checkpoint c in checkpoints.cbor (in order):
-     a. Verify c.signature per c.suite_id.
-     b. Recompute Merkle root over canonical_event_hash(events[0..c.tree_size])
-        per §11.3. Check bit-equal to c.tree_head_hash.
-     c. If not the first checkpoint: check c.prev_checkpoint_hash == digest of prior c.
-     d. Verify consistency proof from prior c to current c (§11.4).
+5. For each Checkpoint COSE_Sign1 c in 040-checkpoints.cbor (in order):
+     a. Resolve protected-header kid and verify COSE Sig_structure.
+     b. Decode the COSE payload as CheckpointPayload; reject unknown top-level fields.
+     c. Recompute Merkle root over canonical_event_hash(events[0..payload.tree_size])
+        per §11.3. Check bit-equal to payload.tree_head_hash.
+     d. If not the first checkpoint: check payload.prev_checkpoint_hash == digest of prior c.
+     e. Verify consistency proof from prior c to current c (§11.4).
    Any failure ⇒ record in report.checkpoint_failures.
 
-6. For each inclusion proof ip in inclusion-proofs.cbor:
+6. For each inclusion proof ip in 020-inclusion-proofs.cbor:
      a. Recompute Merkle root per ip.audit_path, ip.leaf_hash, ip.leaf_index.
      b. Check it matches the head checkpoint's tree_head_hash.
    Any failure ⇒ record in report.proof_failures.
@@ -1003,18 +1147,48 @@ VERIFY(E) -> (verified: bool, report: VerificationReport)
        under Phase 1, see §16.3, unless the posture declaration itself
        claims external anchoring is required).
 
-8. Compute verified = report.event_failures == 0 AND report.checkpoint_failures == 0
-                   AND report.proof_failures == 0 AND report.archive_integrity_failure == false
-                   AND manifest signature valid.
+8. Compute:
+     structure_verified =
+       manifest signature valid AND every COSE/CBOR/CDDL structure decoded and signed
+       AND no unknown top-level Phase 1 fields were accepted.
 
-9. Return (verified, report).
+     integrity_verified =
+       archive digests valid AND event hashes, prev_hash links, checkpoint roots,
+       inclusion proofs, consistency proofs, and every available ciphertext hash valid
+       AND report.omitted_payload_checks is empty.
+
+     readability_verified =
+       every payload required by the export scope was decrypted and schema-validated
+       under the bound registry and upstream Formspec/WOS semantics.
+
+9. Return report with structure_verified, integrity_verified,
+   readability_verified, failures, warnings, and omitted_payload_checks.
 ```
 
-The verifier's output is both a boolean `verified` and a structured report enumerating every integrity observation. The report is itself part of the reviewable artifact — an auditor inspects the report, not just the boolean.
+The verifier's output is a structured report enumerating every integrity observation. The overall convenience boolean MAY be computed as all three booleans true, but implementations MUST expose the three booleans independently. A package that omits ciphertext bytes can still be structurally verified, but it cannot claim payload integrity or readability were verified offline for the omitted payloads.
+
+```cddl
+VerificationReport = {
+  structure_verified:   bool,
+  integrity_verified:   bool,
+  readability_verified: bool,
+  event_failures:       [* VerificationFailure],
+  checkpoint_failures:  [* VerificationFailure],
+  proof_failures:       [* VerificationFailure],
+  omitted_payload_checks: [* OmittedPayloadCheck],
+  warnings:             [* tstr],
+}
+
+VerificationFailure = {
+  location: tstr,
+  code:     tstr,
+  detail:   tstr,
+}
+```
 
 ### 19.1 Tamper evidence
 
-When `verified == false`, the report identifies specifically **which** canonical bytes do not reconcile. This is the "difficult and obvious" property: tampering that rewrites history after an export has been published is detectable by any verifier holding a prior export copy, because the tampered re-export's head will not be a consistent extension of the prior export's head (§11.4). The verifier does not require the tampering party to self-report; consistency-proof failure is the signal.
+When any verification boolean is false, the report identifies specifically **which** canonical bytes or payload checks do not reconcile. This is the "difficult and obvious" property: tampering that rewrites history after an export has been published is detectable by any verifier holding a prior export copy, because the tampered re-export's head will not be a consistent extension of the prior export's head (§11.4). The verifier does not require the tampering party to self-report; consistency-proof failure is the signal.
 
 ### 19.2 No network, no fallbacks
 
@@ -1059,7 +1233,7 @@ PostureDeclaration = {
 ### 20.3 Honest field semantics
 
 - `provider_readable = true` means the operator CAN decrypt payloads during ordinary operation. An implementation whose operator holds a reader-wrap copy in the `key_bag` MUST declare `true`. Declaring `false` under these circumstances is a trust-posture-honesty violation.
-- `reader_held = true` means the subject or a subject-designated reader holds decryption capability, AND the operator does not hold it in ordinary operation. Both conditions are required; implementations that let the operator hold a "for emergencies" wrap MUST set `reader_held = false` unless the "emergency" is declared in `recovery_without_user` and in the Trust Profile.
+- `reader_held = true` means the subject or a subject-designated reader holds decryption capability, AND the operator does not hold it in ordinary operation. Both conditions are required; implementations that let the operator hold a "for emergencies" wrap MUST set `reader_held = false` unless the "emergency" is declared in `recovery_without_user` and in the Posture Declaration.
 - `delegated_compute = false` means no compute agent, including AI services, is given decryption capability. An LLM-agent workflow that requires payload access to operate MUST declare `true`.
 - `external_anchor_required = true` means the "tamper-evident" claim depends on the external anchor named in `external_anchor_name`. Packages that claim tamper-evidence via only the internal signed tree head MUST set `external_anchor_required = false`.
 - `recovery_without_user = true` means the service can recover payload access without user participation. This is a key disclosure obligation.
@@ -1071,17 +1245,17 @@ Cryptographic controls alone MUST NOT be described as legal admissibility. A Pha
 
 ### 20.5 Downgrade protocol
 
-If a deployment discovers that it has overstated its posture (for example, an earlier declaration of `reader_held = true` when the operator had decryption capability), the correction is itself a canonical fact recorded in the response or case ledger, and an update to the Trust Profile transition record. The deployment MUST NOT silently rewrite prior `PostureDeclaration` values; prior exports remain accurate as of their production time, and the correction is a forward event.
+If a deployment discovers that it has overstated its posture (for example, an earlier declaration of `reader_held = true` when the operator had decryption capability), the correction is itself a canonical fact recorded in the response or case ledger, and an update to the posture-transition record. The deployment MUST NOT silently rewrite prior `PostureDeclaration` values; prior exports remain accurate as of their production time, and the correction is a forward event.
 
 ---
 
-## 21. Profile / Posture / Custody Vocabulary
+## 21. Posture / Custody / Conformance-Class Vocabulary
 
 **Requirement class:** All.
 
 ### 21.1 The vocabulary problem
 
-Three prior-draft namespaces use the letters A–E/F for three different concerns:
+Three prior-draft namespaces used the letters A–E/F for three different concerns:
 
 - the Respondent Ledger spec's Profile A/B/C (privacy × identity × integrity-anchoring posture),
 - the legacy core draft's seven profiles (Core / Offline / Reader-Held / Delegated-Compute / Disclosure / User-Held / Respondent-History),
@@ -1093,19 +1267,21 @@ These are three orthogonal concerns and MUST NOT share a namespace.
 
 - The Respondent Ledger spec unambiguously owns **"Profile A/B/C"** for posture axes (privacy tier × identity binding × integrity anchoring). Its definitions (Respondent Ledger §15A) are cited here; Trellis does not redefine them.
 - The legacy core draft's profiles are renamed **"Conformance Classes"** (what they semantically are). This document defines them in §2.1.
-- The legacy companion draft's profiles are renamed **"Custody Models"**. Their definitions move to the Operational Companion; the Trellis vocabulary enumerates four models (see below) and leaves substantive semantics to the companion.
+- The legacy companion draft's profiles are renamed **"Custody Models"**. Their definitions move to the Operational Companion; Core only cites the identifier namespace.
 - Trellis capability tiers use **phase names** — "attested-export tier" (Phase 1), "runtime-integrity tier" (Phase 2), "portable-case tier" (Phase 3), "federated tier" (Phase 4) — not letters.
 
 ### 21.3 Custody models enumerated
 
-Phase 1 recognizes the following custody models as values in the Custody Models registry (§26.3). Each identifier is a text string; semantics are the province of the Operational Companion.
+Phase 1 recognizes the following custody-model identifiers as values in the Custody Models registry (§26.3). Each identifier is a text string; semantics are defined by the Operational Companion §9.
 
-- `provider-readable` — the service operator holds decryption capability in ordinary operation.
-- `reader-held` — the subject or a subject-designated reader holds decryption capability; the operator does not.
-- `reader-held-with-recovery` — subject-held by default; a declared recovery authority may assist under declared conditions.
-- `threshold` — decryption requires cooperation by multiple independent custodians (N-of-M).
+- `CM-A` — Provider-readable.
+- `CM-B` — Reader-held with recovery.
+- `CM-C` — Delegated compute.
+- `CM-D` — Threshold or quorum custody.
+- `CM-E` — Organizational trust.
+- `CM-F` — Client-origin sovereign / respondent-held custody.
 
-Phase 2+ MAY register additional models (for example, `organizational`, `client-origin-sovereign`). Registration is append-only; semantics do not change after registration.
+Phase 2+ MAY register additional models. Registration is append-only; semantics do not change after registration.
 
 ### 21.4 Scope distinction: event / response ledger / case ledger / agency log / federation log
 
@@ -1207,11 +1383,11 @@ An agency-log entry is itself a Trellis event (§6) with:
 - payload referencing the case-ledger head by digest,
 - `commitments` (or header fields in Phase 3's declared construction) binding the case-scope metadata, the case-ledger's `tree_head_hash`, and optional witness cosignatures.
 
-Agency-log heads are Trellis checkpoints (§11) at Phase 3's head format version (superset of Phase 1's, per §18.7).
+Agency-log heads are Trellis checkpoints (§11) at Phase 3's head format version. They preserve the Phase 1 checkpoint payload and carry Phase 3 additions in `CheckpointPayload.extensions`, per §11.6 and §18.7.
 
 ### 24.2 Phase 1 preservation obligation
 
-Phase 1 MUST reserve head-format extension points that Phase 3 populates. The following Phase 3 fields extend the Phase 1 `Checkpoint` shape; a Phase 1 producer MUST NOT emit them, and a Phase 1 verifier MUST NOT reject a later-version checkpoint solely because they are present (§18.7):
+Phase 1 MUST reserve head-format extension points that Phase 3 populates. The following Phase 3 fields extend the Phase 1 `CheckpointPayload` only inside `extensions`; a Phase 1 producer MUST NOT emit them, and a Phase 1 verifier MUST preserve and ignore them if encountered in a later-version head (§11.6, §18.7):
 
 - `composed_response_heads: [* digest]` — references to sealed response-ledger heads composed into this case-ledger head.
 - `case_scope_metadata: CaseScope` — arrival metadata (case ID, agency, adjudication phase).
@@ -1243,7 +1419,7 @@ The envelope carries structural fields in plaintext (§12.2). An observer who se
 
 - event type (limited by the outcome-neutral granularity rule, §12.4),
 - timing (at `authored_at` granularity, which MAY be coarsened by the Operational Companion),
-- `signing_kid` (which identifies the signer cohort but not, without correlation, the signer),
+- COSE protected-header `kid` (which identifies the signer cohort but not, without correlation, the signer),
 - ledger scope identifier (which may identify a case, a workflow, an agency),
 - append-head position (which leaks cohort size for the scope).
 
@@ -1255,11 +1431,11 @@ A service presenting different signed tree heads for the same scope to different
 
 ### 25.4 Side channels
 
-Timing, access pattern, and inclusion-proof request patterns reveal information beyond what is in the envelope. Phase 1 does not mandate oblivious retrieval; deployments that require it declare so in their Trust Profile.
+Timing, access pattern, and inclusion-proof request patterns reveal information beyond what is in the envelope. Phase 1 does not mandate oblivious retrieval; deployments that require it declare so in their Posture Declaration and Operational Companion custody model.
 
 ### 25.5 Replay
 
-`idempotency_key` (§17) prevents replay-as-duplicate. Replay-as-resubmission (a Fact Producer resubmits an event with the same key to force a retry) is handled by §17.3. Replay of an event from one ledger into another is prevented by the per-scope `prev_hash` chain: an event's canonical event hash includes its full header, and the predecessor chain does not reproduce across scopes.
+`idempotency_key` (§17) prevents replay-as-duplicate. Replay-as-resubmission (a Fact Producer resubmits an event with the same key to force a retry) is handled by §17.3. Replay of an event from one ledger into another is prevented by the signed `ledger_scope`, the per-scope `prev_hash` chain, and the canonical event hash preimage (§9.2): an event hash includes the ledger scope, and the predecessor chain does not reproduce across scopes.
 
 ### 25.6 Key compromise
 
@@ -1279,7 +1455,7 @@ Destroying the per-subject DEK erases plaintext locally. If the ciphertext has b
 
 ### 26.1 Content type
 
-This specification requests registration of the media type `application/trellis-export+zip` for Phase 1 export packages. File extension: `.ztrellis` or `.zip`. Packages internally identify themselves via `manifest.cbor` format field (`"trellis-export/1"`).
+This specification requests registration of the media type `application/trellis-export+zip` for Phase 1 export packages. File extension: `.ztrellis` or `.zip`. Packages internally identify themselves via the `000-manifest.cbor` payload format field (`"trellis-export/1"`).
 
 ### 26.2 `suite_id` registry
 
@@ -1350,9 +1526,11 @@ timestamp  = uint               ; Unix seconds UTC
 
 ; --- Event ------------------------------------------------------------
 
-Event = {
+Event = COSESign1Bytes
+
+EventPayload = {
   version:           uint .size 1,
-  suite_id:          suite_id,
+  ledger_scope:      bstr,
   sequence:          uint,
   prev_hash:         digest / null,
   causal_deps:       [* digest] / null,
@@ -1360,15 +1538,14 @@ Event = {
   content_hash:      digest,
   header:            EventHeader,
   commitments:       [* Commitment] / null,
-  ciphertext_ref:    bstr,
+  payload_ref:       PayloadRef,
   key_bag:           KeyBag,
   idempotency_key:   bstr .size (1..64),
-  signature:         COSESign1Bytes,
+  extensions:        { * tstr => any } / null,
 }
 
 EventHeader = {
   event_type:             bstr,
-  signing_kid:            kid,
   authored_at:            timestamp,
   retention_tier:         uint .size 1,
   classification:         bstr,
@@ -1378,6 +1555,34 @@ EventHeader = {
   witness_ref:            bstr / null,
   extensions:             { * tstr => any } / null,
 }
+
+CheckpointHashPreimage = {
+  version:            uint .size 1,
+  scope:              bstr,
+  checkpoint_payload: CheckpointPayload,
+}
+
+PayloadRef = PayloadInline / PayloadExternal
+
+PayloadInline = {
+  ref_type:   "inline",
+  ciphertext: bstr,
+  nonce:      bstr,
+}
+
+PayloadExternal = {
+  ref_type:       "external",
+  content_hash:   digest,
+  availability:   AvailabilityHint,
+  retrieval_hint: tstr / null,
+}
+
+AvailabilityHint = &(
+  InExport:    0,
+  External:    1,
+  Withheld:    2,
+  Unavailable: 3,
+)
 
 Commitment = {
   scheme:   uint,
@@ -1399,7 +1604,29 @@ KeyBagEntry = {
 
 ; --- Signature --------------------------------------------------------
 
-COSESign1Bytes = bstr   ; RFC 9052 COSE_Sign1 tagged CBOR value as bytes
+COSESign1Bytes = bstr   ; RFC 9052 COSE_Sign1 tagged CBOR value as bytes.
+                       ; Protected headers carry alg, kid, suite_id.
+
+CanonicalEventHashPreimage = {
+  version:       uint .size 1,
+  ledger_scope:  bstr,
+  event_payload: EventPayload,
+}
+
+AuthorEventHashPreimage = {
+  version:         uint .size 1,
+  ledger_scope:    bstr,
+  sequence:        uint,
+  prev_hash:       digest / null,
+  causal_deps:     [* digest] / null,
+  content_hash:    digest,
+  header:          EventHeader,
+  commitments:     [* Commitment] / null,
+  payload_ref:     PayloadRef,
+  key_bag:         KeyBag,
+  idempotency_key: bstr .size (1..64),
+  extensions:      { * tstr => any } / null,
+}
 
 ; --- Signing-Key Registry --------------------------------------------
 
@@ -1433,16 +1660,17 @@ LedgerServiceWrapEntry = {
 
 ; --- Checkpoint -------------------------------------------------------
 
-Checkpoint = {
+Checkpoint = COSESign1Bytes
+
+CheckpointPayload = {
   version:                uint .size 1,
-  suite_id:               suite_id,
   scope:                  bstr,
   tree_size:              uint,
   tree_head_hash:         digest,
   timestamp:              timestamp,
   anchor_ref:             bstr / null,
   prev_checkpoint_hash:   digest / null,
-  signature:              COSESign1Bytes,
+  extensions:             { * tstr => any } / null,
 }
 
 InclusionProof = {
@@ -1460,8 +1688,11 @@ ConsistencyProof = {
 
 ; --- Export Manifest --------------------------------------------------
 
-ExportManifest = {
+SignedExportManifest = COSESign1Bytes
+
+ExportManifestPayload = {
   format:                      tstr,         ; "trellis-export/1"
+  version:                     uint .size 1,
   generator:                   tstr,
   generated_at:                timestamp,
   scope:                       bstr,
@@ -1477,7 +1708,19 @@ ExportManifest = {
   external_anchors:            [* ExternalAnchor],
   posture_declaration:         PostureDeclaration,
   head_format_version:         uint,
-  manifest_signature:          COSESign1Bytes,
+  omitted_payload_checks:      [* OmittedPayloadCheck],
+  extensions:                  { * tstr => any } / null,
+}
+
+ExportManifestHashPreimage = {
+  version:          uint .size 1,
+  scope:            bstr,
+  manifest_payload: ExportManifestPayload,
+}
+
+OmittedPayloadCheck = {
+  content_hash: digest,
+  reason:       tstr,
 }
 
 RegistryBinding = {
@@ -1514,6 +1757,23 @@ Watermark = {
   built_at:        timestamp,
   rebuild_path:    tstr,
 }
+
+VerificationReport = {
+  structure_verified:     bool,
+  integrity_verified:     bool,
+  readability_verified:   bool,
+  event_failures:         [* VerificationFailure],
+  checkpoint_failures:    [* VerificationFailure],
+  proof_failures:         [* VerificationFailure],
+  omitted_payload_checks: [* OmittedPayloadCheck],
+  warnings:               [* tstr],
+}
+
+VerificationFailure = {
+  location: tstr,
+  code:     tstr,
+  detail:   tstr,
+}
 ```
 
 ---
@@ -1526,12 +1786,12 @@ Watermark = {
 
 A Formspec `session.started` event, the first in a response ledger. Values are schematic: digest bytes truncated to `01 02 03 …` placeholders; real fixtures will use actual cryptographic outputs.
 
-Decoded dCBOR structure:
+Decoded COSE payload structure:
 
 ```
-Event {
+EventPayload {
   version: 1,
-  suite_id: 1,                             ; Ed25519 / COSE_Sign1
+  ledger_scope: h'7265732d303030303031',   ; "res-000001"
   sequence: 0,
   prev_hash: null,
   causal_deps: null,
@@ -1539,7 +1799,6 @@ Event {
   content_hash: h'02020202...32bytes',     ; SHA-256 over ciphertext
   header: {
     event_type: h'666f726d737065632e617574686f726564', ; "formspec.authored" bytes
-    signing_kid: h'deadbeef...16bytes',
     authored_at: 1744963200,               ; 2026-04-18T00:00:00Z
     retention_tier: 1,
     classification: h'7075626c6963',       ; "public"
@@ -1550,7 +1809,11 @@ Event {
     extensions: null
   },
   commitments: null,
-  ciphertext_ref: h'baadf00d...N-bytes',
+  payload_ref: {
+    ref_type: "inline",
+    ciphertext: h'baadf00d...N-bytes',
+    nonce: h'06060606...12bytes'
+  },
   key_bag: {
     entries: [
       {
@@ -1562,18 +1825,20 @@ Event {
     ]
   },
   idempotency_key: h'0189b2c0...16bytes',  ; UUIDv7
-  signature: h'<64-byte COSE_Sign1 signature>'
+  extensions: null
 }
 ```
 
-Hex dump of dCBOR serialization (first 64 bytes shown schematic):
+The wire event is a COSE_Sign1 value whose protected header includes `alg = -8`, `kid = h'deadbeef...16bytes'`, and `suite_id = 1`, and whose payload is the dCBOR bytes above.
+
+Hex dump of the EventPayload dCBOR serialization (first bytes shown schematic):
 
 ```
-a9                           ; map(9) — the Event map
+aD                           ; map(13) — the EventPayload map
   67 76 65 72 73 69 6f 6e    ; "version"
   01                          ; 1
-  68 73 75 69 74 65 5f 69 64 ; "suite_id"
-  01                          ; 1
+  6c 6c 65 64 67 65 72 ...    ; "ledger_scope"
+  4a 72 65 73 2d ...          ; h'res-...'
   68 73 65 71 75 65 6e 63 65 ; "sequence"
   00                          ; 0
   ...                        ; remaining fields in lexicographic key order
@@ -1584,24 +1849,26 @@ a9                           ; map(9) — the Event map
 ### 29.2 A signed checkpoint
 
 ```
-Checkpoint {
+CheckpointPayload {
   version: 1,
-  suite_id: 1,
   scope: h'7265732d303030303031',          ; "res-000001"
   tree_size: 7,
   tree_head_hash: h'aabbccdd...32bytes',
   timestamp: 1744974000,
   anchor_ref: null,
   prev_checkpoint_hash: null,              ; first checkpoint of the scope
-  signature: h'<64-byte signature>'
+  extensions: null
 }
 ```
+
+The wire checkpoint is a COSE_Sign1 value over this payload with protected-header `alg`, `kid`, and `suite_id`.
 
 ### 29.3 Export manifest
 
 ```
-ExportManifest {
+ExportManifestPayload {
   format: "trellis-export/1",
+  version: 1,
   generator: "trellis-cli/0.1.0",
   generated_at: 1744974100,
   scope: h'7265732d303030303031',
@@ -1629,12 +1896,15 @@ ExportManifest {
     external_anchor_required: false,
     external_anchor_name: null,
     recovery_without_user: false,
-    metadata_leakage_summary: "Envelope reveals event_type, authored_at (1s granularity), retention_tier, classification, signing_kid. Outcome, subject, and tags are committed, not plaintext."
+    metadata_leakage_summary: "Envelope reveals event_type, authored_at (1s granularity), retention_tier, classification, and protected-header kid. Outcome, subject, and tags are committed, not plaintext."
   },
   head_format_version: 1,
-  manifest_signature: h'<64-byte signature>'
+  omitted_payload_checks: [],
+  extensions: null
 }
 ```
+
+The wire `000-manifest.cbor` member is a COSE_Sign1 value over this payload with protected-header `alg`, `kid`, and `suite_id`.
 
 ### 29.4 Worked verification trace
 
@@ -1642,10 +1912,10 @@ Given `trellis-export-res-000001-7-ffeeddcc.zip` (the export of §29.1–29.3), 
 
 ```
 1. Open ZIP. Layout deterministic? yes.
-2. Read manifest.cbor. Verify manifest_signature ⇒ valid.
+2. Read 000-manifest.cbor. Verify COSE_Sign1 ⇒ valid.
 3. Check archive digests:
-     SHA-256(events.cbor)       = manifest.events_digest        ✓
-     SHA-256(checkpoints.cbor)  = manifest.checkpoints_digest   ✓
+     SHA-256(010-events.cbor)       = manifest.events_digest        ✓
+     SHA-256(040-checkpoints.cbor)  = manifest.checkpoints_digest   ✓
      (etc.)
 4. For each event e_0..e_6:
      verify signature          ✓
@@ -1666,7 +1936,7 @@ Given `trellis-export-res-000001-7-ffeeddcc.zip` (the export of §29.1–29.3), 
 9. Return (true, report with 0 failures).
 ```
 
-A tamper fixture `fixtures/vectors/tamper/005-flipped-byte-in-event-3.zip` modifies one byte of `events[3].ciphertext_ref`. On re-run:
+A tamper fixture `fixtures/vectors/tamper/005-flipped-byte-in-event-3.zip` modifies one byte of `events[3].payload_ref.ciphertext`. On re-run:
 
 ```
 4. Event e_3: content_hash mismatch ⇒ report.event_failures[3] = content_hash_mismatch
@@ -1681,9 +1951,31 @@ The report localizes the tamper to sequence 3 and to the ciphertext field specif
 
 ---
 
-## 30. References
+## 30. Traceability Anchors
 
-### 30.1 Normative references
+This non-normative section anchors the traceability matrix rows that correspond to Core obligations. The prose in §§1–29 is normative; `TR-CORE-*` rows in `trellis-requirements-matrix.md` are traceability aids and must be corrected if they conflict with this document.
+
+Core traceability rows:
+
+- TR-CORE-001, TR-CORE-002, TR-CORE-003, TR-CORE-004, TR-CORE-005, TR-CORE-006, TR-CORE-007
+- TR-CORE-010, TR-CORE-011, TR-CORE-012, TR-CORE-013, TR-CORE-014, TR-CORE-015, TR-CORE-016, TR-CORE-017
+- TR-CORE-020, TR-CORE-021, TR-CORE-022, TR-CORE-023, TR-CORE-024, TR-CORE-025
+- TR-CORE-030, TR-CORE-031, TR-CORE-032, TR-CORE-035, TR-CORE-036, TR-CORE-037, TR-CORE-038
+- TR-CORE-040, TR-CORE-041, TR-CORE-042, TR-CORE-043, TR-CORE-044, TR-CORE-045, TR-CORE-046
+- TR-CORE-050, TR-CORE-051, TR-CORE-052, TR-CORE-053
+- TR-CORE-060, TR-CORE-061, TR-CORE-062, TR-CORE-063, TR-CORE-064, TR-CORE-065, TR-CORE-066, TR-CORE-067
+- TR-CORE-070, TR-CORE-071, TR-CORE-072
+- TR-CORE-080, TR-CORE-081, TR-CORE-082
+- TR-CORE-090, TR-CORE-091
+- TR-CORE-100, TR-CORE-101, TR-CORE-102, TR-CORE-103
+- TR-CORE-110, TR-CORE-111, TR-CORE-112, TR-CORE-113
+- TR-CORE-120, TR-CORE-121, TR-CORE-122, TR-CORE-123, TR-CORE-124, TR-CORE-125, TR-CORE-126
+- TR-CORE-130, TR-CORE-131, TR-CORE-132, TR-CORE-133, TR-CORE-134
+- TR-CORE-140, TR-CORE-141, TR-CORE-142, TR-CORE-143
+
+## 31. References
+
+### 31.1 Normative references
 
 - **[RFC 2119]** Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997.
 - **[RFC 8174]** Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words", BCP 14, RFC 8174, May 2017.
@@ -1699,10 +1991,10 @@ The report localizes the tamper to sequence 3 and to the ciphertext field specif
 - **[Formspec Respondent Ledger]** Formspec Working Group, "Formspec Respondent Ledger Specification v0.1" (`specs/audit/respondent-ledger-spec.md`). Cited at §§22.2–22.5 for event and checkpoint binding.
 - **[WOS Kernel]** WOS Working Group, "WOS Kernel Specification v1.0". Cited at §§23.1–23.4 for `custodyHook` binding.
 
-### 30.2 Informative references
+### 31.2 Informative references
 
 - **[FIPS 204]** NIST, "Module-Lattice-Based Digital Signature Standard (ML-DSA)", FIPS 204, August 2024. Reserved for Phase 2+ post-quantum `suite_id`.
 - **[FIPS 205]** NIST, "Stateless Hash-Based Digital Signature Standard (SLH-DSA)", FIPS 205, August 2024. Reserved for Phase 2+ post-quantum `suite_id`.
 - **[WOS Assurance]** WOS Working Group, "WOS Assurance Specification". Referenced for legal-sufficiency disclosure obligations (§20.4).
-- **Trellis Operational Companion (Phase 2)** — forthcoming. Projection and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, trust-profile transition auditability, snapshot watermarks, rebuild semantics.
+- **Trellis Operational Companion (Phase 2)** — separate normative document for projection and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, posture-transition auditability, snapshot watermarks, and rebuild semantics.
 - **Formspec/WOS/Trellis Product Vision** — `thoughts/product-vision.md`, 2026-04-17. Phase roadmap and Phase 1 envelope invariants #1–#15.

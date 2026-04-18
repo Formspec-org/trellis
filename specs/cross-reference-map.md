@@ -11,8 +11,8 @@ This map records the upstream home for every concept removed from Trellis specs 
 | ULCR ID | Concept | New home |
 |---|---|---|
 | ULCR-063 | Disclosure posture vs assurance level taxonomy (MUST distinguish; MUST NOT require identity disclosure for higher assurance; MAY support subject continuity) | [WOS Assurance §2 assurance taxonomy], [WOS Assurance §4 Invariant 6], [WOS Assurance §3 subject continuity], [Formspec Respondent Ledger §6.6.1 assuranceLevel], [Formspec Respondent Ledger §6.6A Subject Continuity] |
-| ULCR-080 | User-Held Record Reuse Profile (reusable prior records, binding reused content into canonical truth) | [Formspec Respondent Ledger §6.6A, §6.7] |
-| ULCR-081 | Respondent History Profile (respondent-originated/visible history, timelines as derived artifacts) | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCR-080 | User-held record reuse capability (reusable prior records, binding reused content into canonical truth) | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCR-081 | Respondent history capability (respondent-originated/visible history, timelines as derived artifacts) | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCR-091 | Cryptographic lifecycle facts — RESCOPED: narrowed to ledger-specific cryptographic operations (key destruction, export issuance). Generic lifecycle operations (retention, legal hold, archival, sealing, schema upgrade) delegated upstream. | [WOS Governance §2.9 Schema Upgrade], [WOS Governance §7.15 Legal Hold] |
 | ULCR-112 | Legacy Invariant 6 — Disclosure posture and assurance posture MUST remain distinct and MUST NOT be conflated | [WOS Assurance §4 Invariant 6] |
 
@@ -37,8 +37,8 @@ This map records the upstream home for every concept removed from Trellis specs 
 | ULCOMP-R-081 | Respondent history materiality — MUST prioritize material state changes over UI telemetry | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-082 | Respondent history materiality — MUST NOT require ephemeral interface event capture | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-083 | Respondent history materiality — SHOULD expose validation/submission/amendment boundaries | [Formspec Respondent Ledger §6.6A, §6.7] |
-| ULCOMP-R-084 | Respondent history materiality — MAY define profile-specific change-set semantics | [Formspec Respondent Ledger §6.6A, §6.7] |
-| ULCOMP-R-085 | Respondent history export — MAY present profile-specific timeline/delta | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCOMP-R-084 | Respondent history materiality — MAY define scoped change-set semantics | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCOMP-R-085 | Respondent history export — MAY present scoped timeline/delta | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-086 | Respondent history export — MUST preserve provenance distinctions | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-087 | Respondent history export — MUST NOT imply broader coverage than scope | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-135 | Identity & attestation — SHOULD represent provider-neutrally where feasible | [WOS Assurance §3 identity/attestation semantics] |
@@ -60,7 +60,7 @@ This map records the upstream home for every concept removed from Trellis specs 
 | ULCOMP-R-184 | Forms sidecar — amendment-cycle semantics | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-185 | Forms sidecar — migration outcome semantics | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-186 | Forms sidecar — change-set semantics | [Formspec Respondent Ledger §6.6A, §6.7] |
-| ULCOMP-R-187 | Forms sidecar — history moments reproducible from canonical/profile material | [Formspec Respondent Ledger §6.6A, §6.7] |
+| ULCOMP-R-187 | Forms sidecar — history moments reproducible from canonical/scoped material | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-188 | Forms sidecar — respondent export views remain derived/disclosure-oriented | [Formspec Respondent Ledger §6.6A, §6.7] |
 | ULCOMP-R-189 | Workflow sidecar — workflow mapping distinctions (operational vs canonical) | [WOS Governance §§3–4, §8, §11 — due process, review protocols, rejection/remediation, delegation] |
 | ULCOMP-R-190 | Workflow sidecar — governance fact-family canonical-vs-operational classification | [WOS Governance §§3–4, §8, §11] |
@@ -83,12 +83,12 @@ This map records the upstream home for every concept removed from Trellis specs 
 | Legal-sufficiency disclaimer | [WOS Assurance §6] and [Formspec Respondent Ledger §2.4] |
 | Authored signature semantics | [Formspec Respondent Ledger §6.8] |
 | Disclosure posture enumeration (anonymous/pseudonymous/identified/public) | [Formspec Respondent Ledger §6.6 `privacyTier`] |
-| Trust Profile seam | [WOS Kernel §10.5 `custodyHook`] — delegates object definition to [`trellis/specs/trust/trust-profiles.md`] |
+| Posture Declaration seam | [WOS Kernel §10.5 `custodyHook`] — delegates custody and posture object definition to [Trellis Operational Companion §9 and §11] |
 | Generic lifecycle ops (retention, hold, archival, sealing, schema-upgrade) | [WOS Governance §2.9, §7.15] |
 | Schema upgrade as lifecycle operation | [WOS Governance §2.9] |
 | Legal hold as distinct hold type | [WOS Governance §7.15] |
 | Quorum-based delegation (N-of-M authorization) | [WOS Governance §4.9] |
-| Respondent history profile | [Formspec Respondent Ledger §6.6A, §6.7] |
+| Respondent history capability | [Formspec Respondent Ledger §6.6A, §6.7] |
 | User-held record reuse | [Formspec Respondent Ledger §6.6A, §6.7] |
 | Version-pinned Response validation | [Formspec Core §6 VP-01, VP-02] |
 

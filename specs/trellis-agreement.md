@@ -1,13 +1,13 @@
 # Trellis Agreement Document
 
-**Status:** Track A, step 1 — decision gate
+**Status:** Non-normative Track A decision gate
 **Date:** 2026-04-17
 **Owner:** product strategy
 **Derived from:** `thoughts/product-vision.md` (synthesized vision and roadmap)
 
-This document is a ≤5-page gate, not a specification. It names scope, primitives, non-goals, seams, and invariants precisely enough that a sign-off either authorizes further Track A work or blocks it. Every claim here is derivable from the product vision; nothing new is introduced.
+This document is a <=5-page gate, not an implementor-conformance specification. It names scope, primitives, non-goals, seams, and invariants precisely enough that a sign-off either authorizes further Track A work or blocks it. Every claim here is derivable from the product vision; nothing new is introduced.
 
-The key words **MUST**, **MUST NOT**, **SHALL**, **SHOULD**, and **MAY** in this document are to be interpreted as described in RFC 2119.
+The key words **MUST**, **MUST NOT**, **SHALL**, **SHOULD**, and **MAY** in this document are approval gates for the organization adopting Trellis. Implementor conformance obligations live in Trellis Core and the Trellis Operational Companion.
 
 ---
 
@@ -71,7 +71,7 @@ Implementations **MUST NOT** describe their trust posture more strongly than the
 
 ## 5. Phase 1 non-negotiable invariants
 
-These fifteen decisions **MUST** land in the first envelope format and its manifest. Each is cheap to include now and requires a wire-format break to retrofit. If any cannot be committed, this document is not ready to sign. The normative prose lives in the Core spec; the one-line essence is the gate.
+These fifteen decisions **MUST** land in the first envelope format and its manifest. Each is cheap to include now and requires a wire-format break to retrofit. If any cannot be committed, this document is not ready to sign. The normative prose lives in Trellis Core; the one-line essence is the gate.
 
 1. **Canonical CBOR profile pinned** — the spec **MUST** name one deterministic encoding (dCBOR or a named equivalent) so byte-exact vectors are meaningful.
 2. **Signature suite identified, not assumed** — every signed artifact **MUST** carry a `suite_id`; Phase 1 names the suite (e.g. Ed25519/COSE_Sign1) and reserves space for hybrid and PQ suites.
@@ -119,8 +119,8 @@ Two W3C-style specs, not one, not eight.
 
 | Artifact | Phase | Size | Contents |
 |---|---|---|---|
-| **Trellis Core** | Phase 1 | ~30–40 pp | envelope format, canonical CBOR, hash construction, signature profile, chain construction, checkpoint format, export package layout, verification algorithm, verification-independence contract, append idempotency contract, security and privacy considerations, composition with Respondent Ledger and `custodyHook` |
-| **Trellis Operational Companion** | Phase 2 | ~30–50 pp | projections and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, trust-profile transition auditability, snapshot watermarks, rebuild semantics |
+| **Trellis Core** | Phase 1 | ~30-40 pp | envelope format, canonical CBOR, hash construction, signature profile, chain construction, checkpoint format, export package layout, verification algorithm, verification-independence contract, append idempotency contract, security and privacy considerations, composition with Respondent Ledger and `custodyHook` |
+| **Trellis Operational Companion** | Phase 2 | ~30-50 pp | projections and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, posture-transition auditability, snapshot watermarks, rebuild semantics |
 
 Plus:
 
@@ -146,7 +146,7 @@ Explicitly deferred, with named seams but no implementation:
 
 ## 10. Success gate
 
-**A stranger reads the three spec documents, writes conformant implementations of each in their preferred language, and passes every conformance vector.**
+**A stranger reads this agreement plus the two normative specs, writes conformant implementations of Core append, verify, and export behavior in their preferred language, and passes every conformance vector.**
 
 No other test matters more. Not ratification checklists, not constitutional hierarchies, not requirements matrices. Can a stranger build it, and does it interop.
 

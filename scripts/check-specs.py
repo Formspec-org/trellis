@@ -16,6 +16,7 @@ TOP_LEVEL_SPECS = [
     SPECS / "trellis-core.md",
     SPECS / "trellis-operational-companion.md",
     SPECS / "trellis-requirements-matrix.md",
+    SPECS / "cross-reference-map.md",
     SPECS / "README.md",
 ]
 
@@ -24,14 +25,19 @@ FORBIDDEN_PATTERNS = [
     (re.compile(r"zeroed to (?:a )?fixed-length", re.IGNORECASE), "custom signature zero-fill prose"),
     (re.compile(r"JSON Canonicalization Scheme|RFC 8785", re.IGNORECASE), "JCS canonicalization reference"),
     (re.compile(r"Trellis Core v0\.1"), "stale Core version"),
+    (re.compile(r"Trellis Operational Companion v0\.1|Operational Companion v0\.1"), "stale Companion version"),
     (re.compile(r"\bforthcoming\b", re.IGNORECASE), "forthcoming companion language"),
     (re.compile(r"three spec documents", re.IGNORECASE), "old document-count language"),
     (re.compile(r"specs/(?:core|trust|export|projection|operations|forms|workflow|assurance)/"), "unarchived superseded spec path"),
 ]
 
 PROFILE_ALLOWED_CONTEXT = re.compile(
-    r"Profile A/B/C|Profile [A-F]|Profile-Namespace|legacy .*Profile|formerly \"Profile|"
-    r"renamed \"Conformance Classes\"|profile identifier",
+    r"Profile A/B/C|Profile [A-F]|Profile-Namespace|Profile\" namespace|"
+    r"Canonical CBOR profile|CBOR profile|encoding profile|signature profile|signing profile|"
+    r"Core profile|Offline profile|Reader-Held profile|Delegated-Compute profile|"
+    r"Disclosure profile|User-Held profile|Respondent-History profile|"
+    r"legacy .*Profile|formerly \"Profile|renamed \"Conformance Classes\"|not profiles|profile\" letter|profile letter|"
+    r"profile identifier",
     re.IGNORECASE,
 )
 
@@ -107,6 +113,16 @@ def check_requirement_ids(errors: list[str]) -> None:
                 errors.append(f"{path.relative_to(ROOT)}:{line_for(text, match.start())}: unknown {requirement_id}")
 
 
+def check_traceability_anchors(errors: list[str]) -> None:
+    core_text = read(SPECS / "trellis-core.md")
+    companion_text = read(SPECS / "trellis-operational-companion.md")
+    for requirement_id in matrix_ids():
+        if requirement_id.startswith("TR-CORE-") and requirement_id not in core_text:
+            errors.append(f"specs/trellis-core.md: missing prose anchor for {requirement_id}")
+        if requirement_id.startswith("TR-OP-") and requirement_id not in companion_text:
+            errors.append(f"specs/trellis-operational-companion.md: missing prose anchor for {requirement_id}")
+
+
 def check_bare_profile(errors: list[str]) -> None:
     for path in TOP_LEVEL_SPECS:
         text = read(path)
@@ -135,6 +151,7 @@ def main() -> int:
     check_forbidden_terms(errors)
     check_core_section_references(errors)
     check_requirement_ids(errors)
+    check_traceability_anchors(errors)
     check_bare_profile(errors)
     check_archived_inputs(errors)
 

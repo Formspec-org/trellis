@@ -1,6 +1,6 @@
 ---
 title: Trellis Operational Companion
-version: 0.1.0-draft.1
+version: 1.0.0-draft.1
 date: 2026-04-17
 status: draft
 phase: 2
@@ -9,10 +9,10 @@ companion-to: trellis-core.md
 
 # Trellis Operational Companion
 
-**Version:** 0.1.0-draft.1
+**Version:** 1.0.0-draft.1
 **Date:** 2026-04-17
 **Editors:** Formspec Working Group
-**Companion to:** Trellis Core v0.1
+**Companion to:** Trellis Core v1.0.0-draft.1
 **Phase:** 2 (Runtime-time integrity)
 
 ---
@@ -64,13 +64,13 @@ Trellis Core and this companion divide the Trellis specification surface along a
 
 - what an operator MUST declare about its posture and metadata leakage,
 - which deployment postures ("custody models") are recognized and what each requires,
-- how trust-profile transitions are recorded as canonical events,
+- how posture transitions are recorded as canonical events,
 - how redaction-aware commitment slots are populated, and how disclosure manifests are assembled,
 - derived-artifact discipline (watermarks, rebuild, staleness, purge-cascade),
 - projection runtime rules and integrity policy,
 - snapshot-from-day-one requirements,
 - staff-view integrity,
-- the **operational** append-idempotency contract layered on Core's byte contract (retry budgets, TTL, dedup store lifecycle, replay-observable semantics for callers),
+- the **operational** append-idempotency contract layered on Core's byte contract (retry budgets, API retry windows, dedup store lifecycle, replay-observable semantics for callers),
 - delegated-compute honesty, authority attestation, and audit obligations,
 - the lifecycle-and-erasure cascade across derived systems,
 - the rejection taxonomy and its observable semantics,
@@ -101,7 +101,7 @@ Trellis Core and this companion divide the Trellis specification surface along a
 
 8. Access Taxonomy
 9. Custody Models
-10. Trust-Profile Transition Auditability
+10. Posture-Transition Auditability
 11. Posture-Declaration Honesty
 12. Metadata Budget Discipline
 13. Selective Disclosure Discipline
@@ -174,7 +174,7 @@ This companion defines three tiers of operational maturity. Tiers are cumulative
 
 | Tier | Name | Summary |
 |---|---|---|
-| **OP-1** | **Operational Baseline** | Posture declaration published, custody model declared, trust-profile transitions recorded as canonical facts, operational append idempotency implemented, lifecycle and erasure cascade implemented, rejection taxonomy implemented, versioning obligations met. |
+| **OP-1** | **Operational Baseline** | Posture declaration published, custody model declared, posture transitions recorded as canonical facts, operational append idempotency implemented, lifecycle and erasure cascade implemented, rejection taxonomy implemented, versioning obligations met. |
 | **OP-2** | **Projection-Disciplined** | Every derived artifact carries a watermark; every projection is rebuildable; staff-view integrity obligations met; snapshot-from-day-one cadence met; integrity sampling policy declared and exercised. |
 | **OP-3** | **Sidecar-Integrated** | Respondent History sidecar bound to Formspec Respondent Ledger; Workflow Governance sidecar bound to WOS `custodyHook`; grants and revocations recorded as canonical facts with derived evaluators obeying §10 rebuild semantics. |
 
@@ -184,7 +184,7 @@ Phase 4 (Federation / Sovereign) adds a **OP-W** tier covering monitoring and wi
 
 This companion defines the following operational roles. An implementation MAY claim more than one; it MUST satisfy every obligation applicable to each claimed role.
 
-1. **Operator** — the party running a Trellis deployment. Publishes the posture declaration (§11), declares the custody model (§9), maintains the canonical append service (Core §7), and discharges every obligation in Parts I and III.
+1. **Operator** — the party running a Trellis deployment. Publishes the posture declaration (§11), declares the custody model (§9), maintains the canonical append service (Core §2 (Conformance)), and discharges every obligation in Parts I and III.
 2. **Projection Producer** — produces derived projections (§15). Obligations in Part II.
 3. **Authorization Evaluator** — a derived component that contributes to rights-impacting decisions (§14.6, §25).
 4. **Respondent History Producer** — produces a Respondent History sidecar (§23).
@@ -199,10 +199,10 @@ This companion defines the following operational roles. An implementation MAY cl
 
 Terms defined in Trellis Core govern where used; this section adds operational terms and restates a small number of Core terms where operational scope narrows them.
 
-- **Operator** — the administrative principal responsible for a Trellis deployment. An Operator runs a Canonical Append Service (Core §7), publishes a posture declaration (§11), and discharges the obligations in this companion.
+- **Operator** — the administrative principal responsible for a Trellis deployment. An Operator runs a Canonical Append Service (Core §2 (Conformance)), publishes a posture declaration (§11), and discharges the obligations in this companion.
 - **Posture Declaration** — the machine- and human-readable document an Operator MUST publish alongside each export bundle describing its access taxonomy, metadata budget, custody model, external-anchor dependencies, and crypto-shredding scope. See §11.
 - **Access Taxonomy** — the three-class partition of access to protected content: **provider-readable**, **reader-held**, **delegated-compute**. See §8.
-- **Custody Model** — a named operational posture that fixes which principals can decrypt current content, historical content, and assist recovery; whether delegated compute exposes plaintext to ordinary service runtime; who controls canonical append attestation; and who administers exceptional access. See §9. (Custody Models are this companion's term for what legacy drafts called "Trust Profiles A–E"; the rename resolves the invariant-#11 namespace collision with the Respondent Ledger's Profile A/B/C.)
+- **Custody Model** — a named operational posture that fixes which principals can decrypt current content, historical content, and assist recovery; whether delegated compute exposes plaintext to ordinary service runtime; who controls canonical append attestation; and who administers exceptional access. See §9. Custody Models are this companion's term for what legacy drafts called companion modes A-E; the rename resolves the invariant-#11 namespace collision with the Respondent Ledger's Profile A/B/C.
 - **Custody Hook** — the seam defined by WOS Kernel §10.5 through which a WOS runtime delegates custody of governance events to a ledger substrate. Trellis is the concrete implementation; see §24.
 - **Projection** — a derived artifact that presents canonical state to a consumer (staff, respondent, or system). Every projection is a derived artifact; the term is used where presentation semantics matter.
 - **Watermark** — metadata affixed to a derived artifact identifying the canonical state from which it was built. At minimum: `(tree_size, tree_head_hash)` per invariant #14. See §14.
@@ -214,7 +214,7 @@ Terms defined in Trellis Core govern where used; this section adds operational t
 - **Rights-Impacting Decision** — a decision that grants, denies, expands, contracts, delegates, or revokes access, authority, or capability. Authorization decisions are rights-impacting; routine read-model refreshes are not.
 - **Metadata Budget** — a declaration, per canonical fact family, of which metadata is visible to which observer classes under ordinary operation. See §12.
 - **Durable-Append Boundary** — the point at which a submitted append crosses from "accepted for processing" to "canonically admitted" in a way that binds attestation, retry handling, and export issuance. See §18.
-- **Disclosure Manifest** — the artifact that describes, for an export or audience-specific presentation, which fields are revealed, which are committed-only, and which are withheld, with proofs tied to redaction-aware commitment slots (Core §15). See §13.
+- **Disclosure Manifest** — the artifact that describes, for an export or audience-specific presentation, which fields are revealed, which are committed-only, and which are withheld, with proofs tied to redaction-aware commitment slots (Core §13 (Commitment Slots Reserved)). See §13.
 
 ---
 
@@ -229,7 +229,7 @@ Terms defined in Trellis Core govern where used; this section adds operational t
 Implementations handling protected content MUST distinguish the following three forms of access:
 
 1. **Provider-readable access.** The service operator or ordinary service-side components can decrypt protected content during ordinary operation. The operator does not require a user action to read plaintext; plaintext flows through ordinary service code paths.
-2. **Reader-held access.** An explicitly authorized human or tenant-side principal — not the service operator — holds decryption capability. The service runtime does not have general plaintext access for the content class. Decryption occurs under the reader's authority and is scoped by the Trust Profile.
+2. **Reader-held access.** An explicitly authorized human or tenant-side principal — not the service operator — holds decryption capability. The service runtime does not have general plaintext access for the content class. Decryption occurs under the reader's authority and is scoped by the Posture Declaration.
 3. **Delegated-compute access.** A specific compute agent or model is granted scoped decryption capability for a declared purpose — typically an AI agent acting on a respondent's or operator's behalf. Delegated compute is distinguished from both provider-readable and reader-held access; it grants *scoped* plaintext visibility without conferring *standing* plaintext access to the ordinary service runtime.
 
 ### 8.2 Mandatory Declaration
@@ -242,7 +242,7 @@ Implementations handling protected content MUST distinguish the following three 
 
 ### 8.4 Access-Class Inheritance
 
-Profiles, bindings, and sidecars inherit the access taxonomy of the active Custody Model (§9). A sidecar MUST NOT use sidecar-local wording to weaken the declared access class.
+Custody models, bindings, and sidecars inherit the access taxonomy of the active Custody Model (§9). A sidecar MUST NOT use sidecar-local wording to weaken the declared access class.
 
 ---
 
@@ -252,12 +252,12 @@ Profiles, bindings, and sidecars inherit the access taxonomy of the active Custo
 
 **Requirement class: Companion requirement.**
 
-A *Custody Model* is a named operational posture covering custody, readability, delegated-compute behavior, recovery, canonical-attestation control, and exceptional access. Custody Models replace the legacy draft term "Trust Profile A–E" to resolve the invariant-#11 namespace collision: the Formspec Respondent Ledger owns **Profile A/B/C** for respondent-side posture axes, and collapsing both into a single A–E naming confused three orthogonal concerns. In this companion:
+A *Custody Model* is a named operational posture covering custody, readability, delegated-compute behavior, recovery, canonical-attestation control, and exceptional access. Custody Models replace the legacy companion letters A-E to resolve the invariant-#11 namespace collision: the Formspec Respondent Ledger owns **Profile A/B/C** for respondent-side posture axes, and collapsing both into a single A-E naming confused three orthogonal concerns. In this companion:
 
 - "Custody Model" = operator-side custody posture (this §9).
-- "Trust Profile" = the declarative object of §11 (aligned with the Trust Profiles companion [Trust-Profiles]), which carries a Custody Model reference.
+- "Posture Declaration" = the declarative object of §11, which carries a Custody Model reference.
 - "Profile A/B/C" = Respondent Ledger posture axes (owned by Formspec; do not redefine here).
-- "Conformance Class" = Core byte-level profile (owned by Trellis Core; not a custody term).
+- "Conformance Class" = Core byte-level implementation class (owned by Trellis Core; not a custody term).
 
 ### 9.2 The Six Standard Custody Models
 
@@ -266,15 +266,15 @@ A *Custody Model* is a named operational posture covering custody, readability, 
 | Model | Short name | Access posture |
 |---|---|---|
 | **CM-A** | Provider-Readable Custodial | Provider-readable for current and historical content. |
-| **CM-B** | Reader-Held | Reader-held; ordinary operation not generally provider-readable. |
-| **CM-C** | Reader-Held with Recovery Assistance | Reader-held; a recovery authority may assist under declared conditions. |
-| **CM-D** | Reader-Held with Tenant-Operated Delegated Compute | Reader-held; delegated compute is tenant-operated or otherwise isolated from the ordinary service runtime. |
-| **CM-E** | Threshold-Assisted Custody | Decryption or recovery requires quorum cooperation across independent custodians. |
-| **CM-F** | Delegated Organizational Custody | An organization or tenant authority controls recovery and access posture. |
+| **CM-B** | Reader-Held with Recovery Assistance | Reader-held; a recovery authority may assist under declared conditions. |
+| **CM-C** | Delegated Compute | Delegated compute is permitted and must declare whether plaintext reaches provider-operated components. |
+| **CM-D** | Threshold-Assisted Custody | Decryption or recovery requires quorum cooperation across independent custodians. |
+| **CM-E** | Organizational Trust | An organization or tenant authority controls recovery and access posture. |
+| **CM-F** | Client-Origin Sovereign | Respondent/client-origin keys control ordinary decryption; operator recovery is absent unless separately declared. |
 
 ### 9.3 Required Fields per Model
 
-**OC-04 (MUST).** Each Custody Model declaration MUST include at least the following fields, drawn from the Trust Profile object semantics ([Trust-Profiles] §3):
+**OC-04 (MUST).** Each Custody Model declaration MUST include at least the following fields, drawn from the Posture Declaration semantics (§11):
 
 1. `custody_model_id` — one of `CM-A` … `CM-F`, or a registered extension.
 2. `current_content_decryptors` — who can decrypt current content.
@@ -282,7 +282,7 @@ A *Custody Model* is a named operational posture covering custody, readability, 
 4. `recovery_authorities` — who can assist recovery; empty if recovery-without-user is not supported.
 5. `recovery_conditions` — declared preconditions under which recovery may be invoked.
 6. `delegated_compute_posture` — whether delegated compute is permitted; if so, whether provider-operated, tenant-operated, client-side, or otherwise isolated; and whether delegated compute exposes plaintext to ordinary service components.
-7. `attestation_control_authorities` — who controls issuance of canonical append attestations (Core §7.5).
+7. `attestation_control_authorities` — who controls issuance of canonical append attestations (Core §11 (Checkpoint Format)).
 8. `exceptional_access_authorities` — actors who can invoke exceptional access, if any, and the governance under which they may do so.
 9. `metadata_budget_ref` — URI reference to the metadata budget declaration (§12).
 
@@ -290,15 +290,15 @@ A *Custody Model* is a named operational posture covering custody, readability, 
 
 **CM-A (MUST).** A deployment claiming CM-A MUST say so plainly and MUST NOT imply provider blindness. Delegated compute under CM-A is not confidentiality-improving because provider-readable operation already exists; the declaration MUST NOT describe delegated-compute under CM-A as increasing confidentiality.
 
-**CM-B (MUST).** A deployment claiming CM-B MUST identify which principals may decrypt within scope and MUST identify whether the provider can assist recovery (`recovery_authorities`). Reader-held access MUST NOT be described as provider-readable ordinary operation.
+**CM-B (MUST).** A deployment claiming CM-B MUST identify which principals may decrypt within scope and MUST identify who can assist recovery (`recovery_authorities`) and under what conditions. Reader-held access MUST NOT be described as provider-readable ordinary operation.
 
-**CM-C (MUST).** A deployment claiming CM-C MUST describe who can assist recovery and under what conditions. Recovery assistance does not by itself imply ordinary provider-readable operation; the declaration MUST preserve that distinction.
+**CM-C (MUST).** A deployment claiming CM-C MUST state whether plaintext becomes visible to any provider-operated component during delegation. If yes, the declaration MUST additionally describe the residual-plaintext lifecycle — how long plaintext persists, which derived artifacts capture it, and how those artifacts are purged when the delegation ends.
 
-**CM-D (MUST).** A deployment claiming CM-D MUST state whether plaintext becomes visible to any provider-operated component during delegation. If yes, the declaration MUST additionally describe the residual-plaintext lifecycle — how long plaintext persists, which derived artifacts capture it, and how those artifacts are purged when the delegation ends.
+**CM-D (MUST).** A deployment claiming CM-D MUST declare quorum thresholds, participant independence posture, and the exceptional-access process. Threshold participation MUST NOT be described more strongly than the actual recovery process supports; a single-party escape hatch invalidates a CM-D claim.
 
-**CM-E (MUST).** A deployment claiming CM-E MUST declare quorum thresholds, participant independence posture, and the exceptional-access process. Threshold participation MUST NOT be described more strongly than the actual recovery process supports; a single-party escape hatch invalidates a CM-E claim.
+**CM-E (MUST).** A deployment claiming CM-E MUST identify the scope of organizational authority and any exceptional-access controls. CM-E MUST still distinguish provider-readable access from organization-controlled access where they differ; an organization may control access policy without itself being provider-readable.
 
-**CM-F (MUST).** A deployment claiming CM-F MUST identify the scope of organizational authority and any exceptional-access controls. CM-F MUST still distinguish provider-readable access from organization-controlled access where they differ; an organization may control access policy without itself being provider-readable.
+**CM-F (MUST).** A deployment claiming CM-F MUST identify the client-origin key authority, the absence or presence of operator recovery, and the consequences of client key loss. CM-F MUST NOT imply legal or operational availability beyond what the key-custody design supports.
 
 ### 9.5 Combinations and Extensions
 
@@ -310,7 +310,7 @@ A *Custody Model* is a named operational posture covering custody, readability, 
 
 ---
 
-## 10. Trust-Profile Transition Auditability
+## 10. Posture-Transition Auditability
 
 ### 10.1 Transitions Are Canonical Events
 
@@ -325,21 +325,21 @@ A *Custody Model* is a named operational posture covering custody, readability, 
 - metadata budget,
 - declared posture honesty statement (§11),
 
-MUST be treated as a **Trust-Profile Transition**. Each transition MUST be recorded as a canonical event on the append-only chain (Core §7), carrying at minimum the fields declared in §10.3.
+MUST be treated as a **Posture Transition**. Each transition MUST be recorded as a canonical event on the append-only chain (Core §6 (Event Format)), carrying at minimum the fields declared in §10.3.
 
 ### 10.2 No Silent Transitions
 
-**OC-08 (MUST NOT).** An Operator MUST NOT change any posture element listed in §10.1 without recording a Trust-Profile Transition canonical event. An undocumented change is a conformance violation regardless of whether any downstream artifact breaks.
+**OC-08 (MUST NOT).** An Operator MUST NOT change any posture element listed in §10.1 without recording a Posture Transition canonical event. An undocumented change is a conformance violation regardless of whether any downstream artifact breaks.
 
 **OC-09 (MUST NOT).** An Operator MUST NOT retroactively rewrite a prior posture declaration. Corrections to past declarations MUST be represented as forward transitions; the prior declaration remains on the chain as part of the immutable record. Any operator correction of an over-stated prior posture MUST be declared as a transition (§10.1) with explicit acknowledgement that the prior declaration was inaccurate.
 
 ### 10.3 Required Transition-Event Fields
 
-**OC-10 (MUST).** A Trust-Profile Transition canonical event MUST include at least:
+**OC-10 (MUST).** A Posture Transition canonical event MUST include at least:
 
 1. `transition_id` — stable identifier for this transition.
-2. `prior_profile_ref` — immutable reference to the superseded posture declaration.
-3. `new_profile_ref` — immutable reference to the new posture declaration.
+2. `prior_posture_ref` — immutable reference to the superseded posture declaration.
+3. `new_posture_ref` — immutable reference to the new posture declaration.
 4. `transition_actor` — the principal responsible for issuing the transition.
 5. `policy_authority` — the governance authority under which the transition is made (for example, the governance body that approved a Custody Model change).
 6. `effective_time` — when the transition takes effect.
@@ -352,7 +352,7 @@ MUST be treated as a **Trust-Profile Transition**. Each transition MUST be recor
 
 ### 10.5 Downstream Obligations on Transition
 
-**OC-12 (MUST).** On committing a Trust-Profile Transition:
+**OC-12 (MUST).** On committing a Posture Transition:
 
 - Projections consuming the affected content class MUST re-evaluate display and access gating against the new posture at or before the effective time (§17).
 - Disclosure manifests (§13) that reference content appended under the prior posture MUST continue to honor the prior posture's declared disclosure rules unless the transition is `retrospective` and the new posture's rules are stricter.
@@ -366,7 +366,7 @@ MUST be treated as a **Trust-Profile Transition**. Each transition MUST be recor
 
 **Requirement class: Companion requirement. Expands Trellis Core invariant #15.**
 
-**OC-13 (MUST).** An Operator MUST publish a **Posture Declaration** alongside each export bundle (Core §12). The Posture Declaration is a machine- and human-readable document that describes, for the export scope:
+**OC-13 (MUST).** An Operator MUST publish a **Posture Declaration** alongside each export bundle (Core §18 (Export Package Layout)). The Posture Declaration is a machine- and human-readable document that describes, for the export scope:
 
 1. the **access taxonomy** class applicable to each content class in the export (§8),
 2. the **Custody Model** in force at the time each canonical record in the export was appended (§9),
@@ -385,7 +385,7 @@ MUST be treated as a **Trust-Profile Transition**. Each transition MUST be recor
 
 ### 11.3 Export-Bundle Binding
 
-**OC-15 (MUST).** Each export bundle (Core §12) MUST either embed the Posture Declaration or carry an immutable, content-addressed reference to it. Verifiers (Core §9) MUST treat the referenced Posture Declaration as part of the verified export; an export whose Posture Declaration is unavailable at verification time is verifiable for bytes but not for posture, and this fact MUST be surfaced to the relying party.
+**OC-15 (MUST).** Each export bundle (Core §18 (Export Package Layout)) MUST either embed the Posture Declaration or carry an immutable, content-addressed reference to it. Verifiers (Core §19 (Verification Algorithm)) MUST treat the referenced Posture Declaration as part of the verified export; an export whose Posture Declaration is unavailable at verification time is verifiable for bytes but not for posture, and this fact MUST be surfaced to the relying party.
 
 ### 11.4 Auditor Comparison
 
@@ -396,7 +396,7 @@ MUST be treated as a **Trust-Profile Transition**. Each transition MUST be recor
 **OC-17 (MUST).** A mismatch between declared posture and observed behavior is a **posture-honesty violation**. The Operator MUST:
 
 1. record the mismatch as a canonical governance fact,
-2. treat the correction as a Trust-Profile Transition under §10 (typically retrospective),
+2. treat the correction as a Posture Transition under §10 (typically retrospective),
 3. publish the corrected Posture Declaration and the record of the mismatch,
 4. notify auditors and relying parties consistent with the metadata budget and disclosure manifest rules.
 
@@ -448,9 +448,9 @@ The table form is normative. Prose commentary MAY accompany the table; it MUST N
 
 **OC-24 (MUST NOT).** An Operator MUST NOT describe payload confidentiality as equivalent to metadata privacy. A Metadata Budget that documents only payload protection and ignores metadata leakage is NON-CONFORMANT.
 
-### 12.6 Trust-Profile Inheritance
+### 12.6 Posture Inheritance
 
-**OC-25 (MUST).** A profile, binding, or sidecar MUST remain consistent with the active Custody Model's Metadata Budget and MUST NOT imply weaker metadata leakage than the active budget declares. Sidecar-local wording MUST NOT be used to weaken or bypass the budget.
+**OC-25 (MUST).** A custody model, binding, or sidecar MUST remain consistent with the active Custody Model's Metadata Budget and MUST NOT imply weaker metadata leakage than the active budget declares. Sidecar-local wording MUST NOT be used to weaken or bypass the budget.
 
 ---
 
@@ -460,11 +460,11 @@ The table form is normative. Prose commentary MAY accompany the table; it MUST N
 
 **Requirement class: Companion requirement.**
 
-Trellis Core reserves **redaction-aware commitment slots** in the envelope header (Core §15) — the byte positions for per-field commitments (Pedersen, Merkle leaves, or equivalent) that enable later selective disclosure without envelope reissue. This companion specifies how those slots are **populated** and how **disclosure manifests** are assembled over them. Implementation of BBS+ or equivalent advanced selective-disclosure cryptography remains **deferred** to Phase 3+.
+Trellis Core reserves **redaction-aware commitment slots** in the envelope header (Core §13 (Commitment Slots Reserved)) — the byte positions for per-field commitments (Pedersen, Merkle leaves, or equivalent) that enable later selective disclosure without envelope reissue. This companion specifies how those slots are **populated** and how **disclosure manifests** are assembled over them. Implementation of BBS+ or equivalent advanced selective-disclosure cryptography remains **deferred** to Phase 3+.
 
 ### 13.2 Population Rule
 
-**OC-26 (MUST).** When an Operator admits a canonical record that is subject to later selective disclosure — for example, a record that may later be redacted for FOIA, sealed for child-welfare, or selectively disclosed to opposing counsel — the Operator MUST populate the redaction-aware commitment slots declared by the active binding (Core §15). Records appended without commitment slots populated are ineligible for later selective disclosure without envelope reissue, which is a NON-CONFORMANT path for Phase 2+.
+**OC-26 (MUST).** When an Operator admits a canonical record that is subject to later selective disclosure — for example, a record that may later be redacted for FOIA, sealed for child-welfare, or selectively disclosed to opposing counsel — the Operator MUST populate the redaction-aware commitment slots declared by the active binding (Core §13 (Commitment Slots Reserved)). Records appended without commitment slots populated are ineligible for later selective disclosure without envelope reissue, which is a NON-CONFORMANT path for Phase 2+.
 
 ### 13.3 Disclosure Manifest Structure
 
@@ -474,7 +474,7 @@ Trellis Core reserves **redaction-aware commitment slots** in the envelope heade
 2. `export_ref` — reference to the export bundle to which this manifest applies.
 3. `audience` — declared audience scope (for example, `foia_public`, `opposing_counsel`, `appellate_court`).
 4. `disclosed_fields` — structured list of fields revealed, by canonical path.
-5. `committed_only_fields` — structured list of fields that remain committed-but-withheld, with references to the Core §15 commitment slots that prove integrity.
+5. `committed_only_fields` — structured list of fields that remain committed-but-withheld, with references to the Core §13 (Commitment Slots Reserved) commitment slots that prove integrity.
 6. `withheld_fields` — structured list of fields neither disclosed nor committed (if any such class is supported by the active binding), with the authority under which they are withheld.
 7. `redaction_authority` — the principal or policy authority under which redactions were performed.
 8. `redaction_reason_class` — a classified reason (FOIA exemption, sealing order, minimization) without embedding protected content in the reason.
@@ -482,9 +482,9 @@ Trellis Core reserves **redaction-aware commitment slots** in the envelope heade
 
 ### 13.4 Disclosure Honesty
 
-**OC-28 (MUST NOT).** A Disclosure Manifest MUST NOT be presented as a rewrite of canonical truth. A disclosure-oriented artifact is derived; canonical records remain authoritative (Core §6.2).
+**OC-28 (MUST NOT).** A Disclosure Manifest MUST NOT be presented as a rewrite of canonical truth. A disclosure-oriented artifact is derived; canonical records remain authoritative (Core §6 (Event Format)).
 
-**OC-29 (MUST).** A Disclosure Manifest MUST preserve provenance distinctions — author-originated facts, canonical records, canonical append attestations, and later disclosure artifacts remain distinct (Core §12.4).
+**OC-29 (MUST).** A Disclosure Manifest MUST preserve provenance distinctions — author-originated facts, canonical records, canonical append attestations, and later disclosure artifacts remain distinct (Core §3 (Terminology)).
 
 ### 13.5 Redaction Auditability
 
@@ -492,7 +492,7 @@ Trellis Core reserves **redaction-aware commitment slots** in the envelope heade
 
 ### 13.6 Deferral
 
-**OC-31 (SEAM DEFINED; ADVANCED CRYPTO DEFERRED TO PHASE 3+).** This companion does not require BBS+, group signatures, or other advanced selective-disclosure cryptography. The Phase 2 requirement is population discipline (§13.2) and manifest structure (§13.3) over the Core-reserved slots. Phase 3+ profiles MAY elevate specific cryptographic mechanisms to MUST.
+**OC-31 (SEAM DEFINED; ADVANCED CRYPTO DEFERRED TO PHASE 3+).** This companion does not require BBS+, group signatures, or other advanced selective-disclosure cryptography. The Phase 2 requirement is population discipline (§13.2) and manifest structure (§13.3) over the Core-reserved slots. Phase 3+ deployment classes MAY elevate specific cryptographic mechanisms to MUST.
 
 ---
 
@@ -508,9 +508,9 @@ Trellis Core reserves **redaction-aware commitment slots** in the envelope heade
 
 The watermark MUST include at minimum:
 
-1. `canonical_checkpoint_id` — the Core §6 checkpoint identifier the artifact references,
+1. `canonical_checkpoint_id` — the Core §11 (Checkpoint Format) checkpoint identifier the artifact references,
 2. `tree_size` — the canonical append height or sequence position at build time,
-3. `tree_head_hash` — the append-head reference (Core §4.10),
+3. `tree_head_hash` — the append-head reference (Core §11 (Checkpoint Format)),
 4. `build_timestamp` — the time at which the artifact was built,
 5. `projection_schema_id` — the schema and version identifier under which the artifact was produced,
 6. `rebuild_path` — sufficient declared configuration history to rebuild the artifact from canonical records at the referenced checkpoint.
@@ -529,7 +529,7 @@ The watermark MUST include at minimum:
 
 ### 14.5 Elevation Prohibition
 
-**OC-36 (MUST NOT).** An Operator MUST NOT elevate a derived artifact to canonical status by configuration, policy, or disclosure. Derived artifacts reach canonical status only by being admitted as canonical records by the active binding (Core §7).
+**OC-36 (MUST NOT).** An Operator MUST NOT elevate a derived artifact to canonical status by configuration, policy, or disclosure. Derived artifacts reach canonical status only by being admitted as canonical records by the active binding (Core §10 (Chain Construction)).
 
 ### 14.6 Authorization Evaluators Are Derived
 
@@ -606,7 +606,7 @@ The declared cadence MUST be comparable to observed behavior by an Auditor. Abse
 
 **OC-47 (MUST).** Each snapshot MUST bind to the canonical chain such that:
 
-1. The snapshot references the canonical checkpoint at which it was built (Core §6).
+1. The snapshot references the canonical checkpoint at which it was built (Core §11 (Checkpoint Format)).
 2. The snapshot's integrity (its content commitment) is verifiable against the canonical chain by a verifier with access to the chain and the snapshot.
 3. The snapshot itself is NOT canonical truth (§14.2); it is a derived artifact subject to §14 in full.
 
@@ -638,7 +638,7 @@ Adjudicator-facing and reviewer-facing projections — "staff views" — are a d
 
 ### 17.4 Decision-Binding
 
-**OC-51 (MUST).** When a rights-impacting decision is captured as a canonical event (Core §7), the event MUST record the watermark of the staff view on which it was based. This binds the adjudicator's decision to the canonical state they actually saw — not to the canonical state at the moment the decision was recorded, and not to some later authoritative state.
+**OC-51 (MUST).** When a rights-impacting decision is captured as a canonical event (Core §6 (Event Format)), the event MUST record the watermark of the staff view on which it was based. This binds the adjudicator's decision to the canonical state they actually saw — not to the canonical state at the moment the decision was recorded, and not to some later authoritative state.
 
 ### 17.5 No Silent Override
 
@@ -658,23 +658,23 @@ Respondent-facing views are Consumer-Facing Projections and are subject to §15 
 
 **Requirement class: Companion requirement. Expands Trellis Core invariant #13.**
 
-Trellis Core §§ on append idempotency fix the **byte-level** contract: every `append` call carries a stable idempotency key; retries with the same key and payload MUST return the same canonical record reference; retries with the same key and a different payload MUST be rejected with a defined error (invariant #13). This section specifies the **operational** obligations layered over that byte contract.
+Trellis Core §17 (Append Idempotency Contract) fixes the **byte-level** contract: every `append` call carries a stable idempotency key; retries with the same key and payload MUST return the same canonical record reference; retries with the same key and a different payload MUST be rejected with `IdempotencyKeyPayloadMismatch`; and the idempotency identity is permanent within a ledger scope. This section specifies the **operational** obligations layered over that byte contract.
 
 ### 18.2 Retry Budgets
 
 **OC-53 (MUST).** An Operator MUST declare a **retry budget** per append scope: the maximum number of retries a caller may submit against a single idempotency key before the key is considered exhausted. Further retries against an exhausted key MUST be rejected with a declared rejection class (§21).
 
-### 18.3 Idempotency Key TTL
+### 18.3 API Retry Windows
 
-**OC-54 (MUST).** An Operator MUST declare a **TTL** (time-to-live) for idempotency keys. After the TTL expires, a key MAY be reused for a new submission. The TTL MUST be long enough to cover declared network-retry patterns; TTL shorter than the declared retry budget's worst-case completion time is a conformance violation.
+**OC-54 (MUST).** An Operator MUST declare an **API retry window** for how long ordinary callers can expect low-latency retry responses for an idempotency key. Expiry of this API window MUST NOT permit key reuse within the same ledger scope. After the window expires, the service MAY answer through an archive lookup, slower rebuild, or declared rejection class, but it MUST NOT accept a different payload under the same `(ledger_scope, idempotency_key)`.
 
-**OC-55 (MUST).** The TTL MUST be declared in the Posture Declaration (§11) such that callers know the key-reuse boundary.
+**OC-55 (MUST).** The API retry window and post-window behavior MUST be declared in the Posture Declaration (§11) such that callers know whether retries remain fast-path, archive-backed, or rejected without changing the Core identity rule.
 
 ### 18.4 Dedup Store Lifecycle
 
-**OC-56 (MUST).** An Operator MUST maintain a **dedup store** sufficient to answer retries within the TTL. The dedup store is a derived artifact subject to §14: it carries a watermark, is rebuildable from canonical records plus declared configuration, and MUST NOT be authoritative for canonical facts.
+**OC-56 (MUST).** An Operator MUST maintain a **dedup store** sufficient to answer retries within the API retry window. The dedup store is a derived artifact subject to §14: it carries a watermark, is rebuildable from canonical records plus declared configuration, and MUST NOT be authoritative for canonical facts. Dedup-store compaction MUST preserve enough canonical or archived material to enforce permanent idempotency identity.
 
-**OC-57 (MUST).** The dedup store MUST be durable enough that a single ordinary-operator failure (e.g., restart of the appending service) does not cause a retry within the TTL to produce a different canonical outcome than the original submission.
+**OC-57 (MUST).** The dedup store MUST be durable enough that a single ordinary-operator failure (e.g., restart of the appending service) does not cause a retry within the API retry window to produce a different canonical outcome than the original submission.
 
 ### 18.5 Replay-Observable Semantics
 
@@ -759,7 +759,7 @@ Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `c
 
 **Requirement class: Companion requirement.**
 
-**OC-71 (MUST).** If an Operator supports any lifecycle operation whose outcome affects compliance posture, retention posture, or recoverability claims — including retention, legal hold, archival, key destruction, sealing, schema upgrade, or export issuance — it MUST represent that operation as a canonical lifecycle fact (Core §7).
+**OC-71 (MUST).** If an Operator supports any lifecycle operation whose outcome affects compliance posture, retention posture, or recoverability claims — including retention, legal hold, archival, key destruction, sealing, schema upgrade, or export issuance — it MUST represent that operation as a canonical lifecycle fact (Core §6 (Event Format)).
 
 **OC-72 (MAY).** An Operator MAY support a subset of lifecycle operations or none. The conformance obligation attaches only where the operation exists.
 
@@ -771,7 +771,7 @@ Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `c
 
 ### 20.3 Crypto-Shredding Scope
 
-**OC-75 (MUST).** The Core specification (Core §11) governs the cryptographic mechanics of key destruction. This companion adds the **operational** obligation: cryptographic erasure is **incomplete** until the **purge cascade** completes across every derived artifact holding plaintext or plaintext-derived material subject to the erasure event.
+**OC-75 (MUST).** The Core specification (Core §9 (Hash Construction)) governs the cryptographic mechanics of key destruction. This companion adds the **operational** obligation: cryptographic erasure is **incomplete** until the **purge cascade** completes across every derived artifact holding plaintext or plaintext-derived material subject to the erasure event.
 
 ### 20.4 Purge-Cascade Obligation
 
@@ -824,7 +824,7 @@ Backups are governed by the Operator's retention and recovery policy; backups MU
 | Class | Triggered by |
 |---|---|
 | `invalid_signature` | Invalid signature or invalid required authored authentication. |
-| `malformed_fact` | Malformed author-originated fact or malformed canonical record under the active profile or binding. |
+| `malformed_fact` | Malformed author-originated fact or malformed canonical record under the active conformance class or binding. |
 | `unsupported_version` | Unsupported schema, algorithm, or suite identifier. |
 | `duplicate_submission` | A retried submission handled under the Operator's declared idempotency rule (§18). |
 | `exhausted_idempotency_key` | Retries beyond the declared retry budget (§18.2). |
@@ -862,7 +862,7 @@ An Operator MAY define additional rejection classes; it MUST document each in it
 **OC-86 (MUST).** An Operator MUST version:
 
 1. canonical algorithms and any schema or semantic digests, embedded copies, or immutable references needed for historical verification,
-2. author-originated fact semantics where profile- or binding-specific semantics exist,
+2. author-originated fact semantics where conformance-class- or binding-specific semantics exist,
 3. canonical record semantics, append semantics, export verification semantics, and Custody Model semantics.
 
 ### 22.2 Historical Verifiability
@@ -873,7 +873,7 @@ An Operator MAY define additional rejection classes; it MUST document each in it
 
 ### 22.3 No Silent Reinterpretation
 
-**OC-89 (MUST NOT).** An Operator MUST NOT silently reinterpret historical records under newer rules without an explicit migration mechanism. Semantic reinterpretation is a Trust-Profile Transition (§10) or a binding migration, both of which are canonical events.
+**OC-89 (MUST NOT).** An Operator MUST NOT silently reinterpret historical records under newer rules without an explicit migration mechanism. Semantic reinterpretation is a Posture Transition (§10) or a binding migration, both of which are canonical events.
 
 **OC-90 (MUST).** Algorithm or schema evolution MUST NOT silently invalidate prior export verification. Where an evolution would break verification of prior exports, the Operator MUST publish a migration path that preserves verification of prior material under the rules in effect when it was produced.
 
@@ -912,7 +912,7 @@ Formspec owns the authored semantics of form fields, validation, and version pin
 
 **OC-94 (MUST).** A Respondent History Sidecar MUST scope itself to respondent-originated or respondent-visible material history. It MAY expose respondent-history moments such as draft, save, submit, amendment, attachment, validation, prepopulation, or materially relevant attestation boundaries.
 
-**OC-95 (MUST).** A Respondent History Sidecar MUST treat respondent-history views as projections or profile-specific interpretations over canonical truth, not as a separate source of truth. No second canonical append model is permitted (§14.2).
+**OC-95 (MUST).** A Respondent History Sidecar MUST treat respondent-history views as projections or scoped interpretations over canonical truth, not as a separate source of truth. No second canonical append model is permitted (§14.2).
 
 ### 23.3 Stable Path Semantics
 
@@ -978,7 +978,7 @@ A migration sidecar SHOULD define whether migration outcomes become canonical fa
 
 **OC-103 (MUST).** The Respondent History Sidecar MUST bind its canonical facts to the Formspec Respondent Ledger (Formspec §13) and to Trellis Core canonical records. Binding means:
 
-1. Each respondent-history moment that is canonical is appended as a Respondent Ledger event through the active Trellis binding (Core §7).
+1. Each respondent-history moment that is canonical is appended as a Respondent Ledger event through the active Trellis binding (Core §6 (Event Format)).
 2. Each respondent-history projection carries the watermark fields of §14.1 referencing the Trellis canonical checkpoint.
 3. Respondent-facing export views are derived artifacts subject to §15.
 
@@ -1006,7 +1006,7 @@ The Workflow Governance Sidecar preserves rich workflow, governance, review, and
 
 ### 24.4 Non-Elevation
 
-**OC-106 (MUST NOT).** No operational sequencing, queue depth, scheduler event, or workflow runtime state is canonical truth solely by virtue of its operational role. Elevation to canonical status requires the workflow event to be admitted as a canonical record through the active Trellis binding (Core §7).
+**OC-106 (MUST NOT).** No operational sequencing, queue depth, scheduler event, or workflow runtime state is canonical truth solely by virtue of its operational role. Elevation to canonical status requires the workflow event to be admitted as a canonical record through the active Trellis binding (Core §10 (Chain Construction)).
 
 ### 24.5 Governance Fact Families
 
@@ -1041,7 +1041,7 @@ The sidecar SHOULD define which review outputs are canonical facts and which are
 
 ### 24.8 Runtime Is Derived
 
-**OC-111 (MUST).** Workflow and orchestration engines — Temporal, Camunda, AWS Step Functions, or equivalents — are derived processors (Core §2.5.4 / §14 of this companion). Their runtime state is a derived artifact under §14.
+**OC-111 (MUST).** Workflow and orchestration engines — Temporal, Camunda, AWS Step Functions, or equivalents — are derived processors (Core §2 (Conformance) / §14 of this companion). Their runtime state is a derived artifact under §14.
 
 A workflow or orchestration engine contributes to canonical truth only by submitting facts through the Canonical Append Service under the active binding's admission rules. The engine MUST NOT write canonical records out-of-band, replay them into canonical order independently, or reinterpret admitted records.
 
@@ -1049,7 +1049,7 @@ A workflow or orchestration engine contributes to canonical truth only by submit
 
 **OC-112 (MUST).** Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `custodyHook`, the binding MUST:
 
-1. route every WOS governance event destined for custody through the Trellis Canonical Append Service (Core §7),
+1. route every WOS governance event destined for custody through the Trellis Canonical Append Service (Core §2 (Conformance)),
 2. record the returned canonical append attestation as the durable evidence of the governance event,
 3. preserve the provenance distinction between the WOS governance envelope and the Trellis canonical record — the `custodyHook` does not replace WOS; it gives WOS a durable substrate.
 
@@ -1057,7 +1057,7 @@ A workflow or orchestration engine contributes to canonical truth only by submit
 
 ### 24.10 Provenance Across Export
 
-**OC-114 (MUST).** Workflow export views MUST preserve provenance distinctions (Core §12.4) and MUST NOT imply broader coverage than their declared export scope actually includes. A workflow timeline that omits half the governance events MUST NOT be labeled as a complete case history.
+**OC-114 (MUST).** Workflow export views MUST preserve provenance distinctions (Core §3 (Terminology)) and MUST NOT imply broader coverage than their declared export scope actually includes. A workflow timeline that omits half the governance events MUST NOT be labeled as a complete case history.
 
 ---
 
@@ -1138,11 +1138,11 @@ For each of these conditions, the implementation MUST declare — in advance, as
 
 ### 26.2 Subordination to Canonical Correctness
 
-**OC-125 (MUST).** Monitoring and witnessing are subordinate assurance postures, not replacements for canonical append semantics. An Operator that supports external witnessing or anchoring MUST NOT treat witness presence as a precondition for canonical record validity unless an explicit profile or binding says so.
+**OC-125 (MUST).** Monitoring and witnessing are subordinate assurance postures, not replacements for canonical append semantics. An Operator that supports external witnessing or anchoring MUST NOT treat witness presence as a precondition for canonical record validity unless an explicit deployment class or binding says so.
 
 - Witness absence does not invalidate canonical records.
 - Witness disagreement does not rewrite canonical order.
-- Profiles MAY elevate witness participation to a correctness precondition; such elevation MUST be explicit.
+- Deployment classes MAY elevate witness participation to a correctness precondition; such elevation MUST be explicit.
 
 ### 26.3 Checkpoint Publication Interface
 
@@ -1153,7 +1153,7 @@ For each of these conditions, the implementation MUST declare — in advance, as
 | Append scope identifier | Stable identifier for the declared append scope. |
 | Checkpoint identifier | Stable identifier for the checkpoint within the declared append scope. |
 | Append position | Monotonic log index at checkpoint time. |
-| Append-head reference | Canonical append-head reference (Core §4.10). |
+| Append-head reference | Canonical append-head reference (Core §11 (Checkpoint Format)). |
 | Checkpoint time | Service-declared time at which the checkpoint was produced. |
 | Consistency proof material | Sufficient proof to verify that this checkpoint extends any earlier published checkpoint within the same scope. |
 | Inclusion proof material | Optional per-record inclusion proof where the binding supports it. |
@@ -1163,8 +1163,8 @@ For each of these conditions, the implementation MUST declare — in advance, as
 
 **OC-127 (MUST).** An Operator supporting monitoring:
 
-- MUST publish checkpoints at a cadence declared by the active profile or binding,
-- MUST NOT publish checkpoints whose append-head reference does not correspond to a canonical append-head actually established under Core §7,
+- MUST publish checkpoints at a cadence declared by the active deployment class or binding,
+- MUST NOT publish checkpoints whose append-head reference does not correspond to a canonical append-head actually established under Core §11 (Checkpoint Format),
 - MUST NOT revise a previously published checkpoint; corrections MUST be represented as later checkpoints and MUST NOT rewrite append-position assignments,
 - MUST preserve sufficient proof material to allow consistency proofs between any two published checkpoints within the same declared append scope.
 
@@ -1194,7 +1194,7 @@ A witness attestation MUST NOT be presented as a canonical append attestation. T
 
 ### 26.8 Detection Is Not Enforcement
 
-**OC-131 (MUST NOT).** A monitor detecting a consistency failure or equivocation MUST NOT rewrite canonical records, invalidate previously issued canonical append attestations, or bind the behavior of other monitors, witnesses, or relying parties. Detection is observational; enforcement is a binding or profile choice.
+**OC-131 (MUST NOT).** A monitor detecting a consistency failure or equivocation MUST NOT rewrite canonical records, invalidate previously issued canonical append attestations, or bind the behavior of other monitors, witnesses, or relying parties. Detection is observational; enforcement is a binding or deployment-class choice.
 
 ### 26.9 Privacy Bounds
 
@@ -1263,13 +1263,13 @@ The test suite MUST include at least one staff-view scenario in which a rights-i
 
 **OC-139 (MUST).** An implementation MUST pass a transition-auditability test suite that validates:
 
-1. Trust-Profile Transitions are recorded as canonical events with the required fields (§10.3),
+1. Posture Transitions are recorded as canonical events with the required fields (§10.3),
 2. no posture element listed in §10.1 changes without a corresponding transition event (§10.2),
 3. transition attestations conform to §10.4 (dual attestation where required).
 
 ### 27.8 Idempotency Replay Tests
 
-**OC-140 (MUST).** An implementation MUST pass an idempotency-replay test suite that validates retry budget, TTL, dedup-store lifecycle, and replay-observable semantics per §18.
+**OC-140 (MUST).** An implementation MUST pass an idempotency-replay test suite that validates retry budget, API retry window behavior, dedup-store lifecycle, and replay-observable semantics per §18.
 
 ---
 
@@ -1320,9 +1320,9 @@ An Authorization Evaluator whose stale-state behavior is undeclared, silently fa
 
 Payload confidentiality does not imply metadata privacy (§12.5). Timing patterns, access-pattern observability, and disclosure linkability are all disclosed by the Metadata Budget but are often under-modeled by implementers. Operators SHOULD model these as part of routine privacy impact analysis, not as afterthoughts.
 
-### 28.9 Trust-Profile Transition Attack Surface
+### 28.9 Posture-Transition Attack Surface
 
-Trust-Profile Transitions (§10) expand or narrow the access surface of a deployment. A malicious actor with authority to issue a transition from a reader-held to a provider-readable Custody Model could retroactively expand their own plaintext access. Defenses:
+Posture Transitions (§10) expand or narrow the access surface of a deployment. A malicious actor with authority to issue a transition from a reader-held to a provider-readable Custody Model could retroactively expand their own plaintext access. Defenses:
 
 - dual attestation for expansion transitions (§10.4),
 - retrospective-scope declarations (§10.3 field 7) that are visible to auditors and respondents,
@@ -1330,7 +1330,7 @@ Trust-Profile Transitions (§10) expand or narrow the access surface of a deploy
 
 ### 28.10 Verification Posture Gating
 
-Implementations MUST NOT attach high-stakes outcomes — adverse action, selective disclosure issuance, commitment-driven analytics — to records that have not reached a verification posture appropriate for the outcome class ([Trust-Profiles] §7). Silent escalation of verification posture is NON-CONFORMANT.
+Implementations MUST NOT attach high-stakes outcomes — adverse action, selective disclosure issuance, commitment-driven analytics — to records that have not reached a verification posture appropriate for the outcome class declared in the Posture Declaration. Silent escalation of verification posture is NON-CONFORMANT.
 
 ---
 
@@ -1344,11 +1344,11 @@ Implementations MUST NOT attach high-stakes outcomes — adverse action, selecti
 - **[RFC 8259]** — Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format," STD 90, RFC 8259, December 2017.
 - **[RFC 3986]** — Berners-Lee, T., Fielding, R., Masinter, L., "Uniform Resource Identifier (URI): Generic Syntax," STD 66, RFC 3986, January 2005.
 - **[Formspec Core]** — Formspec Core Specification. Authored semantics for form fields, validation, calculation, and version pinning.
-- **[Formspec Respondent Ledger]** — Formspec Respondent Ledger Specification §13 and §15A. Respondent-side history and posture profiles.
+- **[Formspec Respondent Ledger]** — Formspec Respondent Ledger Specification §13 and §15A. Respondent-side history and Profile A/B/C posture axes.
 - **[WOS Kernel §10.5]** — WOS Kernel Specification, §10.5 `custodyHook`. Seam for delegating custody of governance events to a ledger substrate.
 - **[WOS Kernel §12]** — WOS Kernel Specification, §12 Separation Principles. Generic separation of audit, governance, execution, and case state.
 - **[WOS Assurance §2]** — WOS Assurance Specification, §2 Assurance Levels. Assurance-level taxonomy invoked by verification posture gating.
-- **[WOS Governance §2.9]** — WOS Workflow Governance, §2.9 Schema Upgrade. The generic named-lifecycle-operation pattern under which Trust-Profile Transitions are specified.
+- **[WOS Governance §2.9]** — WOS Workflow Governance, §2.9 Schema Upgrade. The generic named-lifecycle-operation pattern under which Posture Transitions are specified.
 
 ### 29.2 Informative References
 
@@ -1358,7 +1358,7 @@ Implementations MUST NOT attach high-stakes outcomes — adverse action, selecti
 - **Trellis Spec Family Normalization Plan §7** — the source of the append-idempotency, snapshot-from-day-one, and metadata-budget-as-table form requirements operationalized here.
 - **Projection and Runtime Discipline (draft)** — the pre-normalization companion absorbed into Part II of this document.
 - **Monitoring and Witnessing (draft)** — the pre-normalization companion absorbed into Part V of this document.
-- **Trust Profiles (draft)** — the pre-normalization companion; key-lifecycle cryptographic mechanics remain owned by Core, while transition auditability and metadata-budget discipline are absorbed here.
+- **Pre-normalization posture drafts** — historical inputs; key-lifecycle cryptographic mechanics remain owned by Core, while transition auditability and metadata-budget discipline are absorbed here.
 
 ---
 
@@ -1441,13 +1441,13 @@ CustodyModelEntry {
 }
 ```
 
-## A.5 Trust-Profile Transition Event
+## A.5 Posture Transition Event
 
 ```
-TrustProfileTransition {
+PostureTransition {
   transition_id:        URI
-  prior_profile_ref:    URI                # immutable reference
-  new_profile_ref:      URI                # immutable reference
+  prior_posture_ref:    URI                # immutable reference
+  new_posture_ref:      URI                # immutable reference
   transition_actor:     URI
   policy_authority:     URI
   effective_time:       timestamp
@@ -1572,6 +1572,26 @@ Watermark {
 }
 ```
 
+## C. Traceability Anchors
+
+This non-normative appendix anchors the traceability matrix rows that correspond to Operational Companion obligations. The prose in §§1–28 and Appendices A–B is normative where it uses BCP 14 keywords; `TR-OP-*` rows in `trellis-requirements-matrix.md` are traceability aids and must be corrected if they conflict with this document.
+
+Operational traceability rows:
+
+- TR-OP-001, TR-OP-002, TR-OP-003, TR-OP-004, TR-OP-005, TR-OP-006, TR-OP-007
+- TR-OP-010, TR-OP-011, TR-OP-012, TR-OP-013, TR-OP-014, TR-OP-015, TR-OP-016
+- TR-OP-020, TR-OP-021, TR-OP-022
+- TR-OP-030, TR-OP-031, TR-OP-032, TR-OP-033, TR-OP-034
+- TR-OP-040, TR-OP-041
+- TR-OP-050, TR-OP-051, TR-OP-052, TR-OP-053
+- TR-OP-060, TR-OP-061
+- TR-OP-070, TR-OP-071, TR-OP-072, TR-OP-073, TR-OP-074
+- TR-OP-080
+- TR-OP-090, TR-OP-091, TR-OP-092
+- TR-OP-100, TR-OP-101
+- TR-OP-110, TR-OP-111, TR-OP-112
+- TR-OP-120, TR-OP-121, TR-OP-122
+
 ---
 
-*End of Trellis Operational Companion v0.1.0-draft.1.*
+*End of Trellis Operational Companion v1.0.0-draft.1.*

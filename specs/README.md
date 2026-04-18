@@ -1,61 +1,47 @@
-# Trellis Specs (Draft Family)
+# Trellis Specs
 
-This folder is the active normalization target for Trellis specifications.
+This folder contains the normalized Trellis specification set.
 
-## Layout
+## Reading Order
 
-| Folder | Role |
-|--------|------|
-| [`core/`](core/) | Constitutional core + family binding to Formspec/WOS (read first). |
-| [`trust/`](trust/) | Trust profiles and key lifecycle operating model. |
-| [`projection/`](projection/) | Derived projections, watermarking, rebuild and purge discipline. |
-| [`export/`](export/) | Offline verification packages and selective disclosure manifests. |
-| [`operations/`](operations/) | Monitoring and witnessing seams. |
-| [`assurance/`](assurance/) | Invariant-to-assurance traceability matrix and CI expectations. |
+Read the top-level documents first:
 
-## Normative dependency order (draft)
+1. [`trellis-agreement.md`](trellis-agreement.md) — non-normative decision gate and product invariants.
+2. [`trellis-core.md`](trellis-core.md) — normative Phase 1 byte protocol for append, verify, and export.
+3. [`trellis-operational-companion.md`](trellis-operational-companion.md) — normative Phase 2+ operator obligations.
+4. [`trellis-requirements-matrix.md`](trellis-requirements-matrix.md) — traceability matrix. Prose in Core and the Operational Companion wins on conflict.
 
-Paths are relative to `specs/`.
+## Normative Authority
 
-1. `core/trellis-core.md`
-2. `core/shared-ledger-binding.md`
-3. `trust/trust-profiles.md`
-4. `trust/key-lifecycle-operating-model.md`
-5. `projection/projection-runtime-discipline.md`
-6. `export/export-verification-package.md`
-7. `export/disclosure-manifest.md`
-8. `operations/monitoring-witnessing.md`
-9. `assurance/assurance-traceability.md`
+Only `trellis-core.md` and `trellis-operational-companion.md` are normative prose specifications.
 
-Ratification checklist and evidence (draft process gates for the family above) live alongside this tree in [`../ratification/`](../ratification/).
+`trellis-agreement.md` is a sign-off gate for scope and invariants. It does not impose implementor conformance obligations.
 
-## Ownership boundaries (draft)
+`trellis-requirements-matrix.md` exists to preserve provenance from mined legacy requirements into the two normative specs. It is not a competing source of truth.
 
-- **Formspec owns:** authored/spec/runtime semantics for form responses.
-- **WOS owns:** workflow/governance meaning and runtime envelope.
-- **Trellis owns:** canonical ledger semantics, append/attestation, trust/custody/disclosure semantics, export/verifier semantics, and cross-system projection discipline.
+## Archived Inputs
 
-## Current maturity markers
+The previous per-family spec drafts are superseded inputs and live under [`archive/`](archive/):
 
-- `core/trellis-core.md`: constitutional scope + core invariants/conformance roles draft
-- `core/shared-ledger-binding.md`: family-binding structure + canonization matrix draft
-- `trust/trust-profiles.md`: trust posture + metadata budget + honesty rule draft
-- `trust/key-lifecycle-operating-model.md`: lifecycle state-machine + grace-period draft
-- `projection/projection-runtime-discipline.md`: derived-system boundary + watermark contract draft
-- `export/export-verification-package.md`: offline verification package + manifest minimums draft
-- `export/disclosure-manifest.md`: selective disclosure release draft
-- `operations/monitoring-witnessing.md`: seam-only minimal draft
-- `assurance/assurance-traceability.md`: invariant-to-assurance mapping draft
+| Archived folder | Prior role |
+|---|---|
+| `archive/core/` | Constitutional core draft, shared-ledger binding, and legacy matrices. |
+| `archive/trust/` | Trust posture and key-lifecycle drafts. |
+| `archive/projection/` | Projection runtime discipline draft. |
+| `archive/export/` | Export package and disclosure manifest drafts. |
+| `archive/operations/` | Monitoring and witnessing draft. |
+| `archive/forms/` | Formspec respondent-history draft. |
+| `archive/workflow/` | Workflow governance draft. |
+| `archive/assurance/` | Assurance traceability draft. |
 
-## Immediate next extraction passes
+Treat archived files as historical source material. Do not cite them as normative unless a top-level spec explicitly incorporates a specific requirement.
 
-1. Pull precise MUST/SHALL language from `DRAFTS/unified_ledger_core.md` into `core/trellis-core.md`.
-2. Pull companion-grade normative language from `DRAFTS/unified_ledger_companion.md` into each companion draft.
-3. Expand assurance traceability matrix into executable checks and artifact retention policy.
-4. Keep [`../ratification/ratification-checklist.md`](../ratification/ratification-checklist.md) updated as sections move from draft to normative-ready.
+## Checks
 
-## Phase status
+Run the Trellis spec lint after editing these documents:
 
-- Ratification checklist gates are linked from [`../ratification/ratification-evidence.md`](../ratification/ratification-evidence.md).
-- Two global auto-evidence gates remain open: native/WASM vectors and cross-implementation verifier reproducibility.
-- Initial migrations from `DRAFTS/unified_ledger_core.md` have been extracted into companion-specific “Migrated requirements” sections.
+```bash
+python3 scripts/check-specs.py
+```
+
+The check enforces stale Core-section references, forbidden legacy terms, requirement-ID sanity, and archived-input placement.
