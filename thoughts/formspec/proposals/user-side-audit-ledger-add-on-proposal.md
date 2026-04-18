@@ -8,6 +8,12 @@
 
 ---
 
+## Status (as of 2026-04-17)
+
+> **Historical — originating proposal. Not normative.** This document is the originating proposal for the Formspec Respondent Ledger add-on, which is now a normative Formspec spec at [`../specs/respondent-ledger-spec.md`](../specs/respondent-ledger-spec.md); read that spec, not this proposal, for current semantics. Its user-side framing — that the ledger exists for the respondent's benefit and carries portable, privacy-tiered history across sessions and systems — is preserved in the Phase 4 Sovereign variant of the Trellis product vision at [`../../product-vision.md`](../../product-vision.md). Retained for provenance and historical context.
+
+---
+
 ## 1. Executive summary
 
 This proposal adds an **optional audit change tracking ledger** for the **people filling out forms**, not for studio authors or internal reviewers.

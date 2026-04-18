@@ -9,6 +9,12 @@
 
 ---
 
+## Status (as of 2026-04-17)
+
+> **Historical — superseded by the product-vision phased arc. Not normative.** This ADR's central decision — that the Respondent Ledger becomes the canonical event store for the entire case lifecycle, immediately — has been superseded by the phased roadmap in [`../../product-vision.md`](../../product-vision.md). The vision reaches the same destination (a Phase 3 unified case ledger spanning intake and governance) but routes through Phase 1 attested exports over Postgres-backed storage first, for engineering and procurement reasons. The problems this ADR raises — three sources of truth, platform-as-custodian, crypto-shreddable erasure, Merkle tamper evidence — are acknowledged and addressed across Phases 1–3, with the current intake-side design captured in [`../specs/respondent-ledger-spec.md`](../specs/respondent-ledger-spec.md) and the cross-cutting core in [`../../../specs/trellis-core.md`](../../../specs/trellis-core.md). Retained for provenance.
+
+---
+
 ## Context
 
 The Formspec + WOS architecture currently assumes two separate event logs:

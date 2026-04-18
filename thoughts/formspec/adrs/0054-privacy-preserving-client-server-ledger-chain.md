@@ -8,6 +8,12 @@
 
 ---
 
+## Status (as of 2026-04-17)
+
+> **Historical — informed later work. Not normative.** This ADR is retained for provenance. Its tiered-crypto thesis (baseline encryption first, selective disclosure next, zk/MPC/HE later) is preserved in the phased arc of [`../../product-vision.md`](../../product-vision.md), and its client -> server -> platform chain model carries forward into the current Formspec Respondent Ledger work (see [`../specs/respondent-ledger-spec.md`](../specs/respondent-ledger-spec.md)) and the Phase 4 Sovereign variant of the Trellis product vision. Read this document as context and rationale for Phase 4 planning, not as the shipping design; where this ADR and the product vision disagree on sequencing or scope, the product vision wins.
+
+---
+
 ## Title
 
 Define a **privacy-preserving, client/server ledger chain** that spans the Formspec ecosystem end to end:
