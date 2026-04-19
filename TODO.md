@@ -16,14 +16,10 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
-## Current state (as of 2026-04-18, `88d1dbc`)
+## Current state (as of 2026-04-18, `c346313`)
 
-- **Specs converged.** Two normative W3C-style docs — [`specs/trellis-core.md`](specs/trellis-core.md) (~16k words) and [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) (~14k words). Previous 8-spec family lives in `specs/archive/`; don't cite it as normative.
-- **Ratification gates green:** G-1 (normalization handoff), G-6 (lint), C-1..C-8 (Core byte protocol), O-1/O-2 (Companion cross-refs + custody-model identifiers), M-1..M-3 (matrix factual + gap-log + invariant coverage).
-- **G-3 fixture infrastructure is in place.** Scaffold plan closed (12/12 tasks). Directory layout, TOML manifest format, narrative `derivation.md` template, 7-test lint harness, four coverage rules (`check_vector_coverage`, `check_vector_declared_coverage`, `check_invariant_coverage`, `check_generator_imports`), pinned `issuer-001` COSE_Key + `sample-payload-001`.
-- **First byte-exact reference vector** (`fixtures/vectors/append/001-minimal-inline-payload/`, commit `e1ab065`) exercises authored/canonical/signed event surfaces (§6.8), `author_event_hash` (§9.5), COSE_Sign1 with pinned `-65537` `suite_id` label (§7.4), `canonical_event_hash` (§9.2), and `AppendHead` (§10.6). Deterministic — regeneration produces byte-identical output. Covers invariants #1 / #2 / #4 / #5.
-- **Core amendments:** B1 (§7.4 COSE header labels `-65537/-65538`), B2 (§6.8 three event surfaces), B3 (§10.6 AppendHead struct), S1/S2 (§14.6 `x-trellis-test/` prefix), S3 (§6.4 nonce `.size 12`), S5 (§8.3 `kid` derivation) all landed (`6ad24ab`, `1b66eed`, `a844e4a`, `e1895ae`). Gap-resolution trail in [`thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`](thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md).
-- **Lint state:** with `TRELLIS_SKIP_COVERAGE=1`, green. Without bypass: 61 `TR-CORE-*` rows uncovered + 7 byte-testable invariants uncovered (the expected gap list, waiting for the next vector batches). Bypass is transitional pending the per-invariant allowlist (see below).
+- **Gates:** 14 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below.
+- **Lint:** green with `TRELLIS_SKIP_COVERAGE=1`; without bypass, 61 `TR-CORE-*` rows and 7 byte-testable invariants remain uncovered. Batched vector rollout and the allowlist replacement close these.
 
 ---
 
@@ -100,32 +96,15 @@ exercised by one or two more vectors.
 
 ## Parallel tracks (not blocked by Trellis ratification)
 
-From [`thoughts/product-vision.md`](thoughts/product-vision.md). Run independently of
-Track A (Trellis). These are real work to schedule elsewhere, not things to pick up here.
-
-- **Track B** — Complete the WOS runtime (105 conformance fixtures green, `wos-cli` ships);
-  ship the Formspec Coprocessor handoff per Runtime Companion §15; continue Formspec spec
-  iteration.
-- **Track C** — Calendar-gated certification clocks. Start FedRAMP Moderate, SOC 2 Type II,
-  GSA Schedule, formal WCAG 2.1 AA audit + VPAT.
-- **Track D** — First-sale engineering gaps. Reviewer dashboard, document-storage backend,
-  webhook infrastructure, notification delivery.
-- **Companion conformance fixtures (O-3 / O-4 / O-5)** — separate fixture system.
-  Design pass precedes implementation. Parallel to G-4.
+Tracks B (WOS runtime + Formspec coprocessor), C (FedRAMP / SOC 2 / GSA / WCAG certification clocks), and D (reviewer dashboard, document storage, webhooks, notifications) run independently of Track A. Detail in [`thoughts/product-vision.md`](thoughts/product-vision.md). Companion conformance fixtures (O-3 / O-4 / O-5) need their own design pass and run parallel to G-4.
 
 ---
 
 ## Recently closed
 
-Prune after a few sessions.
+Prune aggressively — `git log` is the real record.
 
-- G-3 fixture scaffold plan — 12 tasks, commits `880ebdd..18c72c8`.
-- Core amendments B1/B2/B3 + S1/S2/S3/S5 — `6ad24ab`, `1b66eed`, `a844e4a`, `e1895ae`.
-- First byte-exact reference vector `e1ab065` — covers invariants #1/#2/#4/#5.
-- Lint hardening — `ac3a686` + `9ead7cf`; 4 review findings fixed; harness 3→7 tests.
-- Design + plan amendments F1/F2/F4/F5 — `64af7cc`.
-- TODO.md created + handoff trimmed — `88d1dbc`.
-- Matrix drift for Core §6.8 / §10.6 / §14.6 closed; M-3 refined — `475b064`.
-- `append/001` manifest claims TR-CORE-018 / 073 / 083 coverage — `a1eb41f`.
-- `ratification-evidence.md` removed as redundant — `617f9ae`.
-- Normalization handoff (2026-04-17) archived to `thoughts/archive/specs/`.
+- Matrix drift for Core §6.8 / §10.6 / §14.6 closed; `append/001` coverage updated (`475b064`, `a1eb41f`).
+- Working norms encoded in the handoff prompt (`c346313`).
+- Ratification-evidence removed; normalization handoff archived (`617f9ae`, `28f551c`).
+- G-3 scaffold plan (12 tasks, `880ebdd..18c72c8`), Core amendments B1..S5 (`6ad24ab..e1895ae`), first reference vector (`e1ab065`).
