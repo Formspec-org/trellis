@@ -225,6 +225,8 @@ EventPayload = {
 
 An `EventPayload` is a CBOR map with exactly these keys. Additional top-level keys are reserved for future phases and MUST NOT be emitted by Phase 1 producers; Phase 1 verifiers encountering an unknown top-level key MUST reject the event. Additive extension is performed via `EventPayload.extensions` and `EventHeader.extensions`, which are explicitly reserved for forward-compatible growth.
 
+`idempotency_key` is a stable, caller-supplied byte string whose uniqueness scope is the pair `(ledger_scope, idempotency_key)` (§17.3): within a given `ledger_scope`, a specific `idempotency_key` value identifies exactly one canonical event forever. A Fact Producer MUST construct `idempotency_key` by a rule that produces equal bytes for equivalent authored submissions and distinct bytes otherwise; the recommended construction is a UUIDv7 ([RFC 9562]), with a deterministic hash of the authored fact's causal identity permitted where retry semantics require it (§17.2). The size bound `.size (1..64)` is structural; the uniqueness and construction obligations above are the normative value-level discipline.
+
 ### 6.2 Sequence and prev_hash
 
 - `sequence` is a non-negative integer, monotonic within ledger scope. The first event in a ledger has `sequence = 0`.
@@ -370,6 +372,8 @@ Phase 1 does not ship a post-quantum suite. It pins the migration seam and the o
 
 Trellis uses RFC 9052 COSE_Sign1 directly. Implementations MUST use a normal COSE library's signing preimage, not a Trellis-specific self-reference workaround.
 
+**Embedded payload.** Every Trellis COSE_Sign1 artifact is the CBOR tag-18 4-array `[protected, unprotected, payload, signature]` of [RFC 9052] §4.2, with the payload bstr carried at array position 3 (i.e., embedded). Trellis does not use detached payloads: the `payload` field MUST NOT be `nil`, and a verifier MUST reject a COSE_Sign1 whose payload bstr is absent or replaced with `nil`.
+
 For every Trellis COSE_Sign1 artifact, the protected header MUST contain:
 
 | Header | Label (integer key) | Value |
@@ -499,7 +503,7 @@ digest = SHA-256(
 )
 ```
 
-Multi-component inputs repeat the `len(component) || component` pair for each input, in the fixed order specified for the construction. Length-prefixing (not delimiter-based framing) removes component-boundary ambiguity. The generic procedure is referenced below by domain tag only.
+Multi-component inputs repeat the `len(component) || component` pair for each input, in the fixed order specified for the construction. Length-prefixing (not delimiter-based framing) removes component-boundary ambiguity. The generic procedure is referenced below by domain tag only. The length-prefix form applies uniformly regardless of component count: a single-component construction (for example, `author_event_hash` over `dCBOR(AuthorEventHashPreimage)`) uses the same `len(tag) || tag || len(component) || component` shape with exactly one `len(component) || component` pair; there is no unprefixed or concatenated variant for the single-component case.
 
 ### 9.2 Canonical event hash (`trellis-event-v1`)
 
