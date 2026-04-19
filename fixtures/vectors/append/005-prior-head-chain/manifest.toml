@@ -1,0 +1,40 @@
+id          = "append/005-prior-head-chain"
+op          = "append"
+status      = "active"
+description = """First non-genesis append (`sequence = 1`) extending the ledger \
+scope initialized by `append/001-minimal-inline-payload`. Exercises three \
+invariants that genesis cannot reach: #5 strict linear canonical order \
+(Core §10.1, §10.2 `prev_hash` linkage); #10 Phase-1 envelope = Phase-3 \
+case-ledger event (Core §10 strict superset — first non-trivial byte shape \
+under the `sequence > 0` preimage); and #13 append idempotency (Core §17.2, \
+§17.3 — `(ledger_scope, idempotency_key)` identity distinct from 001's). \
+Payload plumbing (PayloadInline, empty KeyBag, author_event_hash preimage, \
+canonical_event_hash, COSE_Sign1 tag-18 envelope, AppendHead) is inherited \
+structurally from 001; the load-bearing deltas are the `prev_hash`, \
+`sequence`, and `idempotency_key` fields."""
+
+# TR-CORE rows whose Verification column contains `test-vector` and whose
+# Requirement prose / Invariant column matches one or more invariants this
+# vector exercises. See derivation.md for the construction-to-row mapping.
+[coverage]
+tr_core = [
+    "TR-CORE-020",  # inv #5 — exactly one canonical order per governed scope (§10.1, §10.2)
+    "TR-CORE-023",  # inv #5 — canonical order independent of wall-clock (§10.2 pins by prev_hash, not timestamp)
+    "TR-CORE-050",  # inv #13 — idempotency_key stable in wire contract (§17.2)
+    "TR-CORE-080",  # inv #10 — Phase-1 envelope = Phase-3 case-ledger event (§10 strict superset)
+]
+
+[inputs]
+signing_key       = "../../_keys/issuer-001.cose_key"
+payload           = "../../_inputs/sample-payload-001.bin"
+prior_append_head = "input-prior-append-head.cbor"
+authored_event    = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
