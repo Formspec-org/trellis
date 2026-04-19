@@ -11,10 +11,9 @@ digest), §15.2 (Watermark CDDL + optional projection_schema_id). Scope: waterma
 only — rebuild-equivalence (Test 2) is a later fixture in this series and therefore no \
 `expected-view-rebuilt.cbor` is committed here."""
 
-# TR-OP rows with Verification containing `test-vector` that this fixture exercises.
-# The current check-specs.py lint only enforces tr_core coverage; tr_op coverage
-# enforcement lands in a later lint pass. The claims below become lint-verified
-# when that rule wires up. See O-3 design §"Coverage enforcement".
+# TR-OP rows this fixture exercises. Rows with Verification=test-vector are
+# enforced by check-specs.py's R5 rule; projection-rebuild-drill rows are
+# enforced by the dedicated R7 drill-coverage rule.
 [coverage]
 tr_op = [
     "TR-OP-001",  # Every staff-facing projection MUST carry a watermark (invariant #14).

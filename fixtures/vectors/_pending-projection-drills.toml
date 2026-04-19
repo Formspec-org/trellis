@@ -1,13 +1,19 @@
 # Pending-projection-drill allowlist.
 #
 # Parallel to _pending-invariants.toml but tracks matrix rows whose
-# Verification column is `projection-rebuild-drill` rather than
-# `test-vector`. The drill-coverage rule (R7) is wired in a later commit;
-# this file ships today so authoring can record drill-row escapes.
+# Verification column is `projection-rebuild-drill` rather than `test-vector`.
+# The check-specs.py drill-coverage rule fails if a listed row is now covered,
+# or if an unlisted projection-rebuild-drill row is uncovered.
 #
 # Schema:
 #   pending_matrix_rows = ["TR-OP-..."]
 #
 # Drive this list toward empty. When empty, remove the file.
 
-pending_matrix_rows = []
+pending_matrix_rows = [
+    "TR-OP-003",
+    "TR-OP-006",
+    "TR-OP-007",
+    "TR-OP-031",
+    "TR-OP-034",
+]

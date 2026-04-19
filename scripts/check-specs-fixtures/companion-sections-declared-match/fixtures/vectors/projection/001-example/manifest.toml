@@ -1,0 +1,13 @@
+id          = "projection/001-example"
+op          = "projection"
+description = "Synthetic projection fixture — declared companion_sections matches derived."
+
+[coverage]
+tr_op = ["TR-OP-042"]
+companion_sections = ["§14", "§15", "§A.5"]
+
+[inputs]
+view = "input-view.cbor"
+
+[expected]
+watermark = "expected-watermark.cbor"

@@ -1,0 +1,15 @@
+id          = "projection/001-example"
+op          = "projection"
+description = "Synthetic projection fixture — deliberately mis-files coverage IDs into the wrong buckets to exercise R8."
+
+[coverage]
+# Deliberately wrong — TR-OP-042 belongs under coverage.tr_op.
+tr_core = ["TR-OP-042"]
+# Deliberately wrong — TR-CORE-020 belongs under coverage.tr_core.
+tr_op   = ["TR-CORE-020"]
+
+[inputs]
+view = "input-view.cbor"
+
+[expected]
+watermark = "expected-watermark.cbor"

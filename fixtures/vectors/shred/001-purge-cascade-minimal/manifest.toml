@@ -12,10 +12,9 @@ OC-76), §20.5 (Cascade Scope — OC-77), Appendix A.7 (enumeration CS-01..CS-06
 CS-02 (evaluator state) and CS-06 (respondent-facing views) require additional derived \
 artifacts and belong to a later fixture in this series."""
 
-# TR-OP rows with Verification containing `test-vector` that this fixture exercises.
-# The current check-specs.py lint only enforces tr_core coverage; tr_op coverage
-# enforcement lands in a later lint pass. The claims below become lint-verified
-# when that rule wires up. See O-3 design §"Coverage enforcement".
+# TR-OP rows this fixture exercises. Rows with Verification=test-vector are
+# enforced by check-specs.py's R5 rule; projection-rebuild-drill rows are
+# enforced by the dedicated R7 drill-coverage rule.
 [coverage]
 tr_op = [
     "TR-OP-004",  # Crypto-shredding MUST cascade.
