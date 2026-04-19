@@ -1534,24 +1534,66 @@ This is the normative composition rule. It makes the response ledger a *named tr
 
 ### 23.1 The seam
 
-WOS Kernel §10.5 names `custodyHook` as the seam through which a WOS runtime delegates cryptographic custody to a downstream layer. Trellis is that downstream layer for WOS deployments that adopt it.
+WOS Kernel §10.5 names `custodyHook` as the seam through which a WOS runtime delegates cryptographic custody to a downstream layer. Trellis is that downstream layer for WOS deployments that adopt it. The seam is directional: WOS emits governance and provenance facts; Trellis admits them as canonical events. Trellis does not initiate WOS state transitions, and a WOS runtime without `custodyHook` adoption is unaffected by this section.
 
-### 23.2 Binding
+WOS Kernel §10.5 is explicit that the kernel itself does not define the concrete Trust-Profile object; a binding populates the seam. This section is that binding for the Trellis-as-custody-backend case. A monolithic WOS deployment that populates `custodyHook` with an in-process single posture is out of scope here and is governed by WOS Kernel §10.5 directly.
 
-A WOS runtime using Trellis as its custody backend MUST:
+### 23.2 Binding obligations
 
-- Emit each provenance record (WOS Kernel §8 Facts tier) as a Trellis event of `event_type` drawn from the `wos.*` family in the bound registry (§14).
-- Use Trellis `canonical_event_hash` (§9.2) as the provenance record's integrity hash wherever WOS Kernel §8 calls for one.
-- Chain WOS provenance records via Trellis `prev_hash` per §10.2.
-- Use Trellis `Checkpoint` (§11) for any WOS per-range integrity artifact.
+A WOS runtime using Trellis as its custody backend — hereafter a "WOS-Trellis deployment" — MUST, for every WOS governance or provenance record (WOS Kernel §8 Facts tier and §10.4 `lifecycleHook` outputs) whose custody is routed through the hook:
 
-### 23.3 Non-redefinition
+1. **Envelope.** Produce the record as a Trellis `EventPayload` (§6.1) submitted to the Canonical Append Service under the `ledger_scope` chosen for the WOS case — see §23.3 on scope selection.
+2. **Event type.** Populate `EventHeader.event_type` (§12.1) with a registered identifier from the `wos.*` family in the bound registry (§14); §23.4 pins both the namespace-disjointness rule and the outcome-neutrality discipline for `wos.*` identifiers.
+3. **Authored payload.** Place the WOS record's authored-fact material — the serialized form WOS Kernel §8 and §10.4 prescribe for that record kind — inside the encrypted payload (`PayloadRef`, §6.4). The Trellis envelope does not restate WOS's authored-fact encoding; it wraps the bytes WOS produces.
+4. **Integrity hash.** Use Trellis `canonical_event_hash` (§9.2) as the record's integrity hash wherever WOS Kernel §8 calls for one. A WOS `lifecycleHook` output that stores a hash-of-record for later reference MUST store the Trellis `canonical_event_hash` of the admitting event, not an independently recomputed digest.
+5. **Chain.** Chain WOS records via Trellis `prev_hash` (§10.2) in the declared `ledger_scope`. A WOS-Trellis deployment MUST NOT maintain a parallel WOS-side linear chain over the same records; the Trellis chain is the authoritative order. This is the WOS-family analogue of the Respondent-Ledger integrity-chaining binding in §22.2.
+6. **Per-range artifact.** Use Trellis `Checkpoint` (§11) as the per-range sealing artifact for any WOS range-level integrity obligation. A WOS deployment that composes case-ledger heads from multiple WOS scopes uses the case-ledger composition of §22.4.
+7. **Posture.** Declare a `PostureDeclaration` (§20) covering every `ledger_scope` admitting WOS governance events, and record custody transitions that affect that posture as canonical events per §6.7 / Operational Companion §10 (Posture-Transition Auditability). Custody transitions driven by WOS governance (for example, a WOS-governance decision that alters recovery authority) are posture transitions regardless of the governance body that authored them.
 
-Trellis does not alter WOS semantic authority. A WOS runtime's case-state model, deontic ruleset, autonomy caps, and governance logic remain WOS-spec bound. Trellis specifies only how the WOS record, once produced, is envelope-wrapped and integrity-bound. A WOS-conformant runtime and a Trellis-conformant canonical append service compose without either spec changing.
+### 23.3 Ledger-scope selection
 
-### 23.4 Delegation
+`ledger_scope` for WOS-Trellis events is chosen by the Operator and MUST satisfy the §10.4 rules without exception. The recommended construction is one `ledger_scope` per WOS case (so that WOS governance events for one case form one chain), with case-ledger composition (§22.4) used when multiple response-ledger scopes must be referenced from the same case's governance chain. `ledger_scope` is signed into every event; a WOS event authored against one case MUST NOT later be replayed into another case's scope, because the domain-separated hashes (§9) would not match.
 
-When Trellis behavior depends on WOS evaluation semantics — whether a proposed state transition is permitted, whether a deontic check passes — Trellis MUST delegate to a WOS-conformant processor. Trellis does not evaluate WOS rules; it attests to the results WOS produces.
+### 23.4 Event-type namespace and outcome-neutrality
+
+The `wos.*` event-type family is registered in the bound registry (§14) with the same outcome-neutrality discipline that §12.4 pins for all Trellis `event_type` identifiers:
+
+- **Namespace disjointness.** The `wos.*` family and the `trellis.*` family are mutually disjoint. A Trellis-authored envelope whose authored-fact material is not a WOS governance record MUST NOT use a `wos.*` identifier, and a WOS runtime MUST NOT emit a `trellis.*` identifier as its `event_type`. A Trellis processor MUST NOT admit a WOS governance record under a `trellis.*` identifier, and MUST NOT admit a non-WOS authored fact under a `wos.*` identifier.
+- Registered `wos.*` identifiers name the governance-record *kind*, not its outcome. `wos.determination`, `wos.review-close`, `wos.assignment`, `wos.adjudication` are conformant shapes; `wos.determination.granted`, `wos.determination.denied`, `wos.review-close.adverse` are NON-CONFORMANT and MUST NOT be registered. WOS outcome is carried in the encrypted payload and in `EventHeader.outcome_commitment` per §12.2.
+- `wos.*` identifiers MUST resolve to WOS governance semantics defined by the WOS specification at the registry-bound version (§14.2). A bound-registry entry for a `wos.*` identifier names the WOS spec version it refers to; a registry change that re-points the identifier to a different WOS semantic version is a new registry binding per §14.5.
+- The `wos.` prefix is reserved to the WOS specification family in the bound registry. Vendors extending WOS with deployment-local governance records MUST use a registered `x-` identifier under §6.7 that does not shadow any upstream specification's reserved `x-*` prefix (cf. WOS Kernel §10.6, which reserves `x-wos-` for future WOS-normative use). A bare `wos.*` identifier MUST NOT be minted outside the WOS specification family.
+
+### 23.5 Idempotency-key construction for WOS retries
+
+A WOS runtime frequently retries governance submissions — a scheduler redeliver, a saga-compensation retry, a durable-execution replay. Every retry of the same WOS governance decision MUST resolve under §17.3 to the same canonical event, not to a second order position. The WOS-Trellis deployment MUST construct `idempotency_key` (§6.1, §17.2) such that:
+
+- (a) retries of the same authored governance fact produce byte-equal keys,
+- (b) distinct authoring attempts produce distinct keys, and
+- (c) the construction is computable from identifiers the WOS runtime supplies per its own vocabulary — namely, a case identifier, an identifier for the governance rule or state transition being governed, and a stable per-attempt identifier that the WOS runtime preserves across network-level retries of the same authored attempt.
+
+The recommended construction is a deterministic hash (§17.2) over the canonical encoding (§5) of the WOS-supplied identifier tuple, domain-separated per §9.1. A SHA-256 hash per §9 yields 32 bytes and therefore satisfies the `.size (1..64)` bound on `idempotency_key` in §6.1 by construction. Concrete WOS-side field names and their stability guarantees are normatively the WOS specification's to publish; Trellis does not pin WOS-vocabulary identifiers here. A UUIDv7 ([RFC 9562]) per §17.2 is conformant when the WOS runtime can guarantee one UUIDv7 per logical authored attempt.
+
+A WOS-Trellis deployment MUST NOT let the WOS runtime's retry/compensation machinery mint a new `idempotency_key` for the same authored governance decision; the `(ledger_scope, idempotency_key)` identity rule of §17.3 is scope-permanent regardless of WOS-layer retry semantics, and §17.5 `IdempotencyKeyPayloadMismatch` applies when a WOS-layer bug produces a different canonical payload under the same key.
+
+### 23.6 Autonomy-cap mapping
+
+WOS's autonomy vocabulary — `autonomous`, `supervisory`, `assistive`, `manual` (WOS AI Integration §5.2), constrained by the impact-level cap of WOS AI Integration §5.3 — remains authoritative for whether a WOS action may be taken by an AI agent. Trellis does not redefine these levels, re-rank them, or attempt to evaluate the impact-level cap.
+
+When a WOS action is taken by an AI agent under an autonomy level other than `manual`, the corresponding Trellis admission MUST:
+
+1. Declare the event's access class as `delegated_compute` in the Operator's access taxonomy (Operational Companion §8, §19) for every content class the agent read or authored while producing the governance record.
+2. Reference a canonical Delegated-Compute Grant (Operational Companion §19.2, Appendix A.6, Appendix B.4) whose scope includes that content class and whose authority attestation (Operational Companion §19.3) names the WOS governance authority that issued the autonomy authorization.
+3. Attribute the record under the actor-discriminator rule of Operational Companion §19.4 and OC-70c: `actor_agent_under_delegation` when the governance record is an agent-produced artifact, `actor_human` when a human approver confirmed an `assistive` recommendation before it became canonical.
+
+Trellis does not evaluate whether the WOS autonomy level is conformant with the WOS impact-level cap; that evaluation is WOS's. Trellis attests to the custody and attribution facts. A WOS-conformance failure at the autonomy-cap layer is out of scope for Trellis verification but MUST NOT be masked by a Trellis attestation; see Operational Companion §19.6.
+
+### 23.7 Non-redefinition
+
+Trellis does not alter WOS semantic authority. A WOS runtime's case-state model, deontic ruleset, autonomy caps (WOS AI Integration §5), and governance logic remain WOS-spec bound. Trellis specifies only how the WOS record, once produced, is envelope-wrapped, integrity-bound, and posture-declared. A WOS-conformant runtime and a Trellis-conformant Canonical Append Service compose without either specification changing.
+
+### 23.8 Delegation
+
+When Trellis behavior depends on WOS evaluation semantics — whether a proposed WOS state transition is permitted, whether a WOS deontic check passes, whether a WOS autonomy cap admits an agent-authored attempt — Trellis MUST delegate to a WOS-conformant processor. Trellis does not evaluate WOS rules; it attests to the results WOS produces.
 
 ---
 

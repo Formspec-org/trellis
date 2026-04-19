@@ -1053,13 +1053,33 @@ A workflow or orchestration engine contributes to canonical truth only by submit
 
 **OC-112 (MUST).** Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `custodyHook`, the binding MUST:
 
-1. route every WOS governance event destined for custody through the Trellis Canonical Append Service (Core §2 (Conformance)),
+1. route every WOS governance event destined for custody through the Trellis Canonical Append Service (Core §2 (Conformance)) under the wire-level contract of Core §23 (Composition with WOS `custodyHook`),
 2. record the returned canonical append attestation as the durable evidence of the governance event,
 3. preserve the provenance distinction between the WOS governance envelope and the Trellis canonical record — the `custodyHook` does not replace WOS; it gives WOS a durable substrate.
 
-**OC-113 (MUST).** The `custodyHook` binding MUST NOT redefine the Trellis canonical append semantics. An Operator MUST NOT use `custodyHook` to admit records under alternate proof models or alternate Custody Models within the same declared scope.
+**OC-113 (MUST).** The `custodyHook` binding MUST NOT redefine the Trellis canonical append semantics. An Operator MUST NOT use `custodyHook` to admit records under alternate proof models or alternate Custody Models within the same declared scope. The wire-level obligations of Core §23 (Composition with WOS `custodyHook`) — `wos.*` event-type namespace (§23.4), idempotency-key construction (§23.5), autonomy-cap attribution (§23.6), non-redefinition (§23.7) — are requirements on the Operator running a WOS-Trellis deployment and MUST be implemented without alteration.
 
-### 24.10 Provenance Across Export
+**OC-113a (MUST).** For any two WOS governance records whose causal relation is established by WOS-runtime provenance (per WOS Kernel §4 Lifecycle and §8 Facts tier), the admitting chain order MUST respect that relation: the canonical event admitting the earlier record MUST have a smaller `sequence` (Core §6 (Event Format) §6.2) than the canonical event admitting the later record within the common `ledger_scope` (Core §23 (Composition with WOS `custodyHook`) §23.3). Records that are causally concurrent per WOS MAY be ordered by the admitting Canonical Append Service at its discretion; the chosen order is canonical once admitted. Causality verification itself is a WOS-runtime obligation outside Core §19 (Verification Algorithm). Out-of-order admission relative to a WOS-established causal relation — for example, a late-arriving governance decision admitted after a record it causally precedes — is NON-CONFORMANT; the deployment MUST treat the late decision as a posture-correcting forward event under §10.2 rather than inserting it into prior positions. The ordering obligation extends across the composed case-ledger scope (Core §22 (Composition with Respondent Ledger) §22.4) where present, not just within a single `ledger_scope`.
+
+**OC-113b (MUST).** The Workflow Governance Sidecar (Appendix B.2) MUST enumerate every registered `wos.*` event-type identifier the deployment admits and MUST mark each as canonical or operational per §24.5. A WOS-Trellis deployment that admits a `wos.*` identifier not listed in its sidecar is NON-CONFORMANT; the sidecar is the operator-facing catalog for what custody-routing the Operator has declared.
+
+### 24.10 Posture-Transition Auditability for WOS Governance
+
+**OC-113c (MUST).** Custody transitions (§10.1) driven by WOS governance decisions — for example, a WOS adjudicative decision that alters recovery authority, or a WOS review outcome that expands delegated-compute scope — are Posture Transitions regardless of the governance body that authored them. The Operator MUST record each such transition as a canonical event per §10 and MUST NOT treat a WOS-internal governance envelope as a substitute for the §10.3 transition-event semantics. The WOS governance record and the Trellis posture-transition canonical event are distinct facts on the chain (Core §23 (Composition with WOS `custodyHook`) §23.2 item 7): the first is a `wos.*` record attesting to the WOS decision; the second is an `EventPayload.extensions["trellis.custody-model-transition.v1"]` (or disclosure-profile equivalent) record attesting to the resulting Trellis-layer posture change.
+
+The Trellis posture-transition event MUST be admitted AFTER its authorizing `wos.*` governance record within the common `ledger_scope`. The transition event's `declaration_doc_digest` MUST reference the `PostureDeclaration` in force after the transition per Appendix A.5.1 / A.5.2 and the verification rules in Appendix A.5.3, and its payload's `extensions` MAY carry a `trellis.wos_authorizing_record` key whose value is the `canonical_event_hash` (Core §9 (Hash Construction) §9.2) of the authorizing governance record. Canonical events admitted between the `wos.*` governance record and the Trellis posture-transition event admit under the PRIOR posture; the transition's `temporal_scope` field (Appendix A.5.1 / A.5.2) governs whether the new posture applies retrospectively to those intermediates.
+
+### 24.11 Delegated-Compute Flow-Through for WOS Autonomy
+
+**OC-113d (MUST).** When a WOS action is taken by an AI agent under a WOS autonomy level other than `manual` (WOS AI Integration §5.2), the resulting WOS governance record admitted through `custodyHook` is a delegated-compute event and is subject to §19 (Delegated-Compute Honesty) in full. Specifically:
+
+1. The Operator MUST publish a Delegated-Compute Declaration (§19.9, Appendix A.6) whose scope covers the content classes the agent read or authored while producing the governance record.
+2. The Operator MUST record the delegated-compute grant per §19.2 as a canonical fact before the agent-authored governance record is admitted.
+3. The admitted event MUST attribute to exactly one of `actor_human` or `actor_agent_under_delegation` per OC-70c. For `assistive` autonomy (WOS AI Integration §5.2), `actor_human` attribution is required when a human explicitly confirmed before admission; `actor_agent_under_delegation` is required when the agent authored the record directly.
+
+**OC-113e (MUST NOT).** A Trellis delegated-compute attestation MUST NOT be treated as a substitute for WOS autonomy-cap evaluation (§19.6). A WOS-Trellis deployment whose Trellis-layer attestations are conformant but whose WOS autonomy-cap is violated is NON-CONFORMANT at the WOS layer; the Operator MUST NOT present Trellis-layer conformance as evidence of WOS-layer conformance.
+
+### 24.12 Provenance Across Export
 
 **OC-114 (MUST).** Workflow export views MUST preserve provenance distinctions (Core §3 (Terminology)) and MUST NOT imply broader coverage than their declared export scope actually includes. A workflow timeline that omits half the governance events MUST NOT be labeled as a complete case history.
 
@@ -1664,16 +1684,34 @@ WorkflowGovernanceSidecar {
   canonical_checkpoint_ref:   URI               # Trellis checkpoint
   watermark:                  Watermark         # §14.1
   custody_hook_binding:       CustodyHookBinding  # §24.9
+  admitted_event_types:       [AdmittedEventType]  # §24.9 OC-113b; the operator-facing catalog
   governance_facts:           [GovernanceFact]  # §24.5
   review_chain:               [ReviewEvent]     # §24.6
   approval_events:            [ApprovalEvent]   # §24.7
-  provenance_trace:           ProvenanceTrace   # §24.10
+  provenance_trace:           ProvenanceTrace   # §24.12
 }
 
 CustodyHookBinding {
   wos_runtime_id:             URI
-  trellis_append_scope:       URI
+  wos_spec_version:           string            # WOS spec version in force for this deployment
+  trellis_append_scope:       URI               # Trellis ledger_scope per Core §23 (Composition with WOS `custodyHook`) §23.3
   governance_envelope_refs:   [URI]             # WOS governance envelopes whose custody is anchored here
+  autonomy_policy_ref:        URI | null        # URI of the WOS Agent Config `autonomyPolicy` governing
+                                                #   admitted event types. REQUIRED when the WOS deployment
+                                                #   publishes an `autonomyPolicy` per WOS Agent Config §3
+                                                #   AND the Operator declares any `admitted_event_types`
+                                                #   entry that may be agent-authored under that policy.
+                                                #   MAY be null otherwise.
+  delegated_compute_decl_ref: URI | null        # URI of the Delegated-Compute Declaration (Appendix A.6).
+                                                #   REQUIRED when any admitted event type is subject to
+                                                #   §24.11 delegated-compute honesty obligations.
+                                                #   Independent of `autonomy_policy_ref`.
+}
+
+AdmittedEventType {
+  event_type:                 string            # registered `wos.*` identifier, Core §14 (Registry Snapshot Binding)
+  admissibility:              enum { canonical, operational }  # §24.5
+  wos_record_kind:            string            # WOS Kernel §8 / §10.4 record kind this identifier wraps
 }
 
 GovernanceFact {
