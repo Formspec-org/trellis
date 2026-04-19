@@ -282,6 +282,29 @@ def load_allowlist(
     return result
 
 
+def load_pending_projection_drills(
+    errors: list[str], *, path: Path | None = None
+) -> set[str]:
+    """Load the pending-projection-drills allowlist.
+
+    Parallel to load_pending_invariants but for matrix rows whose
+    Verification column is `projection-rebuild-drill` rather than
+    `test-vector`. Schema:
+
+        pending_matrix_rows = ["TR-OP-008", ...]
+
+    `path` is exposed for tests; real callers pass None and use the
+    canonical location under fixtures/vectors/.
+
+    No rule consumes this loader yet (the R7 drill-coverage rule lands
+    in a later commit). This commit ships the loader + the file format
+    so authoring can begin.
+    """
+    target = path if path is not None else (FIXTURES / "_pending-projection-drills.toml")
+    data = load_allowlist(target, errors, str_field="pending_matrix_rows")
+    return data["pending_matrix_rows"]
+
+
 def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
     """Load the pending-invariants allowlist (F5).
 
@@ -331,6 +354,40 @@ def _iter_manifest_path_strings(table: dict, path_stack: tuple[str, ...] = ()):
             if key in MANIFEST_NON_PATH_STRING_KEYS:
                 continue
             yield (".".join(path_stack + (key,)), value)
+
+
+VECTOR_NAMING_PATTERN = re.compile(r"^[0-9]{3}-[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def check_vector_naming(errors: list[str]) -> None:
+    """R1 — every vector directory MUST be named `NNN-slug`.
+
+    `NNN` is exactly three digits; `slug` is one-or-more dash-separated
+    segments of lowercase-alphanumeric characters. Trailing / leading
+    dashes, uppercase, short numeric prefixes, and missing dashes are all
+    rejected.
+
+    The walker only considers directories directly under
+    fixtures/vectors/<op>/ where <op> is one of VECTOR_OPS. Support dirs
+    like `_generator` live at the op level or above, so they are not in
+    this rule's scope.
+    """
+    if not FIXTURES.exists():
+        return
+    for op in VECTOR_OPS:
+        op_path = FIXTURES / op
+        if not op_path.exists():
+            continue
+        for entry in sorted(op_path.iterdir()):
+            if not entry.is_dir():
+                continue
+            if not VECTOR_NAMING_PATTERN.match(entry.name):
+                errors.append(
+                    f"{entry.relative_to(ROOT)}: vector directory name "
+                    f"{entry.name!r} does not match the required "
+                    f"`NNN-slug` naming convention "
+                    f"(3-digit prefix, dash, lowercase-alphanumeric slug)"
+                )
 
 
 def check_vector_manifest_paths(errors: list[str]) -> None:
@@ -738,6 +795,7 @@ def main() -> int:
     check_traceability_anchors(errors)
     check_bare_profile(errors)
     check_archived_inputs(errors)
+    check_vector_naming(errors)
     check_vector_lifecycle_fields(errors)
     check_vector_coverage(errors, pending_matrix_rows)
     check_vector_declared_coverage(errors, warnings)

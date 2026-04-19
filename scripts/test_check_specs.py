@@ -267,6 +267,93 @@ class TestVectorLifecycleFields(unittest.TestCase):
         self.assertIn("foo", result.stderr)
 
 
+class TestVectorNaming(unittest.TestCase):
+    """R1 — fixture-naming guard: every child of fixtures/vectors/<op>/ MUST
+    match `^NNN-slug$` where NNN is three digits and slug is dash-separated
+    lowercase alphanumeric segments."""
+
+    def test_valid_naming_passes(self):
+        result = run_lint("naming-valid")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_missing_nnn_prefix_fails(self):
+        # append/abc has no numeric prefix at all.
+        result = run_lint("naming-missing-nnn")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("abc", result.stderr)
+        self.assertIn("naming", result.stderr.lower())
+
+    def test_no_dash_between_nnn_and_slug_fails(self):
+        # append/001abc is missing the dash.
+        result = run_lint("naming-no-dash")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("001abc", result.stderr)
+
+    def test_uppercase_slug_fails(self):
+        # append/001-Cap-Case has uppercase letters in the slug.
+        result = run_lint("naming-uppercase-slug")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Cap-Case", result.stderr)
+
+    def test_trailing_dash_fails(self):
+        # append/001-foo- ends with a dash.
+        result = run_lint("naming-trailing-dash")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("001-foo-", result.stderr)
+
+    def test_two_digit_nnn_fails(self):
+        # append/01-foo has only two digits.
+        result = run_lint("naming-short-nnn")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("01-foo", result.stderr)
+
+    def test_numeric_only_slug_passes(self):
+        # append/002-123 is numeric-only-slug; digits are valid in [a-z0-9].
+        result = run_lint("naming-numeric-slug")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+
+class TestPendingProjectionDrillsLoader(unittest.TestCase):
+    """R3 — _pending-projection-drills.toml loader. File parallels
+    _pending-invariants.toml but covers projection-rebuild-drill rows. No
+    rule consumes the loader yet (R7 lands it); these tests pin the
+    load-side behavior only."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def test_missing_file_returns_empty_set(self):
+        # Point the loader at a path that does not exist; no error, empty set.
+        errors: list[str] = []
+        result = self.cs.load_pending_projection_drills(
+            errors,
+            path=Path("/tmp/does-not-exist-projection-drills.toml"),
+        )
+        self.assertEqual(result, set())
+        self.assertEqual(errors, [])
+
+    def test_malformed_toml_errors(self):
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-pd-bad.toml"
+        tmp.write_text("pending_matrix_rows = [not valid\n", encoding="utf-8")
+        errors: list[str] = []
+        self.cs.load_pending_projection_drills(errors, path=tmp)
+        self.assertTrue(any("malformed TOML" in e for e in errors), errors)
+        tmp.unlink()
+
+    def test_valid_rows_load(self):
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-pd-ok.toml"
+        tmp.write_text(
+            'pending_matrix_rows = ["TR-OP-008", "TR-OP-042"]\n',
+            encoding="utf-8",
+        )
+        errors: list[str] = []
+        result = self.cs.load_pending_projection_drills(errors, path=tmp)
+        self.assertEqual(result, {"TR-OP-008", "TR-OP-042"})
+        self.assertEqual(errors, [])
+        tmp.unlink()
+
+
 class TestSharedPlumbing(unittest.TestCase):
     """Commit-1 helpers: op dispatch widening, Companion section resolution,
     split matrix-id helpers, generic allowlist loader, Core §6.7 event-type

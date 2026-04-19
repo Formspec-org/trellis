@@ -1,0 +1,20 @@
+id          = "append/abc"
+op          = "append"
+description = "Synthetic fixture-lint test vector."
+
+[coverage]
+tr_core    = [
+  "TR-CORE-001", "TR-CORE-002", "TR-CORE-003", "TR-CORE-004", "TR-CORE-005",
+  "TR-CORE-006", "TR-CORE-007", "TR-CORE-008", "TR-CORE-009", "TR-CORE-010",
+  "TR-CORE-011", "TR-CORE-012", "TR-CORE-013", "TR-CORE-014", "TR-CORE-015",
+]
+invariants = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+[inputs]
+authored_event = "input-authored-event.cbor"
+
+[expected]
+canonical_event = "expected-canonical-event.cbor"
+
+[derivation]
+document = "derivation.md"
