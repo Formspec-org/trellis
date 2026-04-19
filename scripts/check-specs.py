@@ -109,26 +109,42 @@ def tr_op_ids() -> list[str]:
 
 
 def matrix_rows() -> list[dict]:
-    """Return parsed matrix rows: {id, scope, invariant, verification, ...}."""
+    """Return parsed matrix rows.
+
+    Matrix columns: Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes.
+    `requirement`, `rationale`, and `notes` are exposed so spec-cross-ref row
+    resolution (R6) can scan them for `Core §N` / `Companion §N` citations.
+    """
     text = read(SPECS / "trellis-requirements-matrix.md")
     row_pattern = re.compile(r"^\| (TR-(?:CORE|OP)-[0-9]{3}) \|(.+)$", re.MULTILINE)
     rows = []
     for m in row_pattern.finditer(text):
         row_id = m.group(1)
-        # Split remaining cells by '|'; matrix has columns:
-        # Scope | Invariant | Requirement | Rationale | Verification | Legacy | Notes
         cells = [c.strip() for c in m.group(2).split("|")]
-        # cells[0]=Scope, cells[1]=Invariant, cells[2]=Requirement,
-        # cells[3]=Rationale, cells[4]=Verification
-        invariant = cells[1] if len(cells) > 1 else "—"
-        verification = cells[4] if len(cells) > 4 else ""
-        rows.append({"id": row_id, "invariant": invariant, "verification": verification})
+        rows.append({
+            "id": row_id,
+            "invariant": cells[1] if len(cells) > 1 else "—",
+            "requirement": cells[2] if len(cells) > 2 else "",
+            "rationale": cells[3] if len(cells) > 3 else "",
+            "verification": cells[4] if len(cells) > 4 else "",
+            "notes": cells[6] if len(cells) > 6 else "",
+        })
     return rows
 
 
 def testable_row_ids() -> set[str]:
     """Return IDs of matrix rows where Verification contains 'test-vector'."""
     return {r["id"] for r in matrix_rows() if "test-vector" in r["verification"]}
+
+
+def projection_rebuild_drill_row_ids() -> set[str]:
+    """Return TR-OP rows where Verification contains 'projection-rebuild-drill'."""
+    return {
+        r["id"]
+        for r in matrix_rows()
+        if r["id"].startswith("TR-OP-")
+        and "projection-rebuild-drill" in r["verification"]
+    }
 
 
 def vector_manifests() -> list[tuple[Path, dict]]:
@@ -151,6 +167,17 @@ def vector_manifests() -> list[tuple[Path, dict]]:
             with manifest_path.open("rb") as f:
                 manifests.append((manifest_path, tomllib.load(f)))
     return manifests
+
+
+def manifest_op_from_path(manifest_path: Path) -> str | None:
+    """Return the fixtures/vectors/<op>/ segment for a manifest path."""
+    try:
+        rel = manifest_path.parent.relative_to(FIXTURES)
+    except ValueError:
+        return None
+    if not rel.parts:
+        return None
+    return rel.parts[0]
 
 
 def derived_sections_for_tr_core(row_ids: list[str]) -> set[str]:
@@ -177,33 +204,46 @@ def derived_sections_for_tr_core(row_ids: list[str]) -> set[str]:
     return derived
 
 
-def derived_companion_sections_for_tr_op(row_ids: list[str]) -> set[str]:
+def derived_companion_sections_for_tr_op(
+    row_ids: list[str], *, text: str | None = None
+) -> set[str]:
     """Mirror of derived_sections_for_tr_core over the Operational Companion.
 
     Scans Companion prose to find which §N heading each TR-OP-XXX anchor
-    lives under. Used by the declared-coverage round-trip rule (R5) once
-    that wires up in a later commit.
+    lives under. Used by the declared-coverage round-trip rule (R5).
+
+    `text` is exposed for tests that want to pass a synthetic companion
+    document; real callers pass None and we read the canonical file.
     """
-    companion_text = read(SPECS / "trellis-operational-companion.md")
+    companion_text = text if text is not None else read(SPECS / "trellis-operational-companion.md")
+    # Strip the traceability appendix before scanning: it lists every TR-OP row
+    # by ID, so leaving it in would make every TR-OP resolve to that appendix's
+    # heading (drowning the real prose anchor). We tolerate label-text drift in
+    # the appendix title — as long as the appendix still starts with a top-level
+    # `## <letter>. Traceability` heading we'll find it.
+    traceability_appendix = re.search(
+        r"^## [A-Z]\.\s+Traceability\b", companion_text, re.MULTILINE
+    )
+    if traceability_appendix:
+        companion_text = companion_text[: traceability_appendix.start()]
     heading_pattern = re.compile(
-        r"^(#{2,3})\s+(?:§\s*)?([0-9]+(?:\.[0-9]+)*)\.?\s+(.+)$", re.MULTILINE
+        r"^(#{2,4})\s+(?:§\s*)?([0-9]+(?:\.[0-9]+)*|[A-Z]\.[0-9]+(?:\.[0-9]+)*)\.?\s+(.+)$",
+        re.MULTILINE,
     )
     sections: list[tuple[int, str]] = []
     for m in heading_pattern.finditer(companion_text):
         sections.append((m.start(), f"§{m.group(2)}"))
     derived: set[str] = set()
     for row_id in row_ids:
-        anchor = companion_text.find(row_id)
-        if anchor == -1:
-            continue
-        current_section = None
-        for start, label in sections:
-            if start <= anchor:
-                current_section = label
-            else:
-                break
-        if current_section:
-            derived.add(current_section)
+        for anchor in (m.start() for m in re.finditer(re.escape(row_id), companion_text)):
+            current_section = None
+            for start, label in sections:
+                if start <= anchor:
+                    current_section = label
+                else:
+                    break
+            if current_section:
+                derived.add(current_section)
     return derived
 
 
@@ -296,11 +336,32 @@ def load_pending_projection_drills(
     `path` is exposed for tests; real callers pass None and use the
     canonical location under fixtures/vectors/.
 
-    No rule consumes this loader yet (the R7 drill-coverage rule lands
-    in a later commit). This commit ships the loader + the file format
-    so authoring can begin.
+    Consumed by `check_projection_rebuild_drill_coverage` (R7), which
+    uses this allowlist to suppress uncovered-drill errors while a
+    drill fixture is still being authored.
     """
     target = path if path is not None else (FIXTURES / "_pending-projection-drills.toml")
+    data = load_allowlist(target, errors, str_field="pending_matrix_rows")
+    return data["pending_matrix_rows"]
+
+
+def load_pending_model_checks(
+    errors: list[str], *, path: Path | None = None
+) -> set[str]:
+    """Load the pending-model-checks allowlist (R8).
+
+    Parallel to load_pending_projection_drills but for matrix rows whose
+    Verification column is `model-check`. The G-2 audit-paths brief pins
+    model-check evidence to the G-4 Rust conformance crate (not yet
+    landed), so every current model-check row is expected to sit in this
+    allowlist until G-4 ships. Schema:
+
+        pending_matrix_rows = ["TR-CORE-020", ...]
+
+    Consumed by `check_model_check_evidence` (R8). `path` is exposed for
+    tests; real callers pass None.
+    """
+    target = path if path is not None else (FIXTURES / "_pending-model-checks.toml")
     data = load_allowlist(target, errors, str_field="pending_matrix_rows")
     return data["pending_matrix_rows"]
 
@@ -442,11 +503,64 @@ def check_vector_manifest_paths(errors: list[str]) -> None:
                     )
 
 
+def check_vector_manifest_identity(errors: list[str]) -> None:
+    """Validate that manifest identity fields match the vector directory."""
+    for manifest_path, manifest in vector_manifests():
+        rel = manifest_path.relative_to(ROOT)
+        path_op = manifest_op_from_path(manifest_path)
+        if path_op is None:
+            continue
+
+        declared_op = manifest.get("op")
+        if declared_op != path_op:
+            errors.append(
+                f"{rel}: manifest op={declared_op!r} does not match "
+                f"directory op={path_op!r}"
+            )
+
+        declared_id = manifest.get("id")
+        expected_id = f"{path_op}/{manifest_path.parent.name}"
+        if declared_id != expected_id:
+            errors.append(
+                f"{rel}: manifest id={declared_id!r} does not match "
+                f"directory id={expected_id!r}"
+            )
+
+
+def check_vector_manifest_coverage_ids(errors: list[str]) -> None:
+    """Validate manifest coverage row IDs before coverage accounting."""
+    known_tr_core = set(tr_core_ids())
+    known_tr_op = set(tr_op_ids())
+    for manifest_path, manifest in vector_manifests():
+        rel = manifest_path.relative_to(ROOT)
+        coverage = manifest.get("coverage", {})
+
+        for row_id in coverage.get("tr_core", []):
+            if not isinstance(row_id, str) or row_id not in known_tr_core:
+                errors.append(
+                    f"{rel}: coverage.tr_core entry {row_id!r} is not a known "
+                    f"TR-CORE matrix row ID"
+                )
+
+        for row_id in coverage.get("tr_op", []):
+            if not isinstance(row_id, str) or row_id not in known_tr_op:
+                errors.append(
+                    f"{rel}: coverage.tr_op entry {row_id!r} is not a known "
+                    f"TR-OP matrix row ID"
+                )
+
+
 def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> None:
     for path, manifest in vector_manifests():
         coverage = manifest.get("coverage", {})
         tr_core = coverage.get("tr_core", [])
+        tr_op = coverage.get("tr_op", [])
         declared_sections = set(coverage.get("core_sections", [])) if "core_sections" in coverage else None
+        declared_companion_sections = (
+            set(coverage.get("companion_sections", []))
+            if "companion_sections" in coverage
+            else None
+        )
         declared_invariants = set(coverage.get("invariants", [])) if "invariants" in coverage else None
 
         if declared_sections is not None:
@@ -455,6 +569,16 @@ def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> No
                 errors.append(
                     f"{path.relative_to(ROOT)}: declared core_sections={sorted(declared_sections)} "
                     f"does not equal matrix-derived={sorted(derived)}"
+                )
+        # R5 — same round-trip rule for the Operational Companion. `companion_sections`,
+        # when declared, MUST equal the set derived from the manifest's tr_op rows.
+        if declared_companion_sections is not None:
+            derived_companion = derived_companion_sections_for_tr_op(tr_op)
+            if declared_companion_sections != derived_companion:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: declared companion_sections="
+                    f"{sorted(declared_companion_sections)} does not equal "
+                    f"matrix-derived={sorted(derived_companion)}"
                 )
         # Per amended design F1: invariants is commentary-only. Mismatch is a
         # warning (non-fatal), not an error. Matrix rows with Invariant=— make
@@ -481,7 +605,9 @@ def check_invariant_coverage(errors: list[str], pending_invariants: set[int]) ->
     for path, manifest in vector_manifests():
         if _is_deprecated_vector(manifest):
             continue  # F6 — deprecated vectors are excluded from audits
-        covered_ids.update(manifest.get("coverage", {}).get("tr_core", []))
+        coverage = manifest.get("coverage", {})
+        covered_ids.update(coverage.get("tr_core", []))
+        covered_ids.update(coverage.get("tr_op", []))
 
     # Per amended design F2: narrowed rule. Only invariants that have ≥1
     # matrix row with Verification=test-vector are audited here (the byte-
@@ -604,8 +730,39 @@ def check_vector_lifecycle_fields(errors: list[str]) -> None:
             )
 
 
+def check_vector_coverage_prefixes(errors: list[str]) -> None:
+    """R8 — coverage-bucket prefix discipline.
+
+    `coverage.tr_core` entries MUST start with `TR-CORE-` and `coverage.tr_op`
+    entries MUST start with `TR-OP-`. Misfiling an ID into the wrong bucket
+    is otherwise silently ignored by R4/R5: a TR-OP row placed under
+    `coverage.tr_core` would never land in the TR-OP coverage set and would
+    create false-green lint on the TR-OP side. Running this ahead of R4/R5
+    surfaces the mistake with a clear diagnostic instead.
+    """
+    for manifest_path, manifest in vector_manifests():
+        if _is_deprecated_vector(manifest):
+            continue  # F6 — deprecated vectors are excluded from audits
+        rel = manifest_path.relative_to(ROOT)
+        coverage = manifest.get("coverage", {})
+        for row_id in coverage.get("tr_core", []):
+            if not isinstance(row_id, str) or not row_id.startswith("TR-CORE-"):
+                errors.append(
+                    f"{rel}: coverage.tr_core entry {row_id!r} is not a "
+                    f"TR-CORE-* id; misfiled IDs are silently ignored by the "
+                    f"bucket-audit rules"
+                )
+        for row_id in coverage.get("tr_op", []):
+            if not isinstance(row_id, str) or not row_id.startswith("TR-OP-"):
+                errors.append(
+                    f"{rel}: coverage.tr_op entry {row_id!r} is not a "
+                    f"TR-OP-* id; misfiled IDs are silently ignored by the "
+                    f"bucket-audit rules"
+                )
+
+
 def check_vector_coverage(errors: list[str], pending_matrix_rows: set[str]) -> None:
-    testable = testable_row_ids()
+    testable = {row_id for row_id in testable_row_ids() if row_id.startswith("TR-CORE-")}
     covered: set[str] = set()
     for _path, manifest in vector_manifests():
         if _is_deprecated_vector(manifest):
@@ -632,6 +789,272 @@ def check_vector_coverage(errors: list[str], pending_matrix_rows: set[str]) -> N
         errors.append(
             f"fixtures/vectors/_pending-invariants.toml: {row_id} is not a "
             f"matrix row ID; remove it from pending_matrix_rows"
+        )
+
+
+def check_tr_op_coverage(errors: list[str], pending_matrix_rows: set[str]) -> None:
+    """R5 — mirror of check_vector_coverage for TR-OP rows.
+
+    A TR-OP row with `Verification=test-vector` is covered when ≥1
+    non-deprecated manifest lists it under `coverage.tr_op`. The
+    `pending_matrix_rows` allowlist is shared with TR-CORE (both prefixes
+    live in the same list); the unknown-ID audit is handled by
+    check_vector_coverage and not repeated here.
+    """
+    testable = {row_id for row_id in testable_row_ids() if row_id.startswith("TR-OP-")}
+    covered: set[str] = set()
+    for _path, manifest in vector_manifests():
+        if _is_deprecated_vector(manifest):
+            continue  # F6 — deprecated vectors are excluded from audits
+        covered.update(manifest.get("coverage", {}).get("tr_op", []))
+    for row_id in sorted(testable - covered):
+        if row_id in pending_matrix_rows:
+            continue  # pending-and-uncovered is allowed
+        errors.append(
+            f"specs/trellis-requirements-matrix.md: no vector covers {row_id} "
+            f"(row has Verification=test-vector but no fixtures/vectors/*/manifest.toml "
+            f"references it in coverage.tr_op)"
+        )
+
+    # F5 — listed-but-now-covered forces allowlist cleanup.
+    for row_id in sorted(pending_matrix_rows & covered):
+        errors.append(
+            f"fixtures/vectors/_pending-invariants.toml: {row_id} is listed in "
+            f"pending_matrix_rows but is now covered by a vector; remove it"
+        )
+
+
+def check_projection_rebuild_drill_coverage(
+    errors: list[str], pending_matrix_rows: set[str]
+) -> None:
+    """R7 — projection-rebuild-drill rows need projection/shred fixtures.
+
+    A TR-OP row with `Verification=projection-rebuild-drill` is covered when
+    at least one non-deprecated manifest under `projection/` or `shred/` lists
+    the row in `coverage.tr_op`. `_pending-projection-drills.toml` is the
+    narrow allowlist for rows whose drill fixture has not landed yet.
+    """
+    drill_rows = projection_rebuild_drill_row_ids()
+    covered: set[str] = set()
+    for manifest_path, manifest in vector_manifests():
+        if _is_deprecated_vector(manifest):
+            continue
+        op = manifest_op_from_path(manifest_path)
+        if op not in {"projection", "shred"}:
+            continue
+        covered.update(
+            row_id
+            for row_id in manifest.get("coverage", {}).get("tr_op", [])
+            if row_id in drill_rows
+        )
+
+    for row_id in sorted(drill_rows - covered):
+        if row_id in pending_matrix_rows:
+            continue
+        errors.append(
+            f"specs/trellis-requirements-matrix.md: no projection rebuild drill "
+            f"covers {row_id} (row has Verification=projection-rebuild-drill "
+            f"but no projection/shred manifest references it in coverage.tr_op)"
+        )
+
+    for row_id in sorted(pending_matrix_rows & covered):
+        errors.append(
+            f"fixtures/vectors/_pending-projection-drills.toml: {row_id} is "
+            f"listed in pending_matrix_rows but is now covered by a projection "
+            f"or shred fixture; remove it"
+        )
+
+    known_ids = set(matrix_ids())
+    for row_id in sorted(pending_matrix_rows - known_ids):
+        errors.append(
+            f"fixtures/vectors/_pending-projection-drills.toml: {row_id} is "
+            f"not a matrix row ID; remove it from pending_matrix_rows"
+        )
+    for row_id in sorted((pending_matrix_rows & known_ids) - drill_rows):
+        errors.append(
+            f"fixtures/vectors/_pending-projection-drills.toml: {row_id} is "
+            f"not a TR-OP row with Verification=projection-rebuild-drill; "
+            f"remove it from pending_matrix_rows"
+        )
+
+
+_SPEC_CITE_PATTERN = re.compile(
+    r"\b(Core|Companion)\s+§([0-9]+(?:\.[0-9]+)*)"
+)
+
+
+def spec_cross_ref_row_ids() -> set[str]:
+    """Matrix rows where Verification contains `spec-cross-ref`."""
+    return {r["id"] for r in matrix_rows() if "spec-cross-ref" in r["verification"]}
+
+
+def model_check_row_ids() -> set[str]:
+    """Matrix rows where Verification contains `model-check`."""
+    return {r["id"] for r in matrix_rows() if "model-check" in r["verification"]}
+
+
+def check_spec_cross_ref_rows(errors: list[str], warnings: list[str]) -> None:
+    """R6 — spec-cross-ref rows must cite resolvable §N headings.
+
+    For every matrix row with `Verification=spec-cross-ref`, scan the
+    Requirement / Rationale / Notes cells for `Core §N` or `Companion §N`
+    citations. Each cited §N MUST resolve to a top-level heading in the
+    named spec; a non-resolving cite is a hard error.
+
+    Rows that declare `spec-cross-ref` but carry no `Core §N` / `Companion §N`
+    citation in any of the three text cells are warned, not errored. Many
+    existing rows rely on prose anchors that do not use this exact phrasing;
+    forcing a hard error would require annotating ~25 rows that are out of
+    scope for a lint-only refactor. The warning still surfaces the gap on
+    every run so new rows land with cites from day one.
+    """
+    core_section_numbers = {str(n) for n in core_headings().keys()}
+    # Companion section numbers include `A.5.1` / `A.5` style Appendix ids
+    # whenever the heading scanner picked them up. Build a permissive set of
+    # "any heading anchor number we recognise" for Companion so Appendix
+    # cites resolve the same way top-level `## 10.` headings do.
+    companion_section_numbers = {str(n) for n in companion_headings().keys()}
+    appendix_pattern = re.compile(
+        r"^#{2,4}\s+([A-Z]\.[0-9]+(?:\.[0-9]+)*)\b", re.MULTILINE
+    )
+    companion_text = read(SPECS / "trellis-operational-companion.md")
+    for m in appendix_pattern.finditer(companion_text):
+        companion_section_numbers.add(m.group(1))
+
+    for row in matrix_rows():
+        if "spec-cross-ref" not in row["verification"]:
+            continue
+        haystack = " ".join((row["requirement"], row["rationale"], row["notes"]))
+        matches = list(_SPEC_CITE_PATTERN.finditer(haystack))
+        if not matches:
+            warnings.append(
+                f"specs/trellis-requirements-matrix.md: {row['id']} declares "
+                f"Verification=spec-cross-ref but cites no `Core §N` / "
+                f"`Companion §N` heading in Requirement/Rationale/Notes"
+            )
+            continue
+        for match in matches:
+            spec_name, section = match.group(1), match.group(2)
+            if spec_name == "Core":
+                known = core_section_numbers
+                spec_path = "specs/trellis-core.md"
+            else:
+                known = companion_section_numbers
+                spec_path = "specs/trellis-operational-companion.md"
+            # A cite like `Core §5.1` passes when either the top-level
+            # `## 5.` heading exists OR any heading matches the full dotted
+            # path (`### 5.1`). Split on dots and walk outward.
+            if section in known:
+                continue
+            top = section.split(".", 1)[0]
+            if top in known:
+                continue
+            errors.append(
+                f"specs/trellis-requirements-matrix.md: {row['id']} cites "
+                f"`{spec_name} §{section}` but no matching heading exists "
+                f"in {spec_path}"
+            )
+
+
+def load_model_check_evidence(errors: list[str]) -> dict[str, str]:
+    """Load thoughts/model-checks/evidence.toml.
+
+    Schema:
+
+        [evidence]
+        "TR-CORE-020" = "thoughts/model-checks/tr-core-020/linear-order.tla"
+        "TR-CORE-050" = "thoughts/model-checks/tr-core-050/idempotency.tla"
+
+    Missing file → empty mapping, no error (expected until G-4's
+    conformance crate lands). Malformed TOML → lint error.
+    """
+    import tomllib
+
+    path = ROOT / "thoughts" / "model-checks" / "evidence.toml"
+    if not path.exists():
+        return {}
+    try:
+        rel = path.relative_to(ROOT)
+    except ValueError:
+        rel = path
+    try:
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        errors.append(f"{rel}: malformed TOML ({e})")
+        return {}
+    table = data.get("evidence", {})
+    if not isinstance(table, dict):
+        errors.append(f"{rel}: [evidence] must be a TOML table")
+        return {}
+    mapping: dict[str, str] = {}
+    for row_id, artifact in table.items():
+        if not isinstance(artifact, str):
+            errors.append(
+                f"{rel}: evidence[{row_id!r}]={artifact!r} is not a string path"
+            )
+            continue
+        mapping[row_id] = artifact
+    return mapping
+
+
+def check_model_check_evidence(
+    errors: list[str], pending_matrix_rows: set[str]
+) -> None:
+    """R8 — matrix rows with `Verification=model-check` need an evidence artifact.
+
+    A row is satisfied when either:
+      (a) `thoughts/model-checks/evidence.toml` names the row under
+          `[evidence]` with a path that resolves relative to the repo root, or
+      (b) the row is listed in `_pending-model-checks.toml`'s
+          `pending_matrix_rows` (the narrow escape hatch for rows awaiting
+          the G-4 Rust conformance crate).
+
+    Allowlist hygiene: evidence-present AND listed-as-pending → error (forces
+    cleanup). Unknown row IDs and non-model-check rows in the allowlist →
+    error.
+    """
+    model_check_rows = model_check_row_ids()
+    evidence = load_model_check_evidence(errors)
+
+    for row_id in sorted(model_check_rows):
+        if row_id in pending_matrix_rows:
+            continue
+        artifact = evidence.get(row_id)
+        if artifact is None:
+            errors.append(
+                f"specs/trellis-requirements-matrix.md: no model-check "
+                f"evidence for {row_id} (row has Verification=model-check "
+                f"but thoughts/model-checks/evidence.toml has no entry and "
+                f"the row is not in _pending-model-checks.toml)"
+            )
+            continue
+        resolved = (ROOT / artifact).resolve()
+        if not resolved.exists():
+            errors.append(
+                f"thoughts/model-checks/evidence.toml: "
+                f"{row_id} evidence path {artifact!r} does not exist "
+                f"(resolved to {resolved})"
+            )
+
+    for row_id in sorted(pending_matrix_rows & set(evidence.keys())):
+        errors.append(
+            f"fixtures/vectors/_pending-model-checks.toml: {row_id} is "
+            f"listed in pending_matrix_rows but evidence is present in "
+            f"thoughts/model-checks/evidence.toml; remove it"
+        )
+
+    known_ids = set(matrix_ids())
+    for row_id in sorted(pending_matrix_rows - known_ids):
+        errors.append(
+            f"fixtures/vectors/_pending-model-checks.toml: {row_id} is "
+            f"not a matrix row ID; remove it from pending_matrix_rows"
+        )
+    for row_id in sorted((pending_matrix_rows & known_ids) - model_check_rows):
+        errors.append(
+            f"fixtures/vectors/_pending-model-checks.toml: {row_id} is "
+            f"not a TR-* row with Verification=model-check; remove it "
+            f"from pending_matrix_rows"
         )
 
 
@@ -804,6 +1227,8 @@ def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
     pending_invariants, pending_matrix_rows = load_pending_invariants(errors)
+    pending_projection_drills = load_pending_projection_drills(errors)
+    pending_model_checks = load_pending_model_checks(errors)
     check_forbidden_terms(errors)
     check_core_section_references(errors)
     check_requirement_ids(errors)
@@ -811,8 +1236,15 @@ def main() -> int:
     check_bare_profile(errors)
     check_archived_inputs(errors)
     check_vector_naming(errors)
+    check_vector_manifest_identity(errors)
+    check_vector_manifest_coverage_ids(errors)
     check_vector_lifecycle_fields(errors)
+    check_vector_coverage_prefixes(errors)
     check_vector_coverage(errors, pending_matrix_rows)
+    check_tr_op_coverage(errors, pending_matrix_rows)
+    check_projection_rebuild_drill_coverage(errors, pending_projection_drills)
+    check_spec_cross_ref_rows(errors, warnings)
+    check_model_check_evidence(errors, pending_model_checks)
     check_vector_declared_coverage(errors, warnings)
     check_invariant_coverage(errors, pending_invariants)
     check_vector_manifest_paths(errors)

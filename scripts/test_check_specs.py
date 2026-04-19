@@ -11,7 +11,9 @@ TRELLIS_LINT_ROOT in check-specs.py.
 
 import importlib.util
 import os
+import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -34,9 +36,13 @@ def _load_check_specs_module():
 
 
 def run_lint(scenario: str) -> subprocess.CompletedProcess:
+    return run_lint_root(FIX / scenario)
+
+
+def run_lint_root(root: Path) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.pop("TRELLIS_SKIP_COVERAGE", None)
-    env["TRELLIS_LINT_ROOT"] = str(FIX / scenario)
+    env["TRELLIS_LINT_ROOT"] = str(root)
     return subprocess.run(
         ["python3", str(LINT)],
         env=env,
@@ -313,6 +319,48 @@ class TestVectorNaming(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
 
+class TestVectorManifestIdentityAndCoverageIds(unittest.TestCase):
+    """Manifest identity and coverage claims must match the matrix/directory."""
+
+    def test_unknown_tr_op_coverage_id_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = Path(tmp) / "tr-op-unknown-id"
+            shutil.copytree(FIX / "tr-op-covered", scenario)
+            manifest = (
+                scenario
+                / "fixtures/vectors/projection/001-example/manifest.toml"
+            )
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    "TR-OP-042", "TR-OP-999"
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_lint_root(scenario)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("coverage.tr_op", result.stderr)
+        self.assertIn("TR-OP-999", result.stderr)
+        self.assertIn("not a known TR-OP", result.stderr)
+
+    def test_manifest_op_must_match_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = Path(tmp) / "projection-drill-misplaced-op"
+            shutil.copytree(FIX / "projection-drill-covered", scenario)
+            source = scenario / "fixtures/vectors/projection/001-example"
+            target = scenario / "fixtures/vectors/append/001-example"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+
+            result = run_lint_root(scenario)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("manifest op", result.stderr)
+        self.assertIn("directory op='append'", result.stderr)
+        self.assertIn("no projection rebuild drill covers", result.stderr.lower())
+
+
 class TestPendingProjectionDrillsLoader(unittest.TestCase):
     """R3 — _pending-projection-drills.toml loader. File parallels
     _pending-invariants.toml but covers projection-rebuild-drill rows. No
@@ -410,6 +458,29 @@ class TestSharedPlumbing(unittest.TestCase):
         # `## A. Appendix A` or under the nearest `## N.` heading above it;
         # what we require is that a non-empty set is returned for a known row.
         self.assertTrue(derived, f"expected a section for TR-OP-042, got {derived}")
+        # The Traceability Anchors appendix (§C) lists every TR-OP row by ID.
+        # The appendix-strip MUST remove it before scanning, otherwise every
+        # row would resolve to §C and drown out its real prose anchor.
+        self.assertNotIn("§C", derived)
+
+    def test_derived_companion_sections_tolerates_drifted_appendix_title(self):
+        # If the Traceability Anchors appendix title drifts (e.g. someone
+        # renames it to "Traceability Anchor Index"), the appendix-strip must
+        # still fire — otherwise every declared companion_sections set would
+        # spuriously include §C. We match on the `## <letter>. Traceability`
+        # prefix, so any title that keeps that prefix is fine.
+        fake_companion = (
+            "# Trellis Operational Companion\n\n"
+            "## 10. Posture-Transition Auditability\n\n"
+            "Row TR-OP-042 lives here in the real prose.\n\n"
+            "## C. Traceability Anchor Index\n\n"
+            "- TR-OP-042 → §10\n"
+        )
+        derived = self.cs.derived_companion_sections_for_tr_op(
+            ["TR-OP-042"], text=fake_companion
+        )
+        self.assertEqual(derived, {"§10"})
+        self.assertNotIn("§C", derived)
 
     def test_load_allowlist_with_int_field_parses_list(self):
         cs = self.cs
@@ -479,6 +550,251 @@ class TestSharedPlumbing(unittest.TestCase):
         # Block text includes the declaration opener.
         custody = blocks[("A.5.1", "CustodyModelTransitionPayload")]
         self.assertIn("transition_id", custody)
+
+    def test_row_with_dual_verification_respects_both_gates(self):
+        # TR-OP-005 and TR-OP-006 carry BOTH `test-vector` and
+        # `projection-rebuild-drill` in their Verification column, so they
+        # must land in both the R5 (testable) and R7 (drill) id sets. This
+        # pins the behavior so a future split of the two helpers can't
+        # silently drop one side.
+        testable = self.cs.testable_row_ids()
+        drills = self.cs.projection_rebuild_drill_row_ids()
+        for row_id in ("TR-OP-005", "TR-OP-006"):
+            self.assertIn(row_id, testable, row_id)
+            self.assertIn(row_id, drills, row_id)
+
+
+class TestProjectionShredOpDispatch(unittest.TestCase):
+    """R4 — projection/shred op walker. vector_manifests() must enumerate
+    every manifest under fixtures/vectors/projection/ and fixtures/vectors/shred/
+    in the real repo, and the coverage rules must honor their `coverage.tr_op`
+    claims."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def test_vector_manifests_includes_projection_and_shred(self):
+        # Real-repo walk — confirm projection/001-* and shred/001-* manifests
+        # land in the list once op dispatch is wired.
+        manifests = self.cs.vector_manifests()
+        ops = {m[1].get("op") for m in manifests}
+        self.assertIn("projection", ops)
+        self.assertIn("shred", ops)
+
+    def test_tr_op_coverage_gate_respects_verification_column(self):
+        # TR-OP-001 has Verification=projection-rebuild-drill (not test-vector),
+        # so it must NOT appear in the testable set even though the production
+        # projection manifest claims it in coverage.tr_op.
+        testable = self.cs.testable_row_ids()
+        self.assertNotIn("TR-OP-001", testable)
+        self.assertNotIn("TR-OP-002", testable)
+
+    def test_projection_manifest_walked_scenario_passes(self):
+        # The synthetic scenario has a projection manifest whose
+        # coverage.tr_op covers the only test-vector TR-OP row in the matrix.
+        result = run_lint("tr-op-covered")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+
+class TestTrOpCoverage(unittest.TestCase):
+    """R5 — check_tr_op_coverage mirrors check_vector_coverage for
+    `TR-OP-*` rows with `Verification=test-vector`. Coverage is satisfied
+    when any manifest lists the row in `coverage.tr_op`; pending entries
+    may sit in _pending-invariants.toml's `pending_matrix_rows`."""
+
+    def test_tr_op_uncovered_not_listed_fails(self):
+        result = run_lint("tr-op-uncovered-not-listed")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-OP-042", result.stderr)
+        self.assertIn("no vector covers", result.stderr.lower())
+
+    def test_tr_op_covered_passes(self):
+        result = run_lint("tr-op-covered")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_tr_op_listed_but_covered_fails(self):
+        # TR-OP-042 is covered AND still in pending_matrix_rows → must fail,
+        # forcing cleanup.
+        result = run_lint("tr-op-listed-but-covered")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-OP-042", result.stderr)
+        self.assertIn("pending", result.stderr.lower())
+
+    def test_tr_op_invariant_listed_but_covered_fails(self):
+        # Invariant coverage must count coverage.tr_op, not only
+        # coverage.tr_core, or a covered operational invariant can remain in
+        # pending_invariants forever.
+        result = run_lint("tr-op-invariant-listed-but-covered")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invariant #14", result.stderr)
+        self.assertIn("pending_invariants", result.stderr)
+
+
+class TestProjectionRebuildDrillCoverage(unittest.TestCase):
+    """R7 — TR-OP rows with Verification=projection-rebuild-drill are
+    covered by projection/shred manifests listing the row in coverage.tr_op,
+    with _pending-projection-drills.toml as the narrow escape hatch."""
+
+    def test_projection_drill_uncovered_not_listed_fails(self):
+        result = run_lint("projection-drill-uncovered-not-listed")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-OP-042", result.stderr)
+        self.assertIn("projection rebuild drill", result.stderr.lower())
+
+    def test_projection_drill_covered_passes(self):
+        result = run_lint("projection-drill-covered")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_projection_drill_pending_ok_passes(self):
+        result = run_lint("projection-drill-pending-ok")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_projection_drill_listed_but_covered_fails(self):
+        result = run_lint("projection-drill-listed-but-covered")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-OP-042", result.stderr)
+        self.assertIn("_pending-projection-drills.toml", result.stderr)
+
+
+class TestCompanionSectionsDeclaredCoverage(unittest.TestCase):
+    """R5 — when a manifest declares `companion_sections`, it MUST equal the
+    set derived from its `coverage.tr_op` rows via
+    derived_companion_sections_for_tr_op()."""
+
+    def test_companion_sections_declared_match_passes(self):
+        result = run_lint("companion-sections-declared-match")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_companion_sections_declared_mismatch_fails(self):
+        result = run_lint("companion-sections-declared-mismatch")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("companion_sections", result.stderr)
+
+
+class TestCoveragePrefixDiscipline(unittest.TestCase):
+    """R8 — coverage.tr_core entries MUST start with TR-CORE-; coverage.tr_op
+    entries MUST start with TR-OP-. Without this rule, a misfiled ID is
+    silently dropped by the R4/R5 bucket audits."""
+
+    def test_coverage_prefix_mismatch_fails(self):
+        result = run_lint("coverage-prefix-mismatch")
+        self.assertNotEqual(result.returncode, 0)
+        # Both mis-prefixed IDs must be named in the diagnostic, each tied
+        # to its (wrong) bucket.
+        self.assertIn("coverage.tr_core entry 'TR-OP-042'", result.stderr)
+        self.assertIn("coverage.tr_op entry 'TR-CORE-020'", result.stderr)
+
+
+class TestSpecCrossRefRows(unittest.TestCase):
+    """R6 — matrix rows with Verification=spec-cross-ref must cite resolvable
+    `Core §N` / `Companion §N` headings in Requirement/Rationale/Notes. A
+    non-resolving cite is a hard error; a missing cite is a warning (to keep
+    the current uncited rows tolerable while flagging the gap)."""
+
+    def test_spec_cross_ref_resolves_passes(self):
+        result = run_lint("spec-cross-ref-resolves")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_spec_cross_ref_missing_section_fails(self):
+        result = run_lint("spec-cross-ref-missing-section")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-CORE-001", result.stderr)
+        self.assertIn("Core §99", result.stderr)
+        self.assertIn("no matching heading", result.stderr.lower())
+
+    def test_spec_cross_ref_missing_cite_warns(self):
+        result = run_lint("spec-cross-ref-missing-cite")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("warning:", result.stderr.lower())
+        self.assertIn("TR-CORE-001", result.stderr)
+        self.assertIn("spec-cross-ref", result.stderr)
+
+    def test_real_repo_spec_cross_ref_rows_cite_resolvable_sections(self):
+        # Every matrix row with Verification=spec-cross-ref that DOES carry a
+        # Core §N / Companion §N citation in Requirement/Rationale/Notes must
+        # resolve to a real heading — protects against a §-number drifting in
+        # the spec without the matrix catching up.
+        cs = _load_check_specs_module()
+        errors: list[str] = []
+        warnings: list[str] = []
+        cs.check_spec_cross_ref_rows(errors, warnings)
+        # Warnings about uncited rows are tolerable (see test above); hard
+        # errors about non-resolving cites are not.
+        self.assertEqual(errors, [])
+
+
+class TestModelCheckEvidence(unittest.TestCase):
+    """R8 — matrix rows with Verification=model-check must either name an
+    evidence artifact in thoughts/model-checks/evidence.toml (whose path
+    resolves) or appear in _pending-model-checks.toml's pending_matrix_rows
+    allowlist. Both at once is a drift error."""
+
+    def test_evidence_present_passes(self):
+        result = run_lint("model-check-evidence-present")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_evidence_missing_fails(self):
+        result = run_lint("model-check-evidence-missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-CORE-001", result.stderr)
+        self.assertIn("no model-check evidence", result.stderr.lower())
+
+    def test_evidence_path_gone_fails(self):
+        result = run_lint("model-check-evidence-path-gone")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-CORE-001", result.stderr)
+        self.assertIn("evidence path", result.stderr.lower())
+        self.assertIn("does not exist", result.stderr.lower())
+
+    def test_pending_row_passes_without_evidence(self):
+        result = run_lint("model-check-evidence-pending-ok")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_listed_but_covered_fails(self):
+        result = run_lint("model-check-evidence-listed-but-covered")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("_pending-model-checks.toml", result.stderr)
+        self.assertIn("TR-CORE-001", result.stderr)
+
+
+class TestPendingModelChecksLoader(unittest.TestCase):
+    """Loader-level tests for the third allowlist file (R8). Parallels the
+    _pending-projection-drills.toml tests — missing file is not an error,
+    malformed TOML is, typed values round-trip."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def test_missing_file_returns_empty_set(self):
+        errors: list[str] = []
+        result = self.cs.load_pending_model_checks(
+            errors,
+            path=Path("/tmp/does-not-exist-model-checks.toml"),
+        )
+        self.assertEqual(result, set())
+        self.assertEqual(errors, [])
+
+    def test_malformed_toml_errors(self):
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-mc-bad.toml"
+        tmp.write_text("pending_matrix_rows = [not valid\n", encoding="utf-8")
+        errors: list[str] = []
+        self.cs.load_pending_model_checks(errors, path=tmp)
+        self.assertTrue(any("malformed TOML" in e for e in errors), errors)
+        tmp.unlink()
+
+    def test_valid_rows_load(self):
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-mc-ok.toml"
+        tmp.write_text(
+            'pending_matrix_rows = ["TR-CORE-020", "TR-CORE-050"]\n',
+            encoding="utf-8",
+        )
+        errors: list[str] = []
+        result = self.cs.load_pending_model_checks(errors, path=tmp)
+        self.assertEqual(result, {"TR-CORE-020", "TR-CORE-050"})
+        self.assertEqual(errors, [])
+        tmp.unlink()
 
 
 if __name__ == "__main__":

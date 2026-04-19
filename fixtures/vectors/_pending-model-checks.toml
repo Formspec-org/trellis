@@ -1,0 +1,21 @@
+# Model-check evidence allowlist (R8 / G-2).
+#
+# Matrix rows carrying `Verification=model-check` need an evidence artifact
+# declared in `thoughts/model-checks/evidence.toml` that resolves to a real
+# file. Until the G-4 Rust conformance crate ships property / state-machine
+# models for these rows, they sit in this allowlist.
+#
+# When G-4 lands an artifact for a row, remove the row from this list and
+# add its entry to `thoughts/model-checks/evidence.toml`. `check-specs.py`
+# refuses a row that lives in both places.
+
+pending_matrix_rows = [
+  "TR-CORE-001",
+  "TR-CORE-020",
+  "TR-CORE-023",
+  "TR-CORE-025",
+  "TR-CORE-046",
+  "TR-CORE-050",
+  "TR-OP-061",
+  "TR-OP-111",
+]
