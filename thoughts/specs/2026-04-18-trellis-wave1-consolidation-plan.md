@@ -27,7 +27,7 @@ Grouped by file. Each item cites the source brief. Order within a file is not lo
 - **§6.7 — register two event-type identifiers.** Add `trellis.custody-model-transition.v1` and `trellis.disclosure-profile-transition.v1` to the Phase 1 reject-if-unknown-at-version registry. Source: D §"Event-type strings." **XS**.
 - **§9.8 — register new domain tag.** Add `trellis-posture-declaration-v1` for `declaration_doc_digest` preimages. Source: D follow-ons. **XS**.
 - **§15.3 — pin canonical encoding for rebuilt artifacts.** Require dCBOR for rebuild output so two conforming implementations produce byte-equal rebuilds. Source: B gap #1. **XS**.
-- **§19 — extend verification algorithm.** Add step 5.5 (state-continuity + attestation-count checks for transition events); extend `VerificationReport` CDDL with `posture_transitions: [* PostureTransitionOutcome]`. Source: D follow-ons. **S**.
+- **§19 — extend verification algorithm.** Add step 6 (state-continuity + attestation-count checks for transition events); extend `VerificationReport` CDDL with `posture_transitions: [* PostureTransitionOutcome]`. Source: D follow-ons. **S**.
 - **§15.2 vs Companion §14.1 — reconcile `projection_schema_id`.** The Companion view-watermark carries a field absent from the Core CDDL. Either add to Core CDDL or clarify the Companion field as a superset. Source: B ambiguity #3. **XS**.
 
 ### `specs/trellis-operational-companion.md`

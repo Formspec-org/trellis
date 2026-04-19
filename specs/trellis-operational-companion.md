@@ -351,7 +351,7 @@ The wire shape that realizes these Posture-transition obligations is normatively
 
 ### 10.4 Scope of Transition Attestations
 
-**OC-11 (MUST).** Transitions that reduce disclosure obligations (for example, tightening metadata budgets) MAY be attested by the new authority alone. Transitions that expand provider-readable access — in particular, any transition from a reader-held Custody Model to a provider-readable Custody Model — MUST be dually attested by both authorities where both exist; a unilateral expansion by the provider is NON-CONFORMANT.
+**OC-11 (MUST).** Narrowing Posture-transitions — transitions that reduce disclosure obligations or access surface on any Posture axis (for example, tightening metadata budgets, or contracting a disclosure profile) — MAY be attested by the new authority alone. Posture-expanding transitions — transitions that expand the access or disclosure surface along any Posture axis, including but not limited to any Custody-Model transition from a reader-held model to a provider-readable model — MUST be dually attested by both authorities where both exist; a unilateral expansion by the party gaining access is NON-CONFORMANT.
 
 ### 10.5 Downstream Obligations on Transition
 
@@ -792,7 +792,7 @@ An implementation that retains plaintext in a derived artifact after a canonical
 
 ### 20.5 Cascade Scope
 
-**OC-77 (MUST).** The purge cascade MUST reach every class in the cascade-scope enumeration (Appendix A.7). The enumeration is a machine-checkable artifact: implementations iterate its values programmatically, and conformance fixtures reference values by their enumerated identifier rather than by prose description.
+**OC-77 (MUST).** The purge cascade MUST reach every class in the cascade-scope enumeration (Appendix A.7). The enumeration is a machine-checkable artifact: implementations MUST iterate its values programmatically, and new conformance fixtures exercising purge-cascade verification MUST reference the class by its enumerated identifier rather than by prose description.
 
 Backups are governed by the Operator's retention and recovery policy; backups MUST NOT be used to resurrect destroyed plaintext into live derived artifacts.
 
@@ -1447,7 +1447,7 @@ CustodyModelEntry {
 
 ## A.5 Posture Transition Event Families
 
-Two concrete Posture-transition subtypes are normative in Phase 1. Both ride in `EventPayload.extensions` under the identifiers registered in Core §6 (Event Format) §6.7 — Posture-transition codes `trellis.custody-model-transition.v1` and `trellis.disclosure-profile-transition.v1` — and are subject to the state-continuity check in Core §19 (Verification Algorithm) step 5.5. A.5.1 and A.5.2 are the emitted forms; there is no separately-emitted abstract parent.
+Two concrete Posture-transition subtypes are normative in Phase 1. Both ride in `EventPayload.extensions` under the identifiers registered in Core §6 (Event Format) §6.7 — Posture-transition codes `trellis.custody-model-transition.v1` and `trellis.disclosure-profile-transition.v1` — and are subject to the state-continuity check in Core §19 (Verification Algorithm) step 6. A.5.1 and A.5.2 are the emitted forms; there is no separately-emitted abstract parent.
 
 Shared named CDDL rule used by both subtypes:
 
@@ -1495,9 +1495,9 @@ Reason codes (registered, extensible via registry append-only):
 | 5 | `legal-order-compelling-transition` |
 | 255 | `Other` (append-only catch-all; free-text rationale in Posture Declaration) |
 
-### A.5.2 Disclosure-Profile Transition (Posture-transition on the Respondent Ledger Profile A/B/C axis)
+### A.5.2 Disclosure-Profile Posture-Transition
 
-Traceability: **TR-OP-043** (schema conformance). The concrete CDDL form emitted in Posture-transition code `trellis.disclosure-profile-transition.v1` under `EventPayload.extensions`:
+Posture-transition on the Respondent Ledger Profile A/B/C axis. Traceability: **TR-OP-043** (schema conformance). The concrete CDDL form emitted in Posture-transition code `trellis.disclosure-profile-transition.v1` under `EventPayload.extensions`:
 
 ```cddl
 DisclosureProfileTransitionPayload = {
@@ -1524,13 +1524,13 @@ Phase 1 Posture-transitions on the disclosure-profile axis are **deployment-scop
 Traceability: **TR-OP-044** (verifier rule), **TR-OP-045** (co-publish rule). A conforming verifier processing a chain with transitions MUST:
 
 1. Validate the payload against the concrete CDDL in A.5.1 / A.5.2 (mismatch is a structure failure).
-2. Check `from_*` state matches the state established by the most recent prior transition of the same kind in the same `ledger_scope`, or matches the deployment's initial declaration if no prior transition exists. Mismatch accumulates as a localizable `continuity_mismatch` failure per Core §19 (Verification Algorithm) step 5.5.
-3. Check `declaration_doc_digest` resolves to a Posture Declaration whose content digest under `trellis-posture-declaration-v1` (Core §9 (Hash Construction) §9.8) equals the stored digest. If the declaration is present in the export but its recomputed digest does NOT match, this is tamper evidence and is recorded per Core §19 (Verification Algorithm) step 5.5.c by setting both `declaration_resolved = false` and `continuity_verified = false`; the latter fails `integrity_verified` via Core §19 (Verification Algorithm) step 8.
-4. Verify every `attestations[*].signature`. Required attestation count — generalizing OC-11 from the Custody-Model axis to any Posture axis, with the conservative default that ambiguous scope changes require dual attestation:
+2. Check `from_*` state matches the state established by the most recent prior transition of the same kind in the same `ledger_scope`, or matches the deployment's initial declaration if no prior transition exists. Mismatch accumulates as a localizable `continuity_mismatch` failure per Core §19 (Verification Algorithm) step 6.
+3. Check `declaration_doc_digest` resolves to a Posture Declaration whose content digest under `trellis-posture-declaration-v1` (Core §9 (Hash Construction) §9.8) equals the stored digest. If the declaration is present in the export but its recomputed digest does NOT match, this is tamper evidence and is recorded per Core §19 (Verification Algorithm) step 6.c by setting both `declaration_resolved = false` and `continuity_verified = false`; the latter fails `integrity_verified` via Core §19 (Verification Algorithm) step 9.
+4. Verify every `attestations[*].signature`. Required attestation count follows OC-11 (which is normative across every Posture axis), with the conservative default that ambiguous scope changes require dual attestation:
    - `scope_change = "Widening"` — MUST be dually attested by both prior and new authorities where both exist.
    - `scope_change = "Orthogonal"` — MUST be dually attested. `Orthogonal` is the non-narrowing default and does not qualify for the reduced-attestation carve-out.
    - `scope_change = "Narrowing"` — MAY be attested by the new authority alone.
-   - For Custody-Model transitions (which have no `scope_change` field), widening events as defined by OC-11 (transitions expanding provider-readable access) MUST be dually attested; narrowing events MAY be attested by the new authority alone.
+   - For Custody-Model transitions (which have no `scope_change` field), the Posture-expanding cases named in OC-11 (transitions expanding provider-readable access) MUST be dually attested; narrowing cases MAY be attested by the new authority alone.
 
 Outcomes accumulate into `VerificationReport.posture_transitions` (Core §19 (Verification Algorithm)). State continuity or attestation failures flip `integrity_verified = false`.
 
@@ -1719,14 +1719,18 @@ DelegatedComputeGrant {
 
 ## B.5 Projection Watermark — Minimal Shape
 
+Non-normative illustration of the normative `Watermark` CDDL from Core §15 (Snapshot and Watermark Discipline) §15.2. Field names, types, and optionality mirror that normative shape field-for-field; implementations MUST conform to the Core text, not to this illustration.
+
 ```
 Watermark {
-  canonical_checkpoint_id: URI
-  tree_size:               uint
-  tree_head_hash:          bytes
-  build_timestamp:         timestamp
-  projection_schema_id:    URI
-  rebuild_path:            RebuildConfiguration  # §14.1 / §14.4
+  scope:                bytes                # ledger_scope of the producing chain
+  tree_size:            uint
+  tree_head_hash:       bytes                # digest
+  checkpoint_ref:       bytes                # checkpoint_digest
+  built_at:             uint                 # Unix seconds UTC when the artifact was built
+  rebuild_path:         string               # implementation-defined deterministic identifier
+  projection_schema_id: URI | absent         # REQUIRED for projections governed by §14.1;
+                                             # OMITTED for non-projection derivatives
 }
 ```
 

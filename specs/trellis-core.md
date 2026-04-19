@@ -308,7 +308,7 @@ Registered extension identifiers:
 | Container | Identifier | Phase | Purpose |
 |---|---|---|---|
 | `EventPayload.extensions` | `trellis.custody-model-transition.v1` | 1 | Custody-model Posture-transition record; payload shape per Companion §10 and Appendix A.5.1. Reject-if-unknown-at-version. |
-| `EventPayload.extensions` | `trellis.disclosure-profile-transition.v1` | 1 | Disclosure-profile Posture-transition record; payload shape per Companion §10 and Appendix A.5.2. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.disclosure-profile-transition.v1` | 1 | Posture-transition record for the disclosure-profile axis; payload shape per Companion §10 and Appendix A.5.2. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
 | `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
 | `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
@@ -942,15 +942,14 @@ Watermark = {
   checkpoint_ref:       digest,              ; checkpoint_digest (§11.2)
   built_at:             uint,                ; Unix seconds UTC when the artifact was built
   rebuild_path:         tstr,                ; implementation-defined deterministic identifier
-  ? projection_schema_id: tstr,              ; optional; identifies the projection schema version
-                                             ; under which the derived artifact was built. REQUIRED
-                                             ; whenever the bearer is a projection governed by
-                                             ; Companion §14.1; OMITTED for non-projection
-                                             ; derivatives (e.g., agency-log entries, §15.4).
+  ? projection_schema_id: tstr,              ; optional; projection schema version identifier
+                                             ; (URI per RFC 3986 when present)
 }
 ```
 
 A derived artifact's `Watermark` MUST be verifiable against the canonical chain: the named `checkpoint_ref` MUST exist in the export (or be resolvable against a referenced checkpoint chain), and the chain of events up to `tree_size` under that checkpoint's `tree_head_hash` MUST verify.
+
+The `projection_schema_id` field is REQUIRED whenever the bearer is a projection governed by Companion §14.1 (it identifies the projection schema version under which the derived artifact was built) and MUST be OMITTED for non-projection derivatives (for example, agency-log entries per §15.4). When present it MUST be a URI conforming to RFC 3986 (the `tstr` in the CDDL is a syntactic relaxation; the normative type is URI, matching Companion Appendix B.5).
 
 ### 15.3 Rebuild path
 
@@ -1275,9 +1274,9 @@ VERIFY(E) -> VerificationReport
      e. Verify consistency proof from prior c to current c (§11.4).
    Any failure ⇒ record in report.checkpoint_failures.
 
-5.5. Posture-transition state continuity. For each event e whose
-     EventPayload.extensions carries `trellis.custody-model-transition.v1`
-     or `trellis.disclosure-profile-transition.v1` (Posture-transition registry, §6.7):
+6. Posture-transition state continuity. For each event e whose
+   EventPayload.extensions carries `trellis.custody-model-transition.v1`
+   or `trellis.disclosure-profile-transition.v1` (Posture-transition registry, §6.7):
      a. Decode the extension payload per Companion Appendix A.5.1 / A.5.2.
      b. Check `from_*` state equals the state established by the most recent
         prior transition event of the same kind in the same ledger_scope, or
@@ -1297,7 +1296,7 @@ VERIFY(E) -> VerificationReport
               continuity_verified = false, and append
               `declaration_digest_mismatch` to the outcome's failures
               list. Digest mismatch is tamper evidence; the fatality
-              path is the continuity_verified = false conjunct in step 8.
+              path is the continuity_verified = false conjunct in step 9.
           - Otherwise record declaration_resolved = true.
      d. Check the required attestation count (Companion §10) and verify
         each attestation's signature under domain tag
@@ -1310,21 +1309,21 @@ VERIFY(E) -> VerificationReport
    Localizable failures accumulate in report.posture_transitions; they do
    not short-circuit, and their presence does not by itself fail
    structure_verified. Continuity and attestation failures surface through
-   integrity_verified per step 8.
+   integrity_verified per step 9.
 
-6. For each inclusion proof ip in 020-inclusion-proofs.cbor:
+7. For each inclusion proof ip in 020-inclusion-proofs.cbor:
      a. Recompute Merkle root per ip.audit_path, ip.leaf_hash, ip.leaf_index.
      b. Check it matches the head checkpoint's tree_head_hash.
    Any failure ⇒ record in report.proof_failures.
 
-7. If posture declaration indicates external anchoring:
+8. If posture declaration indicates external anchoring:
      - IF the required external material is present: verify per §16.3.
      - IF external material is declared optional: skip without failure.
      - IF required but missing: record report.anchor_unresolved (NOT a verification failure
        under Phase 1, see §16.3, unless the posture declaration itself
        claims external anchoring is required).
 
-8. Compute:
+9. Compute:
      structure_verified =
        manifest signature valid AND every COSE/CBOR/CDDL structure decoded and signed
        AND no unknown top-level Phase 1 fields were accepted.
@@ -1340,8 +1339,8 @@ VERIFY(E) -> VerificationReport
        every payload required by the export scope was decrypted and schema-validated
        under the bound registry and upstream Formspec/WOS semantics.
 
-9. Return report with structure_verified, integrity_verified,
-   readability_verified, failures, warnings, and omitted_payload_checks.
+10. Return report with structure_verified, integrity_verified,
+    readability_verified, failures, warnings, and omitted_payload_checks.
 ```
 
 The verifier's output is a structured report enumerating every integrity observation. The overall convenience boolean MAY be computed as all three booleans true, but implementations MUST expose the three booleans independently. A package that omits ciphertext bytes can still be structurally verified, but it cannot claim payload integrity or readability were verified offline for the omitted payloads.
@@ -1378,7 +1377,7 @@ PostureTransitionOutcome = {
 }
 ```
 
-`declaration_resolved = false` on its own (declaration absent) does not fail `integrity_verified`; it is the honest reporting of omitted material. However, a declaration that IS present in the export but whose recomputed digest does not equal `declaration_doc_digest` is tamper evidence: step 5.5.c sets both `declaration_resolved = false` AND `continuity_verified = false` in that case, and the latter fails `integrity_verified` via the step-8 conjunction. Callers MAY tighten the absent-declaration case via posture-declaration honesty (§20).
+`declaration_resolved = false` on its own (declaration absent) does not fail `integrity_verified`; it is the honest reporting of omitted material. However, a declaration that IS present in the export but whose recomputed digest does not equal `declaration_doc_digest` is tamper evidence: step 6.c sets both `declaration_resolved = false` AND `continuity_verified = false` in that case, and the latter fails `integrity_verified` via the step-9 conjunction. Callers MAY tighten the absent-declaration case via posture-declaration honesty (§20).
 
 ### 19.1 Tamper evidence
 
