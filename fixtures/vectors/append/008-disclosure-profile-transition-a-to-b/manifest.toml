@@ -1,0 +1,41 @@
+id          = "append/008-disclosure-profile-transition-a-to-b"
+op          = "append"
+status      = "active"
+description = """Third O-5 posture-transition vector, and the sibling of \
+006/007 on the disclosure-profile axis. Pins the wire shape of a \
+`trellis.disclosure-profile-transition.v1` event (Core §6.7; Companion \
+Appendix A.5.2). The transition moves the Respondent Ledger Profile \
+A/B/C axis from `rl-profile-A` to `rl-profile-B` with \
+`scope_change = "Orthogonal"` — per Appendix A.5.2 the `Orthogonal` \
+enum value names Profile changes that exchange one axis for another \
+(e.g. stricter privacy for weaker identity binding), rather than a \
+subset / superset relation. Companion Appendix A.5.3 step 4 treats \
+`Orthogonal` as the non-narrowing default: dual attestation required. \
+Also exercises invariant #11 (Respondent Ledger Profile A/B/C is \
+namespace-qualified as `rl-profile-A` etc., never bare letters per \
+OC-06). Chains from `append/001-minimal-inline-payload` with \
+`sequence = 1` and `idempotency_key = idemp-append-008`."""
+
+[coverage]
+tr_op = [
+    "TR-OP-043",  # disclosure-profile transition schema (Companion A.5.2)
+    "TR-OP-045",  # declaration-digest co-publish rule (OC-15)
+]
+
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+attestation_authority_prior  = "../../_keys/attestation-authority-cm-b-001.cose_key"
+prior_append_head            = "input-prior-append-head.cbor"
+authored_event               = "input-author-event-hash-preimage.cbor"
+posture_declaration          = "input-posture-declaration.bin"
+attestation_preimage_prior   = "input-attestation-preimage-prior.cbor"
+attestation_preimage_new     = "input-attestation-preimage-new.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

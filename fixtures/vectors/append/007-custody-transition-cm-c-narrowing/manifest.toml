@@ -1,0 +1,41 @@
+id          = "append/007-custody-transition-cm-c-narrowing"
+op          = "append"
+status      = "active"
+description = """Second O-5 posture-transition vector: a custody-model \
+transition CM-C → CM-B that contracts the delegated-compute plaintext \
+surface. Per Companion §10.4 / OC-11 / Appendix A.5.3 step 4, a *narrowing* \
+transition MAY be attested by the new authority alone — this vector \
+pins the single-attestation branch of the rule. Event envelope, chain \
+linkage, and domain-tag discipline are structurally identical to \
+`append/006-custody-transition-cm-b-to-cm-a`; the load-bearing deltas \
+are the `reason_code` (`2 = key-custody-change`), the reversed direction \
+(`from = CM-C`, `to = CM-B`), and the attestation count (1 instead of 2). \
+Chains from `append/001-minimal-inline-payload` with `sequence = 1` \
+and a distinct `idempotency_key` (`idemp-append-007`)."""
+
+# TR-OP-042 (custody-model transition CDDL) is exercised here as well as
+# by 006 — 006 pins the widening/dual-attestation branch; 007 pins the
+# narrowing/single-attestation branch. Both are part of the row's
+# byte-testable surface. TR-OP-045 applies to every transition (declaration
+# co-publish is universal).
+[coverage]
+tr_op = [
+    "TR-OP-042",  # custody-model transition schema, narrowing branch (Companion A.5.1 + A.5.3 step 4)
+    "TR-OP-045",  # declaration-digest co-publish rule (OC-15)
+]
+
+[inputs]
+signing_key               = "../../_keys/issuer-001.cose_key"
+prior_append_head         = "input-prior-append-head.cbor"
+authored_event            = "input-author-event-hash-preimage.cbor"
+posture_declaration       = "input-posture-declaration.bin"
+attestation_preimage_new  = "input-attestation-preimage-new.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

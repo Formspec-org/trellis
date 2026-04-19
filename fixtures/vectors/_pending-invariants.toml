@@ -18,7 +18,7 @@
 # Phase-1 invariants with ≥1 matrix row `Verification=test-vector` for which no
 # vector currently exists. (Invariants without any test-vector row are audited
 # on the G-2 non-byte-testable track, not here.)
-pending_invariants = [3, 6]
+pending_invariants = [3, 6, 7]
 
 # Matrix row IDs (TR-CORE-* and TR-OP-*) with `Verification=test-vector` for
 # which no manifest.toml currently lists the ID under coverage.tr_core or
@@ -31,7 +31,9 @@ pending_matrix_rows = [
     "TR-CORE-024",
     "TR-CORE-025",
     "TR-CORE-032",
+    "TR-CORE-036",
     "TR-CORE-037",
+    "TR-CORE-038",
     "TR-CORE-040",
     "TR-CORE-042",
     "TR-CORE-044",

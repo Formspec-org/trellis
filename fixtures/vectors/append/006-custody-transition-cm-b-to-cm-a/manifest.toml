@@ -1,0 +1,48 @@
+id          = "append/006-custody-transition-cm-b-to-cm-a"
+op          = "append"
+status      = "active"
+description = """First O-5 posture-transition vector: a custody-model \
+transition CM-B → CM-A, carried as a canonical Trellis event whose \
+`EventPayload.extensions["trellis.custody-model-transition.v1"]` slot \
+holds the Companion Appendix A.5.1 payload. CM-B → CM-A widens the \
+provider-readable decryptor set, so Companion §10.4 / OC-11 / Appendix \
+A.5.3 step 4 require *dual* attestation (one `authority_class="prior"`, \
+one `authority_class="new"`). This vector exercises the Phase 1 \
+wire shape for Posture-transition events registered under Core §6.7 \
+and the shared `Attestation` rule in Companion Appendix A.5. The event \
+chains from `append/001-minimal-inline-payload` (same `ledger_scope`) \
+with `sequence = 1`. The `declaration_doc_digest` is computed under \
+the `trellis-posture-declaration-v1` domain tag (Core §9.8) over a \
+committed `input-posture-declaration.bin` representing the declaration \
+in force AFTER the transition per OC-15."""
+
+# Posture-transition wire shape + state-continuity + declaration-digest rules
+# are tracked by the four O-5 TR-OP rows. This vector covers the append-side
+# surface of TR-OP-042 (custody-model CDDL) and of the TR-OP-045 co-publish
+# obligation (fresh declaration document at post-transition effective_at).
+# TR-OP-044 (verifier state-continuity + attestation verify) is exercised on
+# the tamper side (tamper/002 + tamper/003 + tamper/004). TR-OP-043 is the
+# sibling disclosure-profile row and is covered by append/008.
+[coverage]
+tr_op = [
+    "TR-OP-042",  # custody-model transition schema (Companion A.5.1)
+    "TR-OP-045",  # declaration-digest co-publish rule (Companion A.5.3 step 3)
+]
+
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+attestation_authority_prior  = "../../_keys/attestation-authority-cm-b-001.cose_key"
+prior_append_head            = "input-prior-append-head.cbor"
+authored_event               = "input-author-event-hash-preimage.cbor"
+posture_declaration          = "input-posture-declaration.bin"
+attestation_preimage_prior   = "input-attestation-preimage-prior.cbor"
+attestation_preimage_new     = "input-attestation-preimage-new.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
