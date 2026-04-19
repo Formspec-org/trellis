@@ -45,6 +45,20 @@ Branch: `main`.
   impose implementor obligations. The agreement is a sign-off gate. The matrix is
   traceability. Design docs under `thoughts/specs/` are not normative.
 
+## Working norms
+
+Retrospective-derived; keep ceremony proportional to risk.
+
+- **Inline by default for work under ~30 minutes.** Subagents earn their keep via isolation (preserving main-session context), parallelism (multiple independent chunks running at once), or genuinely large scope. For "write one template file" or "update three references," just do it. A 400-line subagent prompt for a 50-line job is waste.
+- **Plans: 3–5 tasks max.** If a plan wants 12 tasks, it's probably two plans or the tasks are too small. Each task should be a meaningful chunk, not a bite-sized step. The G-3 scaffold's 12 tasks in retrospect would collapse cleanly to 4.
+- **Doc updates travel with the thing they document.** If a commit adds a new Core §N, it also adds the corresponding `TR-CORE-NNN` row. If it closes a gate, it updates the checklist in the same commit. If it renames a concept, it propagates. Separate reconciliation passes accumulate drift that costs more later.
+- **Skill ceremony is optional when design is settled.** Invoke `superpowers:brainstorming` only when design space is genuinely open. If the user already signaled the design ("directory-per-vector, TOML manifest, just build it"), write the plan and go.
+- **Single-reviewer sweeps after meaningful chunks, not per-task.** Two-stage (spec + code) review is worth it for large scope. For small diffs, one post-hoc review finds the same issues at a third the cost. Always keep semi-formal review after anything that'll be read by outside implementors.
+- **Parallel by default for independent work.** Reviews + implementation can run concurrently when the implementer's output isn't gated on the review. Same for running 3+ follow-on vector batches in parallel subagents. Use `run_in_background: true` freely.
+- **Trust opus; prompt less.** Give the subagent the goal, the constraints, and the escalation rules. Let it figure out the plumbing. Long step-by-step prompts imply distrust that slows the agent and costs tokens.
+- **`git log` before `Read` when orienting.** 10 commit messages usually tell you 80% of what 5 spec files would. Drop into the files when the log points at something specific.
+- **Preserve unconditionally:** the escalation discipline (`NEEDS_CONTEXT` over fabrication — the T10 call that surfaced the three Core gaps was the highest-value moment of the prior session); semi-formal review after meaningful chunks; commit-per-logical-unit for anything a reviewer will read.
+
 ## Before you edit
 
 Skim the tail of `git log --oneline` (last ~20 commits) to see the recent decision
