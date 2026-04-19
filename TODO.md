@@ -105,29 +105,29 @@ Each step's output feeds the next; cannot be parallelized within the path.
 
 Off the critical path. Nothing here blocks G-3/G-4/G-5; nothing here is blocked by them. All five streams can open concurrently — ideal work for parallel agent dispatch on the design-brief phase.
 
+Wave 1 design briefs all landed. Consolidated follow-up plan: [`thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md`](thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md). Remaining authoring tasks per stream below.
+
 #### Stream A — G-2 non-byte-testable invariant audit
 
-- [ ] **Design: invariant audit-path assignment** — **S**.
-      For each invariant #1–#15, assign its audit channel (byte-testable → G-3 vector; non-byte-testable → model-check / declaration-doc-check / spec-cross-ref / projection-rebuild-drill / manual-review) and record per-invariant evidence pointer. Closes G-2 alongside the G-3 lint's byte-testable half. Companion §§10 / 19 / 22 are the likely anchors for non-byte paths.
+Design landed at [`thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md`](thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md). Hybrid classification; 11 byte-testable, 4 non-byte-only, 5 hybrid invariants. No remaining authoring — G-2 closes when (a) consolidation-plan lint rules land and (b) the audit-path table stays green.
 
 #### Stream B — O-3 projection discipline
 
-- [ ] **Design: projection conformance fixtures** — **S** (design brief).
-      Per Companion §§14–17. Watermark `(tree_size, tree_head_hash)` attestation; rebuild-equivalence drill (replay from canonical chain must reproduce derived view); snapshot cadence; purge-cascade verification. Pick format (TOML manifest like G-3 vs something richer) and coverage enforcement.
-- [ ] **Author O-3 fixtures** — **M**. Once design lands.
+Design landed at [`thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md`](thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md). `fixtures/vectors/projection/` + `fixtures/vectors/shred/` new op-dirs.
+
+- [ ] **Author O-3 fixtures** — **M**. 6–8 vectors covering watermark / rebuild / cadence / purge-cascade. Blocked by consolidation-plan Core §15.3 + Companion §16.2 + §20.5 edits.
 
 #### Stream C — O-4 delegated-compute honesty
 
-- [ ] **Design: declaration-doc template** — **S**.
-      Per Companion §19 + Appendix A. Template for "what an agent-in-the-loop deployment declares about its autonomy, authority, and audit surface." One worked example (e.g., LLM-assisted triage tier). Declaration-doc-check is one of the non-byte-testable audit channels feeding G-2.
-- [ ] **Author one reference declaration doc** — **S**.
+Design landed at [`thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md). TOML-frontmatter-in-Markdown; 6-table schema.
+
+- [ ] **Author reference declaration doc** — **S**. SSDI intake triage worked example. Blocked by consolidation-plan Appendix A housing decision.
 
 #### Stream D — O-5 posture-transition audit
 
-- [ ] **Design: posture-transition event schemas** — **S**.
-      Per Companion §10. Canonical CBOR/JSON shape for custody-model transitions (e.g., provider-readable → reader-held) and disclosure-profile transitions. Emitted as ordinary ledger events; verification semantics pinned.
-- [ ] **Author O-5 fixtures** — **S**.
-      Coverage via `tamper/` + `append/` vectors exercising the transitions. Shares the G-3 corpus, so time this to land after the `append/` residue batch (critical-path step 2).
+Design landed at [`thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md`](thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md). Two CDDL event families; co-publish declaration rule; 6 fixtures planned.
+
+- [ ] **Author O-5 fixtures** — **S**. 3 append + 3 tamper under existing G-3 layout. Blocked by consolidation-plan Core §6.7 + §9.8 + §19 edits + `append/005-prior-head-chain` (critical-path step 2).
 
 #### Stream E — Track E cross-cutting bindings
 
@@ -140,8 +140,8 @@ Not Phase 1 gates, but named in vision §"Next steps → Track E" as closing con
 
 ### Dispatch notes
 
-- **Wave 1 (today):** dispatch 4 parallel agents on the design-brief tasks in Streams A / B / C / D. Each produces a draft under `thoughts/specs/…` for human review. Stream E's WOS binding (**S**) can be a 5th agent; Stream E Respondent Ledger binding (**M**) waits until Formspec-side coordination is scheduled.
-- **Wave 2:** human reviews design briefs sequentially; first-batch G-3 vectors authored in the background (not agent-friendly — each vector is a careful, spec-cited artifact).
+- **Wave 1 (done):** 4 parallel design-brief agents returned clean. Streams A/B/C/D briefs landed under `thoughts/specs/2026-04-18-trellis-{g2,o3,o4,o5}-*.md`. Consolidated follow-ups in `thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md`.
+- **Wave 2 (next):** execute the consolidation plan — Core + Companion + Matrix edits unblock O-3 / O-4 / O-5 fixture authoring; `check-specs.py` lint refactor bundles the ~10 rules surfaced across streams. Stream E WOS binding fits here too. First-batch G-3 vectors can run in parallel human sessions.
 - **Wave 3:** G-4 Rust workspace execution. Not agent-friendly at L scale; sit with it. Vector corpus continues in parallel human sessions as Rust progresses.
 - **Wave 4:** commission G-5 stranger test once corpus is frozen. Parallel streams should all have closed by this point or be in fixture-authoring tail.
 - **Merge:** ratification close-out (step 10) is trivial once all streams merge back.
@@ -160,6 +160,7 @@ Tracks B (WOS runtime + Formspec coprocessor), C (FedRAMP / SOC 2 / GSA / WCAG c
 
 Prune aggressively — `git log` is the real record.
 
+- Wave 1 design briefs (G-2 / O-3 / O-4 / O-5) landed; consolidation plan at `thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md` surfaces ~9 spec edits + ~10 lint rules across Core / Companion / Matrix.
 - Core clarifications from T10 — §6.1 (`idempotency_key` uniqueness scope + UUIDv7 construction), §7.4 (COSE_Sign1 embedded payload, verifier MUST reject `payload == nil`), §9.1 (length-prefix form applies uniformly including single-component).
 - Allowlist rollout — `TRELLIS_SKIP_COVERAGE=1` bypass removed; `_pending-invariants.toml` allowlist drives batched vector coverage (F5). `check_vector_manifest_paths` lint rule added (F7). 20/20 pytest green.
 - Vector-lifecycle policy (F6) — renumbering-forbidden, `status = "deprecated"` tombstones, overlap-encouraged-as-boolean. Landed as F6 amendment in `thoughts/specs/2026-04-18-trellis-g3-fixture-system-design.md` under "Vector lifecycle" + "Manifest schema"; lint enforcement deferred to the separate `check-specs.py` follow-on plan.
