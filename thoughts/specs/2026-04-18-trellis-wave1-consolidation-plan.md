@@ -81,18 +81,19 @@ Proposed order — each step unblocks later ones:
 
 Item (1) is the hard blocker. Items (3)–(4) are parallelizable with G-3 critical-path work.
 
-## Open items for WG review before execution
+## WG item resolutions (amended 2026-04-18)
 
-Flagged by the agents; orchestrator/WG to resolve before these briefs are treated as authoritative.
+Nine items flagged by agents resolved by orchestrator call ahead of spec-edit execution. Each listed with the decision and a one-line justification so the rationale is recoverable from this doc.
 
-- **Stream A:** invariant #14 ownership boundary once B's matrix edits land (likely auto-resolves to hybrid, but confirm).
-- **Stream A:** invariant #1 spec-cross-ref forward-looking clause — close it today, or defer until a registry-companion spec exists?
-- **Stream A:** non-byte-channel audit signer — default is the Agreement §11 signer; WG may designate a dedicated role.
-- **Stream B:** cadence-violation self-detection — implementation obligation or auditor-only?
-- **Stream C:** declaration-doc housing — standalone artifact or Appendix A.6?
-- **Stream C:** drop `scope.authorized_actions = "decide"` for Phase 1?
-- **Stream D:** reason-code registry governance — `Other = 255` as append-only catch-all acceptable?
-- **Stream D:** disclosure-profile transition granularity — deployment-scope only, or per-case?
+- **A #14 ownership** — auto-resolve: B's matrix edits flip TR-OP-005/006 Verification cells to include `test-vector`; A's hybrid rule then auto-promotes #14. No separate action.
+- **A #1 forward-looking clause** — defer. The cross-ref is to a registry-companion that doesn't exist yet; closing it today is vacuous. Close when the companion spec lands; Phase 1 ratification does not require it.
+- **A audit-signer role** — Agreement §11 signer for Phase 1. Dedicated audit role is a Phase 2 concern; adding a new role now without evidence is overengineering.
+- **B cadence-violation self-detection** — both. Implementation MUST detect and log cadence gaps; auditor verification is a redundant check. Defense in depth matches Companion §22 agility register.
+- **B `projection_schema_id` reconciliation** — add to Core §15.2 `Watermark` CDDL as optional field. Consistent Core↔Companion shape avoids the "Companion adds fields to Core types" anti-pattern.
+- **C declaration-doc housing** — Appendix A.6. Avoid artifact proliferation; the declaration doc is conceptually sibling to A.1's `PostureDeclaration`. Schema transplants unchanged.
+- **C `scope.authorized_actions = "decide"`** — drop for Phase 1. Agent-decide-alone is non-conforming with invariant #15 (overclaiming); enumerating it invites non-conforming deployments. Reintroduce in Phase 2 if evidence warrants.
+- **D `reason_code = Other = 255`** — accept as append-only catch-all. Matches Companion §22 extension discipline; `Other` is a conformance-class anchor, not an escape hatch.
+- **D disclosure-profile transition granularity** — deployment-scope only for Phase 1. Per-case granularity is a Phase 3 concern (case ledger exists only in Phase 3). Spec edits pin deployment-scope; leave a reserved field for Phase 3 refinement.
 
 ## Non-goals
 

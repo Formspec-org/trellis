@@ -274,7 +274,7 @@ For `PayloadInline`, `content_hash` MUST equal the hash of `ciphertext`. For `Pa
 
 ### 6.5 Phase-superset extension points
 
-The following extension points are reserved for Phase 2 / Phase 3 superset growth. Phase 1 producers MUST NOT populate them except as `null` or empty maps/lists; Phase 1 verifiers MUST accept them as empty. Phase 2+ producers MUST populate them according to later-phase specifications; Phase 1+Phase 2 bridge verifiers MUST reject records whose extension-point usage violates this specification.
+The following extension points are reserved for Phase 2 / Phase 3 superset growth. Phase 1 producers MUST NOT populate them except as `null` or empty maps/lists, with one exception: the §6.7 registered-identifier carve-out — registered identifiers whose Phase column is `1` MAY be emitted by Phase 1 producers (§6.7 is authoritative for which specific keys). Phase 1 verifiers MUST accept empty containers and MUST process Phase 1 registered identifiers per each identifier's verification obligation. Phase 2+ producers MUST populate them according to later-phase specifications; Phase 1+Phase 2 bridge verifiers MUST reject records whose extension-point usage violates this specification.
 
 - `causal_deps` — Phase 2 HLC / DAG causal ordering.
 - `commitments` — Phase 2+ per-field redaction-aware commitments (§13).
@@ -303,10 +303,12 @@ An Event signature is the RFC 9052 COSE_Sign1 signature over `EventPayload` usin
 - A registered key specifies: the container it lives in (`EventPayload.extensions`, `EventHeader.extensions`, `CheckpointPayload.extensions`, `ExportManifestPayload.extensions`), its CDDL type, the Phase that produces it, and the verification obligation (ignore-if-unknown vs. reject-if-unknown-at-version).
 - Registration is append-only; meaning does not change after registration.
 
-Example registered extension identifiers (Phase 2/3 reservations):
+Registered extension identifiers:
 
 | Container | Identifier | Phase | Purpose |
 |---|---|---|---|
+| `EventPayload.extensions` | `trellis.custody-model-transition.v1` | 1 | Custody-model Posture-transition record; payload shape per Companion §10 and Appendix A.5.1. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.disclosure-profile-transition.v1` | 1 | Disclosure-profile Posture-transition record; payload shape per Companion §10 and Appendix A.5.2. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
 | `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
 | `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
@@ -315,7 +317,7 @@ Example registered extension identifiers (Phase 2/3 reservations):
 | `CheckpointPayload.extensions` | `trellis.case_ledger.composed_response_heads.v1` | 3 | Case-ledger head composition manifest. |
 | `CheckpointPayload.extensions` | `trellis.case_ledger.case_scope_metadata.v1` | 3 | Case-scope adjudication metadata. |
 
-Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps. Phase 1 verifiers MUST reject unknown top-level fields (Fix 5 strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
+Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
 ### 6.8 Three event surfaces (authored / canonical / signed)
 
@@ -636,6 +638,8 @@ Phase 1 reserves these domain tags. An implementation MUST NOT use any of these 
 - `trellis-export-manifest-v1` — export manifest digest (§9.7)
 - `trellis-merkle-leaf-v1` — Merkle tree leaf hash (§11.3)
 - `trellis-merkle-interior-v1` — Merkle interior-node hash (§11.3)
+- `trellis-posture-declaration-v1` — Posture-declaration document digest referenced from custody-model and disclosure-profile Posture-transition events (§6.7 registered extensions; Companion §10)
+- `trellis-transition-attestation-v1` — Posture-transition attestation signature preimage `dCBOR([transition_id, effective_at, authority_class])` per Companion A.5 `Attestation` shared rule
 
 ---
 
@@ -932,12 +936,17 @@ This section owns the **core rule** (watermark + rebuild-path requirement). The 
 
 ```cddl
 Watermark = {
-  scope:          bstr,
-  tree_size:      uint,
-  tree_head_hash: digest,
-  checkpoint_ref: digest,              ; checkpoint_digest (§11.2)
-  built_at:       uint,                ; Unix seconds UTC when the artifact was built
-  rebuild_path:   tstr,                ; implementation-defined deterministic identifier
+  scope:                bstr,
+  tree_size:            uint,
+  tree_head_hash:       digest,
+  checkpoint_ref:       digest,              ; checkpoint_digest (§11.2)
+  built_at:             uint,                ; Unix seconds UTC when the artifact was built
+  rebuild_path:         tstr,                ; implementation-defined deterministic identifier
+  ? projection_schema_id: tstr,              ; optional; identifies the projection schema version
+                                             ; under which the derived artifact was built. REQUIRED
+                                             ; whenever the bearer is a projection governed by
+                                             ; Companion §14.1; OMITTED for non-projection
+                                             ; derivatives (e.g., agency-log entries, §15.4).
 }
 ```
 
@@ -946,6 +955,8 @@ A derived artifact's `Watermark` MUST be verifiable against the canonical chain:
 ### 15.3 Rebuild path
 
 `rebuild_path` is a deterministic identifier that, combined with the canonical events up to `tree_size` and with the declared configuration history of the derived processor, allows a recipient to rebuild the derived artifact and confirm byte-for-byte equivalence. The rebuild path is not a guarantee of performance; it is a guarantee that the derived artifact is not authoritative and can be regenerated.
+
+**Rebuild-output encoding.** Rebuilt derived artifacts MUST use dCBOR (§5) as their canonical encoding whenever the artifact shape admits CBOR serialization. Two conforming implementations that rebuild the same derived artifact from the same canonical events and configuration history MUST produce byte-equal output. Fields whose determinism depends on external state (wall-clock timestamps, per-implementation resource IDs) MUST be declared in the rebuild-path identifier as non-deterministic; byte-equality is required over the declared-deterministic portion only (Companion §15.3 OC-40).
 
 **Phase 1 export scope.** Phase 1 exports (§18) do NOT carry derived artifacts, and Watermark records are not members of a Phase 1 export package. Watermarks are runtime state consumed by Companion projection discipline, not Phase 1 export content. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
 
@@ -1264,6 +1275,43 @@ VERIFY(E) -> VerificationReport
      e. Verify consistency proof from prior c to current c (§11.4).
    Any failure ⇒ record in report.checkpoint_failures.
 
+5.5. Posture-transition state continuity. For each event e whose
+     EventPayload.extensions carries `trellis.custody-model-transition.v1`
+     or `trellis.disclosure-profile-transition.v1` (Posture-transition registry, §6.7):
+     a. Decode the extension payload per Companion Appendix A.5.1 / A.5.2.
+     b. Check `from_*` state equals the state established by the most recent
+        prior transition event of the same kind in the same ledger_scope, or
+        equals the deployment's initial declaration if no prior transition
+        exists. Mismatch ⇒ record continuity_verified = false and append
+        `state_continuity_mismatch` to the outcome's failures list.
+        Otherwise record continuity_verified = true.
+     c. Resolve `declaration_doc_digest` under domain tag
+        `trellis-posture-declaration-v1` (§9.8):
+          - If the referenced declaration is absent from the export and is
+            not resolvable via a referenced manifest:
+              record declaration_resolved = false; continue (not fatal under
+              §16's omitted-material semantics).
+          - If the referenced declaration is present but its recomputed
+            digest does not equal `declaration_doc_digest`:
+              record declaration_resolved = false, also set
+              continuity_verified = false, and append
+              `declaration_digest_mismatch` to the outcome's failures
+              list. Digest mismatch is tamper evidence; the fatality
+              path is the continuity_verified = false conjunct in step 8.
+          - Otherwise record declaration_resolved = true.
+     d. Check the required attestation count (Companion §10) and verify
+        each attestation's signature under domain tag
+        `trellis-transition-attestation-v1` (§9.8). Any failure ⇒
+        record attestations_verified = false and append
+        `attestation_insufficient` to the outcome's failures list.
+        Otherwise record attestations_verified = true.
+     e. Emit a PostureTransitionOutcome record (below) into
+        report.posture_transitions in event order.
+   Localizable failures accumulate in report.posture_transitions; they do
+   not short-circuit, and their presence does not by itself fail
+   structure_verified. Continuity and attestation failures surface through
+   integrity_verified per step 8.
+
 6. For each inclusion proof ip in 020-inclusion-proofs.cbor:
      a. Recompute Merkle root per ip.audit_path, ip.leaf_hash, ip.leaf_index.
      b. Check it matches the head checkpoint's tree_head_hash.
@@ -1284,7 +1332,9 @@ VERIFY(E) -> VerificationReport
      integrity_verified =
        archive digests valid AND event hashes, prev_hash links, checkpoint roots,
        inclusion proofs, consistency proofs, and every available ciphertext hash valid
-       AND report.omitted_payload_checks is empty.
+       AND report.omitted_payload_checks is empty
+       AND no entry in report.posture_transitions has continuity_verified = false
+       AND no entry in report.posture_transitions has attestations_verified = false.
 
      readability_verified =
        every payload required by the export scope was decrypted and schema-validated
@@ -1304,6 +1354,7 @@ VerificationReport = {
   event_failures:       [* VerificationFailure],
   checkpoint_failures:  [* VerificationFailure],
   proof_failures:       [* VerificationFailure],
+  posture_transitions:  [* PostureTransitionOutcome],
   omitted_payload_checks: [* OmittedPayloadCheck],
   warnings:             [* tstr],
 }
@@ -1313,7 +1364,21 @@ VerificationFailure = {
   code:     tstr,
   detail:   tstr,
 }
+
+PostureTransitionOutcome = {
+  transition_id:           tstr,   ; from the Posture-transition event payload
+  kind:                    tstr,   ; Posture-transition kind: "custody-model" or "disclosure-profile"
+  event_index:             uint,   ; position in the events array
+  from_state:              tstr,
+  to_state:                tstr,
+  continuity_verified:     bool,   ; from_state matched prior-transition or initial-declaration state
+  declaration_resolved:    bool,   ; declaration_doc_digest resolved to a present declaration
+  attestations_verified:   bool,   ; required attestations present + signatures valid
+  failures:                [* tstr], ; localized failure codes (continuity_mismatch, declaration_unresolved, attestation_insufficient, ...)
+}
 ```
+
+`declaration_resolved = false` on its own (declaration absent) does not fail `integrity_verified`; it is the honest reporting of omitted material. However, a declaration that IS present in the export but whose recomputed digest does not equal `declaration_doc_digest` is tamper evidence: step 5.5.c sets both `declaration_resolved = false` AND `continuity_verified = false` in that case, and the latter fails `integrity_verified` via the step-8 conjunction. Callers MAY tighten the absent-declaration case via posture-declaration honesty (§20).
 
 ### 19.1 Tamper evidence
 
