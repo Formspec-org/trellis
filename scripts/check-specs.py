@@ -48,6 +48,11 @@ PHASE_1_INVARIANTS = set(range(1, 16))  # #1..#15
 
 GENERATOR_ALLOWED_IMPORTS = set(sys.stdlib_module_names) | {"cryptography", "cbor2"}
 
+# Recognized vector operation directories under fixtures/vectors/. Wave-1
+# extends the original four ops with `projection` and `shred` to support
+# O-3 projection conformance vectors.
+VECTOR_OPS = ("append", "verify", "export", "tamper", "projection", "shred")
+
 
 def parse_invariants_cell(cell: str) -> set[int]:
     """Parse an Invariant-column cell. Handles '#5', '#1, #4', '1', '—'/'-' → empty."""
@@ -73,9 +78,34 @@ def core_headings() -> dict[int, str]:
     return headings
 
 
+def companion_headings() -> dict[int, str]:
+    """Mirror of core_headings() for trellis-operational-companion.md.
+
+    Phase-1 Companion numbers `## N. Title` headings from §5 through §29.
+    Higher-numbered Phase-2+ sections, when added, will slot in naturally.
+    Appendix headings (`## A.N`) use alphabetic prefixes and are handled by
+    companion_cddl_blocks() separately.
+    """
+    headings: dict[int, str] = {}
+    heading_pattern = re.compile(r"^## ([0-9]+)\.?\s+(.+)$", re.MULTILINE)
+    for match in heading_pattern.finditer(read(SPECS / "trellis-operational-companion.md")):
+        headings[int(match.group(1))] = match.group(2).strip()
+    return headings
+
+
 def matrix_ids() -> list[str]:
     text = read(SPECS / "trellis-requirements-matrix.md")
     return re.findall(r"^\| (TR-(?:CORE|OP)-[0-9]{3}) \|", text, re.MULTILINE)
+
+
+def tr_core_ids() -> list[str]:
+    """Subset of matrix_ids() restricted to core-scope rows."""
+    return [row_id for row_id in matrix_ids() if row_id.startswith("TR-CORE-")]
+
+
+def tr_op_ids() -> list[str]:
+    """Subset of matrix_ids() restricted to operational-scope rows."""
+    return [row_id for row_id in matrix_ids() if row_id.startswith("TR-OP-")]
 
 
 def matrix_rows() -> list[dict]:
@@ -108,7 +138,7 @@ def vector_manifests() -> list[tuple[Path, dict]]:
     manifests = []
     if not FIXTURES.exists():
         return manifests
-    for op_dir in ["append", "verify", "export", "tamper"]:
+    for op_dir in VECTOR_OPS:
         op_path = FIXTURES / op_dir
         if not op_path.exists():
             continue
@@ -147,6 +177,36 @@ def derived_sections_for_tr_core(row_ids: list[str]) -> set[str]:
     return derived
 
 
+def derived_companion_sections_for_tr_op(row_ids: list[str]) -> set[str]:
+    """Mirror of derived_sections_for_tr_core over the Operational Companion.
+
+    Scans Companion prose to find which §N heading each TR-OP-XXX anchor
+    lives under. Used by the declared-coverage round-trip rule (R5) once
+    that wires up in a later commit.
+    """
+    companion_text = read(SPECS / "trellis-operational-companion.md")
+    heading_pattern = re.compile(
+        r"^(#{2,3})\s+(?:§\s*)?([0-9]+(?:\.[0-9]+)*)\.?\s+(.+)$", re.MULTILINE
+    )
+    sections: list[tuple[int, str]] = []
+    for m in heading_pattern.finditer(companion_text):
+        sections.append((m.start(), f"§{m.group(2)}"))
+    derived: set[str] = set()
+    for row_id in row_ids:
+        anchor = companion_text.find(row_id)
+        if anchor == -1:
+            continue
+        current_section = None
+        for start, label in sections:
+            if start <= anchor:
+                current_section = label
+            else:
+                break
+        if current_section:
+            derived.add(current_section)
+    return derived
+
+
 def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
     """Return the set of invariant numbers declared for the given TR-CORE rows in the matrix."""
     derived: set[int] = set()
@@ -155,6 +215,71 @@ def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
         if r["id"] in row_id_set:
             derived.update(parse_invariants_cell(r["invariant"]))
     return derived
+
+
+def load_allowlist(
+    path: Path,
+    errors: list[str],
+    *,
+    int_field: str | None = None,
+    str_field: str | None = None,
+) -> dict[str, set]:
+    """Generic TOML allowlist loader.
+
+    One code path handles both `_pending-invariants.toml` (int list + str
+    list) and `_pending-projection-drills.toml` (str list only). Missing
+    file → empty sets, no error. Malformed TOML → single clean lint error,
+    empty sets. Wrong element type → per-entry error, offending entry
+    skipped.
+
+    Callers pick which fields to extract by naming them. Returns a dict
+    keyed by whichever of `int_field` / `str_field` the caller supplied;
+    every requested key is present with at least an empty set.
+    """
+    import tomllib
+
+    result: dict[str, set] = {}
+    if int_field is not None:
+        result[int_field] = set()
+    if str_field is not None:
+        result[str_field] = set()
+
+    if not path.exists():
+        return result
+
+    try:
+        rel = path.relative_to(ROOT)
+    except ValueError:
+        # Caller passed an absolute path outside ROOT (e.g., a test tmp file);
+        # surface it as-is.
+        rel = path
+
+    try:
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        errors.append(f"{rel}: malformed TOML ({e})")
+        return result
+
+    if int_field is not None:
+        for entry in data.get(int_field, []):
+            if isinstance(entry, bool) or not isinstance(entry, int):
+                errors.append(
+                    f"{rel}: {int_field} entry {entry!r} is not an integer"
+                )
+                continue
+            result[int_field].add(entry)
+
+    if str_field is not None:
+        for entry in data.get(str_field, []):
+            if not isinstance(entry, str):
+                errors.append(
+                    f"{rel}: {str_field} entry {entry!r} is not a string"
+                )
+                continue
+            result[str_field].add(entry)
+
+    return result
 
 
 def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
@@ -170,38 +295,13 @@ def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
         pending_matrix_rows = ["TR-CORE-037"]    # testable matrix row IDs
                                                  # (both TR-CORE-* and TR-OP-*)
     """
-    import tomllib
-
-    path = FIXTURES / "_pending-invariants.toml"
-    if not path.exists():
-        return set(), set()
-    try:
-        with path.open("rb") as f:
-            data = tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        errors.append(
-            f"{path.relative_to(ROOT)}: malformed TOML ({e})"
-        )
-        return set(), set()
-
-    rel = path.relative_to(ROOT)
-    pending_inv: set[int] = set()
-    for entry in data.get("pending_invariants", []):
-        if isinstance(entry, bool) or not isinstance(entry, int):
-            errors.append(
-                f"{rel}: pending_invariants entry {entry!r} is not an integer"
-            )
-            continue
-        pending_inv.add(entry)
-    pending_rows: set[str] = set()
-    for entry in data.get("pending_matrix_rows", []):
-        if not isinstance(entry, str):
-            errors.append(
-                f"{rel}: pending_matrix_rows entry {entry!r} is not a string"
-            )
-            continue
-        pending_rows.add(entry)
-    return pending_inv, pending_rows
+    data = load_allowlist(
+        FIXTURES / "_pending-invariants.toml",
+        errors,
+        int_field="pending_invariants",
+        str_field="pending_matrix_rows",
+    )
+    return data["pending_invariants"], data["pending_matrix_rows"]
 
 
 # Manifest keys whose string values are hex digests, not filesystem paths.
@@ -544,6 +644,88 @@ def check_archived_inputs(errors: list[str]) -> None:
         path = SPECS / family
         if path.exists():
             errors.append(f"{path.relative_to(ROOT)}: superseded spec family directory must be under specs/archive/")
+
+
+def core_event_type_registry() -> dict[str, dict[str, str]]:
+    """Parse Core §6.7's Extension Registration table.
+
+    Returns a mapping from registered identifier to a dict with
+    `container`, `phase`, and `purpose` fields. Used by the event-type
+    registry rule (R9) once that wires up in a later commit.
+
+    The table is a plain markdown 4-column table under `### 6.7 Extension
+    Registration`; the header row and separator row are skipped.
+    """
+    core_text = read(SPECS / "trellis-core.md")
+    section_match = re.search(r"^### 6\.7\b.*$", core_text, re.MULTILINE)
+    if not section_match:
+        return {}
+    # Slice from §6.7 heading to the next same-or-higher heading.
+    start = section_match.end()
+    next_heading = re.search(r"^#{1,3}\s", core_text[start:], re.MULTILINE)
+    end = start + next_heading.start() if next_heading else len(core_text)
+    section = core_text[start:end]
+
+    registry: dict[str, dict[str, str]] = {}
+    row_pattern = re.compile(
+        r"^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$",
+        re.MULTILINE,
+    )
+    for m in row_pattern.finditer(section):
+        container, identifier, phase, purpose = m.group(1, 2, 3, 4)
+        # Skip header rows disguised as data (unlikely here, but defensive).
+        if container.startswith("-") or identifier.startswith("-"):
+            continue
+        registry[identifier.strip()] = {
+            "container": container.strip(),
+            "phase": phase.strip(),
+            "purpose": purpose.strip(),
+        }
+    return registry
+
+
+_CDDL_RULE_NAME_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", re.MULTILINE)
+
+
+def companion_cddl_blocks() -> dict[tuple[str, str], str]:
+    """Extract ```cddl fenced blocks from the Operational Companion.
+
+    Returns a mapping keyed by (appendix_id, rule_name) to the raw block
+    body. `appendix_id` is the nearest enclosing `## A.N` / `### A.N.M`
+    heading (e.g. "A.5", "A.5.1"). `rule_name` is the first CDDL rule
+    name declared in the block (e.g. "CustodyModelTransitionPayload"), and
+    must match the identifier pattern `[A-Za-z_][A-Za-z0-9_]*` followed by
+    `=`.
+
+    Used by the CDDL cross-ref rule (R10) once that wires up.
+    """
+    companion_text = read(SPECS / "trellis-operational-companion.md")
+    heading_pattern = re.compile(
+        r"^(?:#{2,4})\s+(A\.[0-9]+(?:\.[0-9]+)*)\b", re.MULTILINE
+    )
+    headings: list[tuple[int, str]] = [
+        (m.start(), m.group(1)) for m in heading_pattern.finditer(companion_text)
+    ]
+
+    block_pattern = re.compile(r"^```cddl\s*\n(.*?)^```", re.MULTILINE | re.DOTALL)
+    blocks: dict[tuple[str, str], str] = {}
+    for m in block_pattern.finditer(companion_text):
+        body = m.group(1)
+        rule_match = _CDDL_RULE_NAME_PATTERN.search(body)
+        if not rule_match:
+            continue
+        rule_name = rule_match.group(1)
+        # Find the nearest heading at or before this block.
+        appendix_id: str | None = None
+        for start, label in headings:
+            if start <= m.start():
+                appendix_id = label
+            else:
+                break
+        if appendix_id is None:
+            continue
+        blocks[(appendix_id, rule_name)] = body
+    return blocks
 
 
 def main() -> int:

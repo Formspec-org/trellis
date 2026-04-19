@@ -9,6 +9,7 @@ coverage rules.  All three tests are expected to fail until Task 4 wires up
 TRELLIS_LINT_ROOT in check-specs.py.
 """
 
+import importlib.util
 import os
 import subprocess
 import unittest
@@ -17,6 +18,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LINT = ROOT / "scripts" / "check-specs.py"
 FIX = Path(__file__).resolve().parent / "check-specs-fixtures"
+
+
+def _load_check_specs_module():
+    """Import check-specs.py as a module for direct helper-level tests.
+
+    The hyphenated filename prevents a normal `import check_specs`, so we
+    load via importlib. The module's ROOT defaults to the real repo when
+    TRELLIS_LINT_ROOT is unset, which is what helper tests want.
+    """
+    spec = importlib.util.spec_from_file_location("check_specs", LINT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_lint(scenario: str) -> subprocess.CompletedProcess:
@@ -251,6 +265,133 @@ class TestVectorLifecycleFields(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("status", result.stderr.lower())
         self.assertIn("foo", result.stderr)
+
+
+class TestSharedPlumbing(unittest.TestCase):
+    """Commit-1 helpers: op dispatch widening, Companion section resolution,
+    split matrix-id helpers, generic allowlist loader, Core §6.7 event-type
+    registry, Companion CDDL-block extraction.
+
+    These helpers are dead code wired in commit 1; they do not fire any rule
+    in main() until commit 2+. Tests exercise them directly against the real
+    repo specs.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def test_vector_ops_includes_projection_and_shred(self):
+        # Op dispatch must accept the two Wave-1 ops alongside the existing four.
+        self.assertIn("projection", self.cs.VECTOR_OPS)
+        self.assertIn("shred", self.cs.VECTOR_OPS)
+        for op in ("append", "verify", "export", "tamper"):
+            self.assertIn(op, self.cs.VECTOR_OPS)
+
+    def test_companion_headings_extracts_part_I_section_numbers(self):
+        # Companion §§5..29 are the top-level `## N. Title` headings today
+        # (Part I starts at §5 because Part 0 consumes §§1..4 as front-matter
+        # sections without ## numbering of their own).
+        headings = self.cs.companion_headings()
+        self.assertIn(5, headings)
+        self.assertIn(29, headings)
+        self.assertEqual(headings[10], "Posture-Transition Auditability")
+        self.assertEqual(headings[19], "Delegated-Compute Honesty")
+        # ≥25 sections expected; guard against regex breakage.
+        self.assertGreaterEqual(len(headings), 25)
+
+    def test_tr_op_ids_splits_matrix_ids(self):
+        op_ids = self.cs.tr_op_ids()
+        # Every id must be a TR-OP-NNN string; none may be TR-CORE-*.
+        self.assertTrue(op_ids, "expected ≥1 TR-OP-* row in the matrix")
+        for row_id in op_ids:
+            self.assertTrue(row_id.startswith("TR-OP-"), row_id)
+
+    def test_tr_core_ids_splits_matrix_ids(self):
+        core_ids = self.cs.tr_core_ids()
+        self.assertTrue(core_ids)
+        for row_id in core_ids:
+            self.assertTrue(row_id.startswith("TR-CORE-"), row_id)
+
+    def test_derived_companion_sections_for_tr_op_resolves_anchor(self):
+        # Pick a TR-OP row that has a prose anchor in the Companion and check
+        # the derived section number lines up with its containing `## N.` heading.
+        op_ids = self.cs.tr_op_ids()
+        self.assertIn("TR-OP-042", op_ids)
+        derived = self.cs.derived_companion_sections_for_tr_op(["TR-OP-042"])
+        # TR-OP-042 anchors under Companion §A.5.1 → Appendix A → grandparent
+        # `## A. Appendix A` or under the nearest `## N.` heading above it;
+        # what we require is that a non-empty set is returned for a known row.
+        self.assertTrue(derived, f"expected a section for TR-OP-042, got {derived}")
+
+    def test_load_allowlist_with_int_field_parses_list(self):
+        cs = self.cs
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-load-allowlist-int.toml"
+        tmp.write_text("pending_invariants = [3, 6, 7]\n", encoding="utf-8")
+        errors: list[str] = []
+        data = cs.load_allowlist(tmp, errors, int_field="pending_invariants")
+        self.assertEqual(data["pending_invariants"], {3, 6, 7})
+        self.assertEqual(errors, [])
+        tmp.unlink()
+
+    def test_load_allowlist_with_str_field_parses_list(self):
+        cs = self.cs
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-load-allowlist-str.toml"
+        tmp.write_text('pending_matrix_rows = ["TR-CORE-001"]\n', encoding="utf-8")
+        errors: list[str] = []
+        data = cs.load_allowlist(tmp, errors, str_field="pending_matrix_rows")
+        self.assertEqual(data["pending_matrix_rows"], {"TR-CORE-001"})
+        self.assertEqual(errors, [])
+        tmp.unlink()
+
+    def test_load_allowlist_missing_file_returns_empty_without_errors(self):
+        cs = self.cs
+        missing = Path("/tmp/does-not-exist-check-specs-allowlist.toml")
+        errors: list[str] = []
+        data = cs.load_allowlist(missing, errors, int_field="pending_invariants")
+        self.assertEqual(data["pending_invariants"], set())
+        self.assertEqual(errors, [])
+
+    def test_load_allowlist_malformed_toml_reports_error(self):
+        cs = self.cs
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-load-allowlist-bad.toml"
+        tmp.write_text("pending_invariants = [not valid toml\n", encoding="utf-8")
+        errors: list[str] = []
+        cs.load_allowlist(tmp, errors, int_field="pending_invariants")
+        self.assertTrue(any("malformed TOML" in e for e in errors), errors)
+        tmp.unlink()
+
+    def test_load_allowlist_rejects_wrong_element_type(self):
+        cs = self.cs
+        tmp = Path(os.environ.get("TMPDIR", "/tmp")) / "trellis-load-allowlist-bad-type.toml"
+        tmp.write_text('pending_invariants = ["three"]\n', encoding="utf-8")
+        errors: list[str] = []
+        cs.load_allowlist(tmp, errors, int_field="pending_invariants")
+        self.assertTrue(any("not an integer" in e for e in errors), errors)
+        tmp.unlink()
+
+    def test_core_event_type_registry_returns_registered_identifiers(self):
+        registry = self.cs.core_event_type_registry()
+        # Per Core §6.7 table — the two reject-if-unknown-at-version Phase-1
+        # transition identifiers MUST both be present.
+        self.assertIn("trellis.custody-model-transition.v1", registry)
+        self.assertIn("trellis.disclosure-profile-transition.v1", registry)
+        # Each entry exposes container / phase / purpose fields.
+        entry = registry["trellis.custody-model-transition.v1"]
+        self.assertEqual(entry["container"], "EventPayload.extensions")
+        self.assertEqual(entry["phase"], "1")
+        self.assertIn("Custody-model", entry["purpose"])
+
+    def test_companion_cddl_blocks_extracts_named_rules(self):
+        blocks = self.cs.companion_cddl_blocks()
+        # Keys are (appendix_id, rule_name) tuples.
+        keys = set(blocks.keys())
+        self.assertIn(("A.5", "Attestation"), keys)
+        self.assertIn(("A.5.1", "CustodyModelTransitionPayload"), keys)
+        self.assertIn(("A.5.2", "DisclosureProfileTransitionPayload"), keys)
+        # Block text includes the declaration opener.
+        custody = blocks[("A.5.1", "CustodyModelTransitionPayload")]
+        self.assertIn("transition_id", custody)
 
 
 if __name__ == "__main__":
