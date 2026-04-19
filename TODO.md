@@ -16,12 +16,13 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
-## Current state (as of 2026-04-18, HEAD = `1233e02`)
+## Current state (as of 2026-04-18, HEAD = `00042c4`)
 
-- **Gates:** 14 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all now have normative spec anchors in Core + Companion + Matrix (Wave 2); closure blocked only on fixture authoring.
-- **Lint:** green; `fixtures/vectors/_pending-invariants.toml` allowlist tracks 67 `TR-CORE-*`/`TR-OP-*` rows + 9 byte-testable invariants pending vector coverage (up from 61+6 pre-Wave-2 as Stream B/D flips elevated #11/#14/#15 to hybrid).
+- **Gates:** 14 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all have normative spec anchors (Wave 2) + first fixtures (Wave 4); closure blocked only on remaining fixture batches and the G-2 audit sign-off.
+- **Lint:** green; 52/52 pytest. `fixtures/vectors/_pending-invariants.toml` allowlist down to 7 byte-testable invariants + 63 `TR-*` rows (was 9+67 pre-Wave-4 after `append/005` closed TR-CORE-020/023/050/080 + invariants #10/#13).
+- **Fixture corpus:** 4 op-dirs live — `append/{001,005}`, `projection/001-watermark-attestation`, `shred/001-purge-cascade-minimal`. Reference `fixtures/declarations/ssdi-intake-triage/` O-4 artifact also landed.
 - **End-state = Trellis Phase 1 stranger test passes** ([`thoughts/product-vision.md`](thoughts/product-vision.md) §"Phase 1 success criterion"): a stranger writes a second impl from Core + Companion + Agreement alone and byte-matches every vector. Closes when all 7 open gates close + Track A steps 6–9 done + Track E bindings landed. Phase 2–4 explicitly out of scope.
-- **Review discipline:** Wave 2 passed 3 interleaved opus-model `/semi-formal-code-review` cycles (Core / Companion / cross-spec); 15 blockers+warnings fixed in-patch, nits deferred to a cleanup commit currently in flight.
+- **Review discipline:** Wave 2 + Wave 3C passed 4 interleaved opus-model `/semi-formal-code-review` cycles (Core / Companion / cross-spec / WOS binding); 25 findings fixed in-patch total.
 
 ---
 
@@ -45,38 +46,23 @@ Tracked in [`ratification/ratification-checklist.md`](ratification/ratification-
 
 ### Lint / fixture infrastructure
 
-- [ ] **Lint-enforce F6 deprecation fields** — **XS**.
-      `check-specs.py` should validate `status` / `deprecated_at` manifest fields per
-      the F6 amendment and exclude `status = "deprecated"` vectors from byte-testable
-      coverage. Also: pre-merge guard on the renumbering-forbidden rule. Both flagged
-      as Follow-ons in the fixture-system design.
-- [ ] **Close review nits from earlier patch sets (2026-04-18 `check-specs.py`)** — **XS**.
-      Background review findings on the allowlist/manifest-paths patch: F1 (lint
-      silently skips lists in manifest values — fail-loud on unknown shape), F2
-      (absolute/empty-path bypass in `check_vector_manifest_paths`), F5 (rename
-      `pending_tr_core` → `pending_matrix_rows`; holds TR-OP-* IDs too), F8 (missing
-      tests: unknown-TR-row in allowlist, bad-type in `pending_invariants`). Wave 2
-      spec-text review nits are being cleaned up in a separate in-flight agent pass.
-- [ ] **Wave 1 lint refactor plan** — **S** (design brief).
-      Per `thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md`: bundle the
-      ~10 new lint rules surfaced across Streams A/B/C/D into one refactor — `tr_op`
-      coverage, `companion_sections`, `_pending-projection-drills.toml`, `projection`
-      + `shred` op dispatch, declaration-doc validator, event-type registry check,
-      CDDL cross-ref check, fixture-naming guard, spec-cross-ref row resolution,
-      projection-rebuild-drill coverage, model-check evidence. Shared plumbing lands
-      first; per-stream rules follow.
+Wave 1 lint-refactor plan landed at [`thoughts/specs/2026-04-18-trellis-wave1-lint-extension-plan.md`](thoughts/specs/2026-04-18-trellis-wave1-lint-extension-plan.md): 6 S-sized commits total. Commits 1-2 landed (shared plumbing + R1 fixture-naming + R3 projection-drills loader). Remaining:
 
-### First vector batch (G-3)
+- [ ] **Lint-refactor commit 3** — **S**. R4-R5: projection/shred op dispatch + `tr_op` / `companion_sections` coverage lint.
+- [ ] **Lint-refactor commit 4** — **S**. R6-R8: G-2 non-byte verification channels (spec-cross-ref row resolution, projection-rebuild-drill coverage, model-check evidence assertion).
+- [ ] **Lint-refactor commit 5** — **S**. R9-R10: O-5 event-type registry check + CDDL cross-ref.
+- [ ] **Lint-refactor commit 6** — **S**. R11: O-4 declaration-doc Phase 1 (6 static cross-checks; 7 ledger-replay checks deferred to G-4 Rust).
+- [ ] **Pre-merge renumbering guard** — **XS**. F6 amendment's complementary rule (check F6 deprecation fields + renumbering-forbidden rule at merge time). Not in the lint-refactor plan; small standalone check.
 
-Each batch is its own plan under `thoughts/specs/…`; brainstorm the set before starting.
+### First vector batch (G-3) — per [`thoughts/specs/2026-04-18-trellis-g3-first-batch-brainstorm.md`](thoughts/specs/2026-04-18-trellis-g3-first-batch-brainstorm.md)
 
-- [ ] **`append/002-rotation-signing-key`** — invariant #8 (key rotation). **S**.
-- [ ] **`append/003-external-payload-ref`** — invariant #6 (external payload via `PayloadExternal`). **S**.
-- [ ] **`append/004-hpke-wrapped-inline`** — real HPKE wrap with pinned X25519 ephemeral
-      keypair committed under `_keys/`. Task 10 deferred this per S4. **S**.
-- [ ] **`append/005-prior-head-chain`** — non-genesis append, explicit `prev_hash` linkage, invariant #7. **S**.
-- [ ] **First tamper vector** — signature-invalid flip in COSE_Sign1 signature bytes →
-      verifier reports `integrity_verified=false`. Establishes the tamper-op shape. **S**.
+Brainstorm corrected TODO's prior invariant mislabels. Serial order: 005 → 003 → 004 → 002 → tamper/001 (from 005, not 001). Each vector its own plan under `thoughts/specs/…`.
+
+- [x] **`append/005-prior-head-chain`** — invariants #5, #10, #13; TR-CORE-020/023/050/080. Landed (`060a547`).
+- [ ] **`append/003-external-payload-ref`** — invariants #4 + #8 partial + #13. `PayloadExternal` variant. Claims TR-CORE-031, -071. **S**.
+- [ ] **`append/004-hpke-wrapped-inline`** — invariants #4 real + #8 populated + #11 latent. Real HPKE wrap with pinned X25519 ephemeral keypair under `_keys/`. **S**. (Brainstorm flagged §9.4 HPKE-freshness ambiguity — pre-decide Core amendment vs fixture-doc relaxation.)
+- [ ] **`append/002-rotation-signing-key`** — invariant #7 (key-bag immutable under rotation; not "key rotation" writ large). Claims TR-CORE-036, -038. **S**.
+- [ ] **`tamper/001-signature-flip`** (derived from `append/005`, not 001) — verification side; claims TR-CORE-060/061/067. **S**.
 
 ---
 
@@ -114,46 +100,56 @@ Each step's output feeds the next; cannot be parallelized within the path.
 
 Off the critical path. Nothing here blocks G-3/G-4/G-5; nothing here is blocked by them. All five streams can open concurrently — ideal work for parallel agent dispatch on the design-brief phase.
 
-Wave 1 design briefs all landed; Wave 2 spec edits landed (Core/Companion/Matrix). Consolidated follow-up plan: [`thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md`](thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md). Remaining authoring tasks per stream below — all previously blocked items now unblocked.
+Wave 1 design briefs + Wave 2 spec edits + Wave 4 first fixtures all landed. Consolidated follow-up plan: [`thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md`](thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md). Per-stream state + remaining authoring below.
 
 #### Stream A — G-2 non-byte-testable invariant audit
 
-Design at [`thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md`](thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md). Hybrid classification; 11 byte-testable, 4 non-byte-only, 5 hybrid invariants. No remaining authoring — G-2 closes when (a) Wave 1 lint-refactor plan lands and (b) the audit-path table stays green.
+Design at [`thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md`](thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md). Hybrid classification; 11 byte-testable, 4 non-byte-only, 5 hybrid invariants. No remaining authoring — G-2 closes when (a) Wave 1 lint-refactor commits 4 (R6-R8) lands and (b) the audit-path table stays green.
 
 #### Stream B — O-3 projection discipline
 
-Design at [`thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md`](thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md). Spec anchors landed Wave 2 (Core §15.2/§15.3, Companion §16.2/§20.5/Appendix A.7, TR-OP-005/006/008).
+Design at [`thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md`](thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md). Spec anchors landed Wave 2; first 2 fixtures landed Wave 4 (`projection/001-watermark-attestation` Test 1, `shred/001-purge-cascade-minimal` Test 4).
 
-- [ ] **Author O-3 fixtures** — **M**. 6–8 vectors covering watermark / rebuild / cadence / purge-cascade under `fixtures/vectors/projection/` + `fixtures/vectors/shred/` new op-dirs. Unblocked.
+- [ ] **Author remaining O-3 fixtures** — **M**. 4-6 more, priority order per Wave 4C handoff:
+      (a) `projection/002-rebuild-equivalence-minimal` (Test 2 / TR-OP-005; highest leverage — first to exercise Core §15.3's new dCBOR rebuild pin);
+      (b) `projection/003-cadence-positive-height` + `004-cadence-gap` (Test 3 / TR-OP-008);
+      (c) `shred/002-backup-refusal` (Test 4 backup variant);
+      (d) `projection/005-watermark-staff-view-decision-binding` (TR-OP-006 + §17.4 Staff-View).
 
 #### Stream C — O-4 delegated-compute honesty
 
-Design at [`thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md). Spec anchors landed Wave 2 (Companion §19.9 OC-70a/b/c, Appendix A.6, TOML-frontmatter-in-Markdown schema with 15 cross-check surfaces).
+Design at [`thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md). Spec anchors landed Wave 2. SSDI intake triage reference declaration landed Wave 4 (`fixtures/declarations/ssdi-intake-triage/`). Three schema ambiguities flagged by authoring:
 
-- [ ] **Author reference declaration doc** — **S**. SSDI intake triage worked example under `fixtures/declarations/`. Unblocked.
+- [ ] **Companion A.6 amendment to pin ambiguities** — **XS**. (a) TOML null literal convention for `uint | null` / `URI | null` fields (proposal: key-absent = null). (b) `signature: OperatorSignature` TOML sub-shape (proposal: `{cose_sign1_b64, signer_kid, alg}`). (c) Optional `audit.registry_ref` key for A.6 rule 3's event-type-registry pointer. Likely lands alongside lint-refactor commit 6 (R11 declaration-doc validator).
 
 #### Stream D — O-5 posture-transition audit
 
-Design at [`thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md`](thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md). Spec anchors landed Wave 2 (Core §6.7 registry, §9.8 domain tags, §19 step 5.5 / PostureTransitionOutcome; Companion §10.3/A.5 rewrite with Attestation named rule + A.5.1/A.5.2 concrete CDDL + A.5.3 verification semantics; TR-OP-042..045).
+Design at [`thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md`](thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md). Spec anchors landed Wave 2. `append/005-prior-head-chain` landed Wave 4 — Stream D fixture authoring now fully unblocked.
 
-- [ ] **Author O-5 fixtures** — **S**. 3 append + 3 tamper under existing G-3 layout. Blocked only by `append/005-prior-head-chain` (critical-path step 2 — every transition needs a non-genesis chain).
+- [ ] **Author O-5 fixtures** — **S**. 3 append + 3 tamper under existing G-3 layout. Cases pinned in the design brief: custody-model CM-B→CM-A; custody-model CM-C narrowing; disclosure-profile A→B; tamper variants for from-state mismatch, missing dual-attestation, declaration-digest mismatch.
 
 #### Stream E — Track E cross-cutting bindings
 
 Not Phase 1 gates, but named in vision §"Next steps → Track E" as closing conditions for the three-tier claim. Core already reserves §22 (Composition with Respondent Ledger), §23 (Composition with WOS `custodyHook`), §24 (Agency Log extension points) as anchor sections.
 
-- [ ] **WOS `custodyHook` ↔ Trellis binding** (vision item 22) — **S**.
-      Flesh out Core §23 + Companion §24 (Workflow Governance Sidecar). Document how a WOS runtime uses Trellis as its custody backend without redefining either spec. Small because both seams are already named — this is text, not design.
+- [x] **WOS `custodyHook` ↔ Trellis binding** (vision item 22). Core §23 (4→8 subsections) + Companion §24 (OC-113a/b/c/d/e) + Appendix B.2 extensions landed Wave 3C + Wave 4E (10 opus-review findings applied). Committed as `248781f`.
 - [ ] **Respondent Ledger ↔ Trellis binding** (vision item 21) — **M**.
       Three parts: (a) promote Formspec Respondent Ledger §6.2 `eventHash`/`priorEventHash` SHOULD → MUST when wrapped by a Trellis envelope; (b) define the **case ledger** as a top-level object composing sealed response-ledger heads with WOS governance events (Core §22); (c) define the **agency log** as the operator-maintained log of case-ledger heads (Core §24 reserves the extension points). Spec extension across Core §22 + new Core §24 content, not a nesting note. Requires Formspec spec edits — coordinate with the Formspec side before authoring.
 
 ### Dispatch notes
 
 - **Wave 1 (done):** 4 parallel design-brief agents landed Streams A/B/C/D briefs; consolidated in `thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md`.
-- **Wave 2 (done):** spec-edit execution of the consolidation plan landed as `cfd587b..1233e02` (3 commits: Core / Companion / Matrix). 15 blockers+warnings closed across 3 interleaved opus-review cycles. Deferred nits cleanup agent in flight.
-- **Wave 3 (next):** parallelizable — (a) lint-refactor plan (S design brief + M impl) bundling the ~10 rules from consolidation plan; (b) O-3 / O-4 / O-5 fixture authoring now unblocked; (c) Stream E WOS-binding spec text (S); (d) critical-path G-3 first-batch vectors (`append/002-005` + first tamper).
-- **Wave 4:** G-4 Rust workspace execution. Not agent-friendly at L scale. Vector corpus continues in parallel human sessions as Rust progresses.
-- **Wave 5:** commission G-5 stranger test once corpus is frozen. Parallel streams should all have closed by this point or be in fixture-authoring tail.
+- **Wave 2 (done):** spec-edit execution landed as 3 commits (Core/Companion/Matrix). 15 blockers+warnings closed across 3 interleaved opus-review cycles.
+- **Wave 3 (done):** 5 parallel agents + 1 opus review. 3A brainstorm (first-batch vector invariants), 3B lint-refactor plan (6 S-commits phased), 3C WOS custodyHook binding (Core §23 + Companion §24, reviewed by opus, 10 findings flagged), 3D G-4 Rust workspace plan (10 crates in 5 layers), 3E lint code fixes (F1/F2/F5/F8 nits + F6 deprecation enforcement, 30→52 pytest).
+- **Wave 4 (done):** 5 parallel agents. 4A `append/005-prior-head-chain` (closes #10/#13), 4B SSDI intake-triage reference declaration, 4C first O-3 projection + shred fixtures (+ lint manifest-skip extension), 4D Wave 1 lint refactor commits 1-2 (shared plumbing + R1/R3), 4E applied all 10 WOS review findings. 6 commits total.
+- **Wave 5 (next):** parallelizable —
+      (a) **Critical-path vectors:** `append/003` (next per brainstorm serial order), then `/004`, `/002`, `tamper/001` from 005.
+      (b) **Stream D O-5 fixtures** (now fully unblocked by `append/005`).
+      (c) **Stream B O-3 fixtures** continuation — `projection/002-rebuild-equivalence-minimal` is the highest-leverage next pick.
+      (d) **Lint-refactor commits 3-6** per the plan — commit 3 (R4-R5) is the smallest unblocker for Stream B/D fixture lint coverage.
+      (e) **Companion A.6 ambiguity amendment** (XS; resolves Stream C authoring flags).
+- **Wave 6:** G-4 Rust workspace execution per the plan. Not agent-friendly at L scale. Vector corpus continues in parallel sessions as Rust progresses.
+- **Wave 7:** commission G-5 stranger test once corpus is frozen. Parallel streams should all have closed by this point or be in fixture-authoring tail.
 - **Merge:** ratification close-out (step 10) is trivial once all streams merge back.
 
 **Velocity estimate:** serial execution ≈ 7–9 months wall-clock. Parallelized per above ≈ 4–6 months, bounded by the critical path (G-3 corpus → G-4 full match → G-5 stranger). Parallel streams finish inside the G-3/G-4 window with weeks to spare.
@@ -170,7 +166,9 @@ Tracks B (WOS runtime + Formspec coprocessor), C (FedRAMP / SOC 2 / GSA / WCAG c
 
 Prune aggressively — `git log` is the real record.
 
-- Wave 2 spec edits landed as `cfd587b..1233e02`: Core §§6.5/6.7/9.8/15.2/15.3/19 (Posture-transition registry, `trellis-posture-declaration-v1` + `trellis-transition-attestation-v1` domain tags, `projection_schema_id` reconciliation, dCBOR rebuild encoding, verification algorithm step 5.5 + `PostureTransitionOutcome`); Companion §§10.3/16.2/19.9/20.5 + Appendix A.5 (with shared `Attestation` rule) + A.6 (Delegated-Compute Declaration, OC-70a mandates) + A.7 (Cascade-scope enum); Matrix TR-OP-008/042..045 + TR-OP-005/006 flipped; allowlist promotes #11/#14/#15 to hybrid. Validated through 3 opus-model `/semi-formal-code-review` cycles; 15 blockers+warnings closed in-patch.
+- **Wave 4 (6 commits `248781f..00042c4`):** `append/005-prior-head-chain` vector (closes #10/#13, TR-CORE-020/023/050/080); SSDI intake-triage reference O-4 declaration at `fixtures/declarations/`; first O-3 projection + shred fixtures (Test 1 watermark + Test 4 purge-cascade); Wave 1 lint refactor commits 1-2 (shared plumbing + R1 fixture-naming guard + R3 projection-drills loader, 30→52 pytest); 10 WOS-binding review findings applied.
+- **Wave 3 (5 commits + 1 review):** `append/005` brainstorm (corrected TODO invariant mislabels; pinned serial order 005→003→004→002→tamper); Wave 1 lint-refactor plan (6 S-commits phased); WOS custodyHook ↔ Trellis binding (Core §23 4→8 subsections + Companion §24 OC-113a/b/c/d/e + Appendix B.2 extensions); G-4 Rust workspace plan (10 crates, 5 layers, M1 six sub-milestones); F6 deprecation-field lint + F1/F2/F5/F8 review-nits cleanup.
+- **Wave 2 spec edits (`cfd587b..1233e02`):** Core §§6.5/6.7/9.8/15.2/15.3/19 (Posture-transition registry, `trellis-posture-declaration-v1` + `trellis-transition-attestation-v1` domain tags, `projection_schema_id` reconciliation, dCBOR rebuild encoding, verification algorithm step 5.5 + `PostureTransitionOutcome`); Companion §§10.3/16.2/19.9/20.5 + Appendix A.5 (shared `Attestation` rule + A.5.1/A.5.2/A.5.3) + A.6 (Delegated-Compute Declaration + OC-70a mandates) + A.7 (Cascade-scope enum); Matrix TR-OP-008/042..045 + TR-OP-005/006 flipped; allowlist promotes #11/#14/#15 to hybrid. Validated through 3 opus-model `/semi-formal-code-review` cycles; 15 blockers+warnings closed in-patch.
 - Wave 1 design briefs (G-2 / O-3 / O-4 / O-5) landed; consolidation plan at `thoughts/specs/2026-04-18-trellis-wave1-consolidation-plan.md` surfaces ~9 spec edits + ~10 lint rules across Core / Companion / Matrix.
 - Core clarifications from T10 — §6.1 (`idempotency_key` uniqueness scope + UUIDv7 construction), §7.4 (COSE_Sign1 embedded payload, verifier MUST reject `payload == nil`), §9.1 (length-prefix form applies uniformly including single-component).
 - Allowlist rollout — `TRELLIS_SKIP_COVERAGE=1` bypass removed; `_pending-invariants.toml` allowlist drives batched vector coverage (F5). `check_vector_manifest_paths` lint rule added (F7). 20/20 pytest green.
