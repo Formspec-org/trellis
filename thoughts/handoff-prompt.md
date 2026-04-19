@@ -26,7 +26,7 @@ Branch: `main`.
 - `2026-04-18-trellis-g3-fixture-system-design.md` — fixture-system design (scope, manifest, coverage lint, generator discipline, pinned keys).
 - `2026-04-18-trellis-g3-fixture-scaffold-plan.md` — 12-task plan; complete.
 - `2026-04-18-trellis-core-gaps-surfaced-by-g3.md` — Core gaps surfaced by T10; all resolved.
-- Skip `2026-04-17-trellis-normalization-handoff.md` unless archeologizing. Closed.
+- Older handoffs live under `thoughts/archive/specs/` — archaeology only.
 
 ## Conventions
 

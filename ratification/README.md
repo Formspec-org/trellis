@@ -10,7 +10,7 @@ Scope:
 Companion documents:
 
 - [`../specs/trellis-agreement.md`](../specs/trellis-agreement.md) is non-normative and ratified by product-strategy sign-off (see §11 of that document). It is **not** in scope for these gates.
-- [`../specs/trellis-requirements-matrix.md`](../specs/trellis-requirements-matrix.md) is traceability. Its drift from the normative prose is a bug, tracked in [`../thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](../thoughts/specs/2026-04-17-trellis-normalization-handoff.md), not a ratification gate.
+- [`../specs/trellis-requirements-matrix.md`](../specs/trellis-requirements-matrix.md) is traceability. Drift from the normative prose is a lint bug (`scripts/check-specs.py`), not a ratification gate.
 
 Files:
 

@@ -41,7 +41,7 @@ Supporting:
 - [`specs/cross-reference-map.md`](specs/cross-reference-map.md) — Upstream-rehoming map for concepts owned by Formspec Respondent Ledger or WOS.
 - [`specs/README.md`](specs/README.md) — Reading order, authority claims, archive pointers.
 
-Completed handoff log — Groups A/B/C resolved in commit `3a143a1`. See [`thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/specs/2026-04-17-trellis-normalization-handoff.md) for the original task breakdown and evidence.
+Completed handoff log — Groups A/B/C resolved in commit `3a143a1`. See [`thoughts/archive/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/archive/specs/2026-04-17-trellis-normalization-handoff.md) for the original task breakdown and evidence.
 
 ---
 
@@ -94,7 +94,7 @@ These informed the current specs and remain cited where their insights survive. 
 | Implement append/verify/export against fixtures | [`specs/trellis-core.md`](specs/trellis-core.md) |
 | Understand operator obligations (custody, projections, sidecars) | [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) |
 | Trace a legacy ULCR/ULCOMP-R row to its current home | [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) + [`specs/cross-reference-map.md`](specs/cross-reference-map.md) |
-| See outstanding architectural work | [`thoughts/specs/2026-04-17-trellis-normalization-handoff.md`](thoughts/specs/2026-04-17-trellis-normalization-handoff.md) |
+| See outstanding work | [`TODO.md`](TODO.md) |
 | Understand how the crypto choices were reached | Research + reviews folders |
 
 Heading-level inventories for every active document live in [`REFERENCE.md`](REFERENCE.md).

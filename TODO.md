@@ -125,3 +125,7 @@ Prune after a few sessions.
 - Lint hardening — `ac3a686` + `9ead7cf`; 4 review findings fixed; harness 3→7 tests.
 - Design + plan amendments F1/F2/F4/F5 — `64af7cc`.
 - TODO.md created + handoff trimmed — `88d1dbc`.
+- Matrix drift for Core §6.8 / §10.6 / §14.6 closed; M-3 refined — `475b064`.
+- `append/001` manifest claims TR-CORE-018 / 073 / 083 coverage — `a1eb41f`.
+- `ratification-evidence.md` removed as redundant — `617f9ae`.
+- Normalization handoff (2026-04-17) archived to `thoughts/archive/specs/`.
