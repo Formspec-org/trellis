@@ -193,7 +193,7 @@ Reading order, authority claims, archive pointers for the `specs/` directory.
 
 ---
 
-## `thoughts/specs/2026-04-17-trellis-normalization-handoff.md`
+## `thoughts/archive/specs/2026-04-17-trellis-normalization-handoff.md`
 
 **H1 — Trellis Spec Normalization Handoff**
 Outstanding architectural work ordered such that byte-protocol decisions land before cosmetic alignment.
