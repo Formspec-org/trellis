@@ -1,0 +1,60 @@
+id          = "projection/001-watermark-attestation"
+op          = "projection"
+status      = "active"
+description = """O-3 Test 1 (watermark attestation). A minimal 2-event canonical chain is \
+checkpointed at tree_size = 2, and a derived view is built from it carrying a Watermark \
+(Core §15.2 / Companion §14.1) whose sub-fields this fixture byte-pins. Exercises TR-OP-001 \
+(watermark presence) and TR-OP-002 (minimum watermark field set). Companion § roadmap: §14.1 \
+(derived-artifact watermark obligation), §15.2 (watermark display), §17.2 (staff-view watermark \
+propagation — superset); Core anchors: §11.2 (Checkpoint), §11.3 (Merkle), §9.6 (checkpoint \
+digest), §15.2 (Watermark CDDL + optional projection_schema_id). Scope: watermark attestation \
+only — rebuild-equivalence (Test 2) is a later fixture in this series and therefore no \
+`expected-view-rebuilt.cbor` is committed here."""
+
+# TR-OP rows with Verification containing `test-vector` that this fixture exercises.
+# The current check-specs.py lint only enforces tr_core coverage; tr_op coverage
+# enforcement lands in a later lint pass. The claims below become lint-verified
+# when that rule wires up. See O-3 design §"Coverage enforcement".
+[coverage]
+tr_op = [
+    "TR-OP-001",  # Every staff-facing projection MUST carry a watermark (invariant #14).
+    "TR-OP-002",  # Minimum watermark field set.
+]
+companion_sections = ["§14.1", "§15.2"]
+# invariants = [14]  # commentary-only per G-3 design F1
+
+[inputs]
+# Canonical 2-event chain this projection was derived from. CBOR array of two
+# COSE_Sign1 envelopes (§6.1 Event = COSESign1Bytes).
+chain      = "input-chain.cbor"
+# Signed checkpoint at tree_size = 2 (Checkpoint = COSESign1Bytes, §11.2).
+# The Watermark's `checkpoint_ref` resolves to the digest of this payload per §9.6.
+checkpoint = "input-checkpoint.cbor"
+# The derived view artifact — a minimal CBOR map embedding the Watermark field.
+view       = "input-view.cbor"
+
+[expected]
+# Byte-compare target: dCBOR(Watermark) extracted from the view's `watermark`
+# field. Runner pass criteria per O-3 design §Runner contract / Test 1:
+#   (a) every §14.1 required field present in the view's watermark,
+#   (b) every field value matches the pinned bytes below byte-for-byte,
+#   (c) checkpoint_ref resolves within the fixture (= digest of input-checkpoint.cbor
+#       per §9.6 construction).
+watermark = "expected-watermark.cbor"
+
+# Watermark sub-field declarations. Lives OUTSIDE [inputs] / [expected] because
+# these are reviewer-oriented assertions, not filesystem paths — check-specs.py
+# treats every string in [inputs] / [expected] as a relative path to resolve.
+# A runner that extracts the Watermark from `input-view.cbor` can assert each
+# sub-field from this table without re-parsing the full watermark bstr.
+[watermark_fields]
+scope                = "test-projection-ledger"                           # §15.2
+tree_size            = 2                                                  # §15.2
+tree_head_hash_hex   = "f45a02c737bb54e7d023d67196bcb4f0e2c9f362b6b7b00f6b82a0dcb3e8b43e"  # §11.3 Merkle root
+checkpoint_ref_hex   = "b649f60f615e7b1f028e097cdeca2600f260eb39cd87856c9caa2c9d47456a16"  # §9.6 checkpoint digest
+built_at             = 1745000180                                         # §15.2 built_at (Unix seconds UTC)
+rebuild_path         = "trellis.projection.v1/minimal"                    # §15.3
+projection_schema_id = "urn:trellis:projection:minimal:v1"                # §15.2 (URI per RFC 3986)
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,81 @@
+id          = "shred/001-purge-cascade-minimal"
+op          = "shred"
+status      = "active"
+description = """O-3 Test 4 (purge-cascade verification). A minimal 2-event chain — a plaintext-\
+bearing append followed by a canonical crypto-shred event referencing the target's §9.3 \
+content_hash — declares which Companion Appendix A.7 cascade-scope classes MUST be invalidated \
+or report plaintext-absent post-cascade. Exercises TR-OP-004 (crypto-shredding MUST cascade). \
+Companion § roadmap: §20.3 (Crypto-Shredding Scope — OC-75), §20.4 (Purge-Cascade Obligation — \
+OC-76), §20.5 (Cascade Scope — OC-77), Appendix A.7 (enumeration CS-01..CS-06). Core anchors: \
+§9.3 (content_hash over ciphertext — binds the erasure fact to the target payload by digest), \
+§15.4 (rule applies to derivatives). Scope: declares CS-01, CS-03, CS-04, CS-05 as in-scope; \
+CS-02 (evaluator state) and CS-06 (respondent-facing views) require additional derived \
+artifacts and belong to a later fixture in this series."""
+
+# TR-OP rows with Verification containing `test-vector` that this fixture exercises.
+# The current check-specs.py lint only enforces tr_core coverage; tr_op coverage
+# enforcement lands in a later lint pass. The claims below become lint-verified
+# when that rule wires up. See O-3 design §"Coverage enforcement".
+[coverage]
+tr_op = [
+    "TR-OP-004",  # Crypto-shredding MUST cascade.
+]
+companion_sections = ["§20.3", "§20.4", "§20.5"]
+
+[inputs]
+# Canonical chain: event 0 = plaintext-bearing append, event 1 = crypto-shred event.
+# CBOR array of two COSE_Sign1 envelopes (§6.1 Event = COSESign1Bytes).
+chain       = "input-chain.cbor"
+# The crypto-shred event in isolation (byte-identical to chain[1]) — for runners
+# that process the shred fact directly without a chain walk.
+shred_event = "input-shred-event.cbor"
+
+[expected]
+# Byte-compare target for the post-cascade report (OC-76 / OC-77).
+# Structure: {
+#   target_content_hash: bstr (= event 0's §9.3 content_hash),
+#   declared_scope:      [tstr, ...] (subset of Appendix A.7 CS-01..CS-06),
+#   expected_post_state: { <CS-NN>: { invalidated_or_plaintext_absent: true,
+#                                     rationale: tstr } }
+# }
+# Runner pass criterion per O-3 design §Runner contract / Test 4:
+#   every declared scope class reports invalidation or plaintext-absent AND
+#   no plaintext bytes from the shredded payload appear anywhere in post-state.
+cascade_report = "expected-cascade-report.cbor"
+
+# Procedure declaration — names the cascade policy the runner applies. Lives
+# OUTSIDE [inputs] / [expected] because check-specs.py treats every string in
+# those sections as a path to resolve; this section is reviewer-oriented
+# declarative metadata. The `cascade_scope` list MUST use Appendix A.7
+# identifiers, not prose, per OC-77: "new conformance fixtures exercising
+# purge-cascade verification MUST reference the class by its enumerated
+# identifier rather than by prose description."
+[procedure]
+cascade_policy = "trellis.shred.cascade.v1/minimal"
+cascade_scope  = ["CS-01", "CS-03", "CS-04", "CS-05"]
+
+# Post-state assertion table (small-data mirror of `expected-cascade-report.cbor`
+# for reviewer ergonomics). Runner SHOULD compare against the CBOR file for the
+# authoritative byte check; this table is a review aid. Lives at top level for
+# the same path-walker reason as [procedure].
+[post_state]
+target_content_hash_hex = "c995d0f05e0505cf4f6c1d330552508275f804ef0c74aa612dc00640e8f8484d"
+
+[post_state.CS-01]
+invalidated_or_plaintext_absent = true
+rationale                       = "CS-01-in-declared-cascade-scope"
+
+[post_state.CS-03]
+invalidated_or_plaintext_absent = true
+rationale                       = "CS-03-in-declared-cascade-scope"
+
+[post_state.CS-04]
+invalidated_or_plaintext_absent = true
+rationale                       = "CS-04-in-declared-cascade-scope"
+
+[post_state.CS-05]
+invalidated_or_plaintext_absent = true
+rationale                       = "CS-05-in-declared-cascade-scope"
+
+[derivation]
+document = "derivation.md"

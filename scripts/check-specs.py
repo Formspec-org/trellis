@@ -331,17 +331,32 @@ def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
 # Extend this list if the schema grows new non-path string fields.
 MANIFEST_NON_PATH_STRING_KEYS = {"zip_sha256"}
 
+# Manifest sub-tables that carry inline structured data (not sibling-file
+# references). Per the G-3 fixture-system design, small structured outputs
+# stay in the manifest; byte outputs go to sibling files. When the walker
+# encounters a sub-table named here, it does NOT recurse into it — every
+# string inside is opaque data (scopes, enum values, hex digests, URNs,
+# or similar), not a path to be resolved.
+MANIFEST_STRUCTURED_DATA_TABLES = {
+    "report",            # verify/tamper: [expected.report] — booleans + failure codes
+    "watermark_fields",  # projection: [expected.watermark_fields] — Watermark CDDL field values
+    "cascade_report",    # shred: [expected.cascade_report] — A.7 class → post-state map
+}
+
 
 def _iter_manifest_path_strings(table: dict, path_stack: tuple[str, ...] = ()):
     """Yield (dotted_key, value) for every string value in a manifest table.
 
     Recurses into nested tables (e.g. [expected.report] in verify manifests)
     AND into lists of strings (e.g. [inputs] payloads = ["a.bin", "b.bin"]).
-    Skips non-string values (booleans, ints) and keys explicitly listed as
-    non-path string fields (e.g. zip_sha256).
+    Skips non-string values (booleans, ints), keys explicitly listed as
+    non-path string fields (e.g. zip_sha256), and sub-tables listed as
+    structured-data containers (e.g. watermark_fields).
     """
     for key, value in table.items():
         if isinstance(value, dict):
+            if key in MANIFEST_STRUCTURED_DATA_TABLES:
+                continue
             yield from _iter_manifest_path_strings(value, path_stack + (key,))
         elif isinstance(value, list):
             if key in MANIFEST_NON_PATH_STRING_KEYS:
