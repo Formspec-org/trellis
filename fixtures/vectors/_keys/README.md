@@ -5,3 +5,4 @@ COSE_Key CBOR-encoded Ed25519 signing keys. Bytes are authoritative — no deriv
 | File | Role | Added |
 |------|------|-------|
 | issuer-001.cose_key | Primary issuer — append happy-path vectors | 2026-04-18 |
+| issuer-002.cose_key | Successor issuer — signing-key rotation (§8) fixture `append/002-rotation-signing-key` | 2026-04-19 |

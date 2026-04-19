@@ -1,0 +1,45 @@
+id          = "append/002-rotation-signing-key"
+op          = "append"
+status      = "active"
+description = """Signing-key rotation of the issuer key under invariant #7 — \
+`key_bag` / `author_event_hash` immutable under rotation (Core §8 signing-key \
+registry lifecycle; §9.5 `author_event_hash` binding). Rotation-without-re-wrap: \
+both the pre-rotation event (genesis, sequence = 0, signed by `issuer-001`) \
+and the post-rotation event (sequence = 1, chained, signed by `issuer-002`) \
+carry empty `KeyBag` so no §8.6 `LedgerServiceWrapEntry` fires; the \
+immutability claim lands entirely on the registry-side of §8. The committed \
+`input-pre-rotation-*` artifacts reproduce byte-identically before and after \
+the registry transitions `issuer-001` Active → Retired and appends \
+`issuer-002` Active with `supersedes = kid(issuer-001)`. The primary \
+`expected-*` outputs are the post-rotation Event B artifacts; the pre-rotation \
+Event A artifacts are committed as inputs so the vector is self-contained. \
+Runs in its own ledger scope (`test-rotation-ledger`) to avoid colliding with \
+`001` / `005`'s `test-response-ledger` chain at `sequence = 1`."""
+
+# TR-CORE rows whose Verification column contains `test-vector` and whose
+# Requirement prose / Invariant column matches one or more invariants this
+# vector exercises. See derivation.md for the construction-to-row mapping.
+[coverage]
+tr_core = [
+    "TR-CORE-036",  # inv #2 — migration obligation: verifier at any future date MUST resolve a prior signature after key and suite rotations (§7.3, §8.5)
+    "TR-CORE-038",  # inv #7 — key_bag / author_event_hash immutable under rotation (§9.5, §8.6)
+]
+
+[inputs]
+signing_key_a                   = "../../_keys/issuer-001.cose_key"
+signing_key_b                   = "../../_keys/issuer-002.cose_key"
+payload                         = "../../_inputs/sample-payload-001.bin"
+pre_rotation_event              = "input-pre-rotation-event.cbor"
+pre_rotation_append_head        = "input-pre-rotation-append-head.cbor"
+signing_key_registry_before     = "input-signing-key-registry-before.cbor"
+signing_key_registry_after      = "input-signing-key-registry-after.cbor"
+authored_event                  = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
