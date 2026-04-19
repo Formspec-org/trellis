@@ -17,7 +17,7 @@ declaration_id          = "urn:example:ssdi-intake-triage/declaration/v1"
 operator_id             = "urn:example:operator/ssa-example-adjudication-unit"
 posture_declaration_ref = "urn:example:ssdi-intake-triage/posture-declaration/v1"
 effective_from          = 2026-05-01T00:00:00Z
-supersedes              = ""   # empty string denotes no predecessor; A.6 "supersedes" is URI|null
+# supersedes omitted — key absence denotes null for URI|null fields per Companion A.6
 
 [scope]
 # Phase 1 authorized actions. "decide" is reserved and NON-CONFORMANT per A.6 rule 4
@@ -29,10 +29,9 @@ content_classes         = [
   "ssdi.intake.supporting_document_text",
 ]
 # Phase 1 deployments without a case ledger MUST set max_agents_per_case = null.
-# TOML has no explicit null; empty-integer is disallowed, so the convention here
-# uses a sentinel key absent → treated as null by the conformance runner. We
-# surface the intent explicitly via the companion narrative to prevent schema
-# ambiguity. See "Ambiguities flagged to orchestrator" in the body.
+# TOML has no explicit null; empty-integer is disallowed, so the A.6 convention
+# uses key absence to encode null. See "A.6 authoring conventions applied here"
+# in the body.
 # max_agents_per_case   = (absent — treated as null per A.6 Phase 1 convention)
 max_invocations_per_day = 500
 time_bound              = 2027-01-01T00:00:00Z
@@ -49,7 +48,7 @@ delegation_chain        = [
 
 [audit]
 # Each identifier MUST appear in the operator's event-type registry (Core §6.7).
-# Operator registry location cited in body: urn:example:wos/event-registry/v2.
+registry_ref = "urn:example:wos/event-registry/v2"
 event_types = [
   "wos.agent.delegated_compute.read.v1",
   "wos.agent.delegated_compute.propose.v1",
@@ -131,7 +130,7 @@ on-ledger evidence once G-4 lands.
 4. `scope.authorized_actions` is `["read", "propose"]`. It does not contain `"decide"`; this deployment deliberately withholds decide authority from the agent (Phase 1 non-conforming value per A.6 rule 4 / invariant #15).
 5. `attribution.actor_discriminator_rule` is the exact literal string `"exactly_one_of(actor_human, actor_agent_under_delegation)"`.
 6. `supply_chain.runtime_enclave = "isolated_enclave"` equals the `delegated_compute_exposure` value declared in A.2 for every listed content class.
-7. Vacuously satisfied: this Phase 1 deployment exposes no case-scope ledger, so `max_agents_per_case` is null by Phase 1 convention (see "Ambiguities" below).
+7. Vacuously satisfied: this Phase 1 deployment exposes no case-scope ledger, so `max_agents_per_case` is null by the A.6 key-absence convention (see "A.6 authoring conventions applied here" below).
 8. The invocation-budget pipeline enforces `max_invocations_per_day = 500` per agent identity per UTC day; breach increments a posture-honesty incident per §11.
 9. `authority.wos_autonomy_cap_ref` resolves to a WOS autonomy cap whose scope is `{read, propose}` over the same content classes — a strict superset of this declaration's scope.
 10. `delegation_chain` is monotonic: the senior reviewer role inherits its delegation authority from the program-integrity director role; both are resolvable under `policy_authority` at `effective_from`.
@@ -139,7 +138,7 @@ on-ledger evidence once G-4 lands.
 12. Every emitted event's `agent_identity` attribution field equals `urn:example:agent/ssdi-triage-drafter/v1`.
 13. Every emitted event type is contained in the `audit.event_types` list; unlisted types fail admission at the custody hook.
 14. `signature` — placeholder only in this reference artifact; in a conformance instance, the signature MUST verify per Core §9.1.
-15. `supersedes` is empty (no predecessor). On a future revision, the chain MUST be acyclic and each predecessor MUST have been in force at the successor's `effective_from`.
+15. `supersedes` is omitted (no predecessor). On a future revision, the chain MUST be acyclic and each predecessor MUST have been in force at the successor's `effective_from`.
 
 ## Posture-Declaration Honesty
 
@@ -180,30 +179,13 @@ carries a monotonically increasing `declaration_id` version suffix and a
 proposed, not normative; the orchestrator should ratify or replace it before
 the Wave 1 lint-refactor plan lands A.6 schema linting.
 
-## Ambiguities flagged to the orchestrator
+## A.6 authoring conventions applied here
 
-- **TOML null encoding for `scope.max_agents_per_case`.** A.6 types this
-  field as `uint | null`, but TOML has no null literal. This artifact
-  encodes null by OMITTING the key entirely. Alternatives considered:
-  `max_agents_per_case = 0` (rejected — 0 is a valid uint); a sentinel
-  string like `"null"` (rejected — type-incompatible with `uint | null`).
-  The conformance runner MUST treat key-absence as null for every
-  `uint | null` or `URI | null` field; this artifact leans on that
-  convention and also omits `supersedes` (encoded as an empty string here
-  for narrative clarity; a real runner may prefer absence). The
-  orchestrator should pin one convention in a forthcoming A.6 authoring
-  note.
-- **`signature` sub-structure.** A.6 declares `signature: OperatorSignature`
-  without pinning the TOML serialization of COSE_Sign1. This artifact
-  uses three subkeys (`cose_sign1_b64`, `signer_kid`, `alg`) as a
-  plausible shape; the orchestrator should pin the exact OperatorSignature
-  TOML serialization before the conformance runner ingests real
-  signatures.
-- **Event-type registry URI scheme.** A.6 rule 3 requires each
-  `audit.event_types` entry to appear in the operator's event-type
-  registry per Core §6.7, but does not pin how the Declaration cites that
-  registry. This artifact surfaces the registry URI only in the body
-  narrative (`urn:example:wos/event-registry/v2`). The orchestrator may
-  wish to add an optional `audit.registry_ref` key to A.6 to make this
-  cross-check machine-checkable without relying on the referenced posture
-  document.
+This artifact follows the now-pinned A.6 TOML conventions:
+
+- Nullable frontmatter fields use key absence for `null`; `supersedes` and
+  `scope.max_agents_per_case` are therefore omitted.
+- The operator signature is serialized as `[signature]` with
+  `cose_sign1_b64`, `signer_kid`, and `alg`.
+- `audit.registry_ref = "urn:example:wos/event-registry/v2"` supplies the
+  machine-readable event-type registry pointer used for rule 3.

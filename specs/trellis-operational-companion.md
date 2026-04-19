@@ -509,6 +509,8 @@ Trellis Core reserves **redaction-aware commitment slots** in the envelope heade
 
 **OC-32 (MUST).** Every derived artifact — including but not limited to projections, materialized views, indexes, caches, staff dashboards, read models, timelines, snapshots, and evaluator state — MUST carry a **watermark** identifying the canonical state from which it was derived.
 
+Traceability: TR-OP-001 and TR-OP-002.
+
 The watermark MUST include at minimum:
 
 1. `canonical_checkpoint_id` — the Core §11 (Checkpoint Format) checkpoint identifier the artifact references,
@@ -557,11 +559,15 @@ Both categories carry the watermark obligations of §14.1. Consumer-Facing Proje
 
 **OC-38 (MUST).** Consumer-Facing Projections MUST display or otherwise make available to the consumer the watermark fields required for that consumer to assess freshness. An implementation MAY elide fields that are not meaningful to the consumer (for example, `projection_schema_id` on a respondent-scoped view), but MUST NOT elide the `canonical_checkpoint_id` or `tree_head_hash`.
 
+Traceability: TR-OP-001 and TR-OP-002.
+
 ### 15.3 Rebuild Equivalence
 
 **OC-39 (MUST).** Rebuilding a projection from canonical records, at the same canonical checkpoint and under the same declared configuration, MUST yield semantically equivalent output for every projection field declared **rebuild-deterministic**.
 
 **OC-40 (MUST).** A Projection Producer MUST declare which fields of each projection are rebuild-deterministic. Fields that intentionally incorporate non-canonical inputs (for example, live operational metrics) MUST be declared non-deterministic and MUST NOT be relied upon for verification.
+
+Traceability: TR-OP-005 and TR-OP-006.
 
 ### 15.4 Staleness Indication
 
@@ -784,17 +790,23 @@ Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `c
 
 **OC-75 (MUST).** Trellis Core owns the cryptographic mechanics that make crypto-shredding work: Core §9 (Hash Construction) requires `content_hash` over ciphertext so that destroying the payload DEK leaves the chain verifiable, and the HPKE key-bag wrap defined therein holds the DEK that erasure destroys. This companion adds the **operational** obligation: cryptographic erasure is **incomplete** until the **purge cascade** completes across every derived artifact holding plaintext or plaintext-derived material subject to the erasure event.
 
+Traceability: TR-OP-004.
+
 ### 20.4 Purge-Cascade Obligation
 
 **OC-76 (MUST).** If canonical lifecycle facts declare that protected content has been cryptographically destroyed, sealed, or otherwise made inaccessible, every derived artifact that holds plaintext or plaintext-derived material subject to that declaration MUST be invalidated, purged, or otherwise made unusable according to the Operator's declared policy.
 
 An implementation that retains plaintext in a derived artifact after a canonical erasure event is NON-CONFORMANT regardless of the mechanism by which canonical content was destroyed.
 
+Traceability: TR-OP-004.
+
 ### 20.5 Cascade Scope
 
 **OC-77 (MUST).** The purge cascade MUST reach every class in the cascade-scope enumeration (Appendix A.7). The enumeration is a machine-checkable artifact: implementations MUST iterate its values programmatically, and new conformance fixtures exercising purge-cascade verification MUST reference the class by its enumerated identifier rather than by prose description.
 
 Backups are governed by the Operator's retention and recovery policy; backups MUST NOT be used to resurrect destroyed plaintext into live derived artifacts.
+
+Traceability: TR-OP-004.
 
 ### 20.6 Documentation
 
@@ -1560,6 +1572,12 @@ Per-deployment declaration artifact mandated by OC-70a (§19.9) for every agent-
 
 This per-deployment declaration is distinct from the per-grant `DelegatedComputeGrant` canonical fact (Appendix B.4): the declaration is a deployment-scope posture artifact that frames the operator's delegation regime — who may delegate to whom, under what authority, with what attribution discipline — and is signed once per deployment revision. Each individual grant remains a canonical event on the ledger per §19.2 (OC-64). A single A.6 declaration governs many B.4 grants issued under its scope.
 
+TOML frontmatter conventions for this declaration are:
+
+1. Fields typed as `uint | null`, `URI | null`, `timestamp | null`, or `string | null` encode `null` by **omitting the key**. TOML has no native null literal; sentinel strings such as `"null"` and numeric sentinels such as `0` are NON-CONFORMANT for nullable fields.
+2. `signature: OperatorSignature` serializes as a `[signature]` table with exactly `cose_sign1_b64`, `signer_kid`, and `alg`. `cose_sign1_b64` is the base64-encoded COSE_Sign1 bytes over the canonicalized frontmatter preimage; `signer_kid` identifies the operator key; `alg` names the signature suite.
+3. `audit.registry_ref` is OPTIONAL but, when present, MUST identify the operator event-type registry used to resolve `audit.event_types` for rule 3 below. If absent, the registry reference MUST be supplied by the referenced Posture Declaration or another operator registry binding.
+
 ```
 DelegatedComputeDeclaration {                 # TOML frontmatter shape
   declaration_id:            URI              # stable identifier
@@ -1587,6 +1605,7 @@ DelegatedComputeDeclaration {                 # TOML frontmatter shape
   }
 
   audit: {                                    # §19.4 / §19.7
+    registry_ref:             URI | null       # optional event-type registry pointer; key absence means null
     event_types:             [string]         # MUST each appear in operator event-type registry (Core §6 (Event Format) §6.7)
   }
 
@@ -1601,7 +1620,7 @@ DelegatedComputeDeclaration {                 # TOML frontmatter shape
     model_identifier:        string | null    # e.g. model family + version hash
   }
 
-  signature: OperatorSignature                # COSE_Sign1 over the frontmatter canonical bytes
+  signature: OperatorSignature                # TOML table: {cose_sign1_b64, signer_kid, alg}
 }
 ```
 
