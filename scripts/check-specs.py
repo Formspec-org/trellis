@@ -166,10 +166,9 @@ def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
 
     Schema (all fields optional):
 
-        pending_invariants = [3, 6, 7]          # Phase-1 invariant numbers
-        pending_tr_core    = ["TR-CORE-037"]    # testable matrix row IDs
-                                                # (TR-CORE-* and TR-OP-*; the
-                                                # field name is historical)
+        pending_invariants  = [3, 6, 7]          # Phase-1 invariant numbers
+        pending_matrix_rows = ["TR-CORE-037"]    # testable matrix row IDs
+                                                 # (both TR-CORE-* and TR-OP-*)
     """
     import tomllib
 
@@ -184,9 +183,25 @@ def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
             f"{path.relative_to(ROOT)}: malformed TOML ({e})"
         )
         return set(), set()
-    pending_inv = set(int(n) for n in data.get("pending_invariants", []))
-    pending_tr = set(str(s) for s in data.get("pending_tr_core", []))
-    return pending_inv, pending_tr
+
+    rel = path.relative_to(ROOT)
+    pending_inv: set[int] = set()
+    for entry in data.get("pending_invariants", []):
+        if isinstance(entry, bool) or not isinstance(entry, int):
+            errors.append(
+                f"{rel}: pending_invariants entry {entry!r} is not an integer"
+            )
+            continue
+        pending_inv.add(entry)
+    pending_rows: set[str] = set()
+    for entry in data.get("pending_matrix_rows", []):
+        if not isinstance(entry, str):
+            errors.append(
+                f"{rel}: pending_matrix_rows entry {entry!r} is not a string"
+            )
+            continue
+        pending_rows.add(entry)
+    return pending_inv, pending_rows
 
 
 # Manifest keys whose string values are hex digests, not filesystem paths.
@@ -197,13 +212,21 @@ MANIFEST_NON_PATH_STRING_KEYS = {"zip_sha256"}
 def _iter_manifest_path_strings(table: dict, path_stack: tuple[str, ...] = ()):
     """Yield (dotted_key, value) for every string value in a manifest table.
 
-    Recurses into nested tables (e.g. [expected.report] in verify manifests).
+    Recurses into nested tables (e.g. [expected.report] in verify manifests)
+    AND into lists of strings (e.g. [inputs] payloads = ["a.bin", "b.bin"]).
     Skips non-string values (booleans, ints) and keys explicitly listed as
     non-path string fields (e.g. zip_sha256).
     """
     for key, value in table.items():
         if isinstance(value, dict):
             yield from _iter_manifest_path_strings(value, path_stack + (key,))
+        elif isinstance(value, list):
+            if key in MANIFEST_NON_PATH_STRING_KEYS:
+                continue
+            for index, element in enumerate(value):
+                if isinstance(element, str):
+                    dotted = ".".join(path_stack + (f"{key}[{index}]",))
+                    yield (dotted, element)
         elif isinstance(value, str):
             if key in MANIFEST_NON_PATH_STRING_KEYS:
                 continue
@@ -218,6 +241,7 @@ def check_vector_manifest_paths(errors: list[str]) -> None:
     """
     for manifest_path, manifest in vector_manifests():
         vector_dir = manifest_path.parent
+        rel = manifest_path.relative_to(ROOT)
         for section in ("inputs", "expected"):
             section_data = manifest.get(section, {})
             if not isinstance(section_data, dict):
@@ -225,10 +249,22 @@ def check_vector_manifest_paths(errors: list[str]) -> None:
             for dotted_key, value in _iter_manifest_path_strings(
                 section_data, (section,)
             ):
+                if value == "":
+                    errors.append(
+                        f"{rel}: {dotted_key} is empty; "
+                        f"manifest path values must be non-empty relative paths"
+                    )
+                    continue
+                if Path(value).is_absolute():
+                    errors.append(
+                        f"{rel}: {dotted_key}='{value}' is absolute; "
+                        f"manifest path values must be relative to the vector directory"
+                    )
+                    continue
                 resolved = (vector_dir / value).resolve()
                 if not resolved.exists():
                     errors.append(
-                        f"{manifest_path.relative_to(ROOT)}: "
+                        f"{rel}: "
                         f"{dotted_key}='{value}' does not exist "
                         f"(resolved to {resolved})"
                     )
@@ -271,6 +307,8 @@ def check_invariant_coverage(errors: list[str], pending_invariants: set[int]) ->
 
     covered_ids: set[str] = set()
     for path, manifest in vector_manifests():
+        if _is_deprecated_vector(manifest):
+            continue  # F6 — deprecated vectors are excluded from audits
         covered_ids.update(manifest.get("coverage", {}).get("tr_core", []))
 
     # Per amended design F2: narrowed rule. Only invariants that have ≥1
@@ -335,13 +373,74 @@ def check_generator_imports(errors: list[str]) -> None:
                     )
 
 
-def check_vector_coverage(errors: list[str], pending_tr_core: set[str]) -> None:
+ALLOWED_VECTOR_STATUSES = {"active", "deprecated"}
+ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _is_deprecated_vector(manifest: dict) -> bool:
+    """Return True iff the manifest declares a 'deprecated' lifecycle status."""
+    return manifest.get("status") == "deprecated"
+
+
+def check_vector_lifecycle_fields(errors: list[str]) -> None:
+    """F6 — validate manifest-level `status` and `deprecated_at` fields.
+
+    Rules:
+      * `status` is optional; when present, MUST be "active" or "deprecated".
+      * `deprecated_at` is required iff `status = "deprecated"`.
+      * `deprecated_at` MUST be an ISO-8601 date string (YYYY-MM-DD).
+      * `deprecated_at` without `status = "deprecated"` is permitted but noisy;
+         the design doc does not forbid it, so this lint does not flag it.
+    """
+    from datetime import date
+
+    for manifest_path, manifest in vector_manifests():
+        rel = manifest_path.relative_to(ROOT)
+        status = manifest.get("status")
+        if status is not None:
+            if not isinstance(status, str) or status not in ALLOWED_VECTOR_STATUSES:
+                errors.append(
+                    f"{rel}: status={status!r} is not one of "
+                    f"{sorted(ALLOWED_VECTOR_STATUSES)}"
+                )
+                continue  # can't reason about deprecated_at when status is bogus
+
+        if status != "deprecated":
+            continue
+
+        deprecated_at = manifest.get("deprecated_at")
+        if deprecated_at is None:
+            errors.append(
+                f"{rel}: status='deprecated' requires a deprecated_at "
+                f"ISO-8601 date (YYYY-MM-DD)"
+            )
+            continue
+        if not isinstance(deprecated_at, str) or not ISO_DATE_PATTERN.match(
+            deprecated_at
+        ):
+            errors.append(
+                f"{rel}: deprecated_at={deprecated_at!r} is not a valid "
+                f"ISO-8601 date (YYYY-MM-DD)"
+            )
+            continue
+        try:
+            date.fromisoformat(deprecated_at)
+        except ValueError:
+            errors.append(
+                f"{rel}: deprecated_at={deprecated_at!r} is not a valid "
+                f"ISO-8601 date (YYYY-MM-DD)"
+            )
+
+
+def check_vector_coverage(errors: list[str], pending_matrix_rows: set[str]) -> None:
     testable = testable_row_ids()
     covered: set[str] = set()
     for _path, manifest in vector_manifests():
+        if _is_deprecated_vector(manifest):
+            continue  # F6 — deprecated vectors are excluded from audits
         covered.update(manifest.get("coverage", {}).get("tr_core", []))
     for row_id in sorted(testable - covered):
-        if row_id in pending_tr_core:
+        if row_id in pending_matrix_rows:
             continue  # pending-and-uncovered is allowed
         errors.append(
             f"specs/trellis-requirements-matrix.md: no vector covers {row_id} "
@@ -350,17 +449,17 @@ def check_vector_coverage(errors: list[str], pending_tr_core: set[str]) -> None:
         )
 
     # F5 — listed-but-now-covered forces allowlist cleanup.
-    for row_id in sorted(pending_tr_core & covered):
+    for row_id in sorted(pending_matrix_rows & covered):
         errors.append(
             f"fixtures/vectors/_pending-invariants.toml: {row_id} is listed in "
-            f"pending_tr_core but is now covered by a vector; remove it"
+            f"pending_matrix_rows but is now covered by a vector; remove it"
         )
     # Unknown row IDs in the allowlist are suspicious — warn via errors.
     known_ids = set(matrix_ids())
-    for row_id in sorted(pending_tr_core - known_ids):
+    for row_id in sorted(pending_matrix_rows - known_ids):
         errors.append(
             f"fixtures/vectors/_pending-invariants.toml: {row_id} is not a "
-            f"matrix row ID; remove it from pending_tr_core"
+            f"matrix row ID; remove it from pending_matrix_rows"
         )
 
 
@@ -450,14 +549,15 @@ def check_archived_inputs(errors: list[str]) -> None:
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
-    pending_invariants, pending_tr_core = load_pending_invariants(errors)
+    pending_invariants, pending_matrix_rows = load_pending_invariants(errors)
     check_forbidden_terms(errors)
     check_core_section_references(errors)
     check_requirement_ids(errors)
     check_traceability_anchors(errors)
     check_bare_profile(errors)
     check_archived_inputs(errors)
-    check_vector_coverage(errors, pending_tr_core)
+    check_vector_lifecycle_fields(errors)
+    check_vector_coverage(errors, pending_matrix_rows)
     check_vector_declared_coverage(errors, warnings)
     check_invariant_coverage(errors, pending_invariants)
     check_vector_manifest_paths(errors)

@@ -1,0 +1,20 @@
+id             = "append/001-example"
+op             = "append"
+description    = "Deprecated vector: claims TR-CORE-001..015 but must NOT count toward coverage."
+status         = "deprecated"
+deprecated_at  = "2026-04-18"
+
+[coverage]
+tr_core = [
+  "TR-CORE-001", "TR-CORE-002", "TR-CORE-003", "TR-CORE-004", "TR-CORE-005",
+  "TR-CORE-006", "TR-CORE-007", "TR-CORE-008", "TR-CORE-009", "TR-CORE-010",
+  "TR-CORE-011", "TR-CORE-012", "TR-CORE-013", "TR-CORE-014", "TR-CORE-015",
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+payload        = "../../_inputs/sample-payload-001.bin"
+authored_event = "input-authored-event.cbor"
+
+[expected]
+canonical_event = "expected-canonical-event.cbor"

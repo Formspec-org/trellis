@@ -1,2 +1,2 @@
-pending_invariants = [6]
-pending_tr_core    = ["TR-CORE-001"]
+pending_invariants  = [6]
+pending_matrix_rows = ["TR-CORE-001"]

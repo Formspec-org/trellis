@@ -21,9 +21,8 @@
 pending_invariants = [3, 6, 7, 8, 10, 11, 13, 14, 15]
 
 # Matrix row IDs (TR-CORE-* and TR-OP-*) with `Verification=test-vector` for
-# which no manifest.toml currently lists the ID under coverage.tr_core. The
-# field name `pending_tr_core` is historical — TR-OP rows also belong here.
-pending_tr_core = [
+# which no manifest.toml currently lists the ID under coverage.tr_core.
+pending_matrix_rows = [
     "TR-CORE-001",
     "TR-CORE-006",
     "TR-CORE-013",

@@ -1,0 +1,3 @@
+# pending_invariants must contain integers; strings must be rejected with
+# a clear lint error rather than a raw Python ValueError traceback.
+pending_invariants = ["three"]

@@ -113,6 +113,26 @@ class TestManifestPathsLint(unittest.TestCase):
         result = run_lint("manifest-boolean-expected")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
+    # F1 — lists of path strings must be recursed into, not silently skipped.
+    def test_list_of_paths_with_missing_element_fails(self):
+        result = run_lint("manifest-list-missing-element")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing-payload.bin", result.stderr)
+        self.assertIn("does not exist", result.stderr.lower())
+
+    # F2 — absolute paths bypass the vector_dir sandbox and must be rejected.
+    def test_absolute_path_is_rejected(self):
+        result = run_lint("manifest-absolute-path")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("/etc/passwd", result.stderr)
+        self.assertIn("absolute", result.stderr.lower())
+
+    # F2 — empty-string paths resolve to vector_dir itself and must be rejected.
+    def test_empty_path_is_rejected(self):
+        result = run_lint("manifest-empty-path")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("empty", result.stderr.lower())
+
 
 class TestPendingInvariantsAllowlist(unittest.TestCase):
     """F5 — fixtures/vectors/_pending-invariants.toml replaces
@@ -130,12 +150,12 @@ class TestPendingInvariantsAllowlist(unittest.TestCase):
         self.assertIn("no vector covers", result.stderr.lower())
 
     def test_tr_row_listed_pending_and_uncovered_passes(self):
-        # pending_tr_core lists TR-CORE-001; no vector references it → OK.
+        # pending_matrix_rows lists TR-CORE-001; no vector references it → OK.
         result = run_lint("allowlist-tr-pending-ok")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_tr_row_listed_pending_but_now_covered_fails(self):
-        # pending_tr_core lists TR-CORE-001 but a vector covers it → must fail,
+        # pending_matrix_rows lists TR-CORE-001 but a vector covers it → must fail,
         # forcing cleanup of the allowlist.
         result = run_lint("allowlist-tr-listed-but-covered")
         self.assertNotEqual(result.returncode, 0)
@@ -143,11 +163,30 @@ class TestPendingInvariantsAllowlist(unittest.TestCase):
         self.assertIn("pending", result.stderr.lower())
 
     def test_tr_row_uncovered_and_not_listed_fails(self):
-        # TR-CORE-001 uncovered and not in pending_tr_core → must fail.
+        # TR-CORE-001 uncovered and not in pending_matrix_rows → must fail.
         result = run_lint("allowlist-tr-uncovered-not-listed")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no vector covers", result.stderr.lower())
         self.assertIn("TR-CORE-001", result.stderr)
+
+    # F8 — allowlist entry that isn't a real matrix row ID must error out.
+    def test_tr_row_unknown_id_fails(self):
+        result = run_lint("allowlist-tr-unknown-id")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-CORE-999", result.stderr)
+        self.assertIn("not a matrix row", result.stderr.lower())
+
+    # F8 — non-integer in pending_invariants must produce a clean lint error,
+    # not a raw Python ValueError traceback.
+    def test_invariant_bad_type_reports_clean_error(self):
+        result = run_lint("allowlist-inv-bad-type")
+        self.assertNotEqual(result.returncode, 0)
+        # Must NOT expose a Python traceback.
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("ValueError", result.stderr)
+        # Must reference the offending file and offending value.
+        self.assertIn("_pending-invariants.toml", result.stderr)
+        self.assertIn("three", result.stderr)
 
     def test_invariant_pending_and_uncovered_passes(self):
         # pending_invariants = [6]; no vector for invariant 6 → OK.
@@ -174,6 +213,44 @@ class TestPendingInvariantsAllowlist(unittest.TestCase):
         result = run_lint("allowlist-malformed-toml")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("_pending-invariants.toml", result.stderr)
+
+
+class TestVectorLifecycleFields(unittest.TestCase):
+    """F6 — manifest-level status / deprecated_at lifecycle fields.
+
+    status is optional and defaults to 'active'. When status = 'deprecated',
+    deprecated_at is required and must be a 'YYYY-MM-DD' ISO-8601 date string.
+    Deprecated vectors are excluded from byte-testable coverage audits.
+    """
+
+    def test_status_active_without_deprecated_at_passes(self):
+        result = run_lint("lifecycle-status-active")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_deprecated_vector_does_not_count_toward_coverage(self):
+        # The only vector is deprecated and covers TR-CORE-001..015; the audit
+        # must treat those rows as uncovered.
+        result = run_lint("lifecycle-status-deprecated-excluded")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no vector covers", result.stderr.lower())
+        self.assertIn("TR-CORE-001", result.stderr)
+
+    def test_deprecated_without_deprecated_at_fails(self):
+        result = run_lint("lifecycle-deprecated-missing-date")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("deprecated_at", result.stderr)
+
+    def test_deprecated_with_malformed_date_fails(self):
+        result = run_lint("lifecycle-deprecated-malformed-date")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("deprecated_at", result.stderr)
+        self.assertIn("yesterday", result.stderr)
+
+    def test_unknown_status_value_fails(self):
+        result = run_lint("lifecycle-status-unknown")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("status", result.stderr.lower())
+        self.assertIn("foo", result.stderr)
 
 
 if __name__ == "__main__":
