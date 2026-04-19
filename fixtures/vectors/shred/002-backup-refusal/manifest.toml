@@ -1,0 +1,98 @@
+id          = "shred/002-backup-refusal"
+op          = "shred"
+status      = "active"
+description = """O-3 Test 4 (purge-cascade verification) — backup-refusal sub-scenario. A \
+two-event canonical chain — a plaintext-bearing append followed by a canonical crypto-shred \
+event referencing the target's §9.3 content_hash — paired with a pre-shred backup snapshot \
+(§16.4) that materialized the plaintext. The expected post-state asserts for every declared \
+Companion Appendix A.7 cascade-scope class BOTH invalidation (OC-76) AND refusal of \
+backup-resurrection (§16.5, §20.5 second sentence, §28.6, OC-135 row 3). Exercises \
+TR-OP-004. Companion § roadmap: §16.4 (Snapshot as Recovery Substrate — OC-48), §16.5 \
+(Retention and Purge Cascade), §20.3 (Crypto-Shredding Scope — OC-75), §20.4 (Purge-Cascade \
+Obligation — OC-76), §20.5 (Cascade Scope — OC-77), §27.3 (Crypto-Shred Cascade Tests — \
+OC-135 row 3), §28.6 (Purge-Cascade Completeness), Appendix A.7 (CS-01..CS-06). Core \
+anchors: §9.3 (content_hash over ciphertext), §15.4 (rule applies to derivatives). Scope: \
+declares CS-01, CS-03, CS-04, CS-05 as in-scope (same subset as shred/001); CS-02 and \
+CS-06 require additional derived artifacts and belong to a later fixture."""
+
+# TR-OP rows this fixture exercises. TR-OP-004 is already covered by
+# shred/001; the allowlist is unchanged. This fixture adds the backup-refusal
+# dimension of the same row (§27.3 OC-135 row 3) under a distinct vector slug.
+[coverage]
+tr_op = [
+    "TR-OP-004",  # Crypto-shredding MUST cascade — backup-refusal sub-scenario.
+]
+companion_sections = ["§20.3", "§20.4", "§20.5"]
+
+[inputs]
+# Canonical chain: event 0 = plaintext-bearing append, event 1 = crypto-shred event.
+# CBOR array of two COSE_Sign1 envelopes (§6.1 Event = COSESign1Bytes).
+chain           = "input-chain.cbor"
+# The crypto-shred event in isolation (byte-identical to chain[1]).
+shred_event     = "input-shred-event.cbor"
+# Pre-shred backup snapshot (§16.4 recovery substrate). A dCBOR map that
+# materializes event 0's plaintext; what a post-shred restore attempt would
+# reintroduce into a live derived artifact. §16.5 forbids that restore;
+# `expected-cascade-report.cbor` asserts the refusal for every in-scope
+# Appendix A.7 class.
+backup_snapshot = "input-backup-snapshot.cbor"
+
+[expected]
+# Byte-compare target for the post-cascade report (OC-76 / OC-77 + §27.3
+# OC-135 row 3). Structure: {
+#   target_content_hash: bstr (= event 0's §9.3 content_hash),
+#   declared_scope:      [tstr, ...] (subset of Appendix A.7 CS-01..CS-06),
+#   backup_snapshot_ref: bstr (SHA-256 of input-backup-snapshot.cbor bytes),
+#   expected_post_state: { <CS-NN>: { invalidated_or_plaintext_absent: true,
+#                                     backup_resurrection_refused: true,
+#                                     rationale: tstr } }
+# }
+# Runner pass criterion per O-3 design §Runner contract / Test 4 + §27.3
+# row 3: every declared scope class reports invalidation AND refuses restore
+# of `input-backup-snapshot.cbor` into a live artifact of that class; AND no
+# plaintext bytes from the shredded payload appear in any post-state
+# artifact (including the rejected restore target).
+cascade_report = "expected-cascade-report.cbor"
+
+# Procedure declaration — names the cascade policy the runner applies. Lives
+# OUTSIDE [inputs] / [expected] because check-specs.py treats every string in
+# those sections as a path to resolve; this section is reviewer-oriented
+# declarative metadata. The `cascade_scope` list MUST use Appendix A.7
+# identifiers per OC-77.
+[procedure]
+cascade_policy = "trellis.shred.cascade.v1/backup-refusal"
+cascade_scope  = ["CS-01", "CS-03", "CS-04", "CS-05"]
+# Backup-restore policy per §16.5 / §20.5 second sentence. A conforming
+# runner MUST refuse a restore of the named backup into any live derived
+# artifact once the shred event has been applied.
+backup_policy  = "trellis.shred.cascade.v1/refuse-backup-restore"
+
+# Post-state assertion table (small-data mirror of `expected-cascade-report.cbor`
+# for reviewer ergonomics). Runner SHOULD compare against the CBOR file for
+# the authoritative byte check; this table is a review aid.
+[post_state]
+target_content_hash_hex = "2b81a765657e96ee25b5ce278025d6d8287014eeda98b98256ae810303247a7e"
+backup_snapshot_ref_hex = "314ac9d52baa1b82e2171ca6cce9c15ad23622c03f6a69b49ba4c789d487aefb"
+
+[post_state.CS-01]
+invalidated_or_plaintext_absent = true
+backup_resurrection_refused     = true
+rationale                       = "CS-01-backup-restore-refused-per-§16.5"
+
+[post_state.CS-03]
+invalidated_or_plaintext_absent = true
+backup_resurrection_refused     = true
+rationale                       = "CS-03-backup-restore-refused-per-§16.5"
+
+[post_state.CS-04]
+invalidated_or_plaintext_absent = true
+backup_resurrection_refused     = true
+rationale                       = "CS-04-backup-restore-refused-per-§16.5"
+
+[post_state.CS-05]
+invalidated_or_plaintext_absent = true
+backup_resurrection_refused     = true
+rationale                       = "CS-05-backup-restore-refused-per-§16.5"
+
+[derivation]
+document = "derivation.md"
