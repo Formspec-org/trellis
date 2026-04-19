@@ -157,9 +157,84 @@ def derived_invariants_for_tr_core(row_ids: list[str]) -> set[int]:
     return derived
 
 
+def load_pending_invariants(errors: list[str]) -> tuple[set[int], set[str]]:
+    """Load the pending-invariants allowlist (F5).
+
+    The allowlist replaces the old TRELLIS_SKIP_COVERAGE=1 blanket bypass.
+    Listed-but-now-covered entries are errors (forces cleanup). Entries that
+    are pending AND uncovered are allowed. Missing file = empty allowlist.
+
+    Schema (all fields optional):
+
+        pending_invariants = [3, 6, 7]          # Phase-1 invariant numbers
+        pending_tr_core    = ["TR-CORE-037"]    # testable matrix row IDs
+                                                # (TR-CORE-* and TR-OP-*; the
+                                                # field name is historical)
+    """
+    import tomllib
+
+    path = FIXTURES / "_pending-invariants.toml"
+    if not path.exists():
+        return set(), set()
+    try:
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        errors.append(
+            f"{path.relative_to(ROOT)}: malformed TOML ({e})"
+        )
+        return set(), set()
+    pending_inv = set(int(n) for n in data.get("pending_invariants", []))
+    pending_tr = set(str(s) for s in data.get("pending_tr_core", []))
+    return pending_inv, pending_tr
+
+
+# Manifest keys whose string values are hex digests, not filesystem paths.
+# Extend this list if the schema grows new non-path string fields.
+MANIFEST_NON_PATH_STRING_KEYS = {"zip_sha256"}
+
+
+def _iter_manifest_path_strings(table: dict, path_stack: tuple[str, ...] = ()):
+    """Yield (dotted_key, value) for every string value in a manifest table.
+
+    Recurses into nested tables (e.g. [expected.report] in verify manifests).
+    Skips non-string values (booleans, ints) and keys explicitly listed as
+    non-path string fields (e.g. zip_sha256).
+    """
+    for key, value in table.items():
+        if isinstance(value, dict):
+            yield from _iter_manifest_path_strings(value, path_stack + (key,))
+        elif isinstance(value, str):
+            if key in MANIFEST_NON_PATH_STRING_KEYS:
+                continue
+            yield (".".join(path_stack + (key,)), value)
+
+
+def check_vector_manifest_paths(errors: list[str]) -> None:
+    """A/F7 — every string in [inputs] / [expected] must resolve to a file.
+
+    Paths are relative to the vector directory. Sibling paths and
+    ``../../_keys/…`` / ``../../_inputs/…`` both resolve here.
+    """
+    for manifest_path, manifest in vector_manifests():
+        vector_dir = manifest_path.parent
+        for section in ("inputs", "expected"):
+            section_data = manifest.get(section, {})
+            if not isinstance(section_data, dict):
+                continue
+            for dotted_key, value in _iter_manifest_path_strings(
+                section_data, (section,)
+            ):
+                resolved = (vector_dir / value).resolve()
+                if not resolved.exists():
+                    errors.append(
+                        f"{manifest_path.relative_to(ROOT)}: "
+                        f"{dotted_key}='{value}' does not exist "
+                        f"(resolved to {resolved})"
+                    )
+
+
 def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> None:
-    if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
-        return
     for path, manifest in vector_manifests():
         coverage = manifest.get("coverage", {})
         tr_core = coverage.get("tr_core", [])
@@ -185,9 +260,7 @@ def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> No
                 )
 
 
-def check_invariant_coverage(errors: list[str]) -> None:
-    if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
-        return
+def check_invariant_coverage(errors: list[str], pending_invariants: set[int]) -> None:
     rows = matrix_rows()
     testable_by_invariant: dict[int, list[str]] = {}
     for r in rows:
@@ -205,13 +278,27 @@ def check_invariant_coverage(errors: list[str]) -> None:
     # testable subset). Invariants without any test-vector row are handled
     # via the separate G-2 non-byte-testable audit path (model-check,
     # declaration-doc-check, spec-cross-ref, etc.) and are NOT flagged here.
+    covered_invariants: set[int] = set()
     for inv in sorted(testable_by_invariant.keys()):
         testable_rows = testable_by_invariant[inv]
-        if not any(rid in covered_ids for rid in testable_rows):
-            errors.append(
-                f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
-                f"vector via any of its testable rows {testable_rows}"
-            )
+        is_covered = any(rid in covered_ids for rid in testable_rows)
+        if is_covered:
+            covered_invariants.add(inv)
+            continue
+        if inv in pending_invariants:
+            continue  # pending-and-uncovered is allowed
+        errors.append(
+            f"specs/trellis-requirements-matrix.md: invariant #{inv} has no "
+            f"vector via any of its testable rows {testable_rows}"
+        )
+
+    # F5 — listed-but-now-covered forces allowlist cleanup.
+    for inv in sorted(pending_invariants & covered_invariants):
+        errors.append(
+            f"fixtures/vectors/_pending-invariants.toml: invariant #{inv} is "
+            f"listed as pending but is now covered by a vector; remove it from "
+            f"pending_invariants"
+        )
 
 
 def check_generator_imports(errors: list[str]) -> None:
@@ -248,18 +335,32 @@ def check_generator_imports(errors: list[str]) -> None:
                     )
 
 
-def check_vector_coverage(errors: list[str]) -> None:
-    if os.environ.get("TRELLIS_SKIP_COVERAGE") == "1":
-        return
+def check_vector_coverage(errors: list[str], pending_tr_core: set[str]) -> None:
     testable = testable_row_ids()
     covered: set[str] = set()
     for _path, manifest in vector_manifests():
         covered.update(manifest.get("coverage", {}).get("tr_core", []))
     for row_id in sorted(testable - covered):
+        if row_id in pending_tr_core:
+            continue  # pending-and-uncovered is allowed
         errors.append(
             f"specs/trellis-requirements-matrix.md: no vector covers {row_id} "
             f"(row has Verification=test-vector but no fixtures/vectors/*/manifest.toml "
             f"references it in coverage.tr_core)"
+        )
+
+    # F5 — listed-but-now-covered forces allowlist cleanup.
+    for row_id in sorted(pending_tr_core & covered):
+        errors.append(
+            f"fixtures/vectors/_pending-invariants.toml: {row_id} is listed in "
+            f"pending_tr_core but is now covered by a vector; remove it"
+        )
+    # Unknown row IDs in the allowlist are suspicious — warn via errors.
+    known_ids = set(matrix_ids())
+    for row_id in sorted(pending_tr_core - known_ids):
+        errors.append(
+            f"fixtures/vectors/_pending-invariants.toml: {row_id} is not a "
+            f"matrix row ID; remove it from pending_tr_core"
         )
 
 
@@ -349,15 +450,17 @@ def check_archived_inputs(errors: list[str]) -> None:
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
+    pending_invariants, pending_tr_core = load_pending_invariants(errors)
     check_forbidden_terms(errors)
     check_core_section_references(errors)
     check_requirement_ids(errors)
     check_traceability_anchors(errors)
     check_bare_profile(errors)
     check_archived_inputs(errors)
-    check_vector_coverage(errors)
+    check_vector_coverage(errors, pending_tr_core)
     check_vector_declared_coverage(errors, warnings)
-    check_invariant_coverage(errors)
+    check_invariant_coverage(errors, pending_invariants)
+    check_vector_manifest_paths(errors)
     check_generator_imports(errors)
 
     for warning in warnings:

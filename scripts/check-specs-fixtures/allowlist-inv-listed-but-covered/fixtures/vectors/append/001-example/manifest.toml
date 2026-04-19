@@ -1,0 +1,12 @@
+id          = "append/001-example"
+op          = "append"
+description = "Covers TR-CORE-001 / invariant 6 while allowlist still lists invariant 6."
+
+[coverage]
+tr_core = ["TR-CORE-001"]
+
+[inputs]
+authored_event = "input-authored-event.cbor"
+
+[expected]
+canonical_event = "expected-canonical-event.cbor"

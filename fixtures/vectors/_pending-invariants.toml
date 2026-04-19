@@ -1,0 +1,88 @@
+# Pending-coverage allowlist for the batched vector rollout (design F5).
+#
+# The check-specs.py lint uses this file to track TR-CORE / TR-OP matrix rows
+# and Phase-1 invariants that are currently uncovered by any vector. Entries
+# are allowed to remain uncovered; but the lint FAILS on two mistakes:
+#
+#   1. A listed entry is now covered by a vector   → remove it from this file.
+#   2. An unlisted entry is uncovered              → either add a vector, or
+#                                                    add the entry here with a
+#                                                    note.
+#
+# Drive both lists toward empty. When both are empty, remove this file.
+#
+# See thoughts/specs/2026-04-18-trellis-g3-fixture-system-design.md "Follow-ons"
+# for the rationale and the history of the TRELLIS_SKIP_COVERAGE=1 blanket
+# bypass this file replaced.
+
+# Phase-1 invariants with ≥1 matrix row `Verification=test-vector` for which no
+# vector currently exists. (Invariants without any test-vector row are audited
+# on the G-2 non-byte-testable track, not here.)
+pending_invariants = [3, 6, 7, 8, 10, 13]
+
+# Matrix row IDs (TR-CORE-* and TR-OP-*) with `Verification=test-vector` for
+# which no manifest.toml currently lists the ID under coverage.tr_core. The
+# field name `pending_tr_core` is historical — TR-OP rows also belong here.
+pending_tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-006",
+    "TR-CORE-013",
+    "TR-CORE-014",
+    "TR-CORE-020",
+    "TR-CORE-023",
+    "TR-CORE-024",
+    "TR-CORE-025",
+    "TR-CORE-032",
+    "TR-CORE-036",
+    "TR-CORE-037",
+    "TR-CORE-038",
+    "TR-CORE-040",
+    "TR-CORE-042",
+    "TR-CORE-044",
+    "TR-CORE-045",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-052",
+    "TR-CORE-053",
+    "TR-CORE-060",
+    "TR-CORE-061",
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-067",
+    "TR-CORE-070",
+    "TR-CORE-071",
+    "TR-CORE-080",
+    "TR-CORE-081",
+    "TR-CORE-082",
+    "TR-CORE-102",
+    "TR-CORE-110",
+    "TR-CORE-111",
+    "TR-CORE-122",
+    "TR-CORE-131",
+    "TR-CORE-132",
+    "TR-CORE-134",
+    "TR-CORE-140",
+    "TR-CORE-143",
+    "TR-OP-020",
+    "TR-OP-022",
+    "TR-OP-030",
+    "TR-OP-032",
+    "TR-OP-041",
+    "TR-OP-050",
+    "TR-OP-052",
+    "TR-OP-053",
+    "TR-OP-060",
+    "TR-OP-061",
+    "TR-OP-070",
+    "TR-OP-071",
+    "TR-OP-072",
+    "TR-OP-073",
+    "TR-OP-074",
+    "TR-OP-090",
+    "TR-OP-091",
+    "TR-OP-110",
+    "TR-OP-122",
+    "TR-OP-130",
+]

@@ -79,5 +79,102 @@ class TestCoverageLint(unittest.TestCase):
         self.assertIn("commentary only", result.stderr.lower())
 
 
+class TestManifestPathsLint(unittest.TestCase):
+    """A/F7 — check_vector_manifest_paths verifies every [inputs]/[expected]
+    string value resolves to a real file."""
+
+    def test_missing_sibling_input_fails(self):
+        # Manifest references input-authored-event.cbor that does not exist.
+        result = run_lint("manifest-missing-sibling")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("input-authored-event.cbor", result.stderr)
+        self.assertIn("does not exist", result.stderr.lower())
+
+    def test_missing_keys_relative_fails(self):
+        # Manifest references ../../_keys/issuer-xyz.cose_key which is absent.
+        result = run_lint("manifest-missing-keys-ref")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("issuer-xyz.cose_key", result.stderr)
+
+    def test_all_manifest_paths_resolve_passes(self):
+        # Manifest references sibling + ../../_keys/ + ../../_inputs/ files, all present.
+        result = run_lint("manifest-all-present")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_zip_sha256_is_not_treated_as_path(self):
+        # Export manifest has a zip_sha256 hex digest in [expected]; it must NOT
+        # be resolved as a path.
+        result = run_lint("manifest-zip-sha256")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_boolean_in_expected_report_is_skipped(self):
+        # [expected.report] has booleans like structure_verified = true — nested
+        # non-string values must be ignored by the path-resolution check.
+        result = run_lint("manifest-boolean-expected")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+
+class TestPendingInvariantsAllowlist(unittest.TestCase):
+    """F5 — fixtures/vectors/_pending-invariants.toml replaces
+    TRELLIS_SKIP_COVERAGE=1 blanket bypass."""
+
+    def test_skip_coverage_env_has_no_effect(self):
+        # TRELLIS_SKIP_COVERAGE=1 must NOT silence an uncovered testable row.
+        env = os.environ.copy()
+        env["TRELLIS_SKIP_COVERAGE"] = "1"
+        env["TRELLIS_LINT_ROOT"] = str(FIX / "missing-coverage")
+        result = subprocess.run(
+            ["python3", str(LINT)], env=env, capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no vector covers", result.stderr.lower())
+
+    def test_tr_row_listed_pending_and_uncovered_passes(self):
+        # pending_tr_core lists TR-CORE-001; no vector references it → OK.
+        result = run_lint("allowlist-tr-pending-ok")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_tr_row_listed_pending_but_now_covered_fails(self):
+        # pending_tr_core lists TR-CORE-001 but a vector covers it → must fail,
+        # forcing cleanup of the allowlist.
+        result = run_lint("allowlist-tr-listed-but-covered")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TR-CORE-001", result.stderr)
+        self.assertIn("pending", result.stderr.lower())
+
+    def test_tr_row_uncovered_and_not_listed_fails(self):
+        # TR-CORE-001 uncovered and not in pending_tr_core → must fail.
+        result = run_lint("allowlist-tr-uncovered-not-listed")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no vector covers", result.stderr.lower())
+        self.assertIn("TR-CORE-001", result.stderr)
+
+    def test_invariant_pending_and_uncovered_passes(self):
+        # pending_invariants = [6]; no vector for invariant 6 → OK.
+        result = run_lint("allowlist-inv-pending-ok")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_invariant_listed_but_now_covered_fails(self):
+        # pending_invariants = [6] but a vector covers TR-CORE tied to inv 6 → fail.
+        result = run_lint("allowlist-inv-listed-but-covered")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invariant", result.stderr.lower())
+        self.assertIn("6", result.stderr)
+
+    def test_missing_allowlist_file_behaves_as_empty(self):
+        # Scenario has uncovered rows and no _pending-invariants.toml → must
+        # fail as if the allowlist were empty.
+        result = run_lint("allowlist-absent-file")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no vector covers", result.stderr.lower())
+
+    def test_malformed_allowlist_toml_errors(self):
+        # A malformed _pending-invariants.toml must yield a clear lint error,
+        # not a Python traceback or silent skip.
+        result = run_lint("allowlist-malformed-toml")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("_pending-invariants.toml", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

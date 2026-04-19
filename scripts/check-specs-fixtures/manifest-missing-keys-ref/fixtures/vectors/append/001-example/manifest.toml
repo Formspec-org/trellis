@@ -1,0 +1,17 @@
+id          = "append/001-example"
+op          = "append"
+description = "Manifest references a _keys entry that does not exist."
+
+[coverage]
+tr_core = [
+  "TR-CORE-001", "TR-CORE-002", "TR-CORE-003", "TR-CORE-004", "TR-CORE-005",
+  "TR-CORE-006", "TR-CORE-007", "TR-CORE-008", "TR-CORE-009", "TR-CORE-010",
+  "TR-CORE-011", "TR-CORE-012", "TR-CORE-013", "TR-CORE-014", "TR-CORE-015",
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-xyz.cose_key"
+authored_event = "input-authored-event.cbor"
+
+[expected]
+canonical_event = "expected-canonical-event.cbor"
