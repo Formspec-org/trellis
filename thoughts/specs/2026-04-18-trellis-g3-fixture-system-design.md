@@ -6,7 +6,7 @@
 **Unblocks:** G-4 (Rust reference impl — vectors become its test corpus), G-5 (stranger-test second implementation — vectors are the ratification artifact).
 **Does not cover:** authoring the ~50 vectors themselves, the Rust reference impl, or the second-implementation runner. Each of those is a separate plan consuming this design.
 
-**Amended 2026-04-18:** closes review findings F1 (invariant derivation unsound), F2 (G-2 fold-in over-claim), F4 (matrix column reconciliation), F5 (bypass → allowlist).
+**Amended 2026-04-18:** closes review findings F1 (invariant derivation unsound), F2 (G-2 fold-in over-claim), F4 (matrix column reconciliation), F5 (bypass → allowlist), F6 (vector lifecycle: identity, deprecation, overlap).
 
 ## Context
 
@@ -50,6 +50,8 @@ Common fields (all vectors):
 id          = "append/001-minimal-inline-payload"
 op          = "append"
 description = "Minimal append to fresh ledger; exercises canonical_event_hash preimage, COSE_Sign1, head chaining."
+# status        = "deprecated"   # optional; omitted = "active". See "Vector lifecycle."
+# deprecated_at = "2026-07-01"   # required iff status = "deprecated" (ISO-8601 date).
 
 [coverage]
 tr_core       = ["TR-CORE-014", "TR-CORE-021", "TR-CORE-032"]   # canonical
@@ -103,6 +105,8 @@ zip_sha256  = "..."                              # convenience mirror; canonical
 Rationale: matrix rows with `Invariant=—` are intentionally lossy under the derivation. Enforcing bidirectional equality would pressure authors to cherry-pick `tr_core` entries to match a declared `invariants` set rather than letting `tr_core` represent the maximum set of rows the bytes actually exercise. That degrades coverage signal. Making `invariants` commentary-only removes the perverse incentive while preserving author context for human readers.
 
 **Inline `[expected.report]`**: structured small-data outputs stay in the manifest; byte outputs go to sibling files. Uniformity loses to ergonomics — a reviewer should not have to open a second file to see a four-field boolean table.
+
+**Deprecation fields (F6)**: `status` and `deprecated_at` are optional top-level fields introduced by the "Vector lifecycle" amendment. `status` defaults to `"active"`; the only other accepted value is `"deprecated"`. When `status = "deprecated"`, `deprecated_at` is required and MUST be an ISO-8601 date. Runners and the G-3 lint treat deprecated vectors as tombstones — present on disk, skipped for execution, and excluded from byte-testable coverage accounting.
 
 ## Derivation evidence
 
@@ -185,6 +189,28 @@ The generator doubles as a second hand-written reading of Core (Python), paralle
 
 No derivation procedure — bytes are authoritative. Seeded derivation was considered and rejected: it trades committed binaries (a few dozen KB) for a procedure the stranger also has to implement, adding surface area for disagreement. This matches RFC 8032 / COSE / HPKE test-vector conventions.
 
+## Vector lifecycle
+
+**Amended 2026-04-18 (F6):** the original design pinned a slug convention in "Open items" but said nothing about what happens to a vector after it lands. The stranger test (`specs/trellis-agreement.md` §10) requires that external implementors key off `<op>/<NNN>-<slug>` as a stable ID. Three rules govern vector identity, retirement, and overlap. All three exist to keep the corpus walkable by an implementor reading only Core + Companion + Agreement, with no access to git history.
+
+**Slug convention.** Vector directories are `fixtures/vectors/<op>/<NNN>-<kebab-slug>/`, where `NNN` is a zero-padded three-digit decimal and `<kebab-slug>` is a short lowercase kebab-case description of what the vector exercises. The first authored vector `append/001-minimal-inline-payload` sets the precedent. This supersedes the "Vector slug convention" entry under "Open items."
+
+**Renumbering forbidden.** Once a vector is committed with a given `NNN-` prefix, the numeric prefix is immutable for the life of that vector identity. Stranger-impl runners and downstream consumers treat `<op>/<NNN>-<slug>` as the vector's stable ID. The slug portion *after* `NNN-` may be renamed if the rename clarifies without changing what the vector exercises (e.g., `append/001-minimal-inline-payload` → `append/001-inline-payload-genesis` would be permitted; `append/001-...` → `append/017-...` would not). Any change that alters what the bytes exercise demands a new vector at a new `NNN-`, not a rename in place.
+
+Narrow exception: a vector is not considered committed for the purposes of this rule until the PR that introduces it has merged to the ratification branch. Within the lifetime of an open authoring PR, `NNN-` may be renumbered freely to resolve collisions between parallel in-flight branches. Once the PR merges, the prefix freezes.
+
+Rationale: `coverage.tr_core` lists, cross-vector references in `derivation.md`, and stranger-impl expected-output files all cite vectors by path. Renumbering in place would silently invalidate every such citation without producing a lint failure, because the string `append/003-...` would still resolve to *some* vector — just not the one the citation meant. Treating `NNN-` as load-bearing prevents this class of drift.
+
+**Deprecation.** Hard-delete of a committed vector directory is forbidden. To retire a vector, the author sets `status = "deprecated"` in the manifest and adds `deprecated_at = "YYYY-MM-DD"`. Conformance runners skip deprecated vectors; the G-3 lint ignores their `coverage.tr_core` entries when computing byte-testable coverage (a deprecated vector does not count toward closing a TR-CORE row). The directory and its bytes remain in the tree as a tombstone.
+
+Rationale: the stranger test says an independent implementor walks Core + Companion + Agreement, then `fixtures/vectors/`. If a vector's directory disappears, the stranger has no way to know whether the corpus intentionally shrank or whether they are looking at a corrupted checkout — git history is not part of the inputs they read. A manifest-level deprecation flag makes retirement legible without consulting history: the directory is still there, the bytes still validate, and the manifest explicitly says "this is a tombstone." A lexicographic gap in `NNN-` prefixes (e.g., missing `003-` between `002-` and `004-`) is never ambiguous — it cannot happen, because deprecated vectors stay in place.
+
+This adds two fields to the manifest schema; see "Manifest schema" below.
+
+**Overlap policy.** Two vectors may legitimately claim the same `TR-CORE-*` row in their `coverage.tr_core`. Duplicate coverage is **encouraged, not discouraged** — the byte-testable subset of Core is small enough that the same invariant will be exercised incidentally across many vectors, and independent byte-matches at different call sites strengthen the ratification signal. There is no "primary coverage" notion: coverage is a pure `covered / not covered` boolean per TR-CORE row. The G-3 lint accepts overlap silently (neither error nor warning). A row is covered once ≥1 non-deprecated vector claims it.
+
+Rationale: this matches the F2 philosophy. F2 narrowed rule 3 to the byte-testable subset specifically because forcing bidirectional equality between declared coverage and matrix-derived coverage pressured authors to cherry-pick claims rather than reflect what the bytes actually exercised. A "primary vector per row" rule, or a lint warning on overlap, would recreate the same bad incentive — authors would omit TR-CORE rows from `coverage.tr_core` to avoid collisions with another vector's claim, degrading signal. Treating coverage as a boolean and welcoming duplicates keeps `tr_core` an honest inventory of what each vector demonstrably exercises.
+
 ## Non-goals
 
 - Authoring the ~50 vectors themselves. Each op-dir batch is a separate plan.
@@ -196,11 +222,15 @@ No derivation procedure — bytes are authoritative. Seeded derivation was consi
 
 - **First-batch priority.** Candidate: the 15 invariants first, then canonical_event_hash preimage, COSE_Sign1 signing, deterministic export ZIP layout. Final call at plan time.
 - **verify/ subdirectory split.** Whether to split into `verify/success/` and `verify/negative-nontamper/` — defer until first batch reveals need.
-- **Vector slug convention.** `append/001-minimal-inline-payload` style is proposed; formalize once first batch is authored.
+- **Vector slug convention.** ~~`append/001-minimal-inline-payload` style is proposed; formalize once first batch is authored.~~ **Resolved by F6** — see "Vector lifecycle."
 
 ## Follow-ons
 
 - **Replace `TRELLIS_SKIP_COVERAGE=1` blanket bypass with per-invariant allowlist.** The implementation plan uses `TRELLIS_SKIP_COVERAGE=1` as a transitional mechanism while vectors are authored in batches. This blanket toggle is too blunt: it silently neutralizes the audit for an extended period. The follow-on design: the lint reads `fixtures/vectors/_pending-invariants.toml` listing invariant numbers that are currently uncovered (by author declaration). The lint fails if an invariant is on the pending list but IS covered (forces list cleanup) or if an invariant is NOT on the list and is NOT covered. This preserves full audit signal throughout the rollout and drives the pending list to zero. Tracked separately; the allowlist design takes effect as a follow-on plan after initial vector batches land.
+
+- **Lint enforcement for F6 deprecation fields.** The amendment introduces `status = "deprecated"` + `deprecated_at` but does not yet wire lint checks. A follow-on pass to `scripts/check-specs.py` should: (a) require `deprecated_at` iff `status = "deprecated"`; (b) validate `deprecated_at` parses as an ISO-8601 date; (c) exclude deprecated vectors from the set that satisfies byte-testable coverage in rule 3; (d) reject `status` values other than `"active"` or `"deprecated"`. Tracked alongside the other G-3 lint work. Another agent is extending `check-specs.py` concurrently — do not modify it as part of this amendment.
+
+- **Lint enforcement for F6 renumbering-forbidden rule.** No purely local lint can catch renumbering after the fact, but a pre-merge check is possible: compare the set of `<op>/NNN-` prefixes on the current branch against the set on the ratification branch. A prefix that existed upstream but is missing locally (and is not a rename preserving `NNN-`) fails the check. This is a CI-level guard, not a `check-specs.py` rule. Scoped to the lint follow-on plan.
 
 ## Consumers
 
