@@ -335,18 +335,19 @@ MUST be treated as a **Posture Transition**. Each transition MUST be recorded as
 
 **OC-09 (MUST NOT).** An Operator MUST NOT retroactively rewrite a prior posture declaration. Corrections to past declarations MUST be represented as forward transitions; the prior declaration remains on the chain as part of the immutable record. Any operator correction of an over-stated prior posture MUST be declared as a transition (§10.1) with explicit acknowledgement that the prior declaration was inaccurate.
 
-### 10.3 Required Transition-Event Fields
+### 10.3 Required Transition-Event Semantics
 
-**OC-10 (MUST).** A Posture Transition canonical event MUST include at least:
+**OC-10 (MUST).** A Posture Transition canonical event MUST carry semantic content sufficient to answer every one of these questions without network access:
 
-1. `transition_id` — stable identifier for this transition.
-2. `prior_posture_ref` — immutable reference to the superseded posture declaration.
-3. `new_posture_ref` — immutable reference to the new posture declaration.
-4. `transition_actor` — the principal responsible for issuing the transition.
-5. `policy_authority` — the governance authority under which the transition is made (for example, the governance body that approved a Custody Model change).
-6. `effective_time` — when the transition takes effect.
-7. `temporal_scope` — one of `prospective`, `retrospective`, or `both`, declaring whether the transition applies to records appended after the effective time only, to prior records as well, or to both. Retrospective scope MUST NOT be used to rewrite prior records; it applies the new posture's disclosure and access rules to prior records' subsequent handling.
-8. `attestations` — signatures or attestations from the signing authorities of both the prior and the new Custody Model where both authorities exist and differ. Where the attestation control authority (§9.3 field 7) changes across the transition, both the outgoing and incoming authorities SHOULD attest; where only the incoming authority can attest because the outgoing authority is unavailable or compromised, the declaration MUST record that fact.
+1. **Identity** — a stable identifier for this transition, unique within its ledger scope.
+2. **New posture binding** — an immutable reference to the posture declaration in force AFTER the transition (the prior posture is derived by state continuity against the most recent prior transition or initial declaration; a separate prior-reference field is not required).
+3. **Actor** — the principal responsible for issuing the transition.
+4. **Policy authority** — the governance authority under which the transition is made (for example, the governance body that approved a Custody Model change).
+5. **Effective instant** — when the transition takes effect.
+6. **Temporal scope** — one of `prospective`, `retrospective`, or `both`, declaring whether the transition applies to records appended after the effective time only, to prior records as well, or to both. Retrospective scope MUST NOT be used to rewrite prior records; it applies the new posture's disclosure and access rules to prior records' subsequent handling.
+7. **Attestations** — signatures from the signing authorities required by §10.4. Where the attestation control authority (§9.3 field 7) changes across the transition, both the outgoing and incoming authorities SHOULD attest; where only the incoming authority can attest because the outgoing authority is unavailable or compromised, the declaration MUST record that fact.
+
+The wire shape that realizes these Posture-transition obligations is normatively pinned in Appendix A.5.1 (custody-model transitions) and Appendix A.5.2 (disclosure-profile transitions, on the Respondent Ledger Profile A/B/C axis). An implementation that emits one of the Phase 1 concrete subtypes per §6.7 satisfies OC-10 by virtue of the subtype CDDL; implementations MUST NOT emit the abstract parent shape directly.
 
 ### 10.4 Scope of Transition Attestations
 
@@ -602,7 +603,7 @@ Purge-cascade obligations (§20.3) apply to every projection, including system p
 - **event-driven** — snapshots produced at specific canonical events (case submission, adjudication, sealing),
 - **hybrid** — any composition of the above.
 
-The declared cadence MUST be comparable to observed behavior by an Auditor. Absent snapshots where the cadence requires them is a conformance violation.
+The declared cadence MUST be comparable to observed behavior by an Auditor. Absent snapshots where the cadence requires them is a conformance violation. Traceability: **TR-OP-008** anchors the cadence obligation for G-3 lint coverage; conformance fixtures reference TR-OP-008 via `coverage.tr_op`.
 
 ### 16.3 Snapshot Integrity Binding
 
@@ -753,6 +754,14 @@ Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `c
 
 **OC-70 (SHOULD).** Operators SHOULD declare the provenance of compute-agent artifacts — model identifiers, version references, training-data provenance where claimed — as part of the authority attestation (§19.3). Supply-chain misrepresentation is a posture-honesty violation (§11.2).
 
+### 19.9 Delegated-Compute Declaration Document
+
+**OC-70a (MUST).** An Operator running any agent-in-the-loop deployment whose access class includes `delegated_compute` (§8.1, Appendix A.2) MUST publish a **Delegated-Compute Declaration** per Appendix A.6 alongside the Posture Declaration (§11). The declaration binds the static claims of §§19.2–19.8 to machine-checkable fields — scope, authority, audit event types, attribution discriminator, supply-chain posture — so that a verifier or auditor can reconcile the Operator's asserted delegation behavior against on-ledger evidence.
+
+**OC-70b (MUST).** The Declaration's `posture_declaration_ref` MUST resolve to a Posture Declaration whose access-taxonomy row for every listed `content_class` declares `access_class = delegated_compute`. A Declaration whose referenced posture does not declare delegated-compute access for one of its listed content classes is NON-CONFORMANT.
+
+**OC-70c (MUST).** Every event emitted under a Declaration's scope MUST attribute to exactly one of `actor_human` or `actor_agent_under_delegation` (invariant #15; Appendix A.6 rule 11). Dual-population or empty-population is NON-CONFORMANT. This obligation flows through to Core §19 (Verification Algorithm): a chain in which delegated-compute events fail the actor-discriminator rule fails `integrity_verified` through the operational-conformance path.
+
 ---
 
 ## 20. Lifecycle and Erasure
@@ -783,14 +792,7 @@ An implementation that retains plaintext in a derived artifact after a canonical
 
 ### 20.5 Cascade Scope
 
-**OC-77 (MUST).** The purge cascade MUST reach at minimum:
-
-1. consumer-facing and system projections (§15),
-2. evaluator state (§25) that incorporated the destroyed material,
-3. snapshots, including those retained for performance or recovery (§16),
-4. caches, indexes, and materialized views,
-5. rebuild fixtures that contain the destroyed material,
-6. respondent-facing history views and workflow export views (§§23–24).
+**OC-77 (MUST).** The purge cascade MUST reach every class in the cascade-scope enumeration (Appendix A.7). The enumeration is a machine-checkable artifact: implementations iterate its values programmatically, and conformance fixtures reference values by their enumerated identifier rather than by prose description.
 
 Backups are governed by the Operator's retention and recovery policy; backups MUST NOT be used to resurrect destroyed plaintext into live derived artifacts.
 
@@ -1443,26 +1445,180 @@ CustodyModelEntry {
 }
 ```
 
-## A.5 Posture Transition Event
+## A.5 Posture Transition Event Families
 
-```
-PostureTransition {
-  transition_id:        URI
-  prior_posture_ref:    URI                # immutable reference
-  new_posture_ref:      URI                # immutable reference
-  transition_actor:     URI
-  policy_authority:     URI
-  effective_time:       timestamp
-  temporal_scope:       enum { prospective, retrospective, both }
-  attestations: [
-    {
-      authority:          URI
-      authority_class:    enum { prior, new }
-      signature:          bytes
-    }
-  ]
+Two concrete Posture-transition subtypes are normative in Phase 1. Both ride in `EventPayload.extensions` under the identifiers registered in Core §6 (Event Format) §6.7 — Posture-transition codes `trellis.custody-model-transition.v1` and `trellis.disclosure-profile-transition.v1` — and are subject to the state-continuity check in Core §19 (Verification Algorithm) step 5.5. A.5.1 and A.5.2 are the emitted forms; there is no separately-emitted abstract parent.
+
+Shared named CDDL rule used by both subtypes:
+
+```cddl
+Attestation = {
+  authority:       tstr,                     ; principal URI
+  authority_class: "prior" / "new",          ; which side of the transition is attesting
+  signature:       bstr,                     ; detached Ed25519 over the transition attestation preimage
+                                             ; (dCBOR([transition_id, effective_at, authority_class])
+                                             ;  under domain tag trellis-transition-attestation-v1)
 }
 ```
+
+### A.5.1 Custody-Model Transition
+
+Traceability: **TR-OP-042** (schema conformance). The concrete CDDL form emitted in `EventPayload.extensions["trellis.custody-model-transition.v1"]`:
+
+```cddl
+CustodyModelTransitionPayload = {
+  transition_id:          tstr,                          ; stable within ledger_scope
+  from_custody_model:     "CM-A" / "CM-B" / "CM-C" /
+                          "CM-D" / "CM-E" / "CM-F" / tstr, ; tstr permits registered extension models per §A.4
+  to_custody_model:       "CM-A" / "CM-B" / "CM-C" /
+                          "CM-D" / "CM-E" / "CM-F" / tstr,
+  effective_at:           uint,                          ; Unix seconds UTC
+  reason_code:            uint,                          ; registered reason; 255 is Other / append-only catch-all
+  declaration_doc_digest: digest,                        ; under domain tag trellis-posture-declaration-v1 (Core §9 (Hash Construction) §9.8)
+                                                         ; MUST resolve to declaration in force AFTER the transition
+  transition_actor:       tstr,                          ; principal URI
+  policy_authority:       tstr,                          ; governance authority URI
+  temporal_scope:         "prospective" / "retrospective" / "both",
+  attestations:           [* Attestation],               ; see parent shape
+  extensions:             { * tstr => any } / null,
+}
+```
+
+Reason codes (registered, extensible via registry append-only):
+
+| code | meaning |
+|---|---|
+| 1 | `initial-deployment-correction` |
+| 2 | `key-custody-change` |
+| 3 | `operator-boundary-change` |
+| 4 | `governance-policy-change` |
+| 5 | `legal-order-compelling-transition` |
+| 255 | `Other` (append-only catch-all; free-text rationale in Posture Declaration) |
+
+### A.5.2 Disclosure-Profile Transition (Posture-transition on the Respondent Ledger Profile A/B/C axis)
+
+Traceability: **TR-OP-043** (schema conformance). The concrete CDDL form emitted in Posture-transition code `trellis.disclosure-profile-transition.v1` under `EventPayload.extensions`:
+
+```cddl
+DisclosureProfileTransitionPayload = {
+  transition_id:          tstr,
+  from_disclosure_profile: "rl-profile-A" / "rl-profile-B" / "rl-profile-C", ; Respondent Ledger Profile A/B/C axis (Posture axis)
+  to_disclosure_profile:   "rl-profile-A" / "rl-profile-B" / "rl-profile-C", ; Respondent Ledger Profile A/B/C axis (Posture axis)
+  effective_at:           uint,
+  reason_code:            uint,
+  declaration_doc_digest: digest,
+  scope_change:           "Narrowing" / "Widening" / "Orthogonal",
+                                                         ; single enum; forecloses both-set / both-clear bugs
+  transition_actor:       tstr,
+  policy_authority:       tstr,
+  temporal_scope:         "prospective" / "retrospective" / "both",
+  attestations:           [* Attestation],
+  extensions:             { * tstr => any } / null,
+}
+```
+
+Phase 1 Posture-transitions on the disclosure-profile axis are **deployment-scope only**. Per-case granularity is a Phase 3 concern (the case ledger exists only in Phase 3); the `scope_change` field's meaning is deployment-level narrowing/widening/reclassification. A reserved extension slot is available in `extensions` for Phase 3 refinement to per-case granularity.
+
+### A.5.3 Verification semantics
+
+Traceability: **TR-OP-044** (verifier rule), **TR-OP-045** (co-publish rule). A conforming verifier processing a chain with transitions MUST:
+
+1. Validate the payload against the concrete CDDL in A.5.1 / A.5.2 (mismatch is a structure failure).
+2. Check `from_*` state matches the state established by the most recent prior transition of the same kind in the same `ledger_scope`, or matches the deployment's initial declaration if no prior transition exists. Mismatch accumulates as a localizable `continuity_mismatch` failure per Core §19 (Verification Algorithm) step 5.5.
+3. Check `declaration_doc_digest` resolves to a Posture Declaration whose content digest under `trellis-posture-declaration-v1` (Core §9 (Hash Construction) §9.8) equals the stored digest. If the declaration is present in the export but its recomputed digest does NOT match, this is tamper evidence and is recorded per Core §19 (Verification Algorithm) step 5.5.c by setting both `declaration_resolved = false` and `continuity_verified = false`; the latter fails `integrity_verified` via Core §19 (Verification Algorithm) step 8.
+4. Verify every `attestations[*].signature`. Required attestation count — generalizing OC-11 from the Custody-Model axis to any Posture axis, with the conservative default that ambiguous scope changes require dual attestation:
+   - `scope_change = "Widening"` — MUST be dually attested by both prior and new authorities where both exist.
+   - `scope_change = "Orthogonal"` — MUST be dually attested. `Orthogonal` is the non-narrowing default and does not qualify for the reduced-attestation carve-out.
+   - `scope_change = "Narrowing"` — MAY be attested by the new authority alone.
+   - For Custody-Model transitions (which have no `scope_change` field), widening events as defined by OC-11 (transitions expanding provider-readable access) MUST be dually attested; narrowing events MAY be attested by the new authority alone.
+
+Outcomes accumulate into `VerificationReport.posture_transitions` (Core §19 (Verification Algorithm)). State continuity or attestation failures flip `integrity_verified = false`.
+
+## A.6 Delegated-Compute Declaration Document
+
+Per-deployment declaration artifact mandated by OC-70a (§19.9) for every agent-in-the-loop deployment. On-disk format is TOML frontmatter + Markdown body: the frontmatter carries the machine-checkable claim; the body carries operator narrative. The conformance runner ingests the frontmatter; human readers see both in one artifact.
+
+This per-deployment declaration is distinct from the per-grant `DelegatedComputeGrant` canonical fact (Appendix B.4): the declaration is a deployment-scope posture artifact that frames the operator's delegation regime — who may delegate to whom, under what authority, with what attribution discipline — and is signed once per deployment revision. Each individual grant remains a canonical event on the ledger per §19.2 (OC-64). A single A.6 declaration governs many B.4 grants issued under its scope.
+
+```
+DelegatedComputeDeclaration {                 # TOML frontmatter shape
+  declaration_id:            URI              # stable identifier
+  operator_id:               URI              # MUST equal PostureDeclaration.operator_id
+  posture_declaration_ref:   URI              # MUST resolve with delegated_compute = true in A.2 (OC-70b)
+  effective_from:            timestamp
+  supersedes:                URI | null
+
+  scope: {                                    # §19.1
+    authorized_actions:      [string]         # MUST be drawn from {read, propose, commit_on_behalf_of} in Phase 1;
+                                              # "decide" is reserved and NON-CONFORMANT — see rule 4 (invariant #15)
+    content_classes:         [string]         # references A.2 content_class values
+    max_agents_per_case:     uint | null      # Phase 1 deployments without a case ledger MUST set null;
+                                              # Phase 3+ deployments with case-scope MUST set a ceiling
+    max_invocations_per_day: uint | null
+    time_bound:              timestamp | null # §19.2
+    purpose_bound:           string | null    # §19.2
+  }
+
+  authority: {                                # §19.3
+    grantor_principal:       URI              # human / role granting delegation
+    grantor_role_tier:       string           # WOS governance tier identifier
+    wos_autonomy_cap_ref:    URI              # WOS autonomy cap this grant is under
+    delegation_chain:        [URI]            # ordered chain of grantors; newest first
+  }
+
+  audit: {                                    # §19.4 / §19.7
+    event_types:             [string]         # MUST each appear in operator event-type registry (Core §6 (Event Format) §6.7)
+  }
+
+  attribution: {                              # §19.4 / invariant #15
+    agent_identity:          URI              # stable identity for this agent
+    actor_discriminator_rule: string          # "exactly_one_of(actor_human, actor_agent_under_delegation)"
+    attribution_fields_emitted: [string]      # which attribution fields the agent emits on every event
+  }
+
+  supply_chain: {                             # §19.8
+    runtime_enclave:         string           # MUST match A.2 delegated_compute_exposure
+    model_identifier:        string | null    # e.g. model family + version hash
+  }
+
+  signature: OperatorSignature                # COSE_Sign1 over the frontmatter canonical bytes
+}
+```
+
+Cross-check surface (the first 6 enforced statically by the spec lint, remainder by the Rust conformance crate once G-4 lands):
+
+1. `posture_declaration_ref` resolves and the referenced A.2 row for every listed `content_class` has `access_class = delegated_compute`.
+2. `operator_id` equals the referenced PostureDeclaration's `operator_id`.
+3. Every `audit.event_types` string appears in the operator's event-type registry (Core §6 (Event Format) §6.7).
+4. `scope.authorized_actions` does not contain the string `"decide"` (Phase 1 non-conforming value).
+5. `attribution.actor_discriminator_rule` is the exact literal string above.
+6. `supply_chain.runtime_enclave` equals the `delegated_compute_exposure` value for every listed content class in A.2.
+7. If the ledger exposes case scope (Phase 3+), declared `max_agents_per_case` ceiling holds in the ledger for every case scope. In Phase 1 deployments without a case scope, `max_agents_per_case` MUST be `null` and rule 7 is vacuously satisfied.
+8. Declared `max_invocations_per_day` ceiling holds for the agent identity.
+9. `authority.wos_autonomy_cap_ref` resolves to a WOS autonomy cap whose scope is a superset of `scope`.
+10. `delegation_chain` is monotonic and every intermediate grantor is resolvable under `policy_authority` at the time of delegation.
+11. Every emitted event under this declaration's scope honors `actor_discriminator_rule` (exactly one of the two actor fields populated).
+12. Every emitted event's `agent_identity` attribution field equals `attribution.agent_identity`.
+13. Every emitted event type is contained in `audit.event_types`.
+14. `signature` verifies against the COSE_Sign1 preimage of the frontmatter bytes (domain-separated per Core §9 (Hash Construction) §9.1).
+15. `supersedes` chain is acyclic and each linked declaration was in force at the time of the successor's `effective_from`.
+
+Worked example (SSDI intake triage): the declaration identifies a triage-drafting agent authorized to `read` intake payloads and `propose` adjudication drafts; a human adjudicator remains the sole `commit_on_behalf_of` principal. Reference declaration doc to be authored as a follow-on under `fixtures/declarations/`.
+
+## A.7 Cascade-Scope Enumeration
+
+Normative enumeration of classes the purge cascade (§20.5) MUST reach. Registry append-only; new classes bump the identifier and extend, never replace.
+
+| identifier | class | reference |
+|---|---|---|
+| `CS-01` | consumer-facing and system projections | §15 |
+| `CS-02` | evaluator state that incorporated the destroyed material | §25 |
+| `CS-03` | snapshots retained for performance or recovery | §16 |
+| `CS-04` | caches, indexes, and materialized views | §15 |
+| `CS-05` | rebuild fixtures that contain the destroyed material | §14 / §20.4 |
+| `CS-06` | respondent-facing history views and workflow export views | §§23–24 |
+
+A conformance fixture exercising purge-cascade verification (O-3) MUST reference the class by identifier in its manifest. A conforming implementation MUST iterate the enumeration programmatically when applying OC-77; iterating by prose is NON-CONFORMANT.
 
 ---
 
@@ -1580,11 +1736,12 @@ This non-normative appendix anchors the traceability matrix rows that correspond
 
 Operational traceability rows:
 
-- TR-OP-001, TR-OP-002, TR-OP-003, TR-OP-004, TR-OP-005, TR-OP-006, TR-OP-007
+- TR-OP-001, TR-OP-002, TR-OP-003, TR-OP-004, TR-OP-005, TR-OP-006, TR-OP-007, TR-OP-008
 - TR-OP-010, TR-OP-011, TR-OP-012, TR-OP-013, TR-OP-014, TR-OP-015, TR-OP-016, TR-OP-017
 - TR-OP-020, TR-OP-021, TR-OP-022
 - TR-OP-030, TR-OP-031, TR-OP-032, TR-OP-033, TR-OP-034
 - TR-OP-040, TR-OP-041
+- TR-OP-042, TR-OP-043, TR-OP-044, TR-OP-045 — Posture-transition event auditability (Appendix A.5)
 - TR-OP-050, TR-OP-051, TR-OP-052, TR-OP-053
 - TR-OP-060, TR-OP-061
 - TR-OP-070, TR-OP-071, TR-OP-072, TR-OP-073, TR-OP-074
