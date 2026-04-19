@@ -71,119 +71,82 @@ Each batch is its own plan under `thoughts/specs/…`; brainstorm the set before
 
 ---
 
-## Remaining work to close Phase 1 (end-state map)
+## Parallelization plan — how we close Phase 1
 
-One-line pointers; each grows into its own design brief under `thoughts/specs/…` before execution.
+The gate table above is the end-state coverage map. This section is the execution sequencing: what blocks what, what runs concurrently, where the merge points are. Each task was enumerated by gate in prior versions; here it is re-grouped by dependency stream.
 
-### G-2 — non-byte-testable invariant audit
+**The frame:** the byte stack (G-3 → G-4 → G-5) is the critical path. Everything else (G-2 non-byte audit, O-3, O-4, O-5, Track E) is *off* the critical path and should run in parallel starting now, not after G-3. Waiting for G-3 before opening parallel tracks adds ~3–4 months to the total with no compensating signal benefit.
+
+### Critical path (serial, gates the stranger test)
+
+Each step's output feeds the next; cannot be parallelized within the path.
+
+1. **First vector batch (G-3 start)** — `append/002..005` + first tamper. See "Near-term → First vector batch" above.
+2. **`append/` residue batch (G-3)** — **M**.
+      Close the 6 uncovered byte-testable invariants: #3 signing-key registry Active/Revoked lifecycle; #6 registry-snapshot binding (manifest digest of domain registry); #7 `key_bag` immutable under rotation (`LedgerServiceWrapEntry` append-only); #8 redaction-aware commitment slots reserved; #10 Phase 1 envelope = Phase 3 case-ledger event format (structural superset); #13 append idempotency retry semantics. First-batch 5 cover #6/#7/#8/#13 partially; this closes the residue. Target: `pending_invariants = []`.
+3. **`verify/` suite (G-3)** — **M**.
+      Happy-path (structure/integrity/readability all pass) + negative-non-tamper (expired key, suite-unsupported, missing registry snapshot). `verify/success/` vs `verify/negative/` split deferred per fixture-system design.
+4. **`export/` suite (G-3)** — **M**.
+      Deterministic ZIP layout, manifest shape, key-material handling, inclusion-proof shape. Per Core §18. Byte-exact ZIP is the acceptance gate.
+5. **Expanded `tamper/` suite (G-3 close)** — **S** per case.
+      Beyond first sig-flip: truncation, event reorder, missing head, malformed COSE, wrong-scope, stale `prev_hash`, registry-snapshot swap, checkpoint divergence.
+6. **Rust workspace plan (G-4)** — **S** (plan only).
+      Can start in parallel with step 2 once step 1 is done. Crate split: `trellis-core`, `trellis-cose`, `trellis-store-memory`, `trellis-store-postgres`, `trellis-verify`, `trellis-conformance`, `trellis-cli`.
+7. **Rust workspace: first-vector byte-match (G-4)** — **L**.
+      Build `append`/`verify`/`export` APIs; byte-match `append/001`. Can start once step 6 lands; does not need the full corpus.
+8. **Rust workspace: full corpus match (G-4 closed)** — **L**.
+      Byte-match every vector in `fixtures/vectors/`. Blocked by step 5.
+9. **Commission stranger second impl (G-5)** — **L**.
+      `trellis-py` or `trellis-go`. Implementor reads only Core + Companion + Agreement (never `_generator/`, never the Rust impl). Byte-matches every vector. Can begin reading specs mid-way through the corpus authoring (steps 2–5) but cannot finish until the corpus is frozen. Closes G-5.
+10. **Ratification close-out** — **XS** (mechanical).
+      Once all 7 gates flip to `[x]` and `python3 scripts/check-specs.py` reports zero violations, update `ratification/ratification-checklist.md` with final evidence SHAs, strike "(Draft)" from `specs/trellis-core.md` and `specs/trellis-operational-companion.md` titles, cut a version tag. Per `ratification/ratification-checklist.md` §"Natural stopping point."
+
+### Parallel streams (start now — each closes an independent gate)
+
+Off the critical path. Nothing here blocks G-3/G-4/G-5; nothing here is blocked by them. All five streams can open concurrently — ideal work for parallel agent dispatch on the design-brief phase.
+
+#### Stream A — G-2 non-byte-testable invariant audit
 
 - [ ] **Design: invariant audit-path assignment** — **S**.
-      For each invariant #1–#15, assign its audit channel: byte-testable → G-3 vector,
-      or non-byte-testable → model-check / declaration-doc-check / spec-cross-ref /
-      projection-rebuild-drill / manual-review. Record the channel and a pointer to
-      the evidence per invariant. Closes G-2 alongside the G-3 lint's byte-testable half.
-      Companion §§10 / 19 / 22 are the likely anchors for non-byte paths.
+      For each invariant #1–#15, assign its audit channel (byte-testable → G-3 vector; non-byte-testable → model-check / declaration-doc-check / spec-cross-ref / projection-rebuild-drill / manual-review) and record per-invariant evidence pointer. Closes G-2 alongside the G-3 lint's byte-testable half. Companion §§10 / 19 / 22 are the likely anchors for non-byte paths.
 
-### G-3 — vector corpus completion
-
-Beyond the first-batch 5 above, the corpus targets ~50 total vectors. Plan one batch at a time.
-
-- [ ] **Remaining `append/` batches for uncovered byte-testable invariants** — **M**.
-      The 6 uncovered byte-testable invariants (`_pending-invariants.toml` today):
-      #3 signing-key registry Active/Revoked lifecycle;
-      #6 registry-snapshot binding (manifest digest of domain registry);
-      #7 `key_bag` immutable under rotation (`LedgerServiceWrapEntry` append-only);
-      #8 redaction-aware commitment slots reserved;
-      #10 Phase 1 envelope = Phase 3 case-ledger event format (structural superset);
-      #13 append idempotency retry semantics (same key + different payload → rejection).
-      Target: `pending_invariants = []`. Note the first-batch 5 (above) cover #6/#7/#8/#13
-      partially; this batch closes the residue.
-- [ ] **`verify/` suite** — **M**.
-      Happy-path verification: structure / integrity / readability all pass. Plus
-      negative-non-tamper (expired key, suite-unsupported, missing registry snapshot).
-      Split `verify/success/` vs `verify/negative/` deferred per fixture-system design
-      "Open items."
-- [ ] **`export/` suite** — **M**.
-      Deterministic ZIP layout, manifest shape, key-material handling, inclusion-proof
-      shape. Per Core §"Export package layout." Byte-exact ZIP is the acceptance gate.
-- [ ] **Expanded `tamper/` suite** — **S** per case.
-      Beyond first sig-flip: truncation, event reorder, missing head, malformed COSE,
-      wrong-scope, stale `prev_hash`, registry-snapshot swap, checkpoint divergence.
-
-### G-4 — Rust reference implementation
-
-- [ ] **Plan: `trellis-*` Cargo workspace** — **S** (plan only).
-      Brainstorm + write the implementation plan before coding. Crate split:
-      `trellis-core`, `trellis-cose`, `trellis-store-memory`, `trellis-store-postgres`,
-      `trellis-verify`, `trellis-conformance`, `trellis-cli`. Per Track A step 7.
-- [ ] **Build workspace + first-vector byte-match** — **L**.
-      Milestone 1: `append` / `verify` / `export` APIs; byte-match `append/001`.
-- [ ] **Full corpus match → G-4 closed** — **L**.
-      Milestone 2: byte-match every vector in `fixtures/vectors/`. Closes G-4.
-- [ ] **CLI + WASM bindings** — **M**.
-      Track A step 8. `trellis verify | append | export` + WASM for browser-side
-      respondent-facing verification. Same workspace as G-4.
-
-### G-5 — stranger-test second implementation
-
-- [ ] **Commission second impl (`trellis-py` or `trellis-go`)** — **L**.
-      Track A step 9. Implementor reads only Core + Companion + Agreement (never
-      `_generator/`, never the Rust impl). Passes every vector byte-for-byte.
-      Closes G-5. Ratification (all gates + close-out) follows once G-2 / O-3 /
-      O-4 / O-5 have also closed.
-
-### O-3 — projection discipline
+#### Stream B — O-3 projection discipline
 
 - [ ] **Design: projection conformance fixtures** — **S** (design brief).
-      Per Companion §"Projections." Watermark `(tree_size, tree_head_hash)` attestation;
-      rebuild-equivalence drill (replay from canonical chain must reproduce derived
-      view); snapshot cadence; purge-cascade verification. Pick format (TOML manifest
-      like G-3 vs something richer) and coverage enforcement.
-- [ ] **Author O-3 fixtures** — **M**.
-      Once design lands.
+      Per Companion §§14–17. Watermark `(tree_size, tree_head_hash)` attestation; rebuild-equivalence drill (replay from canonical chain must reproduce derived view); snapshot cadence; purge-cascade verification. Pick format (TOML manifest like G-3 vs something richer) and coverage enforcement.
+- [ ] **Author O-3 fixtures** — **M**. Once design lands.
 
-### O-4 — delegated-compute honesty
+#### Stream C — O-4 delegated-compute honesty
 
 - [ ] **Design: declaration-doc template** — **S**.
-      Per Companion §19. Template for "what an agent-in-the-loop deployment declares
-      about its autonomy, authority, and audit surface." One worked example (e.g., an
-      LLM-assisted triage tier). Declaration-doc-check is one of the non-byte-testable
-      audit channels.
+      Per Companion §19 + Appendix A. Template for "what an agent-in-the-loop deployment declares about its autonomy, authority, and audit surface." One worked example (e.g., LLM-assisted triage tier). Declaration-doc-check is one of the non-byte-testable audit channels feeding G-2.
 - [ ] **Author one reference declaration doc** — **S**.
 
-### O-5 — posture-transition audit
+#### Stream D — O-5 posture-transition audit
 
 - [ ] **Design: posture-transition event schemas** — **S**.
-      Per Companion §10. Canonical CBOR/JSON shape for custody-model transitions
-      (e.g., provider-readable → reader-held) and disclosure-profile transitions.
-      Emitted as ordinary ledger events; verification semantics pinned.
+      Per Companion §10. Canonical CBOR/JSON shape for custody-model transitions (e.g., provider-readable → reader-held) and disclosure-profile transitions. Emitted as ordinary ledger events; verification semantics pinned.
 - [ ] **Author O-5 fixtures** — **S**.
-      Coverage via `tamper/` + `append/` test vectors that exercise the transitions.
+      Coverage via `tamper/` + `append/` vectors exercising the transitions. Shares the G-3 corpus, so time this to land after the `append/` residue batch (critical-path step 2).
 
-### Track E — cross-cutting bindings (three-tier coherence)
+#### Stream E — Track E cross-cutting bindings
 
-Not Phase 1 gates, but named in vision §"Next steps → Track E" as closing conditions for the three-tier claim. Core already reserves §22 (Composition with Respondent Ledger) and §23 (Composition with WOS `custodyHook`) as anchor sections.
+Not Phase 1 gates, but named in vision §"Next steps → Track E" as closing conditions for the three-tier claim. Core already reserves §22 (Composition with Respondent Ledger), §23 (Composition with WOS `custodyHook`), §24 (Agency Log extension points) as anchor sections.
 
-- [ ] **Respondent Ledger ↔ Trellis binding** (vision item 21) — **M**.
-      Three parts: (a) Formspec Respondent Ledger §6.2 `eventHash`/`priorEventHash`
-      SHOULD → MUST when wrapped by a Trellis envelope; (b) define the **case ledger**
-      as a top-level object composing sealed response-ledger heads with WOS governance
-      events; (c) define the **agency log** as the operator-maintained log of case-ledger
-      heads (Core §24 reserves the extension points). This is a spec extension across
-      Core §22 + new Core §24 content, not a nesting note.
 - [ ] **WOS `custodyHook` ↔ Trellis binding** (vision item 22) — **S**.
-      Flesh out Core §23 + Companion §24 (Workflow Governance Sidecar). Document how
-      a WOS runtime uses Trellis as its custody backend without redefining either spec.
+      Flesh out Core §23 + Companion §24 (Workflow Governance Sidecar). Document how a WOS runtime uses Trellis as its custody backend without redefining either spec. Small because both seams are already named — this is text, not design.
+- [ ] **Respondent Ledger ↔ Trellis binding** (vision item 21) — **M**.
+      Three parts: (a) promote Formspec Respondent Ledger §6.2 `eventHash`/`priorEventHash` SHOULD → MUST when wrapped by a Trellis envelope; (b) define the **case ledger** as a top-level object composing sealed response-ledger heads with WOS governance events (Core §22); (c) define the **agency log** as the operator-maintained log of case-ledger heads (Core §24 reserves the extension points). Spec extension across Core §22 + new Core §24 content, not a nesting note. Requires Formspec spec edits — coordinate with the Formspec side before authoring.
 
-### Ratification close-out
+### Dispatch notes
 
-- [ ] **Ratify Core + Companion** — **XS** (mechanical).
-      Once all 7 gates flip to `[x]` and `python3 scripts/check-specs.py` reports zero
-      violations, update `ratification/ratification-checklist.md` with the final evidence
-      SHAs, strike "(Draft)" from the titles of `specs/trellis-core.md` and
-      `specs/trellis-operational-companion.md`, and cut a version tag. This is the
-      natural stopping point per `ratification/ratification-checklist.md` §"Natural
-      stopping point."
+- **Wave 1 (today):** dispatch 4 parallel agents on the design-brief tasks in Streams A / B / C / D. Each produces a draft under `thoughts/specs/…` for human review. Stream E's WOS binding (**S**) can be a 5th agent; Stream E Respondent Ledger binding (**M**) waits until Formspec-side coordination is scheduled.
+- **Wave 2:** human reviews design briefs sequentially; first-batch G-3 vectors authored in the background (not agent-friendly — each vector is a careful, spec-cited artifact).
+- **Wave 3:** G-4 Rust workspace execution. Not agent-friendly at L scale; sit with it. Vector corpus continues in parallel human sessions as Rust progresses.
+- **Wave 4:** commission G-5 stranger test once corpus is frozen. Parallel streams should all have closed by this point or be in fixture-authoring tail.
+- **Merge:** ratification close-out (step 10) is trivial once all streams merge back.
+
+**Velocity estimate:** serial execution ≈ 7–9 months wall-clock. Parallelized per above ≈ 4–6 months, bounded by the critical path (G-3 corpus → G-4 full match → G-5 stranger). Parallel streams finish inside the G-3/G-4 window with weeks to spare.
 
 ---
 
