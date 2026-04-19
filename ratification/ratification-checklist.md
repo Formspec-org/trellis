@@ -42,7 +42,7 @@ The acceptance bar is the **stranger test** from [`../specs/trellis-agreement.md
 
 - [x] **M-1 — Factual consistency with Core.** TR-CORE-032 specifies dCBOR (not JCS); every MUST in Core has at least one matching `TR-CORE-*` row; every MUST in Companion has at least one matching `TR-OP-*` row. *(evidence: 3a143a1)*
 - [x] **M-2 — Gap-log soundness.** Every dropped legacy row is justified against an invariant, an upstream spec, or a replacement `TR-*` row. *(evidence: 3a143a1)*
-- [x] **M-3 — Invariant coverage.** All 15 invariants have at least one `TR-CORE-*` row. *(evidence: 3a143a1)*
+- [x] **M-3 — Invariant coverage.** All 15 invariants are covered by at least one `TR-CORE-*` row, except invariant #11 (Profile-namespace disambiguation) which is covered by Matrix §4 prose. *(evidence: 3a143a1; wording refined in a later commit to reflect #11's §4 routing accurately.)*
 
 ## Natural stopping point
 

@@ -317,7 +317,7 @@ Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty map
 
 ### 6.8 Three event surfaces (authored / canonical / signed)
 
-An event exists as three distinct CDDL-level surfaces during its production lifecycle. Each surface has a defined CBOR byte shape, and the three shapes are **not interchangeable**: they differ in which fields are present and in whether the bytes are wrapped in a COSE_Sign1 envelope. Fixture vectors and cross-implementation byte-match tests (§27) refer to these surfaces by name.
+An event exists as three distinct CDDL-level surfaces during its production lifecycle. Each surface has a defined CBOR byte shape, and the three shapes are **not interchangeable**: they differ in which fields are present and in whether the bytes are wrapped in a COSE_Sign1 envelope. Fixture vectors and cross-implementation byte-match tests (§27) refer to these surfaces by name. Traceability: TR-CORE-018.
 
 - **Authored form.** The `AuthorEventHashPreimage` CDDL struct (§9.5). This is the event map an author constructs **before** computing `author_event_hash`: it carries every field that contributes to the author-originated integrity digest but does **not** carry `author_event_hash` itself, and carries no COSE signature material. Its dCBOR serialization is the input to the `trellis-author-event-v1` hash (§9.5). A fixture that pins "the authored bytes" refers to `dCBOR(AuthorEventHashPreimage)`.
 
@@ -664,7 +664,7 @@ A Canonical Append Service MUST NOT rewrite a canonical event once it has been a
 
 ### 10.6 Append head artifact
 
-Every successful `append` operation returns a structured **append head** describing the post-append state of the targeted ledger scope. This artifact is the structural companion to the `prev_hash` invariant (§10.2): the next event's `prev_hash` is equal to the previous append's `AppendHead.canonical_event_hash` field, by construction.
+Every successful `append` operation returns a structured **append head** describing the post-append state of the targeted ledger scope. This artifact is the structural companion to the `prev_hash` invariant (§10.2): the next event's `prev_hash` is equal to the previous append's `AppendHead.canonical_event_hash` field, by construction. Traceability: TR-CORE-083.
 
 ```cddl
 AppendHead = {
@@ -906,7 +906,7 @@ Registry changes that affect interpretation (event-type semantics, commitment la
 
 ### 14.6 Reserved test identifiers
 
-The text-string prefix `x-trellis-test/` is reserved across every registry-bound identifier namespace (`event_type`, `classification`, and any future Phase 1 registry-bound string field in `EventHeader`). Identifiers bearing this prefix are reserved for use by conformance fixtures (§27) and interoperability test vectors; they are not resolvable against any deployed registry binding and are not governed by §14.4's verifier-obligation to resolve against a `RegistryBinding`.
+The text-string prefix `x-trellis-test/` is reserved across every registry-bound identifier namespace (`event_type`, `classification`, and any future Phase 1 registry-bound string field in `EventHeader`). Identifiers bearing this prefix are reserved for use by conformance fixtures (§27) and interoperability test vectors; they are not resolvable against any deployed registry binding and are not governed by §14.4's verifier-obligation to resolve against a `RegistryBinding`. Traceability: TR-CORE-073.
 
 A fixture vector MAY use any identifier matching the pattern `x-trellis-test/<slug>` (for example, `x-trellis-test/append-minimal` as an `event_type`, or `x-trellis-test/unclassified` as a `classification`) without pinning a corresponding entry in an external registry. A verifier processing a test vector MUST accept `x-trellis-test/*` identifiers in the bound registry without live-resolution, provided the embedded registry snapshot declares them.
 

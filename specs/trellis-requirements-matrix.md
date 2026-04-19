@@ -61,6 +61,7 @@ This is the consolidated traceability matrix for the Trellis spec family. It rep
 | TR-CORE-015 | core | — | Companion specifications MUST narrow or specialize core semantics and MUST NOT reinterpret them; on conflict, core governs. | Keeps companion-local wording from silently rewriting the constitution. | spec-cross-ref | ULCR-001, ULCR-002, ULCR-005 | Merges three subordination rows. |
 | TR-CORE-016 | core | — | Companion specifications MUST NOT redefine canonical truth (in any Trellis ledger scope per §3.3) or define a second canonical order for the same governed scope. | Paired with TR-CORE-011, TR-CORE-020. | spec-cross-ref | ULCR-003, ULCR-004 | Scope qualification per the scoped-vocabulary note. |
 | TR-CORE-017 | core | — | Normative sections MUST use the controlled vocabulary defined in Trellis Core when discussing canonical truth, records, attestations, and derived artifacts. | Terminology drift has been the largest source of prior-draft disputes. | spec-cross-ref | ULCR-037 | Vocabulary reconciliation: see §3.3. |
+| TR-CORE-018 | core | — | Every Trellis event MUST be expressible in three distinct CDDL-level surfaces per Core §6.8: the authored form (`AuthorEventHashPreimage`, the input to `author_event_hash`); the canonical form (`EventPayload`, the COSE payload); and the signed form (`Event = COSESign1Bytes`, the wire envelope). Implementations MUST NOT treat any two surfaces as interchangeable. | Fixture filenames and tooling need unambiguous names for each surface; collapsing them hides byte-level differences. | test-vector, spec-cross-ref | — | Added 2026-04-18 to track Core §6.8 (G-3 gap B2). |
 
 ### 1.3 Canonical Order and One-Per-Scope Invariant
 
@@ -131,6 +132,7 @@ This is the consolidated traceability matrix for the Trellis spec family. It rep
 | TR-CORE-070 | core | #6 | The export manifest MUST include a content-addressed digest of the domain registry (event taxonomy, role vocabulary, governance rules) in force at the time of signing. | Invariant #6 — byte-integrity without semantic binding does not verify meaning. | test-vector | — | New invariant row. |
 | TR-CORE-071 | core | #8 | The envelope header MUST reserve field positions for per-field commitments (Pedersen, Merkle leaves, or equivalent); BBS+ / selective-disclosure *implementation* is deferred but the *slots* are not. | Invariant #8 — retrofitting slots forces a wire-format break. | spec-cross-ref, test-vector | — | New invariant row. |
 | TR-CORE-072 | core | #9 | The spec MUST list which header fields are plaintext (routing, audit classification) and which are commitments to encrypted or private values. | Invariant #9 — header-tag leakage of sensitive values is a spec decision, not an implementation choice. | declaration-doc-check, spec-cross-ref | — | New invariant row. |
+| TR-CORE-073 | core | — | Event-type and classification identifiers beginning with `x-trellis-test/` MUST be reserved for conformance fixtures per Core §14.6; production deployments MUST reject events bearing `x-trellis-test/*` identifiers; such identifiers MUST NOT be resolvable against any deployed registry binding. | Allows fixture authoring without requiring a registry snapshot that resolves these identifiers, while preventing test prefixes from leaking into production data. | test-vector, spec-cross-ref | — | Added 2026-04-18 to track Core §14.6 (G-3 gaps S1/S2). |
 
 ### 1.10 Head Format, Case Ledger, Agency Log (Forward Composition)
 
@@ -139,6 +141,7 @@ This is the consolidated traceability matrix for the Trellis spec family. It rep
 | TR-CORE-080 | core | #10 | The byte shape produced by Phase 1 export MUST be the byte shape of a Phase 3 case-ledger event; Phase 2 and 3 MUST be strict supersets (additional fields only, no redefinition). | Invariant #10 — the continuity commitment underlying the phase arc. | test-vector | — | New invariant row. |
 | TR-CORE-081 | core | #12 | The case-ledger head format in Phase 3 MUST be a strict superset of Phase 1's checkpoint format (same fields, additional fields only). | Invariant #12 — agency-log adoption must not be a wire-format break. | test-vector | — | New invariant row. |
 | TR-CORE-082 | core | #12 | Agency-log entries MUST be case-ledger heads as produced in Phase 1 plus arrival metadata and optional witness signatures. | Invariant #12 — the log-of-case-ledgers composes forward. | test-vector | — | New invariant row. |
+| TR-CORE-083 | core | #12 | The `append` operation MUST return an `AppendHead` CBOR structure per Core §10.6 containing `scope`, `sequence`, and `canonical_event_hash` fields encoded per dCBOR; this is the in-process API return artifact and MUST NOT appear in Phase 1 export packages. | Pins the byte-level shape of the `append` return so fixtures and stranger implementations produce identical outputs; keeps the API surface distinct from on-wire export. | test-vector | — | Added 2026-04-18 to track Core §10.6 (G-3 gap B3). |
 
 ### 1.11 Snapshots, Watermarks, and Rebuild
 
@@ -342,7 +345,7 @@ Every invariant gets at least one row. Invariants that generate operational duti
 | #9 | Plaintext-vs-committed header policy explicit | TR-CORE-072 | TR-OP-040 |
 | #10 | Phase 1 envelope = Phase 3 case-ledger event | TR-CORE-080 | — |
 | #11 | "Profile" namespace disambiguation | (spec-prose) | §4 of this matrix |
-| #12 | Head formats compose forward; agency log superset | TR-CORE-081, TR-CORE-082 | — |
+| #12 | Head formats compose forward; agency log superset | TR-CORE-081, TR-CORE-082, TR-CORE-083 | — |
 | #13 | Append idempotency in wire contract | TR-CORE-050, TR-CORE-051, TR-CORE-053 | — |
 | #14 | Snapshots and watermarks day-one | TR-CORE-090 | TR-OP-001, TR-OP-002, TR-OP-003, TR-OP-005, TR-OP-006 |
 | #15 | Trust posture honesty floor | TR-CORE-100 | (inherits via TR-OP-010..014, TR-OP-040) |
