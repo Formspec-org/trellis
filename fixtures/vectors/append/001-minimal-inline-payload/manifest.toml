@@ -14,10 +14,13 @@ pinned plaintext bytes opaquely; HPKE wrap is exercised by a later vector in thi
 # that demonstrate it.
 [coverage]
 tr_core = [
+    "TR-CORE-018",  # (no invariant tag) — three event surfaces: authored / canonical / signed (§6.8)
     "TR-CORE-021",  # inv #5 — ledger_scope declared; genesis sequence = 0
     "TR-CORE-030",  # inv #1, #4 — dCBOR encoding + canonical event hash construction
     "TR-CORE-031",  # inv #4 — content_hash computed over ciphertext bytes
     "TR-CORE-035",  # inv #2 — suite_id=1 (Ed25519/COSE_Sign1) in protected header
+    "TR-CORE-073",  # (no invariant tag) — event_type / classification use reserved x-trellis-test/ prefix (§14.6)
+    "TR-CORE-083",  # inv #12 — AppendHead return artifact with scope / sequence / canonical_event_hash (§10.6)
 ]
 
 [inputs]
