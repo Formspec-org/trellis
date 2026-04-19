@@ -1,0 +1,470 @@
+"""Generate byte-exact reference vector `projection/002-rebuild-equivalence-minimal`.
+
+Authoring aid only. Every construction carries an inline Core / Companion §
+citation naming the normative paragraph that determines the bytes. This script
+is NOT normative; `derivation.md` is the spec-prose reproduction evidence. If
+this script and the specs disagree, the specs win.
+
+Determinism: two runs produce byte-identical output. No randomness, no
+wall-clock reads, no environment lookups beyond pinned inputs.
+
+Scope. Second O-3 projection-conformance fixture, exercising Test 2
+(rebuild equivalence) per
+`thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md`. The
+fixture is the first to exercise Core §15.3's "Rebuild-output encoding"
+paragraph — the new dCBOR rebuild-output pin landed in Wave 2 — by
+byte-comparing a rebuilt view against the original view.
+
+Shape. A minimal 2-event canonical chain (reusing the same stylistic
+construction as `projection/001-watermark-attestation`) is checkpointed
+at `tree_size = 2`. From that checkpointed state a 2-field projection
+view is built:
+
+    View = { event_count: uint, last_canonical_event_hash: digest }
+
+Both fields are declared rebuild-deterministic (Core §15.3; Companion
+§15.3 OC-40). The fixture commits:
+
+  - `input-chain.cbor`                — CBOR array of two COSE_Sign1 envelopes,
+  - `input-checkpoint.cbor`           — COSE_Sign1 over CheckpointPayload,
+  - `input-view.cbor`                 — dCBOR(View) as originally produced,
+  - `input-procedure-config.cbor`     — configuration-history record the
+                                        rebuild consumes,
+  - `expected-view-rebuilt.cbor`      — byte-equal rebuild of the view.
+
+Because every field of the minimal view is deterministic, the rebuilt
+view is bit-equal to the original — this is the simplest possible
+rebuild-equivalence proof and deliberately avoids shadowing the future
+non-deterministic-field fixture (projection/002b or projection/003).
+
+The chain events are structural-only — PayloadInline with opaque
+ciphertext, empty KeyBag, no HPKE wrap, no commitments — identical in
+shape to `projection/001-watermark-attestation`. A distinct ledger
+scope (`"test-rebuild-ledger"`) prevents any future multi-fixture
+runner from conflating the two projection fixtures.
+"""
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import cbor2
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+# ---------------------------------------------------------------------------
+# Pinned inputs.
+# ---------------------------------------------------------------------------
+
+ROOT = Path(__file__).resolve().parent.parent           # fixtures/vectors/
+KEY_FILE = ROOT / "_keys" / "issuer-001.cose_key"
+OUT_DIR = ROOT / "projection" / "002-rebuild-equivalence-minimal"
+
+# Ledger-scope pin. Distinct from projection/001's scope so neither fixture
+# can accidentally borrow the other's canonical bytes.
+LEDGER_SCOPE = b"test-rebuild-ledger"                    # §10.4, §11.2 — 19 bytes
+
+# Two events at sequence 0 and 1. Both use x-trellis-test/ reserved prefixes
+# (§14.6). Distinct idempotency keys so canonical_event_hashes differ.
+EVENT_DEFS = [
+    {
+        "sequence":        0,
+        "prev_hash":       None,
+        "authored_at":     1745100000,
+        "event_type":      b"x-trellis-test/rebuild-seed",
+        "classification":  b"x-trellis-test/unclassified",
+        "retention_tier":  0,
+        "idempotency_key": b"idemp-rebld-000" + b"\x00",  # 16 bytes
+        "payload_bytes":   b"rebuild-payload-0".ljust(32, b"\x00"),
+    },
+    {
+        "sequence":        1,
+        # prev_hash populated at build time after event 0 is hashed.
+        "prev_hash":       None,
+        "authored_at":     1745100060,
+        "event_type":      b"x-trellis-test/rebuild-follow",
+        "classification":  b"x-trellis-test/unclassified",
+        "retention_tier":  0,
+        "idempotency_key": b"idemp-rebld-001" + b"\x00",  # 16 bytes
+        "payload_bytes":   b"rebuild-payload-1".ljust(32, b"\x00"),
+    },
+]
+for ev in EVENT_DEFS:
+    assert len(ev["idempotency_key"]) == 16
+
+# Checkpoint-level pins.
+CHECKPOINT_TIMESTAMP = 1745100120                        # §11.2 timestamp
+
+# Rebuild-procedure identifier (Core §15.3). Distinct from projection/001's
+# watermark-only identifier to signal a different view shape.
+REBUILD_PATH = "trellis.projection.v1/rebuild-minimal"
+
+# Signature-suite pins (§7.1).
+SUITE_ID = 1
+ALG_EDDSA = -8
+COSE_LABEL_ALG = 1
+COSE_LABEL_KID = 4
+COSE_LABEL_SUITE_ID = -65537
+PAYLOAD_NONCE = b"\x00" * 12                             # §6.4 bstr .size 12
+
+# Domain-separation tags (§9.8).
+TAG_EVENT = "trellis-event-v1"                           # §9.2
+TAG_AUTHOR = "trellis-author-event-v1"                   # §9.5
+TAG_CONTENT = "trellis-content-v1"                       # §9.3
+TAG_CHECKPOINT = "trellis-checkpoint-v1"                 # §9.6
+TAG_MERKLE_LEAF = "trellis-merkle-leaf-v1"               # §11.3
+TAG_MERKLE_INTERIOR = "trellis-merkle-interior-v1"       # §11.3
+
+
+# ---------------------------------------------------------------------------
+# dCBOR (§5.1) + §9.1 domain separation.
+# ---------------------------------------------------------------------------
+
+def dcbor(value: object) -> bytes:
+    return cbor2.dumps(value, canonical=True)
+
+
+def domain_separated_preimage(tag: str, component: bytes) -> bytes:
+    tag_bytes = tag.encode("utf-8")
+    return (
+        len(tag_bytes).to_bytes(4, "big")
+        + tag_bytes
+        + len(component).to_bytes(4, "big")
+        + component
+    )
+
+
+def ds_sha256(tag: str, component: bytes) -> bytes:
+    return hashlib.sha256(domain_separated_preimage(tag, component)).digest()
+
+
+# ---------------------------------------------------------------------------
+# Key load + §8.3 kid derivation.
+# ---------------------------------------------------------------------------
+
+def load_issuer_key() -> tuple[bytes, bytes]:
+    cose_key = cbor2.loads(KEY_FILE.read_bytes())
+    seed = cose_key[-4]
+    pubkey = cose_key[-2]
+    assert len(seed) == 32 and len(pubkey) == 32
+    return seed, pubkey
+
+
+def derive_kid(suite_id: int, pubkey_raw: bytes) -> bytes:
+    return hashlib.sha256(dcbor(suite_id) + pubkey_raw).digest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# CDDL builders.
+# ---------------------------------------------------------------------------
+
+def build_event_header(ev: dict) -> dict:
+    # §12.1.
+    return {
+        "event_type":             ev["event_type"],
+        "authored_at":            ev["authored_at"],
+        "retention_tier":         ev["retention_tier"],
+        "classification":         ev["classification"],
+        "outcome_commitment":     None,
+        "subject_ref_commitment": None,
+        "tag_commitment":         None,
+        "witness_ref":            None,
+        "extensions":             None,
+    }
+
+
+def build_payload_inline(ciphertext: bytes) -> dict:
+    # §6.4 PayloadInline.
+    return {
+        "ref_type":   "inline",
+        "ciphertext": ciphertext,
+        "nonce":      PAYLOAD_NONCE,
+    }
+
+
+def build_key_bag() -> dict:
+    # §9.4, empty entries.
+    return {"entries": []}
+
+
+def build_authored_preimage(ev: dict, content_hash: bytes) -> dict:
+    # §9.5 AuthorEventHashPreimage.
+    return {
+        "version":         1,
+        "ledger_scope":    LEDGER_SCOPE,
+        "sequence":        ev["sequence"],
+        "prev_hash":       ev["prev_hash"],
+        "causal_deps":     None,
+        "content_hash":    content_hash,
+        "header":          build_event_header(ev),
+        "commitments":     None,
+        "payload_ref":     build_payload_inline(ev["payload_bytes"]),
+        "key_bag":         build_key_bag(),
+        "idempotency_key": ev["idempotency_key"],
+        "extensions":      None,
+    }
+
+
+def build_event_payload(ev: dict, author_event_hash: bytes, content_hash: bytes) -> dict:
+    # §6.1 EventPayload.
+    return {
+        "version":           1,
+        "ledger_scope":      LEDGER_SCOPE,
+        "sequence":          ev["sequence"],
+        "prev_hash":         ev["prev_hash"],
+        "causal_deps":       None,
+        "author_event_hash": author_event_hash,
+        "content_hash":      content_hash,
+        "header":            build_event_header(ev),
+        "commitments":       None,
+        "payload_ref":       build_payload_inline(ev["payload_bytes"]),
+        "key_bag":           build_key_bag(),
+        "idempotency_key":   ev["idempotency_key"],
+        "extensions":        None,
+    }
+
+
+def build_canonical_preimage(event_payload: dict) -> dict:
+    # §9.2 CanonicalEventHashPreimage.
+    return {
+        "version":       1,
+        "ledger_scope":  LEDGER_SCOPE,
+        "event_payload": event_payload,
+    }
+
+
+def build_protected_header(kid: bytes) -> dict:
+    # §7.4 protected header (alg, kid, suite_id). artifact_type omitted.
+    return {
+        COSE_LABEL_ALG:      ALG_EDDSA,
+        COSE_LABEL_KID:      kid,
+        COSE_LABEL_SUITE_ID: SUITE_ID,
+    }
+
+
+def build_sig_structure(protected_bstr: bytes, payload_bstr: bytes) -> bytes:
+    # RFC 9052 §4.4; external_aad = zero-length per §6.6.
+    return dcbor(["Signature1", protected_bstr, b"", payload_bstr])
+
+
+def sign_cose_sign1(seed: bytes, protected_map_bytes: bytes, payload_bytes: bytes) -> bytes:
+    # §6.1, §7.4, RFC 9052 §4.2 — tag-18 envelope with embedded payload.
+    sig_struct = build_sig_structure(protected_map_bytes, payload_bytes)
+    sk = Ed25519PrivateKey.from_private_bytes(seed)
+    signature = sk.sign(sig_struct)
+    assert len(signature) == 64
+    envelope = cbor2.CBORTag(
+        18,
+        [protected_map_bytes, {}, payload_bytes, signature],
+    )
+    return dcbor(envelope)
+
+
+def build_one_event(seed: bytes, kid: bytes, ev: dict) -> tuple[bytes, bytes]:
+    """Return (cose_sign1_envelope_bytes, canonical_event_hash)."""
+    content_hash = ds_sha256(TAG_CONTENT, ev["payload_bytes"])
+    authored = build_authored_preimage(ev, content_hash)
+    authored_bytes = dcbor(authored)
+    author_event_hash = ds_sha256(TAG_AUTHOR, authored_bytes)
+    event_payload = build_event_payload(ev, author_event_hash, content_hash)
+    event_payload_bytes = dcbor(event_payload)
+    protected_map_bytes = dcbor(build_protected_header(kid))
+    envelope_bytes = sign_cose_sign1(seed, protected_map_bytes, event_payload_bytes)
+    canonical_preimage = dcbor(build_canonical_preimage(event_payload))
+    canonical_event_hash = ds_sha256(TAG_EVENT, canonical_preimage)
+    return envelope_bytes, canonical_event_hash
+
+
+# ---------------------------------------------------------------------------
+# §11.3 Merkle tree (RFC 6962-compatible, domain-separated).
+# ---------------------------------------------------------------------------
+
+def merkle_leaf_hash(canonical_event_hash: bytes) -> bytes:
+    return ds_sha256(TAG_MERKLE_LEAF, canonical_event_hash)
+
+
+def merkle_interior_hash(left: bytes, right: bytes) -> bytes:
+    return ds_sha256(TAG_MERKLE_INTERIOR, left + right)
+
+
+def merkle_root_for_two(canonical_event_hashes: list[bytes]) -> bytes:
+    assert len(canonical_event_hashes) == 2
+    l0 = merkle_leaf_hash(canonical_event_hashes[0])
+    l1 = merkle_leaf_hash(canonical_event_hashes[1])
+    return merkle_interior_hash(l0, l1)
+
+
+# ---------------------------------------------------------------------------
+# §11.2 CheckpointPayload.
+# ---------------------------------------------------------------------------
+
+def build_checkpoint_payload(tree_size: int, tree_head_hash: bytes) -> dict:
+    return {
+        "version":              1,
+        "scope":                LEDGER_SCOPE,
+        "tree_size":            tree_size,
+        "tree_head_hash":       tree_head_hash,
+        "timestamp":            CHECKPOINT_TIMESTAMP,
+        "anchor_ref":           None,
+        "prev_checkpoint_hash": None,
+        "extensions":           None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rebuild procedure configuration history.
+#
+# Core §15.3 names "the declared configuration history of the derived
+# processor" as a rebuild input. Core does NOT pin the byte-level shape
+# of that configuration history — it is implementation-defined (see the
+# Core-gap note in derivation.md). For this fixture we pin a minimal
+# configuration record so the fixture is self-contained:
+#
+#     ProcedureConfig = {
+#         "rebuild_path":        tstr,              ; matches Core §15.3 identifier
+#         "view_schema_id":      tstr,              ; which view shape is emitted
+#         "deterministic_fields": [* tstr],         ; §15.3 declared-deterministic
+#     }
+#
+# A rebuild procedure consumes:
+#   (a) the canonical event chain up to tree_size,
+#   (b) this ProcedureConfig,
+# and emits a View whose bytes match `expected-view-rebuilt.cbor`.
+# ---------------------------------------------------------------------------
+
+VIEW_SCHEMA_ID = "urn:trellis:view:rebuild-minimal:v1"
+DETERMINISTIC_FIELDS = ["event_count", "last_canonical_event_hash"]
+
+
+def build_procedure_config() -> dict:
+    return {
+        "rebuild_path":         REBUILD_PATH,
+        "view_schema_id":       VIEW_SCHEMA_ID,
+        "deterministic_fields": DETERMINISTIC_FIELDS,
+    }
+
+
+# ---------------------------------------------------------------------------
+# The minimal rebuild-equivalence view.
+#
+# The view is a 2-field map. Both fields are functions of the canonical
+# chain alone (with no wall-clock or per-implementation state), so both
+# are rebuild-deterministic per Core §15.3.
+#
+#   event_count:               count of events replayed (= tree_size)
+#   last_canonical_event_hash: canonical_event_hash of the last event
+#
+# The view is byte-compared across ALL fields: no non-deterministic
+# fields are declared. The rebuild-output encoding MUST be dCBOR
+# (Core §15.3 "Rebuild-output encoding") and the dCBOR canonical
+# key ordering is what makes the bytes portable.
+# ---------------------------------------------------------------------------
+
+def build_view(event_count: int, last_canonical_event_hash: bytes) -> dict:
+    return {
+        "event_count":               event_count,
+        "last_canonical_event_hash": last_canonical_event_hash,
+    }
+
+
+def rebuild_view_from_chain(
+    canonical_event_hashes: list[bytes],
+    config: dict,
+) -> dict:
+    """Reference rebuild procedure.
+
+    Consumes the canonical-event-hash sequence and the pinned procedure
+    configuration. Emits a view whose bytes match the original. This is
+    the byte-equality promise of Core §15.3 made executable: the fresh
+    rebuild is produced from chain + config alone.
+
+    The config's `deterministic_fields` is intentionally unused here —
+    this fixture has no non-deterministic fields to strip. A richer
+    fixture would use it to project away declared-non-deterministic
+    fields before encoding.
+    """
+    assert config["view_schema_id"] == VIEW_SCHEMA_ID
+    return build_view(
+        event_count=len(canonical_event_hashes),
+        last_canonical_event_hash=canonical_event_hashes[-1],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Output helper.
+# ---------------------------------------------------------------------------
+
+def write_bytes(name: str, data: bytes) -> None:
+    path = OUT_DIR / name
+    path.write_bytes(data)
+    digest = hashlib.sha256(data).hexdigest()
+    print(f"  {name:35s}  {len(data):>5d} bytes  sha256={digest}")
+
+
+def main() -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"generating vector at {OUT_DIR.relative_to(ROOT.parent.parent)}/")
+
+    seed, pubkey_raw = load_issuer_key()
+    kid = derive_kid(SUITE_ID, pubkey_raw)
+
+    # 1. Build event 0.
+    ev0_bytes, ceh0 = build_one_event(seed, kid, EVENT_DEFS[0])
+
+    # 2. Patch event 1 prev_hash = canonical_event_hash[0] per §10.2, then build.
+    EVENT_DEFS[1]["prev_hash"] = ceh0
+    ev1_bytes, ceh1 = build_one_event(seed, kid, EVENT_DEFS[1])
+
+    # 3. Write the canonical chain (CBOR array of COSE_Sign1 envelopes).
+    chain_structure = [cbor2.loads(ev0_bytes), cbor2.loads(ev1_bytes)]
+    chain_bytes = dcbor(chain_structure)
+    write_bytes("input-chain.cbor", chain_bytes)
+
+    # 4. Merkle root at tree_size = 2 (§11.3).
+    tree_head_hash = merkle_root_for_two([ceh0, ceh1])
+
+    # 5. Build CheckpointPayload, sign as COSE_Sign1; write.
+    checkpoint_payload = build_checkpoint_payload(2, tree_head_hash)
+    checkpoint_payload_bytes = dcbor(checkpoint_payload)
+    protected_map_bytes = dcbor(build_protected_header(kid))
+    signed_checkpoint_bytes = sign_cose_sign1(
+        seed, protected_map_bytes, checkpoint_payload_bytes,
+    )
+    write_bytes("input-checkpoint.cbor", signed_checkpoint_bytes)
+
+    # 6. Write the procedure-configuration record. This is the "declared
+    #    configuration history" Core §15.3 names as a rebuild input.
+    config = build_procedure_config()
+    config_bytes = dcbor(config)
+    write_bytes("input-procedure-config.cbor", config_bytes)
+
+    # 7. Build the original View at checkpoint-time; write.
+    original_view = build_view(
+        event_count=2,
+        last_canonical_event_hash=ceh1,
+    )
+    original_view_bytes = dcbor(original_view)
+    write_bytes("input-view.cbor", original_view_bytes)
+
+    # 8. Freshly rebuild the View from chain + config, write, and assert
+    #    byte-equality with the original. This is the Core §15.3
+    #    "Rebuild-output encoding" promise demonstrated in-script.
+    rebuilt_view = rebuild_view_from_chain([ceh0, ceh1], config)
+    rebuilt_view_bytes = dcbor(rebuilt_view)
+    write_bytes("expected-view-rebuilt.cbor", rebuilt_view_bytes)
+
+    assert rebuilt_view_bytes == original_view_bytes, (
+        "rebuild equivalence FAILED: rebuilt view bytes differ from original "
+        "— Core §15.3 promise is violated (this is the bug a conforming "
+        "runner would catch)"
+    )
+
+    # Informational — not committed on disk.
+    print()
+    print(f"  kid                          = {kid.hex()}")
+    print(f"  canonical_event_hash[0]      = {ceh0.hex()}")
+    print(f"  canonical_event_hash[1]      = {ceh1.hex()}")
+    print(f"  tree_head_hash               = {tree_head_hash.hex()}")
+
+
+if __name__ == "__main__":
+    main()

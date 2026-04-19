@@ -1,0 +1,33 @@
+id          = "append/003-external-payload-ref"
+op          = "append"
+status      = "active"
+description = """Genesis append carrying a PayloadExternal reference instead of an inline \
+ciphertext bstr. Exercises Core §6.4's PayloadExternal branch, including the equality \
+rule that EventPayload.content_hash MUST equal PayloadExternal.content_hash, and Core \
+§9.3's content_hash over the exact ciphertext bytes named by payload_ref regardless of \
+whether those bytes are embedded in the event or stored externally. Structural-only \
+vector: KeyBag is empty, availability is InExport, retrieval_hint is null, and HPKE \
+wrap remains deferred to append/004."""
+
+# TR-CORE rows whose Verification column contains `test-vector` and whose
+# Requirement prose / Invariant column matches the PayloadExternal surface
+# this vector exercises. See derivation.md for the construction-to-row mapping.
+[coverage]
+tr_core = [
+    "TR-CORE-031",  # inv #4 — content_hash computed over ciphertext bytes named by payload_ref.
+    "TR-CORE-071",  # inv #8 — selective-disclosure/reference slots preserved for off-graph payloads.
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+payload        = "../../_inputs/sample-external-payload-003.bin"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

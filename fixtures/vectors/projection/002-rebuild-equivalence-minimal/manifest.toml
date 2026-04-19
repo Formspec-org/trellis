@@ -1,0 +1,71 @@
+id          = "projection/002-rebuild-equivalence-minimal"
+op          = "projection"
+status      = "active"
+description = """O-3 Test 2 (rebuild equivalence). A minimal 2-event canonical chain is \
+checkpointed at tree_size = 2, and a 2-field projection view is built from it. A fresh \
+rebuild of that view — from the same canonical chain and the pinned procedure \
+configuration — produces output byte-equal to the original. First fixture to exercise \
+Core §15.3's "Rebuild-output encoding" pin (dCBOR canonical encoding of rebuilt \
+artifacts; byte-equality over the declared-deterministic portion). Exercises TR-OP-005 \
+(rebuild equivalence). Companion § roadmap: §15.3 (rebuild equivalence — OC-39 / OC-40); \
+Core anchors: §11.2 (Checkpoint), §11.3 (Merkle), §15.3 (rebuild-output encoding). Scope: \
+rebuild-equivalence only — every declared view field is deterministic so the byte-compare \
+covers the full view; watermark and stale-status behavior remain reserved for later \
+projection fixtures, and non-deterministic-field handling is a later fixture in this \
+series and therefore no non_deterministic_fields declaration is present here."""
+
+# TR-OP rows with Verification containing `test-vector` that this fixture exercises.
+[coverage]
+tr_op = [
+    "TR-OP-005",  # Rebuild equivalence — byte-equal over declared-deterministic portion (Core §15.3).
+]
+companion_sections = ["§15.3"]
+# invariants = [14]  # commentary-only per G-3 design F1
+
+[inputs]
+# Canonical 2-event chain this projection was derived from. CBOR array of two
+# COSE_Sign1 envelopes (§6.1 Event = COSESign1Bytes).
+chain            = "input-chain.cbor"
+# Signed checkpoint at tree_size = 2 (Checkpoint = COSESign1Bytes, §11.2).
+checkpoint       = "input-checkpoint.cbor"
+# The original projection view as built at checkpoint-time (dCBOR, §15.3).
+view             = "input-view.cbor"
+# The declared configuration history the rebuild procedure consumes (§15.3).
+procedure_config = "input-procedure-config.cbor"
+
+[expected]
+# Byte-compare target: dCBOR(View) produced by a fresh rebuild. Runner pass
+# criteria per O-3 design §Runner contract / Test 2:
+#   (a) replay `input-chain.cbor`,
+#   (b) apply the rebuild procedure named by [procedure].rebuild_path using
+#       `input-procedure-config.cbor`,
+#   (c) byte-compare the output against `expected-view-rebuilt.cbor`,
+#   (d) byte-compare against `input-view.cbor` as well (this fixture asserts
+#       the rebuild matches the original across every deterministic field,
+#       which for this fixture is every field).
+view_rebuilt = "expected-view-rebuilt.cbor"
+
+# Named rebuild procedure. Lives OUTSIDE [inputs] / [expected] because these
+# are reviewer-oriented declarations, not filesystem paths. The check-specs.py
+# walker only recurses into [inputs] / [expected]; top-level tables carry
+# opaque narrative data.
+[procedure]
+rebuild_path   = "trellis.projection.v1/rebuild-minimal"  # §15.3 identifier
+view_schema_id = "urn:trellis:view:rebuild-minimal:v1"    # matches procedure-config
+
+# Fields that are normatively rebuild-deterministic (Core §15.3 + Companion
+# §15.3 OC-40). Flat top-level list, not a sub-table under [expected], so the
+# walker does not attempt to resolve each entry as a path. A runner that
+# knows this fixture's view shape asserts that every field below appears in
+# both `input-view.cbor` and `expected-view-rebuilt.cbor` with byte-equal
+# bytes; no other fields are present in either.
+#
+# This fixture declares NO non-deterministic fields — the view is fully
+# deterministic by construction, so `input-view.cbor == expected-view-rebuilt.cbor`
+# bit-for-bit. A future rebuild fixture with a non-deterministic component
+# (e.g. build_timestamp) will introduce a non_deterministic_fields declaration;
+# see derivation.md "Core-gap note" for the declaration-format decision.
+deterministic_fields = ["event_count", "last_canonical_event_hash"]
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,35 @@
+id          = "projection/004-cadence-gap"
+op          = "projection"
+status      = "active"
+description = """O-3 Test 3 negative cadence fixture. A six-event canonical chain declares \
+a height-based snapshot cadence of every two events but includes checkpoints only at \
+tree_size 2 and 6. The required tree_size 4 checkpoint is intentionally absent; a \
+conforming runner MUST surface the cadence gap. Exercises TR-OP-008."""
+
+[coverage]
+tr_op = [
+    "TR-OP-008",  # Negative case: missing required checkpoint must be surfaced.
+]
+companion_sections = ["§16.2"]
+
+[inputs]
+chain = "input-chain.cbor"
+checkpoints = [
+    "input-checkpoint-002.cbor",
+    "input-checkpoint-006.cbor",
+]
+
+[expected]
+cadence_report = "expected-cadence-report.cbor"
+
+[cadence]
+kind = "height-based"
+interval = 2
+required_tree_sizes = [2, 4, 6]
+observed_tree_sizes = [2, 6]
+missing_tree_sizes = [4]
+expect_failure = true
+failure_code = "missing-required-checkpoint"
+
+[derivation]
+document = "derivation.md"

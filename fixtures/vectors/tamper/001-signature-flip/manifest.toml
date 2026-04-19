@@ -1,0 +1,77 @@
+id          = "tamper/001-signature-flip"
+op          = "tamper"
+status      = "active"
+description = """First tamper vector. Establishes the tamper-op manifest shape \
+(`[expected.report]` sub-table with `tamper_kind` and `failing_event_id`) that \
+every subsequent tamper vector inherits. Tampers a single byte in the 64-byte \
+Ed25519 signature of `append/005-prior-head-chain`'s COSE_Sign1 event — the \
+lowest-signal mutation a Core §7.4 signature profile can tolerate. Exercises \
+Core §19's per-event signature-verify branch (step 4.b / step 4.k): the \
+envelope still decodes cleanly through step 4.c, the canonical_event_hash and \
+prev_hash chain checks at step 4.d / 4.e / 4.h still pass because the hash is \
+computed over the payload bytes (unchanged) rather than the signature, and \
+§19 step 9's `integrity_verified` conjunction flips to false via the \
+accumulated `event_failures` from step 4.k. The runner compares inline \
+[expected.report] fields against the §19 report it produces — this vector \
+does NOT byte-compare output artifacts."""
+
+# TR-CORE rows with Verification=test-vector whose prose describes the
+# verifier-side surface this tamper exercises:
+#
+#   * TR-CORE-061 — Verification independence (signature check alone fails).
+[coverage]
+tr_core = [
+    "TR-CORE-061",
+]
+
+[inputs]
+# The one-element dCBOR array carrying the tampered COSE_Sign1 event. Mirrors
+# the shape Core §18.4 pins for `010-events.cbor`. A runner that opens this
+# file and walks it event-by-event reaches §19 step 4.b (signature verify)
+# after resolving the kid via `signing_key_registry` below.
+ledger               = "input-tampered-ledger.cbor"
+# Byte-identical to `input-tampered-ledger.cbor[0]` — exposed separately for
+# runners that process a single event directly without a chain walk. Mirrors
+# the `shred_event`-shape convenience committed by shred/001.
+tampered_event       = "input-tampered-event.cbor"
+# Minimal one-entry SigningKeyEntry registry — the single `kid` the tampered
+# event's protected header cites. §19 step 4.a MUST resolve this to a pubkey
+# or abort with `report.unresolvable_manifest_kid`; the vector's signal is
+# that resolution succeeds and the subsequent signature verify fails.
+signing_key_registry = "input-signing-key-registry.cbor"
+
+# Expected `VerificationReport` field values. Runner pass criterion:
+#   (a) structure_verified == true (the tampered bytes still round-trip
+#       through dCBOR decode + §7.4 protected-header decode — §19 step 4.b's
+#       signature failure is a *localizable* failure per §19's "Failure
+#       classes" prose, not a fatal one),
+#   (b) integrity_verified == false (§19 step 9's AND-conjunction sees the
+#       event_failures entry),
+#   (c) readability_verified == true (no payload decryption is attempted in
+#       a Phase 1 structural-only event; §19 step 9's readability path runs
+#       only on payloads that "were decrypted and schema-validated", and
+#       this event's ciphertext bytes hash cleanly under §9.3 because the
+#       payload was not mutated — only the signature was),
+#   (d) tamper_kind == "signature_invalid" (pinned; see derivation.md for
+#       the full thirteen-value tamper_kind enum),
+#   (e) failing_event_id equals the pre-tamper canonical_event_hash hex
+#       (= append/005's canonical_event_hash); this is the identity the
+#       verifier carries into `event_failures[0].location`.
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "signature_invalid"
+failing_event_id     = "3d3d5aeb5d4b8d972adbddfe0f339a94fffe01bf90ac1648be2eb98d4acc9f17"
+
+# §17.2 idempotency_key is a fact-producer concept tied to `append`. Tamper
+# vectors are verification-side and have no independent idempotency identity —
+# the tampered event carries 005's idempotency_key (`idemp-append-005`) in
+# its payload, but that value is part of the material under test, not the
+# tamper vector's own identity. Pinning a distinct opaque key here keeps the
+# vector directory self-identifying if a future lint adds a
+# `(ledger_scope, tamper_directory)` uniqueness rule.
+idempotency_key = "tamper-sigflip-001"
+
+[derivation]
+document = "derivation.md"
