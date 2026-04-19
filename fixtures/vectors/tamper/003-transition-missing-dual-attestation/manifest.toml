@@ -1,0 +1,39 @@
+id          = "tamper/003-transition-missing-dual-attestation"
+op          = "tamper"
+status      = "active"
+description = """Posture-transition attestation-count tamper. The tampered \
+event is a `trellis.custody-model-transition.v1` event advertising a \
+widening transition CM-B → CM-A — which, per Companion §10.4 (OC-11) / \
+Appendix A.5.3 step 4, MUST be dually attested. The event ships only a \
+single `authority_class = "new"` attestation; the `"prior"` class is \
+missing. Core §19 step 6.d is the failure site: the verifier's \
+attestation-count check records `attestations_verified = false` and \
+appends `attestation_insufficient` to the outcome's failures list. \
+`from_custody_model = "CM-B"` matches the initial declaration so step \
+6.b passes; the `declaration_doc_digest` resolves correctly so step \
+6.c passes. Only 6.d fails. §19 step 9's integrity conjunction drops to \
+false via the "no entry has attestations_verified = false" clause."""
+
+[coverage]
+tr_op = [
+    "TR-OP-044",  # verifier state-continuity + attestation + declaration-digest (Core §19 step 6)
+]
+
+[inputs]
+ledger                         = "input-tampered-ledger.cbor"
+tampered_event                 = "input-tampered-event.cbor"
+signing_key_registry           = "input-signing-key-registry.cbor"
+initial_posture_declaration    = "input-initial-posture-declaration.bin"
+posture_declaration            = "input-posture-declaration.bin"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "attestation_insufficient"
+failing_event_id     = "a14060ff664e4c229c1e832e78c5072f430a709005e4c38821f94a976b2eb4c0"
+
+idempotency_key = "tamper-transition-003"
+
+[derivation]
+document = "derivation.md"
