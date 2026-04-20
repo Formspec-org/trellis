@@ -919,6 +919,70 @@ class TestPendingModelChecksLoader(unittest.TestCase):
         tmp.unlink()
 
 
+class TestGeneratorLibAllowlist(unittest.TestCase):
+    """check_generator_imports permits `_lib` imports iff
+    fixtures/vectors/_generator/_lib/ exists; otherwise the existing
+    allowlist applies unchanged. Exercised against a throwaway synthetic
+    root so the real corpus is not mutated."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _build_root(self, *, with_lib: bool, gen_source: str) -> Path:
+        root = Path(tempfile.mkdtemp(prefix="trellis-gen-lib-"))
+        gen_dir = root / "fixtures" / "vectors" / "_generator"
+        gen_dir.mkdir(parents=True)
+        (gen_dir / "gen_thing.py").write_text(gen_source, encoding="utf-8")
+        if with_lib:
+            lib_dir = gen_dir / "_lib"
+            lib_dir.mkdir()
+            (lib_dir / "__init__.py").write_text("", encoding="utf-8")
+            (lib_dir / "byte_utils.py").write_text(
+                "CONSTANT = 1\n", encoding="utf-8",
+            )
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        return root
+
+    def _run_only_import_check(self, root: Path) -> list[str]:
+        # Monkey-patch module globals for the duration of this check.
+        original_fixtures = self.cs.FIXTURES
+        original_root = self.cs.ROOT
+        try:
+            self.cs.ROOT = root
+            self.cs.FIXTURES = root / "fixtures" / "vectors"
+            errors: list[str] = []
+            self.cs.check_generator_imports(errors)
+            return errors
+        finally:
+            self.cs.FIXTURES = original_fixtures
+            self.cs.ROOT = original_root
+
+    def test_lib_import_is_allowed_when_lib_present(self):
+        source = "from _lib.byte_utils import CONSTANT\n"
+        errors = self._run_only_import_check(
+            self._build_root(with_lib=True, gen_source=source)
+        )
+        self.assertEqual(errors, [])
+
+    def test_lib_import_is_forbidden_when_lib_absent(self):
+        source = "from _lib.byte_utils import CONSTANT\n"
+        errors = self._run_only_import_check(
+            self._build_root(with_lib=False, gen_source=source)
+        )
+        self.assertTrue(errors)
+        self.assertIn("_lib", errors[0])
+        self.assertIn("forbidden", errors[0].lower())
+
+    def test_other_forbidden_imports_still_rejected(self):
+        source = "import requests\n"
+        errors = self._run_only_import_check(
+            self._build_root(with_lib=True, gen_source=source)
+        )
+        self.assertTrue(errors)
+        self.assertIn("requests", errors[0])
+
+
 class TestVerifyReportConsistency(unittest.TestCase):
     """R12 — verify manifests whose description tokens (`fatal` / `localizable`)
     contradict the declared `[expected.report]` booleans are rejected.

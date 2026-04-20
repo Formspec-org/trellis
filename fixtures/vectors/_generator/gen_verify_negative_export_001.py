@@ -1,12 +1,17 @@
-"""Generate verify negative vectors for export/001.
+"""Generate the six negative verify vectors derived from export/001.
 
-Generates (from export/001-two-event-chain):
-- verify/002-export-001-manifest-sigflip
-- verify/003-export-001-missing-registry-snapshot
-- verify/004-export-001-unsupported-suite
-- verify/005-export-001-unresolvable-manifest-kid
-- verify/006-export-001-checkpoint-root-mismatch
-- verify/007-export-001-inclusion-proof-mismatch
+Each output vector mutates a single surface of the happy-path export so the
+verifier hits a specific §19 failure path, then re-signs whatever COSE
+envelope the mutation touched so the remaining §19 steps run to their
+intended point.
+
+Outputs (all read from `export/001-two-event-chain/` as ground truth):
+- verify/002-export-001-manifest-sigflip           (fatal, §19 step 2.c)
+- verify/003-export-001-missing-registry-snapshot  (fatal, §19 step 3.f)
+- verify/004-export-001-unsupported-suite          (fatal, §19 step 2.b)
+- verify/005-export-001-unresolvable-manifest-kid  (fatal, §19 step 2.a)
+- verify/006-export-001-checkpoint-root-mismatch   (localizable, §19 step 5.c + 7.b)
+- verify/007-export-001-inclusion-proof-mismatch   (localizable, §19 step 7.b)
 
 Authoring aid only. This script is NOT normative; the vectors' derivation.md
 documents cite Core § prose as the reproduction authority.
@@ -17,10 +22,25 @@ Determinism: two runs produce byte-identical ZIP outputs.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+# Sibling `_lib` package import (same pattern as gen_export_001.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import (  # noqa: E402
+    ALG_EDDSA,
+    CBOR_TAG_COSE_SIGN1,
+    COSE_LABEL_ALG,
+    COSE_LABEL_KID,
+    COSE_LABEL_SUITE_ID,
+    dcbor,
+    deterministic_zipinfo,
+    domain_separated_sha256,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent  # fixtures/vectors/
@@ -36,42 +56,13 @@ OUT_CHECKPOINT_ROOT_MISMATCH = ROOT / "verify" / "006-export-001-checkpoint-root
 OUT_INCLUSION_PROOF_MISMATCH = ROOT / "verify" / "007-export-001-inclusion-proof-mismatch"
 
 
-ZIP_FIXED_DATETIME = (1980, 1, 1, 0, 0, 0)
-
-CBOR_TAG_COSE_SIGN1 = 18
-COSE_LABEL_ALG = 1
-COSE_LABEL_KID = 4
-COSE_LABEL_SUITE_ID = -65537
-ALG_EDDSA = -8
-
 SUITE_UNSUPPORTED = 999
 TAG_TRELLIS_CHECKPOINT_V1 = "trellis-checkpoint-v1"
-
-
-def _u32_be(value: int) -> bytes:
-    return value.to_bytes(4, "big", signed=False)
-
-
-def domain_separated_sha256(tag: str, component: bytes) -> bytes:
-    tag_bytes = tag.encode("utf-8")
-    framed = _u32_be(len(tag_bytes)) + tag_bytes + _u32_be(len(component)) + component
-    return hashlib.sha256(framed).digest()
 
 
 def checkpoint_digest(scope: bytes, checkpoint_payload: dict) -> bytes:
     preimage = {"version": 1, "scope": scope, "checkpoint_payload": checkpoint_payload}
     return domain_separated_sha256(TAG_TRELLIS_CHECKPOINT_V1, dcbor(preimage))
-
-def zipinfo(name: str):
-    import zipfile
-
-    info = zipfile.ZipInfo(filename=name, date_time=ZIP_FIXED_DATETIME)
-    info.compress_type = zipfile.ZIP_STORED
-    info.external_attr = 0
-    info.extra = b""
-    info.flag_bits = 0
-    info.create_system = 0
-    return info
 
 
 def flip_last_byte(data: bytes) -> bytes:
@@ -80,8 +71,6 @@ def flip_last_byte(data: bytes) -> bytes:
     last = data[-1] ^ 0x01
     return data[:-1] + bytes([last])
 
-def dcbor(value: object) -> bytes:
-    return cbor2.dumps(value, canonical=True)
 
 def load_seed() -> bytes:
     cose_key = cbor2.loads(KEY_FILE.read_bytes())
@@ -90,10 +79,16 @@ def load_seed() -> bytes:
         raise ValueError("issuer-001 seed not found in COSE_Key label -4")
     return seed
 
+
 def sha256(data: bytes) -> bytes:
     return hashlib.sha256(data).digest()
 
+
 def cose_sign1(seed: bytes, *, protected: bytes, payload: bytes) -> bytes:
+    # gen_verify flavor: accepts pre-encoded `protected` bytes so re-signs
+    # can preserve an existing protected map byte-for-byte. This signature
+    # differs from gen_export_001.cose_sign1's `(seed, kid, payload)`, so
+    # the helper is intentionally kept local rather than pushed into _lib.
     sig_structure = dcbor(["Signature1", protected, b"", payload])
     signature = Ed25519PrivateKey.from_private_bytes(seed).sign(sig_structure)
     sign1 = [protected, {}, payload, signature]
@@ -158,7 +153,7 @@ def write_zip(out_dir: Path, *, root_dir: str, members: list[str], overrides: di
             arcname = f"{root_dir}/{member}"
             # §18.1: ASCII arcnames only (keeps general-purpose bit 11 cleared).
             assert arcname.isascii(), arcname
-            zf.writestr(zipinfo(arcname), payload)
+            zf.writestr(deterministic_zipinfo(arcname), payload)
         # §18.1: external file attributes MUST be zero. See gen_export_001.py
         # for the CPython workaround rationale.
         for info in zf.filelist:

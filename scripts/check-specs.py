@@ -651,7 +651,25 @@ def check_generator_imports(errors: list[str]) -> None:
     gen_dir = FIXTURES / "_generator"
     if not gen_dir.exists():
         return
+    # Generators may import from the narrow `_lib` package that lives
+    # alongside them, in addition to the usual stdlib + cryptography + cbor2
+    # allowlist. The `_lib` package hosts verbatim-shared byte-level helpers
+    # (dcbor, §9.1 domain separation, §18.1 ZIP entry shape) — no spec
+    # interpretation, no generator-specific logic. See
+    # `fixtures/vectors/_generator/_lib/byte_utils.py` for the allowed
+    # surface; the G-5 stranger-test rationale is that these helpers are
+    # stdlib-sugar, not derivations of Core prose.
+    lib_dir = gen_dir / "_lib"
+    allow_lib_import = lib_dir.exists()
     for py_file in sorted(gen_dir.rglob("*.py")):
+        # The `_lib` package's own files are not generators; skip them so
+        # the forbidden-import rule doesn't accidentally police its
+        # internals.
+        try:
+            py_file.relative_to(lib_dir)
+            continue
+        except ValueError:
+            pass
         try:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
         except SyntaxError as e:
@@ -661,6 +679,8 @@ def check_generator_imports(errors: list[str]) -> None:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     top = alias.name.split(".")[0]
+                    if top == "_lib" and allow_lib_import:
+                        continue
                     if top not in GENERATOR_ALLOWED_IMPORTS:
                         errors.append(
                             f"{py_file.relative_to(ROOT)}:{node.lineno}: forbidden import "
@@ -674,6 +694,8 @@ def check_generator_imports(errors: list[str]) -> None:
                     )
                     continue
                 top = (node.module or "").split(".")[0]
+                if top == "_lib" and allow_lib_import:
+                    continue
                 if top and top not in GENERATOR_ALLOWED_IMPORTS:
                     errors.append(
                         f"{py_file.relative_to(ROOT)}:{node.lineno}: forbidden import "

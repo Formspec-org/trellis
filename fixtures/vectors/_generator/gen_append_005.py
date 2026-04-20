@@ -41,10 +41,27 @@ worth the cost; at two generators it is not.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+# Sibling `_lib` package import. See `_lib/byte_utils.py` for the narrow
+# set of shared helpers (dcbor, domain_separated_sha256, COSE constants)
+# that were duplicated verbatim across this generator, gen_export_001, and
+# gen_verify_negative_export_001 before the extraction landed.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import (  # noqa: E402
+    ALG_EDDSA,
+    COSE_LABEL_ALG,
+    COSE_LABEL_KID,
+    COSE_LABEL_SUITE_ID,
+    SUITE_ID_PHASE_1,
+    dcbor,
+    domain_separated_sha256,
+)
 
 # ---------------------------------------------------------------------------
 # Pinned inputs. Paths mirror `gen_append_001.py` so the two generators can be
@@ -81,12 +98,9 @@ assert len(IDEMPOTENCY_KEY) == 16
 PAYLOAD_NONCE = b"\x00" * 12                            # §6.4 bstr .size 12
 
 # Phase 1 signature suite: Ed25519 / COSE_Sign1, §7.1. Issuer key NOT rotated;
-# 005 is chain-linkage, not key-rotation (that is vector 002).
-SUITE_ID = 1
-ALG_EDDSA = -8                                          # COSE alg, §7.1
-COSE_LABEL_ALG = 1                                      # §7.4, per RFC 9052 §3.1
-COSE_LABEL_KID = 4                                      # §7.4, per RFC 9052 §3.1
-COSE_LABEL_SUITE_ID = -65537                            # §7.4, Trellis-reserved
+# 005 is chain-linkage, not key-rotation (that is vector 002). ALG_EDDSA,
+# COSE_LABEL_*, and SUITE_ID_PHASE_1 are imported from _lib.byte_utils.
+SUITE_ID = SUITE_ID_PHASE_1
 
 # Domain-separation tags, §9.8 registry.
 TAG_TRELLIS_EVENT_V1 = "trellis-event-v1"               # §9.2
@@ -95,15 +109,11 @@ TAG_TRELLIS_CONTENT_V1 = "trellis-content-v1"           # §9.3
 
 
 # ---------------------------------------------------------------------------
-# dCBOR (RFC 8949 §4.2.2, Core §5.1). Identical discipline to 001.
-# ---------------------------------------------------------------------------
-
-def dcbor(value: object) -> bytes:
-    return cbor2.dumps(value, canonical=True)
-
-
-# ---------------------------------------------------------------------------
-# §9.1 domain separation discipline. Identical to 001.
+# dCBOR and §9.1 domain_separated_sha256 are imported from _lib.byte_utils.
+# `domain_separated_preimage` stays local because gen_append_005 is the only
+# generator that needs the preimage bytes in isolation (for
+# `author_event_preimage` construction); the other byte-level callers wrap
+# it inside a hash.
 # ---------------------------------------------------------------------------
 
 def domain_separated_preimage(tag: str, component: bytes) -> bytes:
@@ -114,10 +124,6 @@ def domain_separated_preimage(tag: str, component: bytes) -> bytes:
         + len(component).to_bytes(4, "big")
         + component
     )
-
-
-def domain_separated_sha256(tag: str, component: bytes) -> bytes:
-    return hashlib.sha256(domain_separated_preimage(tag, component)).digest()
 
 
 # ---------------------------------------------------------------------------

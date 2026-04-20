@@ -31,12 +31,29 @@ from __future__ import annotations
 
 import hashlib
 import json
-import struct
+import sys
 import zipfile
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+# Runnable as `python3 fixtures/vectors/_generator/gen_export_001.py`; make the
+# sibling `_lib` package importable without installing anything.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import (  # noqa: E402
+    ALG_EDDSA,
+    CBOR_TAG_COSE_SIGN1,
+    COSE_LABEL_ALG,
+    COSE_LABEL_KID,
+    COSE_LABEL_SUITE_ID,
+    SUITE_ID_PHASE_1,
+    ZIP_FIXED_DATETIME,
+    dcbor,
+    deterministic_zipinfo,
+    domain_separated_sha256,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -64,18 +81,10 @@ OUT_DIR = ROOT / "export" / "001-two-event-chain"
 # Core pins (Phase 1).
 # ---------------------------------------------------------------------------
 
-SUITE_ID = 1
-ALG_EDDSA = -8  # COSE alg, §7.1
-
-# COSE protected-header labels: RFC 9052 §3.1 + Trellis suite_id extension.
-COSE_LABEL_ALG = 1
-COSE_LABEL_KID = 4
-COSE_LABEL_SUITE_ID = -65537  # §7.4
-
-CBOR_TAG_COSE_SIGN1 = 18  # RFC 9052 §4.2
-
-# Fixed ZIP metadata (§18.1).
-ZIP_FIXED_DATETIME = (1980, 1, 1, 0, 0, 0)
+# SUITE_ID, ALG_EDDSA, COSE_LABEL_*, CBOR_TAG_COSE_SIGN1, and ZIP_FIXED_DATETIME
+# are imported from `_lib.byte_utils` — those are registry-fixed numeric
+# values (RFC 9052 + Core §7.4 / §18.1), not spec interpretations.
+SUITE_ID = SUITE_ID_PHASE_1
 
 # Pinned timestamps for manifest/checkpoint (Unix seconds UTC).
 AUTHORED_AT = 1745000000  # from append/001 header.authored_at
@@ -92,27 +101,6 @@ TAG_TRELLIS_CHECKPOINT_V1 = "trellis-checkpoint-v1"
 TAG_TRELLIS_MERKLE_LEAF_V1 = "trellis-merkle-leaf-v1"
 TAG_TRELLIS_MERKLE_INTERIOR_V1 = "trellis-merkle-interior-v1"
 TAG_TRELLIS_EXPORT_MANIFEST_V1 = "trellis-export-manifest-v1"
-
-
-def _u32_be(value: int) -> bytes:
-    return struct.pack(">I", value)
-
-
-def domain_separated_sha256(tag: str, *components: bytes) -> bytes:
-    """§9.1 domain-separated SHA-256 over one-or-more byte components."""
-    tag_bytes = tag.encode("utf-8")
-    buf = bytearray()
-    buf += _u32_be(len(tag_bytes))
-    buf += tag_bytes
-    for component in components:
-        buf += _u32_be(len(component))
-        buf += component
-    return hashlib.sha256(bytes(buf)).digest()
-
-
-def dcbor(value: object) -> bytes:
-    """§5.1 dCBOR: RFC 8949 canonical encoding."""
-    return cbor2.dumps(value, canonical=True)
 
 
 def sha256(data: bytes) -> bytes:
@@ -204,17 +192,8 @@ def export_manifest_digest(ledger_scope: bytes, manifest_payload: dict) -> bytes
 
 # ---------------------------------------------------------------------------
 # Deterministic ZIP writer (§18.1).
+# `deterministic_zipinfo` is imported from `_lib.byte_utils`.
 # ---------------------------------------------------------------------------
-
-
-def zipinfo(name: str) -> zipfile.ZipInfo:
-    info = zipfile.ZipInfo(filename=name, date_time=ZIP_FIXED_DATETIME)
-    info.compress_type = zipfile.ZIP_STORED
-    info.external_attr = 0
-    info.extra = b""
-    info.flag_bits = 0
-    info.create_system = 0
-    return info
 
 
 def write_bytes(path: Path, data: bytes) -> None:
@@ -451,7 +430,7 @@ def main() -> None:
             # (general-purpose bit 11) stays cleared and two runs produce
             # byte-identical output under CPython's zipfile defaults.
             assert arcname.isascii(), arcname
-            zf.writestr(zipinfo(arcname), data)
+            zf.writestr(deterministic_zipinfo(arcname), data)
         # §18.1: external file attributes MUST be zero. CPython's
         # ZipFile._open_to_write overwrites any zero external_attr to
         # 0o600 << 16 before the central-directory entry is built; patch it
