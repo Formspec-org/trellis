@@ -42,7 +42,7 @@ intended_posture_declaration   = "intended-posture-declaration.bin"
 structure_verified   = true
 integrity_verified   = false
 readability_verified = true
-tamper_kind          = "declaration_digest_mismatch"
+tamper_kind          = "posture_declaration_digest_mismatch"
 failing_event_id     = "952347b52bec17cbba1a85763c28c37124262f2ac97278b64c0b168e5c1a7c27"
 
 idempotency_key = "tamper-transition-004"

@@ -81,7 +81,7 @@ Core §19 step 6.c, verbatim:
 | `structure_verified` | `true` | Event decodes cleanly. |
 | `integrity_verified` | `false` | Step 9 sees `continuity_verified = false` (set by step 6.c). |
 | `readability_verified` | `true` | No payload decryption attempted. |
-| `tamper_kind` | `"declaration_digest_mismatch"` | tamper/001's enum. |
+| `tamper_kind` | `"posture_declaration_digest_mismatch"` | tamper/001's enum; distinct from the Core §19 `failures[]` code below. |
 | `failing_event_id` | `952347b5…5c1a7c27` | Tampered event's `canonical_event_hash`. |
 
 The `PostureTransitionOutcome` carries: `continuity_verified = false` (forced by step 6.c), `declaration_resolved = false`, `attestations_verified = true`, `failures = ["declaration_digest_mismatch"]`.
