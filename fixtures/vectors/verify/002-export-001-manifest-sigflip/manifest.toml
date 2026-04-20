@@ -1,0 +1,25 @@
+id          = "verify/002-export-001-manifest-sigflip"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector: manifest signature invalid. Takes \
+`export/001-two-event-chain` and flips a single bit in the final byte of \
+`000-manifest.cbor`'s COSE_Sign1 signature bstr, leaving every other archive \
+member byte-identical. Exercises Core §19 step 2.c fatal failure: invalid \
+manifest signature ⇒ abort with `structure_verified = false`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-067",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+
+[derivation]
+document = "derivation.md"
+

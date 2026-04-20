@@ -1,0 +1,25 @@
+id          = "verify/003-export-001-missing-registry-snapshot"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector: missing registry snapshot member. \
+Takes `export/001-two-event-chain` and removes the required \
+`050-registries/<registry_digest>.cbor` member while leaving the manifest \
+unchanged (still binding it). Exercises Core §19 step 3.f fatal failure: \
+digest binding cannot be satisfied ⇒ abort with `structure_verified = false`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-067",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+
+[derivation]
+document = "derivation.md"
+

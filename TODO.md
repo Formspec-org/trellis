@@ -18,11 +18,11 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
-## Current state (as of 2026-04-20, HEAD = `1f46e01`)
+## Current state (as of 2026-04-20, HEAD = `3c996c0`)
 
 - **Gates:** 15 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all have normative spec anchors + fixture coverage; O-3 is fully covered on Phase-1 breadth. Closure blocked on G-3 `verify/` + `export/` + tamper-residue batches, G-2 audit sign-off, and G-4/G-5 implementation evidence.
 - **Lint:** green; 99/99 pytest. All six Wave-1 lint rules (R1-R11) live; `fixtures/vectors/_pending-invariants.toml` `pending_invariants = []`; 45 `TR-*` rows still uncovered (still mostly `verify/`/`export/` territory); `_pending-projection-drills.toml` 4 rows; `_pending-model-checks.toml` 8 rows awaiting G-4 evidence. Pre-merge vector-renumbering guard green.
-- **Fixture corpus:** 26 vectors across `append/{001..009}`, `export/{001}`, `verify/{001}`, `projection/{001..005}`, `shred/{001,002}`, `tamper/{001..008}`. Reference O-4 declaration at `fixtures/declarations/ssdi-intake-triage/` with R11-resolvable event-registry stub.
+- **Fixture corpus:** 28 vectors across `append/{001..009}`, `export/{001}`, `verify/{001..003}`, `projection/{001..005}`, `shred/{001,002}`, `tamper/{001..008}`. Reference O-4 declaration at `fixtures/declarations/ssdi-intake-triage/` with R11-resolvable event-registry stub.
 - **End-state = Trellis Phase 1 stranger test passes** ([`thoughts/product-vision.md`](thoughts/product-vision.md) §"Phase 1 success criterion"): a stranger writes a second impl from Core + Companion + Agreement alone and byte-matches every vector. Closes when all 7 open gates close + Track A steps 6–9 done. Phase 2–4 explicitly out of scope.
 
 ---
@@ -34,7 +34,7 @@ Tracked in [`ratification/ratification-checklist.md`](ratification/ratification-
 | Gate | State | What closes it |
 |------|-------|----------------|
 | **G-2** Invariant coverage | partial | `pending_invariants = []` since Wave 7. All six Wave-1 lint rules landed. Remaining: G-2 audit sign-off + G-4 evidence artifacts to flush `_pending-model-checks.toml`. |
-| **G-3** Byte-exact vectors | partial | 26 committed; 45 `TR-*` rows still uncovered (still mostly `verify/`/`export/` territory) + 4 projection-drill rows. Remaining surfaces: `verify/` negative-non-tamper cases (M), `export/` suite expansion (M), tamper residue (five enum rows; three bundle with verify/export manifests). |
+| **G-3** Byte-exact vectors | partial | 28 committed; 45 `TR-*` rows still uncovered (still mostly `verify/`/`export/` territory) + 4 projection-drill rows. Remaining surfaces: `verify/` negative-non-tamper tail (M), `export/` suite expansion (M), tamper residue (five enum rows; three bundle with verify/export manifests). |
 | **G-4** Rust reference impl | open | Cargo workspace + `append`/`verify`/`export` API + byte-match on all fixtures. Plan: [`thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`](thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md). |
 | **G-5** Second implementation | open | Independent stranger-test impl (Python or Go) byte-matching every vector, written by someone who read only the specs. |
 | **O-3** Projection discipline | open | Conformance fixtures for watermark, rebuild equivalence, snapshot cadence, purge-cascade verification. Phase-1 breadth closed; awaiting G-3 audit sign-off. |
@@ -48,7 +48,7 @@ Tracked in [`ratification/ratification-checklist.md`](ratification/ratification-
 1. ~~First vector batch (G-3 start)~~ — **done.** See [`COMPLETED.md`](COMPLETED.md) §"First vector batch".
 2. ~~`append/` residue batch~~ — **done.** `append/009-signing-key-revocation` (Wave 7).
 3. **`verify/` suite (G-3)** — **M**.
-      First happy-path landed: `fixtures/vectors/verify/001-export-001-two-event-chain/` (Core §19 steps 1–5 over a complete export). Remaining: negative-non-tamper (expired key, suite-unsupported, missing registry snapshot). `verify/success/` vs `verify/negative/` split deferred per fixture-system design. Bundles three outstanding tamper cases: `wrong_scope` (step 4.f), `registry_snapshot_swap` (step 3.f, fatal), `checkpoint_divergence` (step 5.c/d/e).
+      Landed: happy-path `fixtures/vectors/verify/001-export-001-two-event-chain/` + negative-non-tamper `fixtures/vectors/verify/002-export-001-manifest-sigflip/` (fatal step 2.c) + `fixtures/vectors/verify/003-export-001-missing-registry-snapshot/` (fatal step 3.f). Remaining: negative-non-tamper tail (expired key, suite-unsupported). `verify/success/` vs `verify/negative/` split deferred per fixture-system design. Bundles three outstanding tamper cases: `wrong_scope` (step 4.f), `registry_snapshot_swap` (step 3.f, fatal), `checkpoint_divergence` (step 5.c/d/e).
 4. **`export/` suite (G-3)** — **M**.
       First export landed: `fixtures/vectors/export/001-two-event-chain/` (2-event chain; 2 checkpoints; 1→2 consistency proof; full manifest digest bindings). Remaining: additional ZIP determinism edge cases + manifest variants + key-material handling + larger inclusion-proof sets. Per Core §18. Byte-exact ZIP is the acceptance gate.
 5. **Expanded `tamper/` suite — residual cases (G-3 close)** — **S** per case.
