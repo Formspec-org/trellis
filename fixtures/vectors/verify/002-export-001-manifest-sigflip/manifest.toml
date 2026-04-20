@@ -5,7 +5,10 @@ description = """Negative verify vector: manifest signature invalid. Takes \
 `export/001-two-event-chain` and flips a single bit in the final byte of \
 `000-manifest.cbor`'s COSE_Sign1 signature bstr, leaving every other archive \
 member byte-identical. Exercises Core §19 step 2.c fatal failure: invalid \
-manifest signature ⇒ abort with `structure_verified = false`."""
+manifest signature ⇒ abort with `structure_verified = false`. TR-OP-041 \
+(posture-tier declaration) is intentionally not claimed: this vector aborts \
+before the verifier reaches the posture-declaration surface; posture coverage \
+lives on `verify/001` and on the declaration-doc lint."""
 
 [coverage]
 tr_core = [

@@ -5,7 +5,10 @@ description = """Negative verify vector: missing registry snapshot member. \
 Takes `export/001-two-event-chain` and removes the required \
 `050-registries/<registry_digest>.cbor` member while leaving the manifest \
 unchanged (still binding it). Exercises Core §19 step 3.f fatal failure: \
-digest binding cannot be satisfied ⇒ abort with `structure_verified = false`."""
+digest binding cannot be satisfied ⇒ abort with `structure_verified = false`. \
+TR-OP-041 (posture-tier declaration) is intentionally not claimed: this \
+vector aborts at step 3.f before the posture-declaration surface; posture \
+coverage lives on `verify/001` and on the declaration-doc lint."""
 
 [coverage]
 tr_core = [

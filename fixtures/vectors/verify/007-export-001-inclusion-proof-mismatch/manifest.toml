@@ -4,8 +4,11 @@ status      = "active"
 description = """Negative verify vector: inclusion proof mismatch. Takes \
 `export/001-two-event-chain` and flips one bit in `020-inclusion-proofs.cbor`’s \
 leaf_hash for index 0 (then re-signs the manifest with updated digests) so ZIP \
-structure and manifest bindings remain consistent but Core §19 step 7 fails for \
-that proof. Expected: structure passes, integrity fails."""
+structure and manifest bindings remain consistent but Core §19 step 7.b fails \
+for that proof (localizable). Expected: structure passes, integrity fails. \
+TR-OP-041 (posture-tier declaration) is intentionally not claimed: this vector \
+is scoped to the §19 step 7.b integrity surface; posture coverage lives on \
+`verify/001` and on the declaration-doc lint."""
 
 [coverage]
 tr_core = [

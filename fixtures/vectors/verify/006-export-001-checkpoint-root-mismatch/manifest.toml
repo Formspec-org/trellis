@@ -5,8 +5,12 @@ description = """Negative verify vector: checkpoint Merkle root mismatch. \
 Takes `export/001-two-event-chain` and rewrites the head checkpoint payload’s \
 `tree_head_hash` (then re-signs that checkpoint and re-signs the manifest with \
 updated digests) so the package remains structurally consistent but fails Core \
-§19 step 5.c (Merkle-root recomputation). Expected: structure passes, integrity \
-fails."""
+§19 step 5.c (Merkle-root recomputation). Step 7.b also fires for every \
+inclusion proof because recomputed roots disagree with the mutated \
+`head.tree_head_hash`; both are localizable. Expected: structure passes, \
+integrity fails. TR-OP-041 (posture-tier declaration) is intentionally not \
+claimed: this vector is scoped to §19 step 5.c / 7.b integrity surface; \
+posture coverage lives on `verify/001` and on the declaration-doc lint."""
 
 [coverage]
 tr_core = [

@@ -27,6 +27,23 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
+## Format lock-in decisions (pre-G-4, pre-corpus-freeze)
+
+Three envelope-structure decisions whose cost profile makes them resolve-now-or-pay-forever: ordinary to settle before G-4 byte-freezes them into the Rust reference implementation and G-5 commits the shape by having a stranger byte-match every vector; format-breaking to change once any Trellis record has been issued under the pinned shape. Each is spec-sized; substance belongs in `thoughts/specs/…` once drafted. Listed above the ratification gates because they gate not just G-4 but the *meaning* of G-5 — after a second implementation has byte-matched a wrong-shaped format, the wrong shape is public.
+
+- [ ] **Event topology — single-parent chain vs multi-parent DAG** — **M**.
+      Current Core specifies a single-parent hash chain (`priorEventHash: Hash`); amendments ride on an `amendmentRef` sidecar. DAG form (`priorEventHash: [Hash]`) expresses consolidated adjudications, cross-case merges, and federation composition as structure rather than convention; single-parent cases degenerate to list-of-one and remain operationally identical to the current chain. **Cost shape:** chain retained forever = every consolidation, every merge, every visualization tool pays convention tax that git-model familiarity would cover; chain changed after G-5 = every fixture regenerates, every second-impl rewrites, every issued record strands. Decide-now cost is bounded work; defer-cost is unbounded across retention horizons.
+
+- [ ] **Anchor slot cardinality — `anchor_ref: AnchorRef` vs `List[AnchorRef]`** — **S**.
+      Core §11.5 currently reserves one anchor reference per checkpoint. Expanding to a list enables threshold-of-N multi-witness verification (OTS + Rekor-style log + agency Trillian) without a format change when Phase 4 federation lands; list-of-length-1 is operationally identical to the current single-slot for Phase 1 deployments. **Cost shape:** single-slot = every checkpoint permanently tied to its one anchor substrate's survival (Bitcoin cost dynamics, Sigstore continuity, Trillian maintenance lifecycle); "records survive the vendor" silently degrades to "records survive one specific infrastructure provider." List-form is approximately free to carry; single-to-list is format-breaking to retrofit.
+
+- [ ] **Federation extension points — Core §22 / §24 hook reservation** — **M**.
+      Stream E names `case ledger` (§22) and `agency log` (§24 extension points). Before G-4 locks the envelope shape, confirm the Phase-1 envelope reserves the hooks cross-case cryptographic references will need: stable content-addressable case-ledger IDs, the reference-to-other-case-ledger field shape, and version pinning for composed heads. **Reserve, do not implement** — Phase 4 federation semantics stay out of Phase-1 scope, but the hooks must exist in the Phase-1 envelope so Phase 4 composition is not a format break. **Cost shape:** reserved-unused = a few optional envelope fields, no runtime effect; unreserved = every applicant moving jurisdictions breaks cryptographic continuity at the boundary, every consolidated adjudication invents a new pattern, and the Phase-4 federation arc becomes a format break.
+
+Each of these is an ADR target. Pairs cleanly with Stream E authoring — the Respondent Ledger ↔ Trellis binding work depends on the same envelope-shape decisions.
+
+---
+
 ## Open ratification gates
 
 Tracked in [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
@@ -48,7 +65,13 @@ Tracked in [`ratification/ratification-checklist.md`](ratification/ratification-
 1. ~~First vector batch (G-3 start)~~ — **done.** See [`COMPLETED.md`](COMPLETED.md) §"First vector batch".
 2. ~~`append/` residue batch~~ — **done.** `append/009-signing-key-revocation` (Wave 7).
 3. **`verify/` suite (G-3)** — **M**.
-      Landed: happy-path `fixtures/vectors/verify/001-export-001-two-event-chain/` + negative-non-tamper `fixtures/vectors/verify/002-export-001-manifest-sigflip/` (fatal step 2.c) + `fixtures/vectors/verify/003-export-001-missing-registry-snapshot/` (fatal step 3.f) + `fixtures/vectors/verify/004-export-001-unsupported-suite/` (fatal step 2.b) + `fixtures/vectors/verify/005-export-001-unresolvable-manifest-kid/` (fatal step 2.a) + integrity-fail localizable `fixtures/vectors/verify/006-export-001-checkpoint-root-mismatch/` (step 5.c) + `fixtures/vectors/verify/007-export-001-inclusion-proof-mismatch/` (step 7). Remaining: negative-non-tamper tail = revoked/valid_to enforcement (Core §8.2 says Revoked is a hard-reject after valid_to, but Core §19 does not yet pin the check). `verify/success/` vs `verify/negative/` split deferred per fixture-system design. Bundles two outstanding tamper cases: `wrong_scope` (step 4.f), `registry_snapshot_swap` (step 3.f, fatal).
+      Landed: happy-path `fixtures/vectors/verify/001-export-001-two-event-chain/` (§19 steps 1–5, 7 pass) + negative-non-tamper `fixtures/vectors/verify/002-export-001-manifest-sigflip/` (fatal step 2.c) + `fixtures/vectors/verify/003-export-001-missing-registry-snapshot/` (fatal step 3.f) + `fixtures/vectors/verify/004-export-001-unsupported-suite/` (fatal step 2.b) + `fixtures/vectors/verify/005-export-001-unresolvable-manifest-kid/` (fatal step 2.a) + integrity-fail localizable `fixtures/vectors/verify/006-export-001-checkpoint-root-mismatch/` (step 5.c + 7.b) + `fixtures/vectors/verify/007-export-001-inclusion-proof-mismatch/` (step 7.b). Remaining negative-non-tamper coverage holes, annotated by §19 step:
+      - step 4.* — per-event verification (4.a signature, 4.b canonical-hash recompute, 4.d author_event_hash, 4.f wrong_scope, 4.h prev_hash break). 4.b/d/h/wrong-scope bundle with the tamper residue in step 5 below; 4.a still needs its own vector.
+      - step 5.d — checkpoint chain break (prev_checkpoint_hash mismatch between adjacent checkpoints). No vector yet.
+      - step 5.e — checkpoint signature invalid (distinct from 5.c root mismatch). No vector yet.
+      - step 6 — revoked/valid_to enforcement (Core §8.2 says Revoked is a hard-reject after valid_to, but Core §19 step 6 does not yet pin the check). Needs both a core-spec pin and a vector.
+      - step 8 — consistency proof mismatch between checkpoint pair (1→2 fixture has one consistency record; no negative case).
+      `verify/success/` vs `verify/negative/` split deferred per fixture-system design. Bundles two outstanding tamper cases: `wrong_scope` (step 4.f), `registry_snapshot_swap` (step 3.f, fatal).
 4. **`export/` suite (G-3)** — **M**.
       First export landed: `fixtures/vectors/export/001-two-event-chain/` (2-event chain; 2 checkpoints; 1→2 consistency proof; full manifest digest bindings). Remaining: additional ZIP determinism edge cases + manifest variants + key-material handling + larger inclusion-proof sets. Per Core §18. Byte-exact ZIP is the acceptance gate.
 5. **Expanded `tamper/` suite — residual cases (G-3 close)** — **S** per case.

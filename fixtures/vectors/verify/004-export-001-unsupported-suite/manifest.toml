@@ -6,7 +6,10 @@ description = """Negative verify vector: unsupported signature suite. Takes \
 header `suite_id` to an unregistered value while re-signing the manifest so \
 the signature bytes are structurally valid. Exercises Core §19 step 2.b fatal \
 failure: unregistered / inconsistent `suite_id` ⇒ abort with \
-`structure_verified = false`."""
+`structure_verified = false`. TR-OP-041 (posture-tier declaration) is \
+intentionally not claimed: this vector aborts at step 2.b before the \
+posture-declaration surface; posture coverage lives on `verify/001` and on \
+the declaration-doc lint."""
 
 [coverage]
 tr_core = [
