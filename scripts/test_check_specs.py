@@ -919,5 +919,138 @@ class TestPendingModelChecksLoader(unittest.TestCase):
         tmp.unlink()
 
 
+class TestVerifyReportConsistency(unittest.TestCase):
+    """R12 — verify manifests whose description tokens (`fatal` / `localizable`)
+    contradict the declared `[expected.report]` booleans are rejected.
+
+    Uses the `manifests` test hook on check_verify_report_consistency so each
+    scenario is a single synthetic (path, dict) tuple — no TRELLIS_LINT_ROOT
+    tree required.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _run(self, manifest: dict) -> list[str]:
+        errors: list[str] = []
+        self.cs.check_verify_report_consistency(
+            errors,
+            manifests=[(Path("verify/xxx-test/manifest.toml"), manifest)],
+        )
+        return errors
+
+    def test_non_verify_op_is_skipped(self):
+        # Append manifests are not R12's concern even if they mention "fatal".
+        errors = self._run({
+            "op": "append",
+            "description": "Fatal failure during something.",
+        })
+        self.assertEqual(errors, [])
+
+    def test_happy_path_no_tokens_passes(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Happy-path verification.",
+            "expected": {"report": {
+                "structure_verified": True,
+                "integrity_verified": True,
+                "readability_verified": True,
+            }},
+        })
+        self.assertEqual(errors, [])
+
+    def test_fatal_with_all_false_passes(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 2.c fatal failure.",
+            "expected": {"report": {
+                "structure_verified": False,
+                "integrity_verified": False,
+                "readability_verified": False,
+            }},
+        })
+        self.assertEqual(errors, [])
+
+    def test_fatal_with_structure_true_fails(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 2.c fatal failure.",
+            "expected": {"report": {
+                "structure_verified": True,
+                "integrity_verified": False,
+                "readability_verified": False,
+            }},
+        })
+        self.assertTrue(errors)
+        self.assertIn("fatal failure", errors[0])
+
+    def test_localizable_with_structure_true_integrity_false_passes(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 5.c localizable failure.",
+            "expected": {"report": {
+                "structure_verified": True,
+                "integrity_verified": False,
+                "readability_verified": True,
+            }},
+        })
+        self.assertEqual(errors, [])
+
+    def test_localizable_with_integrity_true_fails(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 5.c localizable failure.",
+            "expected": {"report": {
+                "structure_verified": True,
+                "integrity_verified": True,
+                "readability_verified": True,
+            }},
+        })
+        self.assertTrue(errors)
+        self.assertIn("localizable failure", errors[0])
+
+    def test_localizable_with_structure_false_fails(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 7.b localizable failure.",
+            "expected": {"report": {
+                "structure_verified": False,
+                "integrity_verified": False,
+                "readability_verified": False,
+            }},
+        })
+        self.assertTrue(errors)
+        self.assertIn("localizable failure", errors[0])
+
+    def test_both_tokens_fails(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "This is a fatal and localizable failure.",
+            "expected": {"report": {
+                "structure_verified": False,
+                "integrity_verified": False,
+                "readability_verified": False,
+            }},
+        })
+        self.assertTrue(errors)
+        self.assertIn("both 'fatal' and 'localizable'", errors[0])
+
+    def test_fatal_without_expected_report_fails(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 2.a fatal failure.",
+        })
+        self.assertTrue(errors)
+        self.assertIn("[expected.report]", errors[0])
+
+    def test_real_corpus_is_clean(self):
+        # Guard against regressions in the committed verify/* vectors: the
+        # real fixtures MUST pass R12 so the lint stays green.
+        errors: list[str] = []
+        self.cs.check_verify_report_consistency(errors)
+        self.assertEqual(errors, [], msg=f"R12 found errors: {errors}")
+
+
 if __name__ == "__main__":
     unittest.main()

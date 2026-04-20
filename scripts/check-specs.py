@@ -1663,6 +1663,92 @@ def check_declaration_docs(errors: list[str], *, root: Path | None = None) -> No
             )
 
 
+def check_verify_report_consistency(
+    errors: list[str],
+    *,
+    manifests: list[tuple[Path, dict]] | None = None,
+) -> None:
+    """R12 — verify manifest description and expected.report must agree.
+
+    For every `op = "verify"` manifest, cross-check the failure-kind tokens in
+    `description` against the three booleans in `[expected.report]`, per
+    Core §19 step semantics:
+
+    - `"fatal"` cites one of the §19 abort paths (2.a/2.b/2.c, 3.f, etc.);
+      the verifier stops with `structure_verified = false` and, by convention
+      in this fixture corpus, the other two booleans are also `false`.
+    - `"localizable"` cites one of the continue-on-failure paths (5.c, 5.d,
+      7.b, 8); the verifier keeps going and returns
+      `structure_verified = true` but `integrity_verified = false`. Readability
+      is typically `true` for these fixtures (payloads decode fine) but we
+      do not pin it here — readability is independent of integrity.
+
+    The rule catches fixture-authoring mistakes like declaring a step 5.c
+    localizable failure while accidentally expecting
+    `structure_verified = false`. It is deliberately lenient: happy-path
+    vectors (no "fatal" / "localizable" tokens) are untouched, and ambiguous
+    descriptions that list both tokens are flagged rather than silently
+    accepting whichever matches first.
+
+    The `manifests` kwarg is a test hook: callers normally let the function
+    discover manifests via `vector_manifests()`, but tests pass a synthetic
+    list so they can exercise individual scenarios without building a full
+    TRELLIS_LINT_ROOT scenario tree.
+    """
+    iter_manifests = manifests if manifests is not None else vector_manifests()
+    for manifest_path, manifest in iter_manifests:
+        if manifest.get("op") != "verify":
+            continue
+        rel = relpath(manifest_path)
+        description = manifest.get("description", "")
+        if not isinstance(description, str):
+            continue
+        description_lower = description.lower()
+        cites_fatal = "fatal" in description_lower
+        cites_localizable = "localizable" in description_lower
+
+        if cites_fatal and cites_localizable:
+            errors.append(
+                f"{rel}: description cites both 'fatal' and 'localizable' — "
+                f"pick one per §19 failure classification"
+            )
+            continue
+
+        report = manifest.get("expected", {}).get("report")
+        if not isinstance(report, dict):
+            if cites_fatal or cites_localizable:
+                errors.append(
+                    f"{rel}: description cites a §19 "
+                    f"{'fatal' if cites_fatal else 'localizable'} failure but "
+                    f"[expected.report] is missing or malformed"
+                )
+            continue
+
+        structure = report.get("structure_verified")
+        integrity = report.get("integrity_verified")
+        readability = report.get("readability_verified")
+
+        if cites_fatal:
+            if structure is not False or integrity is not False or readability is not False:
+                errors.append(
+                    f"{rel}: description cites a §19 fatal failure so "
+                    f"[expected.report] must be structure_verified=false, "
+                    f"integrity_verified=false, readability_verified=false; "
+                    f"got structure_verified={structure!r}, "
+                    f"integrity_verified={integrity!r}, "
+                    f"readability_verified={readability!r}"
+                )
+        elif cites_localizable:
+            if structure is not True or integrity is not False:
+                errors.append(
+                    f"{rel}: description cites a §19 localizable failure so "
+                    f"[expected.report] must be structure_verified=true, "
+                    f"integrity_verified=false; got "
+                    f"structure_verified={structure!r}, "
+                    f"integrity_verified={integrity!r}"
+                )
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -1692,6 +1778,7 @@ def main() -> int:
     check_transition_cddl_cross_refs(errors)
     check_declaration_docs(errors)
     check_generator_imports(errors)
+    check_verify_report_consistency(errors)
 
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
