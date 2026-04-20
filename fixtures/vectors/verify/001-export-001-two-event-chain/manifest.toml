@@ -1,0 +1,26 @@
+id          = "verify/001-export-001-two-event-chain"
+op          = "verify"
+status      = "active"
+description = """Happy-path verification of a complete Phase-1 export ZIP \
+produced by `export/001-two-event-chain`. Exercises Core §19 verification \
+algorithm steps 1–5: deterministic ZIP layout, manifest COSE verification, \
+digest bindings for required members, per-event signature + hash checks, \
+checkpoint root + chain checks, inclusion proof checks, and the 1→2 consistency \
+proof. Expected outcome is full success (all three booleans true)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-067",  # baseline verifier capability set over an offline export
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = true
+readability_verified = true
+
+[derivation]
+document = "derivation.md"
+
