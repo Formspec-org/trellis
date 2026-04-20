@@ -1,0 +1,91 @@
+id          = "tamper/008-malformed-cose"
+op          = "tamper"
+status      = "active"
+description = """Structural-identification tamper — the outer CBOR tag of \
+`append/001-minimal-inline-payload/expected-event.cbor` is flipped from \
+`0xd2` (CBOR tag 18 = COSE_Sign1 per RFC 9052 §4.2) to `0xd1` (CBOR tag \
+17 = COSE_Mac0). Every other byte is byte-identical to the upstream \
+envelope, including the signed bytes (protected header + EventPayload); \
+the tamper does NOT touch RFC 9052 §4.4's `Sig_structure` input. A §19 \
+verifier identifying items in `010-events.cbor` as COSE_Sign1 by tag \
+number MUST reject the tampered item before reaching step 4.a — the \
+tag-18 requirement is a structural-identification obligation, not a \
+signature or hash check. `tamper_kind = malformed_cose` per the enum \
+pinned in `tamper/001`'s derivation. `structure_verified = false`; no \
+later verification step is reached. Distinct from `tamper/001` \
+(signature-bytes flipped) and `tamper/007` (stored-hash-field flipped) \
+because the signed bytes here are UNCHANGED — a lenient verifier that \
+ignored the outer tag and proceeded would see a legitimately signed \
+envelope; the tamper is purely a structural-identification surface."""
+
+[coverage]
+# TR-CORE-035 / TR-CORE-060 anchor the structural-identification surface:
+#
+#   TR-CORE-035 — "Every signed artifact MUST carry a `suite_id`; the spec
+#   MUST name the Phase 1 suite (Ed25519/COSE_Sign1 or equivalent) …".
+#   COSE_Sign1 identity is carried at two layers: the CBOR tag number
+#   (RFC 9052 §4.2) and the protected-header suite_id (§7.4). This vector
+#   pins that the CBOR-tag layer is part of the identity obligation: a
+#   tag-17 item carrying a tag-18 signed-bytes payload is not a
+#   "COSE_Sign1" for §19's purposes.
+#
+#   TR-CORE-060 — "A conforming Verifier MUST … verify authored
+#   authentication where required, canonical append attestation validity
+#   and inclusion consistency, and distinguish [the fact classes]." A
+#   verifier that cannot distinguish COSE_Sign1 from COSE_Mac0 at the
+#   structural-identification layer fails this requirement.
+#
+# Shares TR-CORE-061 with tamper/001 / 007 (verifier-integrity
+# independence — the tag check is offline, deterministic).
+tr_core = [
+    "TR-CORE-035",
+    "TR-CORE-060",
+    "TR-CORE-061",
+]
+
+[inputs]
+# One-element dCBOR array carrying the tampered envelope.
+ledger               = "input-tampered-ledger.cbor"
+# The tampered envelope itself. Byte-identical to
+# `append/001/expected-event.cbor` except byte 0 (`0xd2` → `0xd1`).
+tampered_event       = "input-tampered-event.cbor"
+# Issuer-001 registry entry, byte-identical to tamper/001/005/006/007. Not
+# functionally needed (the tamper surfaces before step 4.a's kid-resolve)
+# but committed for runner consistency.
+signing_key_registry = "input-signing-key-registry.cbor"
+
+# Expected `VerificationReport` field values. Runner pass criterion:
+#   (a) structure_verified == false — the tampered item's CBOR tag number
+#       is 17, not 18; §19's COSE_Sign1 identification MUST reject.
+#   (b) integrity_verified == false — §19 step 9's conjunction cannot be
+#       satisfied when structure_verified is false (the step-4 chain-of-
+#       hashes checks never ran).
+#   (c) readability_verified == false — same rationale; no payload is
+#       decoded or decrypted when the outer structure fails.
+#   (d) tamper_kind == "malformed_cose" per tamper/001's enum.
+#   (e) failing_event_id — when structure fails before step 4.d /4.e, no
+#       canonical_event_hash is recomputed, so there is no natural
+#       "failing_event_id" to pin. A runner's implementation MAY use the
+#       event's array index in the ledger (0, since it's the sole event)
+#       or the SHA-256 of the tampered envelope bytes. Neither is
+#       normative; the tamper detection itself is the report's primary
+#       signal.
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "malformed_cose"
+
+# The tampered envelope's raw bytes sha256 — auxiliary runner pin for
+# cross-checking "which envelope failed structure".
+tampered_event_sha256 = "029603f0cf90aa28a8d43f4a07406dadfdc68ccc1f5653db707241780330abb4"
+
+# The upstream envelope's sha256 (append/001's `expected-event.cbor`);
+# differs from `tampered_event_sha256` only because byte 0 differs.
+baseline_event_sha256 = "8d18bcd820945b4c5575a44823d79685858914ee5893ac3c9e4b8ec183273815"
+
+# §17.2 — tamper vectors have no fact-producer identity.
+idempotency_key = "tamper-malformed-cose-008"
+
+[derivation]
+document = "derivation.md"
