@@ -11,8 +11,10 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("TRELLIS_LINT_ROOT", Path(__file__).resolve().parents[1]))
+REAL_ROOT = Path(__file__).resolve().parents[1]
 SPECS = ROOT / "specs"
 FIXTURES = ROOT / "fixtures" / "vectors"
+DECLARATIONS = ROOT / "fixtures" / "declarations"
 
 TOP_LEVEL_SPECS = [
     SPECS / "trellis-agreement.md",
@@ -64,6 +66,14 @@ def parse_invariants_cell(cell: str) -> set[int]:
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def relpath(path: Path) -> Path:
+    """Return a display path relative to ROOT when possible."""
+    try:
+        return path.relative_to(ROOT)
+    except ValueError:
+        return path
 
 
 def line_for(text: str, index: int) -> int:
@@ -1223,6 +1233,436 @@ def companion_cddl_blocks() -> dict[tuple[str, str], str]:
     return blocks
 
 
+def _decode_cbor_file(path: Path, errors: list[str]):
+    """Decode one CBOR fixture artifact.
+
+    R9/R10 inspect vector event payloads directly because manifests do not
+    carry an explicit event-type field. Malformed CBOR in a referenced .cbor
+    artifact is already a conformance problem, so surface it as lint.
+    """
+    import cbor2
+
+    try:
+        return cbor2.loads(path.read_bytes())
+    except Exception as e:  # cbor2 exposes several decode exception classes.
+        # Synthetic unit-test fixture scenarios use empty placeholder .cbor
+        # files for path-resolution checks. The real repo must stay strict.
+        if ROOT.resolve() == REAL_ROOT.resolve():
+            errors.append(f"{relpath(path)}: malformed CBOR ({e})")
+        return None
+
+
+def _event_payload_from_cose_sign1(obj):
+    """Return EventPayload from a COSE_Sign1 CBORTag if obj has that shape."""
+    import cbor2
+
+    if getattr(obj, "tag", None) != 18:
+        return None
+    value = getattr(obj, "value", None)
+    if not isinstance(value, list) or len(value) < 3:
+        return None
+    payload_bytes = value[2]
+    if not isinstance(payload_bytes, (bytes, bytearray)):
+        return None
+    try:
+        payload = cbor2.loads(payload_bytes)
+    except Exception:
+        return None
+    if _is_event_payload(payload):
+        return payload
+    return None
+
+
+def _is_event_payload(obj) -> bool:
+    """Heuristic for Core §6 EventPayload maps."""
+    if not isinstance(obj, dict):
+        return False
+    header = obj.get("header")
+    return isinstance(header, dict) and "event_type" in header
+
+
+def _walk_event_payloads(obj):
+    """Yield Core EventPayload maps nested in CBOR-decoded fixture objects."""
+    if _is_event_payload(obj):
+        yield obj
+        return
+    cose_payload = _event_payload_from_cose_sign1(obj)
+    if cose_payload is not None:
+        yield cose_payload
+        return
+    if isinstance(obj, dict):
+        for value in obj.values():
+            yield from _walk_event_payloads(value)
+    elif isinstance(obj, (list, tuple)):
+        for value in obj:
+            yield from _walk_event_payloads(value)
+
+
+def vector_event_payloads(errors: list[str]) -> list[tuple[Path, dict]]:
+    """Return (artifact_path, EventPayload) pairs found in vector CBOR artifacts."""
+    payloads: list[tuple[Path, dict]] = []
+    for manifest_path, manifest in vector_manifests():
+        vector_dir = manifest_path.parent
+        for section in ("inputs", "expected"):
+            section_data = manifest.get(section, {})
+            if not isinstance(section_data, dict):
+                continue
+            for _dotted_key, value in _iter_manifest_path_strings(section_data, (section,)):
+                if not isinstance(value, str) or not value.endswith(".cbor"):
+                    continue
+                path = (vector_dir / value).resolve()
+                if not path.exists():
+                    continue  # check_vector_manifest_paths owns the missing-path diagnostic.
+                obj = _decode_cbor_file(path, errors)
+                if obj is None:
+                    continue
+                for payload in _walk_event_payloads(obj):
+                    payloads.append((path, payload))
+    return payloads
+
+
+def _event_type_text(payload: dict) -> str | None:
+    raw = payload.get("header", {}).get("event_type")
+    if isinstance(raw, bytes):
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    if isinstance(raw, str):
+        return raw
+    return None
+
+
+def check_event_type_registry(errors: list[str]) -> None:
+    """R9 — emitted Core extension keys must be registered in Core §6.7."""
+    registry = core_event_type_registry()
+    for artifact_path, payload in vector_event_payloads(errors):
+        rel = artifact_path.relative_to(ROOT)
+        extensions = payload.get("extensions")
+        if extensions is None:
+            continue
+        if not isinstance(extensions, dict):
+            errors.append(f"{rel}: EventPayload.extensions is neither null nor a map")
+            continue
+        for extension_key in extensions.keys():
+            if not isinstance(extension_key, str):
+                errors.append(f"{rel}: EventPayload.extensions contains a non-string key")
+                continue
+            if not extension_key.startswith("trellis."):
+                continue
+            entry = registry.get(extension_key)
+            if entry is None:
+                errors.append(
+                    f"{rel}: EventPayload.extensions key {extension_key!r} is "
+                    f"not registered in Core §6.7"
+                )
+                continue
+            if entry.get("container") != "EventPayload.extensions":
+                errors.append(
+                    f"{rel}: EventPayload.extensions key {extension_key!r} is "
+                    f"registered for {entry.get('container')}, not "
+                    f"EventPayload.extensions"
+                )
+
+
+def _load_event_registry_stub(declaration_path: Path) -> str | None:
+    registry_path = declaration_path.parent / "event-registry.stub.md"
+    if not registry_path.exists():
+        return None
+    return registry_path.read_text(encoding="utf-8")
+
+
+def _as_string_list(value) -> list[str] | None:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return None
+    return value
+
+
+def _table(data: dict, key: str, rel: Path, errors: list[str]) -> dict | None:
+    value = data.get(key)
+    if not isinstance(value, dict):
+        errors.append(f"{rel}: [{key}] must be a TOML table")
+        return None
+    return value
+
+
+def _required_string(data: dict, key: str, rel: Path, errors: list[str]) -> str | None:
+    value = data.get(key)
+    if not isinstance(value, str) or not value:
+        errors.append(f"{rel}: {key} must be a non-empty string")
+        return None
+    return value
+
+
+TRANSITION_CDDL_BY_EVENT_TYPE = {
+    "trellis.custody-model-transition.v1": ("A.5.1", "CustodyModelTransitionPayload"),
+    "trellis.disclosure-profile-transition.v1": ("A.5.2", "DisclosureProfileTransitionPayload"),
+}
+
+
+def _cddl_top_level_fields(block: str) -> set[str]:
+    """Extract top-level field names from a simple `Type = { ... }` CDDL block."""
+    fields: set[str] = set()
+    in_map = False
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not in_map:
+            if stripped.endswith("{"):
+                in_map = True
+            continue
+        if stripped.startswith("}"):
+            break
+        match = re.match(r"^\??\s*([A-Za-z_][A-Za-z0-9_]*)\s*:", stripped)
+        if match:
+            fields.add(match.group(1))
+    return fields
+
+
+def check_transition_cddl_cross_refs(errors: list[str]) -> None:
+    """R10 — transition extension payload field names must match Companion CDDL."""
+    blocks = companion_cddl_blocks()
+    expected_fields_by_type: dict[str, set[str]] = {}
+    event_payloads = vector_event_payloads(errors)
+    emitted_transition_types = {
+        event_type
+        for _artifact_path, payload in event_payloads
+        for event_type in [_event_type_text(payload)]
+        if event_type in TRANSITION_CDDL_BY_EVENT_TYPE
+    }
+
+    for event_type in sorted(emitted_transition_types):
+        cddl_key = TRANSITION_CDDL_BY_EVENT_TYPE[event_type]
+        block = blocks.get(cddl_key)
+        if block is None:
+            appendix, rule_name = cddl_key
+            errors.append(
+                f"specs/trellis-operational-companion.md: missing {appendix} "
+                f"CDDL block {rule_name} for {event_type}"
+            )
+            continue
+        expected_fields_by_type[event_type] = _cddl_top_level_fields(block)
+
+    for artifact_path, payload in event_payloads:
+        event_type = _event_type_text(payload)
+        if event_type not in TRANSITION_CDDL_BY_EVENT_TYPE:
+            continue
+        rel = artifact_path.relative_to(ROOT)
+        extensions = payload.get("extensions")
+        if not isinstance(extensions, dict) or event_type not in extensions:
+            errors.append(
+                f"{rel}: transition event {event_type!r} does not carry a "
+                f"matching EventPayload.extensions entry"
+            )
+            continue
+        extension_payload = extensions[event_type]
+        if not isinstance(extension_payload, dict):
+            errors.append(
+                f"{rel}: EventPayload.extensions[{event_type!r}] is not a map"
+            )
+            continue
+        actual_fields = set(extension_payload.keys())
+        expected_fields = expected_fields_by_type.get(event_type)
+        if expected_fields is None:
+            continue
+        if actual_fields != expected_fields:
+            errors.append(
+                f"{rel}: EventPayload.extensions[{event_type!r}] fields "
+                f"{sorted(actual_fields)} do not match Companion CDDL fields "
+                f"{sorted(expected_fields)}"
+            )
+
+
+DECLARATION_ALLOWED_ACTIONS = {"read", "propose", "commit_on_behalf_of"}
+DECLARATION_REQUIRED_TOP_LEVEL = {
+    "declaration_id",
+    "operator_id",
+    "posture_declaration_ref",
+    "effective_from",
+    "scope",
+    "authority",
+    "audit",
+    "attribution",
+    "supply_chain",
+    "signature",
+}
+DECLARATION_ALLOWED_TOP_LEVEL = DECLARATION_REQUIRED_TOP_LEVEL | {"supersedes"}
+DECLARATION_SIGNATURE_KEYS = {"cose_sign1_b64", "signer_kid", "alg"}
+
+
+def _extract_toml_frontmatter(path: Path, errors: list[str]) -> dict | None:
+    """Parse TOML frontmatter from a Markdown declaration document."""
+    import tomllib
+
+    rel = relpath(path)
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        errors.append(f"{rel}: missing TOML frontmatter opening delimiter")
+        return None
+    end = text.find("\n---", 4)
+    if end == -1:
+        errors.append(f"{rel}: missing TOML frontmatter closing delimiter")
+        return None
+    frontmatter = text[4:end]
+    try:
+        data = tomllib.loads(frontmatter)
+    except tomllib.TOMLDecodeError as e:
+        errors.append(f"{rel}: malformed TOML frontmatter ({e})")
+        return None
+    return data
+
+
+def _is_utc_datetime(value) -> bool:
+    from datetime import timedelta
+
+    return hasattr(value, "tzinfo") and value.tzinfo is not None and value.utcoffset() == timedelta(0)
+
+
+def declaration_paths(root: Path | None = None) -> list[Path]:
+    """Return delegated-compute declaration docs under fixtures/declarations."""
+    base = root if root is not None else DECLARATIONS
+    if not base.exists():
+        return []
+    return sorted(base.glob("*/declaration.md"))
+
+
+def check_declaration_docs(errors: list[str], *, root: Path | None = None) -> None:
+    """R11 — O-4 declaration-doc Phase 1 static checks."""
+    base = root if root is not None else DECLARATIONS
+    for path in declaration_paths(base):
+        rel = relpath(path)
+        data = _extract_toml_frontmatter(path, errors)
+        if data is None:
+            continue
+
+        unknown = set(data.keys()) - DECLARATION_ALLOWED_TOP_LEVEL
+        if unknown:
+            errors.append(f"{rel}: unknown top-level frontmatter keys {sorted(unknown)}")
+
+        missing = DECLARATION_REQUIRED_TOP_LEVEL - set(data.keys())
+        if missing:
+            errors.append(f"{rel}: missing required frontmatter keys {sorted(missing)}")
+            continue
+
+        if path.parent.parent != base or path.name != "declaration.md":
+            errors.append(
+                f"{rel}: declaration path must be fixtures/declarations/<deployment-slug>/declaration.md"
+            )
+
+        posture_ref = data.get("posture_declaration_ref")
+        posture_path = path.parent / "posture-declaration.stub.md"
+        if not isinstance(posture_ref, str):
+            errors.append(f"{rel}: posture_declaration_ref must be a string URI")
+        elif not posture_path.exists():
+            errors.append(
+                f"{rel}: posture_declaration_ref={posture_ref!r} has no sibling "
+                f"posture-declaration.stub.md"
+            )
+        else:
+            posture_text = posture_path.read_text(encoding="utf-8")
+            if posture_ref not in posture_text:
+                errors.append(
+                    f"{rel}: posture_declaration_ref={posture_ref!r} is not "
+                    f"named in {relpath(posture_path)}"
+                )
+            operator_id = data.get("operator_id")
+            if isinstance(operator_id, str) and operator_id not in posture_text:
+                errors.append(
+                    f"{rel}: operator_id={operator_id!r} is not named in "
+                    f"{relpath(posture_path)}"
+                )
+            if "delegated_compute" not in posture_text:
+                errors.append(
+                    f"{relpath(posture_path)}: referenced posture doc "
+                    f"does not declare delegated_compute"
+                )
+
+        effective_from = data.get("effective_from")
+        if not _is_utc_datetime(effective_from):
+            errors.append(f"{rel}: effective_from must be an RFC 3339 UTC timestamp")
+
+        scope = _table(data, "scope", rel, errors)
+        audit = _table(data, "audit", rel, errors)
+        attribution = _table(data, "attribution", rel, errors)
+        supply_chain = _table(data, "supply_chain", rel, errors)
+        if scope is None or audit is None or attribution is None or supply_chain is None:
+            continue
+        actions = scope.get("authorized_actions")
+        actions = _as_string_list(actions)
+        if actions is None:
+            errors.append(f"{rel}: scope.authorized_actions must be a list of strings")
+        else:
+            invalid_actions = sorted(set(actions) - DECLARATION_ALLOWED_ACTIONS)
+            if invalid_actions:
+                errors.append(
+                    f"{rel}: scope.authorized_actions contains non-Phase-1 values "
+                    f"{invalid_actions}; allowed values are {sorted(DECLARATION_ALLOWED_ACTIONS)}"
+                )
+
+        time_bound = scope.get("time_bound")
+        open_ended = scope.get("open_ended_permitted") is True
+        if time_bound is None and not open_ended:
+            errors.append(
+                f"{rel}: scope.time_bound is required unless "
+                f"scope.open_ended_permitted = true"
+            )
+        elif time_bound is not None and not _is_utc_datetime(time_bound):
+            errors.append(f"{rel}: scope.time_bound must be an RFC 3339 UTC timestamp")
+
+        event_types = _as_string_list(audit.get("event_types"))
+        if event_types is None:
+            errors.append(f"{rel}: audit.event_types must be a list of strings")
+        else:
+            registry_text = _load_event_registry_stub(path)
+            if registry_text is None:
+                errors.append(f"{rel}: audit.event_types requires sibling event-registry.stub.md")
+            else:
+                for event_type in event_types:
+                    if event_type not in registry_text:
+                        errors.append(
+                            f"{rel}: audit.event_types entry {event_type!r} is not "
+                            f"registered in event-registry.stub.md"
+                        )
+
+        actor_rule = attribution.get("actor_discriminator_rule")
+        expected_actor_rule = "exactly_one_of(actor_human, actor_agent_under_delegation)"
+        if actor_rule != expected_actor_rule:
+            errors.append(
+                f"{rel}: attribution.actor_discriminator_rule must equal "
+                f"{expected_actor_rule!r}"
+            )
+
+        content_classes = _as_string_list(scope.get("content_classes"))
+        runtime_enclave = _required_string(
+            supply_chain, "runtime_enclave", rel, errors
+        )
+        if content_classes is None:
+            errors.append(f"{rel}: scope.content_classes must be a list of strings")
+        elif runtime_enclave is not None and posture_path.exists():
+            posture_text = posture_path.read_text(encoding="utf-8")
+            for content_class in content_classes:
+                if content_class not in posture_text:
+                    errors.append(
+                        f"{rel}: content_class {content_class!r} is not named "
+                        f"in {relpath(posture_path)}"
+                    )
+            exposure_pin = f"delegated_compute_exposure = {runtime_enclave}"
+            if exposure_pin not in posture_text:
+                errors.append(
+                    f"{rel}: supply_chain.runtime_enclave={runtime_enclave!r} "
+                    f"does not match delegated_compute_exposure in "
+                    f"{relpath(posture_path)}"
+                )
+
+        signature = data.get("signature", {})
+        if not isinstance(signature, dict):
+            errors.append(f"{rel}: [signature] must be a TOML table")
+        elif set(signature.keys()) != DECLARATION_SIGNATURE_KEYS:
+            errors.append(
+                f"{rel}: [signature] keys {sorted(signature.keys())} do not "
+                f"match required keys {sorted(DECLARATION_SIGNATURE_KEYS)}"
+            )
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -1248,6 +1688,9 @@ def main() -> int:
     check_vector_declared_coverage(errors, warnings)
     check_invariant_coverage(errors, pending_invariants)
     check_vector_manifest_paths(errors)
+    check_event_type_registry(errors)
+    check_transition_cddl_cross_refs(errors)
+    check_declaration_docs(errors)
     check_generator_imports(errors)
 
     for warning in warnings:

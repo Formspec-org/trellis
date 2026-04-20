@@ -551,6 +551,42 @@ class TestSharedPlumbing(unittest.TestCase):
         custody = blocks[("A.5.1", "CustodyModelTransitionPayload")]
         self.assertIn("transition_id", custody)
 
+    def test_event_type_registry_check_accepts_real_vectors(self):
+        errors: list[str] = []
+        self.cs.check_event_type_registry(errors)
+        self.assertEqual(errors, [])
+
+    def test_event_type_registry_check_rejects_unregistered_transition(self):
+        original = self.cs.core_event_type_registry
+        try:
+            self.cs.core_event_type_registry = lambda: {}
+            errors: list[str] = []
+            self.cs.check_event_type_registry(errors)
+        finally:
+            self.cs.core_event_type_registry = original
+        self.assertTrue(
+            any("trellis.custody-model-transition.v1" in e for e in errors),
+            errors,
+        )
+
+    def test_transition_cddl_cross_refs_accept_real_vectors(self):
+        errors: list[str] = []
+        self.cs.check_transition_cddl_cross_refs(errors)
+        self.assertEqual(errors, [])
+
+    def test_transition_cddl_cross_refs_reject_missing_block(self):
+        original = self.cs.companion_cddl_blocks
+        try:
+            self.cs.companion_cddl_blocks = lambda: {}
+            errors: list[str] = []
+            self.cs.check_transition_cddl_cross_refs(errors)
+        finally:
+            self.cs.companion_cddl_blocks = original
+        self.assertTrue(
+            any("missing A.5.1 CDDL block" in e for e in errors),
+            errors,
+        )
+
     def test_row_with_dual_verification_respects_both_gates(self):
         # TR-OP-005 and TR-OP-006 carry BOTH `test-vector` and
         # `projection-rebuild-drill` in their Verification column, so they
@@ -756,6 +792,92 @@ class TestModelCheckEvidence(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("_pending-model-checks.toml", result.stderr)
         self.assertIn("TR-CORE-001", result.stderr)
+
+
+class TestDeclarationDocs(unittest.TestCase):
+    """R11 — O-4 declaration-doc Phase 1 static checks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def test_real_reference_declaration_passes(self):
+        errors: list[str] = []
+        self.cs.check_declaration_docs(errors)
+        self.assertEqual(errors, [])
+
+    def test_decide_action_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            shutil.copytree(ROOT / "fixtures/declarations/ssdi-intake-triage", root / "ssdi")
+            declaration = root / "ssdi/declaration.md"
+            declaration.write_text(
+                declaration.read_text(encoding="utf-8").replace(
+                    'authorized_actions      = ["read", "propose"]',
+                    'authorized_actions      = ["read", "decide"]',
+                ),
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            self.cs.check_declaration_docs(errors, root=root)
+        self.assertTrue(any("non-Phase-1 values" in e for e in errors), errors)
+
+    def test_time_bound_required_without_open_ended_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            shutil.copytree(ROOT / "fixtures/declarations/ssdi-intake-triage", root / "ssdi")
+            declaration = root / "ssdi/declaration.md"
+            declaration.write_text(
+                declaration.read_text(encoding="utf-8").replace(
+                    "time_bound              = 2027-01-01T00:00:00Z\n",
+                    "",
+                ),
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            self.cs.check_declaration_docs(errors, root=root)
+        self.assertTrue(any("scope.time_bound is required" in e for e in errors), errors)
+
+    def test_actor_discriminator_rule_must_match_literal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            shutil.copytree(ROOT / "fixtures/declarations/ssdi-intake-triage", root / "ssdi")
+            declaration = root / "ssdi/declaration.md"
+            declaration.write_text(
+                declaration.read_text(encoding="utf-8").replace(
+                    'actor_discriminator_rule        = "exactly_one_of(actor_human, actor_agent_under_delegation)"',
+                    'actor_discriminator_rule        = "actor_human_or_agent"',
+                ),
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            self.cs.check_declaration_docs(errors, root=root)
+        self.assertTrue(any("actor_discriminator_rule" in e for e in errors), errors)
+
+    def test_runtime_enclave_must_match_posture_stub(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            shutil.copytree(ROOT / "fixtures/declarations/ssdi-intake-triage", root / "ssdi")
+            declaration = root / "ssdi/declaration.md"
+            declaration.write_text(
+                declaration.read_text(encoding="utf-8").replace(
+                    'runtime_enclave  = "isolated_enclave"',
+                    'runtime_enclave  = "provider_operated"',
+                ),
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            self.cs.check_declaration_docs(errors, root=root)
+        self.assertTrue(any("delegated_compute_exposure" in e for e in errors), errors)
+
+    def test_audit_event_types_need_registry_stub(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            shutil.copytree(ROOT / "fixtures/declarations/ssdi-intake-triage", root / "ssdi")
+            (root / "ssdi/event-registry.stub.md").unlink()
+            errors: list[str] = []
+            self.cs.check_declaration_docs(errors, root=root)
+        self.assertTrue(any("event-registry.stub.md" in e for e in errors), errors)
 
 
 class TestPendingModelChecksLoader(unittest.TestCase):
