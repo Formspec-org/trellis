@@ -11,7 +11,7 @@ Scope — the final O-3 breadth fixture. Stream B fixture (c) per
 `TODO.md` §Stream B: `projection/005-watermark-staff-view-decision-binding`,
 closing TR-OP-006 and Companion §17.4 Staff-View. Spec anchor landed in Core
 §6.7 Posture-transition extension registry with `trellis.staff-view-
-decision-binding.v1` Phase-1 extension, §29.3 `StaffViewDecisionBinding`
+decision-binding.v1` Phase-1 extension, §28 Appendix A `StaffViewDecisionBinding`
 CDDL, and §19 verifier-step 4.k semantics (decode-and-validate on presence
 of the extension key).
 
@@ -23,7 +23,7 @@ canonical chain, a Checkpoint at `tree_size = 2`, a derived view embedding a
     staff-view `rebuild_path` = `"trellis.staff-view.v1/default"` on the
     Watermark itself; and
   * a committed `expected-staff-view-decision-binding.cbor` carrying the
-    §29.3 `StaffViewDecisionBinding` whose `watermark` is byte-identical to
+    §28 Appendix A `StaffViewDecisionBinding` whose `watermark` is byte-identical to
     the view's embedded Watermark, with `staff_view_ref` pinned to the
     derived-artifact URI, `stale_acknowledged = false` (watermark is not
     older than the Companion §17.3 threshold), and `extensions = null`.
@@ -91,15 +91,15 @@ for ev in EVENT_DEFS:
 # Checkpoint-level pins.
 CHECKPOINT_TIMESTAMP = 1745020120                        # §11.2 timestamp
 
-# Staff-view Watermark / binding pins (Core §15.2, §29.3; Companion §17.4).
+# Staff-view Watermark / binding pins (Core §15.2, §28 Appendix A; Companion §17.4).
 WATERMARK_BUILT_AT = 1745020180                          # §15.2 built_at
 WATERMARK_REBUILD_PATH = "trellis.staff-view.v1/default"  # §17.4 / §15.3 identifier
 WATERMARK_PROJECTION_SCHEMA_ID = "trellis.staff-view.v1"  # §17.4 staff-view schema URI
 
-# StaffViewDecisionBinding pins (§29.3).
-BINDING_STAFF_VIEW_REF = "urn:trellis:staff-view:test-005/default"  # §29.3 optional RFC 3986
-BINDING_STALE_ACKNOWLEDGED = False                       # §29.3; §17.3 stale-view ack
-BINDING_EXTENSIONS = None                                 # §29.3 `{ * tstr => any } / null`
+# StaffViewDecisionBinding pins (§28 Appendix A).
+BINDING_STAFF_VIEW_REF = "urn:trellis:staff-view:test-005/default"  # §28 Appendix A optional RFC 3986
+BINDING_STALE_ACKNOWLEDGED = False                       # §28 Appendix A; §17.3 stale-view ack
+BINDING_EXTENSIONS = None                                 # §28 Appendix A `{ * tstr => any } / null`
 
 # Signature-suite pins (§7.1).
 SUITE_ID = 1
@@ -323,7 +323,7 @@ def build_checkpoint_hash_preimage(checkpoint_payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Core §15.2 Watermark + §29.3 StaffViewDecisionBinding.
+# Core §15.2 Watermark + §28 Appendix A StaffViewDecisionBinding.
 # ---------------------------------------------------------------------------
 
 def build_watermark(tree_size: int, tree_head_hash: bytes, checkpoint_ref: bytes) -> dict:
@@ -339,7 +339,7 @@ def build_watermark(tree_size: int, tree_head_hash: bytes, checkpoint_ref: bytes
 
 
 def build_staff_view_decision_binding(watermark: dict) -> dict:
-    # §29.3 StaffViewDecisionBinding CDDL.
+    # §28 Appendix A StaffViewDecisionBinding CDDL.
     return {
         "watermark":          watermark,
         "staff_view_ref":     BINDING_STAFF_VIEW_REF,
@@ -417,7 +417,7 @@ def main() -> None:
     view_bytes = dcbor(view)
     write_bytes("input-view.cbor", view_bytes)
 
-    # 9. Build the §29.3 StaffViewDecisionBinding. The binding's `watermark`
+    # 9. Build the §28 Appendix A StaffViewDecisionBinding. The binding's `watermark`
     #    field is byte-identical to `expected-watermark.cbor` — same dict,
     #    same dCBOR key-ordering. Commit as the primary byte-compare target
     #    for TR-OP-006's staff-view coverage.

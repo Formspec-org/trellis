@@ -19,7 +19,7 @@ On top of that shape it pins the staff-view decision binding:
 * the Watermark's `projection_schema_id` = `"trellis.staff-view.v1"` and its
   `rebuild_path` = `"trellis.staff-view.v1/default"` (Companion §17.4
   staff-view identifiers);
-* `expected-staff-view-decision-binding.cbor` carries the §29.3
+* `expected-staff-view-decision-binding.cbor` carries the §28 Appendix A
   `StaffViewDecisionBinding` whose `watermark` field is byte-identical to
   `expected-watermark.cbor`, with `staff_view_ref =
   "urn:trellis:staff-view:test-005/default"`, `stale_acknowledged = false`,
@@ -54,9 +54,9 @@ avoid sequence-0 collision per §10.1 / invariant #5.
 | Watermark `built_at` | `1745020180` | §15.2 |
 | Watermark `rebuild_path` | `"trellis.staff-view.v1/default"` | §17.4 |
 | Watermark `projection_schema_id` | `"trellis.staff-view.v1"` | §17.4 staff-view URI |
-| Binding `staff_view_ref` | `"urn:trellis:staff-view:test-005/default"` | §29.3 |
-| Binding `stale_acknowledged` | `false` | §29.3; Companion §17.3 |
-| Binding `extensions` | `null` | §29.3 `{ * tstr => any } / null` |
+| Binding `staff_view_ref` | `"urn:trellis:staff-view:test-005/default"` | §28 Appendix A |
+| Binding `stale_acknowledged` | `false` | §28 Appendix A; Companion §17.3 |
+| Binding `extensions` | `null` | §28 Appendix A `{ * tstr => any } / null` |
 | `suite_id` | `1` | §7.1 |
 | `PayloadInline.nonce` | 12 bytes of `0x00` | §6.4 |
 
@@ -89,7 +89,7 @@ avoid sequence-0 collision per §10.1 / invariant #5.
     `expected-watermark.cbor`.
 11. Build the derived view `{watermark, body: {row_count, schema_id}}`;
     dCBOR-encode; commit as `input-view.cbor`.
-12. §29.3 — build `StaffViewDecisionBinding{watermark, staff_view_ref,
+12. §28 Appendix A — build `StaffViewDecisionBinding{watermark, staff_view_ref,
     stale_acknowledged, extensions}` with the pinned sub-field values;
     dCBOR-encode; commit as `expected-staff-view-decision-binding.cbor`.
     **Byte claim:** `dCBOR(binding.watermark)` equals
@@ -132,9 +132,9 @@ avoid sequence-0 collision per §10.1 / invariant #5.
   (TODO.md critical-path step 3) once its negative-/positive-split fixtures
   land.
 * `stale_acknowledged = true` variant — the Companion §17.3 threshold path
-  is a separate tamper / negative case (`tamper/006` or
-  `verify/negative/…` candidate). This vector pins the positive-path
-  boolean only.
+  is a separate tamper / negative case (future
+  `tamper/NNN-stale-view-acknowledged` or `verify/negative/…` candidate).
+  This vector pins the positive-path boolean only.
 * Multiple staff-view decisions in the same chain; one binding is enough
   to exercise the byte surface.
 
@@ -142,5 +142,5 @@ avoid sequence-0 collision per §10.1 / invariant #5.
 
 **Traceability.** TR-OP-006 coverage (staff-view subtype), Companion §14.1
 (watermark obligation), §15.2 (required fields), §17.4 (staff-view schema),
-§29.3 (binding CDDL). This fixture is the final item from TODO.md §Stream B
+§28 Appendix A (binding CDDL). This fixture is the final item from TODO.md §Stream B
 (`projection/005-watermark-staff-view-decision-binding`).

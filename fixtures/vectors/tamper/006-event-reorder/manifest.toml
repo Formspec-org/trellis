@@ -17,13 +17,19 @@ tamper/005-chain-truncation (one event absent vs. both present but \
 swapped). `integrity_verified = false`; `structure_verified = true`."""
 
 [coverage]
-# Shares TR-CORE-020 with append/005 and tamper/005 — all three exercise the
-# invariant #5 surface ("exactly one canonical append-attested order MUST
-# exist per governed scope"). tamper/005 shows truncation breaking it;
-# tamper/006 shows a swapped order breaking it differently (sequence
-# monotonicity also reversed).
+# Shares TR-CORE-020 + TR-CORE-023 with append/005 — together the two rows
+# span invariant #5's two facets: TR-CORE-020 "exactly one canonical
+# append-attested order per governed scope" (violated by the reorder
+# because sequence monotonicity is broken) and TR-CORE-023 "canonical
+# order determined solely by spec + binding; not wall-clock" (violated at
+# the inverse, since §10.2 pins order by prev_hash linkage — which the
+# reorder severs). append/005 pins the positive construction of both;
+# tamper/006 pins the verifier-side detection when either is violated.
+# tamper/005 also claims TR-CORE-020 only; in a subsequent cleanup it
+# should pick up TR-CORE-023 by the same argument.
 tr_core = [
     "TR-CORE-020",
+    "TR-CORE-023",
 ]
 
 [inputs]

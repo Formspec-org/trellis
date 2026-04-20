@@ -7,12 +7,12 @@ TR-OP-006 staff-view side and Companion §17.4. Structurally parallel to \
 `tree_size = 2`, derived view embedding a Watermark) but the Watermark is a \
 **staff-view** Watermark: `projection_schema_id = "trellis.staff-view.v1"` \
 and `rebuild_path = "trellis.staff-view.v1/default"`. The vector adds a \
-committed `expected-staff-view-decision-binding.cbor` carrying the §29.3 \
+committed `expected-staff-view-decision-binding.cbor` carrying the §28 Appendix A \
 `StaffViewDecisionBinding` whose `watermark` field is byte-identical to \
 `expected-watermark.cbor`; `stale_acknowledged = false` is pinned; \
 `staff_view_ref = "urn:trellis:staff-view:test-005/default"`. Spec anchor: \
 Core §6.7 registers `trellis.staff-view-decision-binding.v1` as a Phase-1 \
-extension; §29.3 pins the CDDL; §19 step 4.k pins verifier-side decode-and- \
+extension; §28 Appendix A pins the CDDL; §19 step 4.k pins verifier-side decode-and- \
 validate on presence of the extension key. Runs in its own ledger scope \
 `test-staff-view-ledger` to avoid sequence-0 collision."""
 
@@ -41,7 +41,7 @@ view       = "input-view.cbor"
 # Byte-compare target: dCBOR(Watermark) extracted from the view's `watermark`
 # field, with `projection_schema_id = "trellis.staff-view.v1"` per §17.4.
 watermark = "expected-watermark.cbor"
-# Byte-compare target: dCBOR(StaffViewDecisionBinding) per §29.3. The
+# Byte-compare target: dCBOR(StaffViewDecisionBinding) per §28 Appendix A. The
 # binding's `watermark` is byte-identical to `expected-watermark.cbor`;
 # `stale_acknowledged = false`; `staff_view_ref = urn:trellis:staff-view:
 # test-005/default`; `extensions = null`.
@@ -59,12 +59,12 @@ built_at             = 1745020180                                         # §15
 rebuild_path         = "trellis.staff-view.v1/default"                    # §17.4 staff-view identifier
 projection_schema_id = "trellis.staff-view.v1"                            # §17.4 staff-view URI
 
-# StaffViewDecisionBinding sub-field declarations — §29.3. `watermark` field
+# StaffViewDecisionBinding sub-field declarations — §28 Appendix A. `watermark` field
 # is not repeated here; it is byte-equal to the Watermark above.
 [staff_view_decision_binding_fields]
-staff_view_ref     = "urn:trellis:staff-view:test-005/default"            # §29.3
-stale_acknowledged = false                                                # §29.3, §17.3
-extensions         = "null"                                               # §29.3 map-or-null; pinned null
+staff_view_ref     = "urn:trellis:staff-view:test-005/default"            # §28 Appendix A
+stale_acknowledged = false                                                # §28 Appendix A, §17.3
+extensions         = "null"                                               # §28 Appendix A map-or-null; pinned null
 
 [derivation]
 document = "derivation.md"

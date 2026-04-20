@@ -53,18 +53,22 @@ Step 9's `integrity_verified` AND-conjunction drops to `false` via
 
 ## Construction-to-matrix-row mapping
 
-* **TR-CORE-020** — "Every Phase 1 canonical append attestation MUST be
-  bound to a named governed scope; … exactly one canonical
-  append-attested order MUST exist per governed scope (invariant #5)."
-  An ordered ledger whose indices do not realize monotonic `sequence`
-  violates the single-canonical-order claim; §19 step 4.h surfaces it
-  as `integrity_verified = false`.
-
-  Shares this row with `append/005-prior-head-chain` (positive
-  construction of the two-position canonical order) and
-  `tamper/005-chain-truncation` (truncation-side violation). Together the
-  three cases span the single-canonical-order discipline: positive,
-  truncation, reorder.
+* **TR-CORE-020** — "… exactly one canonical append-attested order MUST
+  exist per governed scope (invariant #5)." An ordered ledger whose
+  indices do not realize monotonic `sequence` violates the
+  single-canonical-order claim; §19 step 4.h surfaces it as
+  `integrity_verified = false`. Shares this row with
+  `append/005-prior-head-chain` (positive construction) and
+  `tamper/005-chain-truncation` (truncation-side violation).
+* **TR-CORE-023** — "Canonical order MUST be determined solely by this
+  specification and the applicable binding; MUST NOT depend on wall-clock
+  receipt time, queue depth, worker identity, or other operational
+  accidents." §10.2 pins that order-determinant to the prev_hash
+  linkage chain; a reorder severs that chain and leaves the ledger with
+  no spec-determined canonical order. Parallel to append/005 which pins
+  this row on the positive side (prev_hash-determined ordering). A
+  symmetric fix on `tamper/005-chain-truncation` to pick up TR-CORE-023
+  should land when that vector's coverage is next revisited.
 
 ## Distinguishes from tamper/005-chain-truncation
 
