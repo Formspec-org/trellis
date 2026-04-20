@@ -18,7 +18,7 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
-## Current state (as of 2026-04-20, HEAD = `065c407`)
+## Current state (as of 2026-04-20; snapshot — see `git log`)
 
 - **Gates:** 15 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all have normative spec anchors + fixture coverage; O-3 is fully covered on Phase-1 breadth. Closure blocked on G-3 `verify/` + `export/` + tamper-residue batches, G-2 audit sign-off, and G-4/G-5 implementation evidence.
 - **Lint:** green; 99/99 pytest. All six Wave-1 lint rules (R1-R11) live; all `Verification=test-vector` matrix rows are now claimed by ≥1 vector manifest (pending-coverage allowlists removed); all `projection-rebuild-drill` rows are now claimed by ≥1 `projection/` or `shred/` manifest (pending-drill allowlist removed); `_pending-model-checks.toml` 8 rows awaiting G-4 evidence. Pre-merge vector-renumbering guard green.
