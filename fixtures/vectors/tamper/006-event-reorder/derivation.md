@@ -66,9 +66,9 @@ Step 9's `integrity_verified` AND-conjunction drops to `false` via
   accidents." §10.2 pins that order-determinant to the prev_hash
   linkage chain; a reorder severs that chain and leaves the ledger with
   no spec-determined canonical order. Parallel to append/005 which pins
-  this row on the positive side (prev_hash-determined ordering). A
-  symmetric fix on `tamper/005-chain-truncation` to pick up TR-CORE-023
-  should land when that vector's coverage is next revisited.
+  this row on the positive side (prev_hash-determined ordering). The
+  symmetric TR-CORE-023 claim on `tamper/005-chain-truncation` landed
+  alongside this vector's review-fix pass.
 
 ## Distinguishes from tamper/005-chain-truncation
 

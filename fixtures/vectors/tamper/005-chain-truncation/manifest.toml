@@ -22,17 +22,19 @@ failure: §19 step 9's `integrity_verified` conjunction (\"prev_hash links \
 bytes decode cleanly through step 4.c)."""
 
 [coverage]
-# TR-CORE-020 anchors invariant #5 — "exactly one canonical append-attested
-# order MUST exist per governed scope". A truncated chain no longer exhibits
-# a single continuous canonical order: the survivor claims `sequence = 1`
-# with a prev_hash that references a predecessor not in the ledger. A
-# verifier that follows §19 step 4.h surfaces this as `integrity_verified =
-# false`. Sharing this row with append/005 is intentional — append/005
-# demonstrates the positive construction of the two-position canonical
-# order, tamper/005 demonstrates the verifier-side detection of its
-# violation.
+# Invariant #5 rows paired as in `append/005` (positive side) and
+# `tamper/006` (reorder side): TR-CORE-020 "exactly one canonical
+# append-attested order per governed scope" and TR-CORE-023 "canonical
+# order determined solely by spec + binding; not wall-clock". A truncated
+# chain surfaces both violations — the survivor claims `sequence = 1` with
+# a prev_hash that references a predecessor not in the ledger (TR-CORE-020
+# violation; §19 step 4.h `integrity_verified = false`), and §10.2 pins
+# order-determination to prev_hash linkage which the truncation severs
+# (TR-CORE-023 violation). TR-CORE-023 added in a subsequent review-fix
+# pass symmetric with tamper/006.
 tr_core = [
     "TR-CORE-020",
+    "TR-CORE-023",
 ]
 
 [inputs]
