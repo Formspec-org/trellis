@@ -1,0 +1,38 @@
+id          = "append/004-hpke-wrapped-inline"
+op          = "append"
+status      = "active"
+description = """Genesis append carrying a real ChaCha20-Poly1305 encrypted \
+PayloadInline plus a populated HPKE suite-1 KeyBagEntry. Exercises Core \
+§6.4 ciphertext hashing over actual AEAD output and Core §9.4 HPKE Base-mode \
+DEK wrapping with a pinned X25519 ephemeral keypair permitted only by the \
+test-vector carve-out."""
+
+# Per Core §9.4's test-vector carve-out, the ephemeral private key is committed
+# solely so independent implementations can reproduce HPKE bytes. Production
+# implementations MUST generate the ephemeral keypair in-process and destroy it
+# after sealing the wrap.
+test_artifact_keys = [
+    "../../_keys/ephemeral-004-recipient-001.cose_key",
+]
+
+[coverage]
+tr_core = [
+    "TR-CORE-031",  # inv #4 — content_hash computed over real ciphertext bytes.
+    "TR-CORE-038",  # inv #7 — populated key_bag participates in author_event_hash.
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+recipient_key  = "../../_keys/recipient-004-ledger-service.cose_key"
+ephemeral_key  = "../../_keys/ephemeral-004-recipient-001.cose_key"
+payload        = "../../_inputs/sample-payload-001.bin"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
