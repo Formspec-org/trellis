@@ -155,7 +155,14 @@ def write_zip(out_dir: Path, *, root_dir: str, members: list[str], overrides: di
                 payload = overrides[member]
             else:
                 payload = (SOURCE_EXPORT_DIR / member).read_bytes()
-            zf.writestr(zipinfo(f"{root_dir}/{member}"), payload)
+            arcname = f"{root_dir}/{member}"
+            # §18.1: ASCII arcnames only (keeps general-purpose bit 11 cleared).
+            assert arcname.isascii(), arcname
+            zf.writestr(zipinfo(arcname), payload)
+        # §18.1: external file attributes MUST be zero. See gen_export_001.py
+        # for the CPython workaround rationale.
+        for info in zf.filelist:
+            info.external_attr = 0
 
 
 def main() -> None:

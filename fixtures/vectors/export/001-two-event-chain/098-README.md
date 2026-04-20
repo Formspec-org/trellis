@@ -8,11 +8,21 @@
 
 ## Posture Declaration (manifest.posture_declaration)
 ```json
-{'provider_readable': True, 'reader_held': False, 'delegated_compute': False, 'external_anchor_required': False, 'external_anchor_name': None, 'recovery_without_user': True, 'metadata_leakage_summary': 'Fixture export: envelope reveals event_type, authored_at (1s granularity), retention_tier, classification, ledger_scope, and COSE kid.'}
+{
+  "delegated_compute": false,
+  "external_anchor_name": null,
+  "external_anchor_required": false,
+  "metadata_leakage_summary": "Fixture export: envelope reveals event_type, authored_at (1s granularity), retention_tier, classification, ledger_scope, and COSE kid.",
+  "provider_readable": true,
+  "reader_held": false,
+  "recovery_without_user": true
+}
 ```
 
 ## Omitted payload checks
-`[]`
+```json
+[]
+```
 
 ## Verify
 Run `./090-verify.sh` from this directory (or run your verifier directly).

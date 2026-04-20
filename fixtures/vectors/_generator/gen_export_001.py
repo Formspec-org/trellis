@@ -30,6 +30,7 @@ snapshot binding (§14), and checkpoint/inclusion proof material (§11, §18.5).
 from __future__ import annotations
 
 import hashlib
+import json
 import struct
 import zipfile
 from pathlib import Path
@@ -341,7 +342,12 @@ def main() -> None:
         "\n"
         "# Trellis Phase-1 export verifier invocation (§18.8).\n"
         "#\n"
-        "# This fixture export does not bundle a 099-* verifier binary.\n"
+        "# Placeholder: this script only becomes runnable once the G-4 Rust\n"
+        "# `trellis-verify` binary lands per\n"
+        "# `thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`.\n"
+        "# Until then the fixture deliberately ships no `099-*` bundled\n"
+        "# verifier and this script exits 2 with a human-facing pointer.\n"
+        "#\n"
         "# If you have a verifier installed as `trellis-verify`, this script\n"
         "# invokes it against the directory containing this script.\n"
         "\n"
@@ -370,6 +376,10 @@ def main() -> None:
         ),
     }
     omitted_payload_checks = []
+    # §18.9 README: human-facing JSON block must be real JSON (lowercase
+    # true/false/null), not a Python dict repr. sort_keys=True keeps two
+    # runs byte-identical.
+    posture_json = json.dumps(posture_declaration, indent=2, sort_keys=True)
     readme = (
         "# Trellis Export (Fixture) — export/001-two-event-chain\n"
         "\n"
@@ -380,10 +390,12 @@ def main() -> None:
         f"- registry_digest: `{registry_digest_hex}`\n"
         "\n"
         "## Posture Declaration (manifest.posture_declaration)\n"
-        f"```json\n{posture_declaration}\n```\n"
+        f"```json\n{posture_json}\n```\n"
         "\n"
         "## Omitted payload checks\n"
-        f"`{omitted_payload_checks}`\n"
+        "```json\n"
+        f"{json.dumps(omitted_payload_checks)}\n"
+        "```\n"
         "\n"
         "## Verify\n"
         "Run `./090-verify.sh` from this directory (or run your verifier directly).\n"
@@ -435,7 +447,18 @@ def main() -> None:
         for member in sorted(members):
             data = (OUT_DIR / member).read_bytes()
             arcname = f"{root_dir}/{member}"
+            # §18.1: arcnames MUST be ASCII so the ZIP "language encoding flag"
+            # (general-purpose bit 11) stays cleared and two runs produce
+            # byte-identical output under CPython's zipfile defaults.
+            assert arcname.isascii(), arcname
             zf.writestr(zipinfo(arcname), data)
+        # §18.1: external file attributes MUST be zero. CPython's
+        # ZipFile._open_to_write overwrites any zero external_attr to
+        # 0o600 << 16 before the central-directory entry is built; patch it
+        # back to zero on every ZipInfo so the central directory bytes match
+        # the spec. Applied after all writes, before close flushes the CD.
+        for info in zf.filelist:
+            info.external_attr = 0
 
     # 13) Write a minimal ledger_state input describing the build inputs.
     # This file is a fixture-runner convenience only; Core defines the export

@@ -3,7 +3,12 @@ set -eu
 
 # Trellis Phase-1 export verifier invocation (§18.8).
 #
-# This fixture export does not bundle a 099-* verifier binary.
+# Placeholder: this script only becomes runnable once the G-4 Rust
+# `trellis-verify` binary lands per
+# `thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`.
+# Until then the fixture deliberately ships no `099-*` bundled
+# verifier and this script exits 2 with a human-facing pointer.
+#
 # If you have a verifier installed as `trellis-verify`, this script
 # invokes it against the directory containing this script.
 
