@@ -1,0 +1,70 @@
+id          = "projection/005-watermark-staff-view-decision-binding"
+op          = "projection"
+status      = "active"
+description = """O-3 final breadth fixture (Stream B item c) — closes \
+TR-OP-006 staff-view side and Companion §17.4. Structurally parallel to \
+`projection/001-watermark-attestation` (2-event chain, Checkpoint at \
+`tree_size = 2`, derived view embedding a Watermark) but the Watermark is a \
+**staff-view** Watermark: `projection_schema_id = "trellis.staff-view.v1"` \
+and `rebuild_path = "trellis.staff-view.v1/default"`. The vector adds a \
+committed `expected-staff-view-decision-binding.cbor` carrying the §29.3 \
+`StaffViewDecisionBinding` whose `watermark` field is byte-identical to \
+`expected-watermark.cbor`; `stale_acknowledged = false` is pinned; \
+`staff_view_ref = "urn:trellis:staff-view:test-005/default"`. Spec anchor: \
+Core §6.7 registers `trellis.staff-view-decision-binding.v1` as a Phase-1 \
+extension; §29.3 pins the CDDL; §19 step 4.k pins verifier-side decode-and- \
+validate on presence of the extension key. Runs in its own ledger scope \
+`test-staff-view-ledger` to avoid sequence-0 collision."""
+
+# TR-OP rows this fixture exercises. TR-OP-006 flipped to include
+# `test-vector` in the Wave 1 Stream B O-3 design; the staff-view subtype is
+# the coverage anchor called out in TODO.md §Stream B item (c).
+[coverage]
+tr_op = [
+    "TR-OP-006",  # inv #14 — watermark presence + stale-status, staff-view schema
+]
+# companion_sections: omitted (optional); would pin to the §N heading TR-OP-006
+# lives under in the Companion — lint's matrix-derived value is `['§15.3']`.
+# The narrative anchors (§14.1 watermark obligation, §15.2 watermark display,
+# §17.4 staff-view) are cited in derivation.md.
+# invariants = [14]  # commentary-only per G-3 design F1
+
+[inputs]
+# Canonical 2-event chain the staff-view projection was derived from.
+chain      = "input-chain.cbor"
+# Signed checkpoint at tree_size = 2 (§11.2).
+checkpoint = "input-checkpoint.cbor"
+# Derived staff-view artifact embedding the Watermark.
+view       = "input-view.cbor"
+
+[expected]
+# Byte-compare target: dCBOR(Watermark) extracted from the view's `watermark`
+# field, with `projection_schema_id = "trellis.staff-view.v1"` per §17.4.
+watermark = "expected-watermark.cbor"
+# Byte-compare target: dCBOR(StaffViewDecisionBinding) per §29.3. The
+# binding's `watermark` is byte-identical to `expected-watermark.cbor`;
+# `stale_acknowledged = false`; `staff_view_ref = urn:trellis:staff-view:
+# test-005/default`; `extensions = null`.
+staff_view_decision_binding = "expected-staff-view-decision-binding.cbor"
+
+# Watermark sub-field declarations — reviewer-oriented assertions (not file
+# paths). A runner that extracts the Watermark from `input-view.cbor` can
+# assert each sub-field without re-parsing the full bstr.
+[watermark_fields]
+scope                = "test-staff-view-ledger"                           # §15.2
+tree_size            = 2                                                  # §15.2
+tree_head_hash_hex   = "9f47d93a8d7c0d18990bfbefdba7f84c77c6f1b1613e57d2c83e7346f0b1dd21"  # §11.3 Merkle root
+checkpoint_ref_hex   = "f099d53d7c8463955907cb3bc5a1a7d8bd37896c52e923f57ebd7bf5183a2e06"  # §9.6 checkpoint digest
+built_at             = 1745020180                                         # §15.2 built_at
+rebuild_path         = "trellis.staff-view.v1/default"                    # §17.4 staff-view identifier
+projection_schema_id = "trellis.staff-view.v1"                            # §17.4 staff-view URI
+
+# StaffViewDecisionBinding sub-field declarations — §29.3. `watermark` field
+# is not repeated here; it is byte-equal to the Watermark above.
+[staff_view_decision_binding_fields]
+staff_view_ref     = "urn:trellis:staff-view:test-005/default"            # §29.3
+stale_acknowledged = false                                                # §29.3, §17.3
+extensions         = "null"                                               # §29.3 map-or-null; pinned null
+
+[derivation]
+document = "derivation.md"

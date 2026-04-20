@@ -1,0 +1,47 @@
+id          = "append/009-signing-key-revocation"
+op          = "append"
+status      = "active"
+description = """`append/` residue batch closure — discharges the last two \
+entries of `_pending-invariants.toml` inside one append-context fixture. \
+**Invariant #3 / TR-CORE-037** (signing-key registry Active/Revoked lifecycle): \
+a genesis event signed by `issuer-002`, paired with registry-before / \
+registry-after snapshots that land the §8.4 Active→Revoked transition with \
+`valid_to` pinned at the compromise-detection moment. 002 already landed \
+Active→Retired; together they span the §8.4 SigningKeyStatus enum byte-exactly \
+and prove per §8.5 that `kid(issuer-002)` remains resolvable in the \
+post-compromise snapshot (Revoked entry persists for historical \
+verifiability). **Invariant #6 / TR-CORE-070** (registry-snapshot binding in \
+manifest): commits a minimal §14.2-conformant `input-domain-registry.cbor` \
+plus a §14.3 `input-registry-binding.cbor` whose `registry_digest` \
+byte-exactly equals SHA-256 of the domain-registry bytes, with \
+`bound_at_sequence = 0` per §14.3 "first binding MUST cover sequence = 0" and \
+`registry_format = 1` (dCBOR). Runs in its own ledger scope \
+(`test-revocation-ledger`) to avoid collision with `001/002/003/004/005/006/\
+007/008`."""
+
+# TR-CORE rows whose Verification column contains `test-vector` and whose
+# Requirement prose / Invariant column matches one or more invariants this
+# vector exercises. See derivation.md for the construction-to-row mapping.
+[coverage]
+tr_core = [
+    "TR-CORE-037",  # inv #3 — signing-key registry Active/Revoked lifecycle (§8.2, §8.4, §8.5)
+    "TR-CORE-070",  # inv #6 — export-manifest registry-digest binding (§14.2, §14.3)
+]
+
+[inputs]
+signing_key             = "../../_keys/issuer-002.cose_key"
+payload                 = "../../_inputs/sample-payload-001.bin"
+domain_registry         = "input-domain-registry.cbor"
+registry_binding        = "input-registry-binding.cbor"
+signing_key_registry_before = "input-signing-key-registry-before.cbor"
+signing_key_registry_after  = "input-signing-key-registry-after.cbor"
+authored_event          = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
