@@ -1,0 +1,101 @@
+id          = "tamper/007-hash-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Hash-recomputation tamper — the EventPayload stores a \
+tampered `author_event_hash` but the COSE_Sign1 signature is *valid* \
+(re-signed under `issuer-001`'s real seed over the tampered payload bytes). \
+Construction uses `append/001-minimal-inline-payload`'s byte-exact \
+EventPayload with byte 0 of `author_event_hash` XOR'd with `0x01`; the \
+payload is re-dCBOR-encoded and re-signed. `kid` resolves (§19 step 4.a), \
+signature verifies (§19 step 4.b), payload decodes (§19 step 4.c); but \
+§19 step 4.d recomputes `author_event_hash` per §9.5 from the preimage \
+(`header`, `payload_ref`, `key_bag`, `idempotency_key`, `extensions`, \
+`content_hash`, `prev_hash`, `causal_deps`, `sequence`, `ledger_scope`, \
+`version`) — all unchanged vs. append/001 — and gets the UPSTREAM hash \
+`f1eeb3d6…dca6`, which does NOT equal the stored (tampered) value \
+`f0eeb3d6…dca6`. Step 9's `integrity_verified` conjunction drops to \
+`false` via "hash recomputations … match". `tamper_kind = hash_mismatch` \
+per the enum pinned in `tamper/001`'s derivation. Distinct from \
+`tamper/001` (signature_invalid) because the signature IS valid here; \
+distinct from `tamper/005`/`006` (step 4.h chain-linkage) because the \
+single-event ledger has no predecessor to check."""
+
+[coverage]
+# Invariant #5 rows shared with `append/005` / `tamper/005` / `tamper/006` —
+# TR-CORE-020 ("single canonical order per scope") and TR-CORE-023
+# ("canonical order determined solely by spec + binding; not by wall-clock
+# or operational accidents"). The hash tamper breaks the §9.5 / §9.1
+# construction that §10.2 depends on to determine order; a payload whose
+# stored `author_event_hash` ≠ recomputed would, if admitted, create a
+# canonical record identity disagreement.
+#
+# Also pins TR-CORE-061 (shared with `tamper/001`) — "A Verifier MUST NOT
+# require access to derived runtime state to verify canonical integrity":
+# the §19 step 4.d hash recomputation is offline, deterministic, and does
+# not depend on any runtime state.
+tr_core = [
+    "TR-CORE-020",
+    "TR-CORE-023",
+    "TR-CORE-061",
+]
+
+[inputs]
+# One-element dCBOR array carrying the tampered event. §19 step 4
+# iterates; at index 0 the sequence of structural/integrity checks in
+# steps 4.a..4.e surfaces the hash mismatch at step 4.d.
+ledger                       = "input-tampered-ledger.cbor"
+# Byte-identical to index 0 of input-tampered-ledger.cbor — the tag-18
+# COSE_Sign1 envelope with tampered `author_event_hash` field and a
+# legitimate re-signed signature under `issuer-001`.
+tampered_event               = "input-tampered-event.cbor"
+# Decoded tampered `EventPayload` (§6.1) exposed as a sibling file so
+# runners can byte-compare the tampered `author_event_hash` field
+# without re-parsing the envelope.
+tampered_event_payload       = "input-tampered-event-payload.cbor"
+# RFC 9052 §4.4 `Sig_structure` bytes the re-signature was computed over
+# (protected-header bstr || h'' || tampered-payload bstr, within
+# ["Signature1", …]). Exposed so runners can spot-check step 4.b's
+# verify-input bytes.
+sig_structure                = "sig-structure.bin"
+# Single issuer-001 entry, byte-identical to tamper/001/005/006 registries.
+signing_key_registry         = "input-signing-key-registry.cbor"
+
+# Expected `VerificationReport` field values. Runner pass criterion:
+#   (a) structure_verified == true — tampered payload decodes cleanly
+#       through §19 step 4.c.
+#   (b) integrity_verified == false — step 4.d surfaces the mismatch
+#       between stored `author_event_hash` and the recomputation from
+#       the preimage.
+#   (c) readability_verified == true — Phase 1 PayloadInline structural-
+#       only; no payload decryption.
+#   (d) tamper_kind == "hash_mismatch" per tamper/001's enum.
+#   (e) failing_event_id — the tampered event's own recomputed
+#       canonical_event_hash is surfaced as the identity at which step
+#       4.d trips. Because the payload bytes differ from append/001 (by
+#       the one-byte author_event_hash mutation), the tampered event's
+#       recomputed canonical_event_hash is NOT equal to append/001's
+#       canonical_event_hash (`ef2622f1…4ddb`); it is a distinct value,
+#       pinned below.
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "hash_mismatch"
+
+# The UPSTREAM author_event_hash recomputed by §19 step 4.d from the
+# tampered payload's preimage inputs (which are identical to append/001's
+# preimage). A runner comparing the recomputation against the stored
+# field value will see this bytes vs. the `stored_author_event_hash` below.
+recomputed_author_event_hash = "f1eeb3d60da16f8765d1c6a2dceea0b86b82b79d45fbeec5621b77e06244dca6"
+
+# The tampered value actually present in `input-tampered-event-payload.cbor`
+# `author_event_hash` field. One-byte XOR (0x01) of the upstream value;
+# every other byte identical.
+stored_author_event_hash     = "f0eeb3d60da16f8765d1c6a2dceea0b86b82b79d45fbeec5621b77e06244dca6"
+
+# §17.2 — tamper vectors have no fact-producer identity; pinning a
+# distinct opaque key keeps the vector directory self-identifying.
+idempotency_key = "tamper-hash-mismatch-007"
+
+[derivation]
+document = "derivation.md"
