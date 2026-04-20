@@ -13,10 +13,29 @@ integrity."""
 
 [coverage]
 tr_core = [
+    "TR-CORE-006",  # Export Contract (bytes preserve provenance + verification claims)
     "TR-CORE-062",  # export generator produces an independently verifiable export
     "TR-CORE-063",  # export includes sufficient material for offline verification
     "TR-CORE-064",  # offline verification does not depend on mutable references
     "TR-CORE-065",  # provenance classes remain distinct inside the export
+    "TR-CORE-014",  # export/disclosure artifacts are not identical to underlying canonical records
+    "TR-CORE-044",  # canonical append attestation exists only after durable-append boundary (checkpointed export surface)
+    "TR-CORE-045",  # append attestation carries position/proof/head metadata sufficient for inclusion verification
+    "TR-CORE-081",  # Phase 3 case-ledger head is strict superset of Phase 1 checkpoint format (base checkpoint bytes pinned here)
+    "TR-CORE-082",  # agency-log entries are case-ledger heads plus arrival metadata / witness signatures (extension points reserved)
+    "TR-CORE-110",  # versioning + immutable interpretation material preserved for historical verification
+    "TR-CORE-134",  # Export Generator packages canonical records + verification material for offline verification
+]
+tr_op = [
+    "TR-OP-071",  # selective disclosure via disclosure/export artifacts (not overloading canonical records)
+    "TR-OP-072",  # disclosure-oriented artifacts preserve provenance and do not rewrite canonical truth
+    "TR-OP-073",  # disclosure/export conformance class supports verifiable exports and preserves distinctions
+    "TR-OP-074",  # disclosure/export classes declare which claims are verifiable within scope
+    "TR-OP-090",  # CAS duties: admits/attests without requiring payload decryption
+    "TR-OP-091",  # single verifier-facing append proof model per scope; explicit migration if changed
+    "TR-OP-110",  # no live registry lookups; immutable interpretation material bundled
+    "TR-OP-122",  # exports preserve provenance when presenting scoped timelines/deltas/interpretations
+    "TR-OP-130",  # versioned registries resolvable to digests for inclusion in export manifest
 ]
 
 [inputs]
@@ -28,4 +47,3 @@ zip_sha256 = "27287aafd5173f6ae155e7051e934b105665fcc6ad090b593aa1ffa6260d34d5"
 
 [derivation]
 document = "derivation.md"
-

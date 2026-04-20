@@ -12,6 +12,9 @@ proof. Expected outcome is full success (all three booleans true)."""
 tr_core = [
     "TR-CORE-067",  # baseline verifier capability set over an offline export
 ]
+tr_op = [
+    "TR-OP-041",  # tiered verification posture classes must be declared and workflow-bound (verifier-facing posture surface)
+]
 
 [inputs]
 export_zip = "input-export.zip"
@@ -23,4 +26,3 @@ readability_verified = true
 
 [derivation]
 document = "derivation.md"
-

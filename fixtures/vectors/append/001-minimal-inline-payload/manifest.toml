@@ -14,13 +14,29 @@ pinned plaintext bytes opaquely; HPKE wrap is exercised by a later vector in thi
 # that demonstrate it.
 [coverage]
 tr_core = [
+    "TR-CORE-001",  # (no invariant tag) — Canonical Append Contract preserved (append semantics exercised here)
+    "TR-CORE-013",  # (no invariant tag) — canonical record distinguishable from authored content
     "TR-CORE-018",  # (no invariant tag) — three event surfaces: authored / canonical / signed (§6.8)
     "TR-CORE-021",  # inv #5 — ledger_scope declared; genesis sequence = 0
     "TR-CORE-030",  # inv #1, #4 — dCBOR encoding + canonical event hash construction
     "TR-CORE-031",  # inv #4 — content_hash computed over ciphertext bytes
+    "TR-CORE-032",  # inv #1 — Phase 1 canonical encoding is dCBOR + SHA-256 hash preimages
     "TR-CORE-035",  # inv #2 — suite_id=1 (Ed25519/COSE_Sign1) in protected header
+    "TR-CORE-040",  # (no invariant tag) — object distinction among fact/record/attestation/derived/export surfaces
+    "TR-CORE-042",  # (no invariant tag) — fact becomes canonical only after durable-append boundary
+    "TR-CORE-051",  # inv #13 — idempotency semantics are part of the append wire contract (structural anchor)
+    "TR-CORE-052",  # (no invariant tag) — rejections explicit/auditable (structural anchor; see §17.5)
+    "TR-CORE-053",  # inv #13 — verifier-visible idempotency consequences are defined (structural anchor; see §17.3)
     "TR-CORE-073",  # (no invariant tag) — event_type / classification use reserved x-trellis-test/ prefix (§14.6)
     "TR-CORE-083",  # inv #12 — AppendHead return artifact with scope / sequence / canonical_event_hash (§10.6)
+    "TR-CORE-110",  # (no invariant tag) — versioning + immutable interpretation material (baseline structural anchor)
+    "TR-CORE-122",  # (no invariant tag) — additive-invariant rule for Formspec processors ignoring sidecars
+    "TR-CORE-131",  # (no invariant tag) — Fact Producer duties: attributable admissible facts, no rewrite
+    "TR-CORE-132",  # (no invariant tag) — Canonical Append Service duties: append-only + admissibility + canonical order
+    "TR-CORE-140",  # (no invariant tag) — binding-defined deterministic encoding / procedures are followed
+]
+tr_op = [
+    "TR-OP-061",  # conflict handling / multi-scope discipline (ledger_scope anchoring + append-only baseline)
 ]
 
 [inputs]

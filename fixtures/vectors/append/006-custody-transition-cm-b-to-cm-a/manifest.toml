@@ -24,8 +24,17 @@ in force AFTER the transition per OC-15."""
 # the tamper side (tamper/002 + tamper/003 + tamper/004). TR-OP-043 is the
 # sibling disclosure-profile row and is covered by append/008.
 [coverage]
+tr_core = [
+    "TR-CORE-102",  # posture transitions affecting custody/readability are auditable and non-silent
+    "TR-CORE-143",  # receipt/attestation immutability across posture transitions (no in-place rewrite)
+]
 tr_op = [
+    "TR-OP-020",  # delegated-compute custody model discipline (CM-B is the delegated-compute posture)
+    "TR-OP-022",  # delegated-compute output reliance must be auditable/canonical where used
+    "TR-OP-030",  # access grants/revocations affecting authorization semantics are canonical facts
+    "TR-OP-032",  # delegation grants/revocations affecting authorization/access are canonical facts
     "TR-OP-042",  # custody-model transition schema (Companion A.5.1)
+    "TR-OP-060",  # durable-append boundary declared for attestation/export issuance
     "TR-OP-045",  # declaration-digest co-publish rule (Companion A.5.3 step 3)
 ]
 

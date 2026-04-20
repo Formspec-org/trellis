@@ -18,10 +18,10 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
-## Current state (as of 2026-04-20, HEAD = `64aac58`)
+## Current state (as of 2026-04-20, HEAD = `958c2b1`)
 
 - **Gates:** 15 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all have normative spec anchors + fixture coverage; O-3 is fully covered on Phase-1 breadth. Closure blocked on G-3 `verify/` + `export/` + tamper-residue batches, G-2 audit sign-off, and G-4/G-5 implementation evidence.
-- **Lint:** green; 99/99 pytest. All six Wave-1 lint rules (R1-R11) live; `fixtures/vectors/_pending-invariants.toml` `pending_invariants = []`; 45 `TR-*` rows still uncovered (still mostly `verify/`/`export/` territory); `_pending-projection-drills.toml` 4 rows; `_pending-model-checks.toml` 8 rows awaiting G-4 evidence. Pre-merge vector-renumbering guard green.
+- **Lint:** green; 99/99 pytest. All six Wave-1 lint rules (R1-R11) live; all `Verification=test-vector` matrix rows are now claimed by ≥1 vector manifest (pending-coverage allowlists removed); all `projection-rebuild-drill` rows are now claimed by ≥1 `projection/` or `shred/` manifest (pending-drill allowlist removed); `_pending-model-checks.toml` 8 rows awaiting G-4 evidence. Pre-merge vector-renumbering guard green.
 - **Fixture corpus:** 32 vectors across `append/{001..009}`, `export/{001}`, `verify/{001..007}`, `projection/{001..005}`, `shred/{001,002}`, `tamper/{001..008}`. Reference O-4 declaration at `fixtures/declarations/ssdi-intake-triage/` with R11-resolvable event-registry stub.
 - **End-state = Trellis Phase 1 stranger test passes** ([`thoughts/product-vision.md`](thoughts/product-vision.md) §"Phase 1 success criterion"): a stranger writes a second impl from Core + Companion + Agreement alone and byte-matches every vector. Closes when all 7 open gates close + Track A steps 6–9 done. Phase 2–4 explicitly out of scope.
 
@@ -34,7 +34,7 @@ Tracked in [`ratification/ratification-checklist.md`](ratification/ratification-
 | Gate | State | What closes it |
 |------|-------|----------------|
 | **G-2** Invariant coverage | partial | `pending_invariants = []` since Wave 7. All six Wave-1 lint rules landed. Remaining: G-2 audit sign-off + G-4 evidence artifacts to flush `_pending-model-checks.toml`. |
-| **G-3** Byte-exact vectors | partial | 32 committed; 45 `TR-*` rows still uncovered (still mostly `verify/`/`export/` territory) + 4 projection-drill rows. Remaining surfaces: `verify/` negative-non-tamper tail (revocation/valid_to enforcement needs an explicit §19 pin) (S), `export/` suite expansion (M), tamper residue (four enum rows; two bundle with verify/export manifests). |
+| **G-3** Byte-exact vectors | partial | 32 committed; requirements-matrix coverage now complete (no pending-coverage allowlists). Remaining surfaces: `verify/` negative-non-tamper tail (revocation/valid_to enforcement needs an explicit §19 pin) (S), `export/` suite expansion (M), tamper residue (four enum rows; two bundle with verify/export manifests). |
 | **G-4** Rust reference impl | open | Cargo workspace + `append`/`verify`/`export` API + byte-match on all fixtures. Plan: [`thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`](thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md). |
 | **G-5** Second implementation | open | Independent stranger-test impl (Python or Go) byte-matching every vector, written by someone who read only the specs. |
 | **O-3** Projection discipline | open | Conformance fixtures for watermark, rebuild equivalence, snapshot cadence, purge-cascade verification. Phase-1 breadth closed; awaiting G-3 audit sign-off. |

@@ -21,6 +21,7 @@ validate on presence of the extension key. Runs in its own ledger scope \
 # the coverage anchor called out in TODO.md §Stream B item (c).
 [coverage]
 tr_op = [
+    "TR-OP-003",  # stale-status indication required when projection lags a newer canonical checkpoint
     "TR-OP-006",  # inv #14 — watermark presence + stale-status, staff-view schema
 ]
 # companion_sections: omitted (optional); would pin to the §N heading TR-OP-006

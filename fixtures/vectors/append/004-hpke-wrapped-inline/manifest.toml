@@ -20,6 +20,9 @@ tr_core = [
     "TR-CORE-031",  # inv #4 — content_hash computed over real ciphertext bytes.
     "TR-CORE-038",  # inv #7 — populated key_bag participates in author_event_hash.
 ]
+tr_op = [
+    "TR-OP-070",  # protected-payload discipline: visibility vs readability material remains distinct
+]
 
 [inputs]
 signing_key    = "../../_keys/issuer-001.cose_key"

@@ -20,7 +20,12 @@ structurally from 001; the load-bearing deltas are the `prev_hash`, \
 tr_core = [
     "TR-CORE-020",  # inv #5 — exactly one canonical order per governed scope (§10.1, §10.2)
     "TR-CORE-023",  # inv #5 — canonical order independent of wall-clock (§10.2 pins by prev_hash, not timestamp)
+    "TR-CORE-024",  # inv #5 — Phase 1 prev_hash is strict linear sequence; causal_deps reserved
+    "TR-CORE-025",  # inv #5 — deterministic tie-breaking where concurrency could exist (Phase 1 linear order)
     "TR-CORE-050",  # inv #13 — idempotency_key stable in wire contract (§17.2)
+    "TR-CORE-051",  # inv #13 — idempotency semantics for retried submissions (resolution/reject rules)
+    "TR-CORE-052",  # (no invariant tag) — rejections are explicit and auditable (§17.5)
+    "TR-CORE-053",  # inv #13 — verifier-visible idempotency consequences are defined (§17.3)
     "TR-CORE-080",  # inv #10 — Phase-1 envelope = Phase-3 case-ledger event (§10 strict superset)
 ]
 

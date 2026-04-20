@@ -26,6 +26,7 @@ byte-exactly equals SHA-256 of the domain-registry bytes, with \
 tr_core = [
     "TR-CORE-037",  # inv #3 — signing-key registry Active/Revoked lifecycle (§8.2, §8.4, §8.5)
     "TR-CORE-070",  # inv #6 — export-manifest registry-digest binding (§14.2, §14.3)
+    "TR-CORE-111",  # (no invariant tag) — cryptographic lifecycle operations represented as lifecycle facts
 ]
 
 [inputs]

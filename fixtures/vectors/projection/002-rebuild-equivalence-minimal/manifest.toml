@@ -18,6 +18,9 @@ series and therefore no non_deterministic_fields declaration is present here."""
 [coverage]
 tr_op = [
     "TR-OP-005",  # Rebuild equivalence — byte-equal over declared-deterministic portion (Core §15.3).
+    "TR-OP-007",  # projection correctness checks include sampled rebuild comparison / checkpoint-bound equivalence
+    "TR-OP-031",  # authorization evaluators (if derived) are rebuildable and non-authoritative for grant/revocation truth
+    "TR-OP-034",  # rights-impacting evaluator state traces to canonical facts; defined rebuild behavior when stale/missing
 ]
 companion_sections = ["§15.3"]
 # invariants = [14]  # commentary-only per G-3 design F1

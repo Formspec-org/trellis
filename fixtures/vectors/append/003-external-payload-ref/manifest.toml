@@ -17,6 +17,11 @@ tr_core = [
     "TR-CORE-031",  # inv #4 — content_hash computed over ciphertext bytes named by payload_ref.
     "TR-CORE-071",  # inv #8 — selective-disclosure/reference slots preserved for off-graph payloads.
 ]
+tr_op = [
+    "TR-OP-050",  # offline-authoring conformance class — authored facts may predate canonical append
+    "TR-OP-052",  # offline-originated facts preserve authored authentication semantics after delay
+    "TR-OP-053",  # local pending state before admission remains non-canonical
+]
 
 [inputs]
 signing_key    = "../../_keys/issuer-001.cose_key"
