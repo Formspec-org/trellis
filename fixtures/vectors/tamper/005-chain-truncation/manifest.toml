@@ -1,0 +1,96 @@
+id          = "tamper/005-chain-truncation"
+op          = "tamper"
+status      = "active"
+description = """Chain-integrity tamper. The tampered ledger is a one-element \
+dCBOR array carrying only `append/005-prior-head-chain`'s byte-exact \
+COSE_Sign1 envelope; the genesis event (`append/001-minimal-inline-payload`, \
+`sequence = 0`) has been dropped. No event bytes are mutated — the survivor \
+is signed cleanly under issuer-001, its `author_event_hash` and \
+`canonical_event_hash` recomputations both pass, and its protected-header \
+kid resolves against the registry. The tamper surfaces at Core §19 step 4.h \
+(`prev_hash` linkage): the survivor's `sequence = 1` forces the verifier to \
+look up `events[0]`; `events` has length 1 and `events[0]` IS the survivor, \
+whose `canonical_event_hash` (`3d3d5aeb…9f17`) does NOT equal its recorded \
+`prev_hash` (`ef2622f1…4ddb` = the now-omitted genesis event's canonical \
+hash, dangling). Per tamper/001's tamper-kind enum, the row is \
+`event_truncation` — "A middle event of a chain is absent, and subsequent \
+events' prev_hash values do not link to their recomputed predecessors"; \
+dropping genesis is a special case (non-head event absent, survivor's \
+prev_hash newly dangling). Per Core §19 step 4.k this is a *localizable* \
+failure: §19 step 9's `integrity_verified` conjunction (\"prev_hash links \
+... valid\") drops to false; `structure_verified` stays true (the survivor's \
+bytes decode cleanly through step 4.c)."""
+
+[coverage]
+# TR-CORE-020 anchors invariant #5 — "exactly one canonical append-attested
+# order MUST exist per governed scope". A truncated chain no longer exhibits
+# a single continuous canonical order: the survivor claims `sequence = 1`
+# with a prev_hash that references a predecessor not in the ledger. A
+# verifier that follows §19 step 4.h surfaces this as `integrity_verified =
+# false`. Sharing this row with append/005 is intentional — append/005
+# demonstrates the positive construction of the two-position canonical
+# order, tamper/005 demonstrates the verifier-side detection of its
+# violation.
+tr_core = [
+    "TR-CORE-020",
+]
+
+[inputs]
+# The one-element dCBOR array carrying only `append/005`'s byte-exact event.
+# §19 step 4 loops `for each Event in 010-events.cbor`; at index 0 the
+# verifier encounters the surviving `sequence = 1` event, and step 4.h
+# fails when its prev_hash check looks up `events[sequence - 1] = events[0]`
+# and finds the survivor itself rather than a valid predecessor.
+ledger               = "input-tampered-ledger.cbor"
+# Byte-identical to `input-tampered-ledger.cbor[0]` (the survivor's COSE_Sign1
+# envelope without the `0x81` array wrapper). Exposed separately for runners
+# that process a single event directly.
+tampered_event       = "input-tampered-event.cbor"
+# Byte-identical to tamper/001's registry — same issuer-001 key, same kid,
+# same suite. Step 4.a resolves the survivor's kid cleanly; the tamper
+# surfaces at step 4.h, not step 4.a.
+signing_key_registry = "input-signing-key-registry.cbor"
+
+# Expected `VerificationReport` field values. Runner pass criterion:
+#   (a) structure_verified == true — the survivor's bytes decode cleanly
+#       through §19 step 4.c (they are byte-exact append/005 bytes, whose
+#       round-trip was pinned in that vector); the tamper is the absence
+#       of a predecessor, not a decode failure.
+#   (b) integrity_verified == false — §19 step 4.h fails on the survivor
+#       (its prev_hash does not equal `canonical_event_hash(events[0])`);
+#       step 4.k records it in `event_failures`; step 9's AND-conjunction
+#       includes "prev_hash links ... valid".
+#   (c) readability_verified == true — no payload decryption is attempted
+#       on the Phase 1 PayloadInline structural-only bytes, identical to
+#       tamper/001's discipline.
+#   (d) tamper_kind == "event_truncation" — pinned row from tamper/001's
+#       tamper-kind enum.
+#   (e) failing_event_id equals the survivor's canonical_event_hash. Unlike
+#       tamper/001 (where the payload is unchanged and so the pre-tamper
+#       identity is the right anchor), here the tamper is the *set* of
+#       events and the failure-site event IS the survivor — its own
+#       canonical hash is what §19 naturally surfaces in the failure
+#       record.
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "event_truncation"
+failing_event_id     = "3d3d5aeb5d4b8d972adbddfe0f339a94fffe01bf90ac1648be2eb98d4acc9f17"
+
+# The dangling pointer (= the omitted genesis event's canonical_event_hash).
+# Surfaced as a named expected-report field so a runner that wants to
+# cross-check the survivor's recorded `prev_hash` against the "missing
+# predecessor" identity has a stable pin. No §19 report field prescribes
+# this; the name follows tamper/001's "failing_event_id" precedent.
+omitted_event_id     = "ef2622f1470ba3d9c24b47c0566cab8902b6500fbb3d47bdd77aae068e724ddb"
+
+# §17.2 idempotency_key is fact-producer; tamper vectors are verifier-side
+# and have no independent idempotency identity. Pinning a distinct opaque
+# key here keeps the vector directory self-identifying under a future
+# `(ledger_scope, tamper_directory)` uniqueness lint — identical discipline
+# to tamper/001/002/003/004.
+idempotency_key = "tamper-chain-truncation-005"
+
+[derivation]
+document = "derivation.md"
