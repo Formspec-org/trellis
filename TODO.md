@@ -18,12 +18,12 @@ Size tags: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **
 
 ---
 
-## Current state (as of 2026-04-20, HEAD = `0ff7251`)
+## Current state (as of 2026-04-20, HEAD = `1f46e01`)
 
-- **Gates:** 14 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all have normative spec anchors + fixture coverage; O-3 is fully covered on Phase-1 breadth. Closure blocked on G-3 `verify/` + `export/` + tamper-residue batches, G-2 audit sign-off, G-4/G-5 implementation evidence, and Track E Respondent Ledger binding.
-- **Lint:** green; 92/92 pytest. All six Wave-1 lint rules (R1-R11) live; `fixtures/vectors/_pending-invariants.toml` `pending_invariants = []`; 50 `TR-*` rows still uncovered (mostly `verify/`/`export/` territory); `_pending-projection-drills.toml` 4 rows; `_pending-model-checks.toml` 8 rows awaiting G-4 evidence. Pre-merge vector-renumbering guard green.
-- **Fixture corpus:** 25 vectors across `append/{001..009}`, `projection/{001..005}`, `shred/{001,002}`, `tamper/{001..008}`. Reference O-4 declaration at `fixtures/declarations/ssdi-intake-triage/` with R11-resolvable event-registry stub.
-- **End-state = Trellis Phase 1 stranger test passes** ([`thoughts/product-vision.md`](thoughts/product-vision.md) §"Phase 1 success criterion"): a stranger writes a second impl from Core + Companion + Agreement alone and byte-matches every vector. Closes when all 7 open gates close + Track A steps 6–9 done + Track E bindings landed. Phase 2–4 explicitly out of scope.
+- **Gates:** 15 closed (G-1/G-6, C-1..C-8, O-1/O-2, M-1..M-3); 7 open — see table below. G-2 / O-3 / O-4 / O-5 all have normative spec anchors + fixture coverage; O-3 is fully covered on Phase-1 breadth. Closure blocked on G-3 `verify/` + `export/` + tamper-residue batches, G-2 audit sign-off, and G-4/G-5 implementation evidence.
+- **Lint:** green; 99/99 pytest. All six Wave-1 lint rules (R1-R11) live; `fixtures/vectors/_pending-invariants.toml` `pending_invariants = []`; 50 `TR-*` rows still uncovered (mostly `verify/`/`export/` territory); `_pending-projection-drills.toml` 4 rows; `_pending-model-checks.toml` 8 rows awaiting G-4 evidence. Pre-merge vector-renumbering guard green.
+- **Fixture corpus:** 24 vectors across `append/{001..009}`, `projection/{001..005}`, `shred/{001,002}`, `tamper/{001..008}`. Reference O-4 declaration at `fixtures/declarations/ssdi-intake-triage/` with R11-resolvable event-registry stub.
+- **End-state = Trellis Phase 1 stranger test passes** ([`thoughts/product-vision.md`](thoughts/product-vision.md) §"Phase 1 success criterion"): a stranger writes a second impl from Core + Companion + Agreement alone and byte-matches every vector. Closes when all 7 open gates close + Track A steps 6–9 done. Phase 2–4 explicitly out of scope.
 
 ---
 
