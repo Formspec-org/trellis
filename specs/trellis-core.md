@@ -268,7 +268,7 @@ AvailabilityHint = &(
 )
 ```
 
-For `PayloadInline`, `content_hash` MUST equal the hash of `ciphertext`. For `PayloadExternal`, `EventPayload.content_hash` MUST equal `PayloadExternal.content_hash`; if ciphertext bytes are not present in the export, an offline verifier reports that payload integrity and readability checks could not run (§19) rather than pretending they succeeded.
+For `PayloadInline`, `content_hash` MUST equal the hash of `ciphertext`. When the payload is encrypted under the Phase 1 suite, `ciphertext` is the output of ChaCha20-Poly1305 over the plaintext payload using the 32-byte DEK, the `PayloadInline.nonce`, and zero-length associated data `aad = h''`. For `PayloadExternal`, `EventPayload.content_hash` MUST equal `PayloadExternal.content_hash`; if ciphertext bytes are not present in the export, an offline verifier reports that payload integrity and readability checks could not run (§19) rather than pretending they succeeded.
 
 `PayloadInline.nonce` is pinned to a 12-byte `bstr` to match the ChaCha20-Poly1305 AEAD nonce size fixed by the Phase 1 HPKE suite in §9.4. A future HPKE suite registration (§9.4) that changes the AEAD algorithm MAY require a different nonce length; such a suite MUST introduce a replacement `PayloadRef` variant rather than silently widening this constraint.
 
@@ -309,6 +309,7 @@ Registered extension identifiers:
 |---|---|---|---|
 | `EventPayload.extensions` | `trellis.custody-model-transition.v1` | 1 | Custody-model Posture-transition record; payload shape per Companion §10 and Appendix A.5.1. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.disclosure-profile-transition.v1` | 1 | Posture-transition record for the disclosure-profile axis; payload shape per Companion §10 and Appendix A.5.2. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.staff-view-decision-binding.v1` | 1 | Staff-view decision-binding record carrying the §15.2 `Watermark` seen by the adjudicator for a rights-impacting decision; payload shape `StaffViewDecisionBinding`. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
 | `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
 | `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
@@ -559,7 +560,11 @@ Phase 1 HPKE suite 1 ([RFC 9180]) is **Base mode**, KEM = `DHKEM(X25519, HKDF-SH
 
 Choice of ChaCha20-Poly1305 over AES-256-GCM for payload AEAD is for constant-time implementability on WASM and non-AES-NI hardware; it is not a security claim about one over the other. Both satisfy the confidentiality requirement. Deployments that require AES-256-GCM MAY register an additional HPKE suite in Phase 2.
 
-Every wrap MUST use a **fresh ephemeral X25519 keypair**, generated, used once, and destroyed. The `ephemeral_pubkey` is persisted in the envelope so the recipient can perform ECDH. Reusing an ephemeral keypair across wraps is a non-conformance.
+For each `KeyBagEntry`, Phase 1 producers call RFC 9180 `SetupBaseS` / `Seal` with `info = h''` and AEAD associated data `aad = h''`. The plaintext input to `Seal` is the 32-byte payload DEK. `KeyBagEntry.ephemeral_pubkey` stores the HPKE encapsulated public key `enc`; `KeyBagEntry.wrapped_dek` stores the AEAD ciphertext-and-tag returned by `Seal`. A future suite registration MAY define a non-empty `info` or `aad`, but suite 1 is pinned to zero-length values so a verifier can reproduce the wrapped-DEK bytes from only the fixture inputs.
+
+Every `KeyBagEntry` (hereafter "wrap") MUST use a fresh X25519 ephemeral keypair, unique across every wrap in the containing ledger scope. For the avoidance of doubt: in an event with N recipients the `key_bag` contains N `KeyBagEntry` rows with N distinct `ephemeral_pubkey` values, generated from N distinct ephemeral private keys; no `ephemeral_pubkey` value produced by any author in any event in the same ledger scope may recur in any later event. The `ephemeral_pubkey` is persisted in the envelope so the recipient can perform ECDH; the corresponding ephemeral private key MUST be used exactly once and destroyed after the wrap is sealed. Reusing an ephemeral private key across wraps, within the same event, across events in the same ledger scope, or across ledger scopes, is a non-conformance.
+
+**Test-vector carve-out.** Language-neutral byte-level test vectors under `fixtures/vectors/**` MAY pin the ephemeral private key as a fixture artifact, because §5.2 and §27 require every fixture to reproduce byte-for-byte across independent implementations and that requirement would otherwise be unsatisfiable for HPKE wraps. A fixture that pins an ephemeral private key MUST: (a) commit the pinned private key under `fixtures/vectors/_keys/` with a filename that names the owning vector, (b) declare in its `manifest.toml` that the pinned key is a test artifact, and (c) state in its `derivation.md` that a production implementation MUST generate the ephemeral in-process and destroy it after single use. The carve-out applies to fixtures only; no production `Fact Producer`, `Canonical Append Service`, or `Verifier` may rely on it.
 
 Authentication note: HPKE Base mode provides no sender authentication at the wrap layer. This is adequate because (a) `author_event_hash` covers the key bag, (b) the event is Ed25519-signed per §7, and (c) any modification to the key bag invalidates the signature. Use of HPKE Auth mode would add sender-key management at the wrap layer without strengthening the envelope; the envelope signature is the authentication boundary.
 
@@ -1262,7 +1267,18 @@ VERIFY(E) -> VerificationReport
      i. Check payload.causal_deps is null or [] (Phase 1 strict-linear, §10.3).
      j. Resolve the RegistryBinding applicable to payload.sequence per §14.4;
         check payload.header.event_type and related fields against the bound registry.
-     k. On any failure, record in report.event_failures and continue — do NOT abort;
+     k. If the bound registry or WOS semantics identify payload.header.event_type
+        as a rights-impacting decision event, EventPayload.extensions MUST carry
+        `trellis.staff-view-decision-binding.v1`; absence is a structure failure
+        for that event and MUST be recorded in report.event_failures. When
+        EventPayload.extensions carries `trellis.staff-view-decision-binding.v1`,
+        decode the extension payload as `StaffViewDecisionBinding` (§6.7,
+        Appendix A). Check that its `watermark` validates against the §15.2
+        `Watermark` shape, including `projection_schema_id` because staff views
+        are projections, and that `stale_acknowledged` is a boolean. Malformed
+        binding payloads are structure failures for that event and MUST be
+        recorded in report.event_failures.
+     l. On any failure, record in report.event_failures and continue — do NOT abort;
         the final verdict is false, but the report enumerates every failure.
 
 5. For each Checkpoint COSE_Sign1 c in 040-checkpoints.cbor (in order):
@@ -1993,6 +2009,14 @@ Watermark = {
   checkpoint_ref:  digest,
   built_at:        timestamp,
   rebuild_path:    tstr,
+  ? projection_schema_id: tstr,
+}
+
+StaffViewDecisionBinding = {
+  watermark:               Watermark,          ; §15.2; staff-view state seen at decision time
+  staff_view_ref:          tstr / null,        ; optional RFC 3986 derived-artifact identifier
+  stale_acknowledged:      bool,               ; true iff Companion §17.3 stale-view acknowledgement was recorded
+  extensions:              { * tstr => any } / null,
 }
 
 VerificationReport = {
