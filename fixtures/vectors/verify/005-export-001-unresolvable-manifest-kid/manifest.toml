@@ -1,0 +1,26 @@
+id          = "verify/005-export-001-unresolvable-manifest-kid"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector: unresolvable manifest kid. Takes \
+`export/001-two-event-chain` and rewrites the manifest protected header `kid` \
+to a 16-byte value that is not present in `030-signing-key-registry.cbor`, \
+then re-signs the manifest so the COSE is structurally valid. Exercises Core \
+§19 step 2.a fatal failure: unresolvable manifest kid ⇒ abort with \
+`structure_verified = false`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-067",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+
+[derivation]
+document = "derivation.md"
+

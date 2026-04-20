@@ -3,6 +3,8 @@
 Generates:
 - verify/002-export-001-manifest-sigflip
 - verify/003-export-001-missing-registry-snapshot
+- verify/004-export-001-unsupported-suite
+- verify/005-export-001-unresolvable-manifest-kid
 
 Authoring aid only. This script is NOT normative; the vectors' derivation.md
 documents cite Core § prose as the reproduction authority.
@@ -12,21 +14,33 @@ Determinism: two runs produce byte-identical ZIP outputs.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import cbor2
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 ROOT = Path(__file__).resolve().parent.parent  # fixtures/vectors/
 SOURCE_EXPORT_DIR = ROOT / "export" / "001-two-event-chain"
 LEDGER_STATE_FILE = SOURCE_EXPORT_DIR / "input-ledger-state.cbor"
+KEY_FILE = ROOT / "_keys" / "issuer-001.cose_key"
 
 OUT_SIGFLIP = ROOT / "verify" / "002-export-001-manifest-sigflip"
 OUT_MISSING_REGISTRY = ROOT / "verify" / "003-export-001-missing-registry-snapshot"
+OUT_UNSUPPORTED_SUITE = ROOT / "verify" / "004-export-001-unsupported-suite"
+OUT_UNRESOLVABLE_KID = ROOT / "verify" / "005-export-001-unresolvable-manifest-kid"
 
 
 ZIP_FIXED_DATETIME = (1980, 1, 1, 0, 0, 0)
 
+CBOR_TAG_COSE_SIGN1 = 18
+COSE_LABEL_ALG = 1
+COSE_LABEL_KID = 4
+COSE_LABEL_SUITE_ID = -65537
+ALG_EDDSA = -8
+
+SUITE_UNSUPPORTED = 999
 
 def zipinfo(name: str):
     import zipfile
@@ -45,6 +59,57 @@ def flip_last_byte(data: bytes) -> bytes:
         raise ValueError("cannot flip last byte of empty input")
     last = data[-1] ^ 0x01
     return data[:-1] + bytes([last])
+
+def dcbor(value: object) -> bytes:
+    return cbor2.dumps(value, canonical=True)
+
+def load_seed() -> bytes:
+    cose_key = cbor2.loads(KEY_FILE.read_bytes())
+    seed = cose_key[-4]
+    if not isinstance(seed, bytes) or len(seed) != 32:
+        raise ValueError("issuer-001 seed not found in COSE_Key label -4")
+    return seed
+
+def sha256(data: bytes) -> bytes:
+    return hashlib.sha256(data).digest()
+
+def cose_sign1(seed: bytes, *, protected: bytes, payload: bytes) -> bytes:
+    sig_structure = dcbor(["Signature1", protected, b"", payload])
+    signature = Ed25519PrivateKey.from_private_bytes(seed).sign(sig_structure)
+    sign1 = [protected, {}, payload, signature]
+    return dcbor(cbor2.CBORTag(CBOR_TAG_COSE_SIGN1, sign1))
+
+def mutate_manifest(
+    manifest_bytes: bytes,
+    *,
+    new_kid: bytes | None = None,
+    new_suite_id: int | None = None,
+) -> bytes:
+    tag = cbor2.loads(manifest_bytes)
+    if not isinstance(tag, cbor2.CBORTag) or tag.tag != CBOR_TAG_COSE_SIGN1:
+        raise ValueError("manifest must be a COSE_Sign1 tag-18 envelope")
+    array = tag.value
+    if not isinstance(array, list) or len(array) != 4:
+        raise ValueError("COSE_Sign1 must be a 4-element array")
+    protected_bstr = array[0]
+    payload = array[2]
+    if not isinstance(protected_bstr, bytes) or not isinstance(payload, bytes):
+        raise ValueError("unexpected COSE_Sign1 protected/payload types")
+    protected_map = cbor2.loads(protected_bstr)
+    if not isinstance(protected_map, dict):
+        raise ValueError("protected header must decode to a CBOR map")
+
+    if new_kid is not None:
+        if not isinstance(new_kid, bytes) or len(new_kid) != 16:
+            raise ValueError("kid must be 16 bytes per Phase 1")
+        protected_map[COSE_LABEL_KID] = new_kid
+    if new_suite_id is not None:
+        protected_map[COSE_LABEL_SUITE_ID] = int(new_suite_id)
+    # Keep alg pinned to EdDSA so the only failure surface is suite-id (or kid).
+    protected_map[COSE_LABEL_ALG] = ALG_EDDSA
+
+    protected_new = dcbor(protected_map)
+    return cose_sign1(load_seed(), protected=protected_new, payload=payload)
 
 
 def write_zip(out_dir: Path, *, root_dir: str, members: list[str], overrides: dict[str, bytes]):
@@ -88,7 +153,26 @@ def main() -> None:
         overrides={},
     )
 
+    # verify/004: unsupported suite_id in the manifest protected header (§19 step 2.b).
+    manifest_unsupported_suite = mutate_manifest(manifest_bytes, new_suite_id=SUITE_UNSUPPORTED)
+    write_zip(
+        OUT_UNSUPPORTED_SUITE,
+        root_dir=root_dir,
+        members=members,
+        overrides={"000-manifest.cbor": manifest_unsupported_suite},
+    )
+
+    # verify/005: unresolvable manifest kid (§19 step 2.a).
+    manifest_unresolvable_kid = mutate_manifest(
+        manifest_bytes, new_kid=(b"\x00" * 16)
+    )
+    write_zip(
+        OUT_UNRESOLVABLE_KID,
+        root_dir=root_dir,
+        members=members,
+        overrides={"000-manifest.cbor": manifest_unresolvable_kid},
+    )
+
 
 if __name__ == "__main__":
     main()
-
