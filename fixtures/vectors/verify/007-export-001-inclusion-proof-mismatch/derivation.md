@@ -26,7 +26,7 @@ Input ZIP is based on `export/001-two-event-chain/expected-export.zip`.
 
 - Decode `020-inclusion-proofs.cbor`.
 - Select the proof for leaf index 0.
-- Flip a single bit in `leaf_hash`, preserving 32-byte length.
+- Flip a single bit in `leaf_hash`, preserving 32-byte length. The reference generator XORs the least-significant bit of the final byte (`leaf_hash[-1] ^= 0x01`); byte-exact reproduction requires the same LSB flip.
 - Re-serialize `020-inclusion-proofs.cbor` as dCBOR.
 
 ### Step 3: Update manifest digest bindings and re-sign

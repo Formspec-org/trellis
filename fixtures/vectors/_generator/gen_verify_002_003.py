@@ -233,8 +233,13 @@ def main() -> None:
     head_checkpoint_resigned = resign_with_same_protected(
         head_checkpoint_bytes, new_payload=head_payload_new
     )
+    # Rebuild the checkpoints array by byte-concatenating an untouched
+    # checkpoint[0] and the resigned head checkpoint under the 2-element
+    # CBOR array header 0x82. Mirrors gen_export_001.py's events_cbor
+    # construction and avoids an unnecessary cbor2.loads/dumps round-trip
+    # over checkpoint[0]'s already-canonical bytes.
     checkpoint_0_bytes = dcbor(checkpoints[0])
-    checkpoints_new = dcbor([cbor2.loads(checkpoint_0_bytes), cbor2.loads(head_checkpoint_resigned)])
+    checkpoints_new = b"\x82" + checkpoint_0_bytes + head_checkpoint_resigned
 
     manifest_bytes = (SOURCE_EXPORT_DIR / "000-manifest.cbor").read_bytes()
     manifest_tag = cbor2.loads(manifest_bytes)

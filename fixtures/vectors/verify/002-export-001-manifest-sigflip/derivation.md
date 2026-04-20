@@ -24,5 +24,7 @@ Input ZIP is identical to `export/001-two-event-chain/expected-export.zip` excep
 
 **Operation.** COSE_Sign1 is tag-18 4-array `[protected, unprotected, payload, signature]`. The signature is the final element, so flipping any single bit of the final byte of `000-manifest.cbor` mutates only the signature while preserving CBOR decodability.
 
+**Byte-exact pin.** The reference generator XORs the least-significant bit of the final byte of `000-manifest.cbor` (`byte[-1] ^= 0x01`). Any verifier reproducing this vector MUST apply the same LSB flip so the resulting `input-export.zip` is byte-identical to the committed fixture (G-5 stranger test).
+
 **Expected result.** A verifier reaches Core §19 step 2.c, signature verification fails, and the verifier aborts with `structure_verified = false` (and therefore `integrity_verified = false`, `readability_verified = false` by convention for aborted verification).
 
