@@ -1,0 +1,12 @@
+[package]
+name = "trellis-cddl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ciborium = "0.2"
+trellis-types = { path = "../trellis-types" }
+
+[dev-dependencies]
+proptest = "1.6"

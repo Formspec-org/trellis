@@ -1,0 +1,12 @@
+[package]
+name = "trellis-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+trellis-cddl = { path = "../trellis-cddl" }
+trellis-core = { path = "../trellis-core" }
+trellis-export = { path = "../trellis-export" }
+trellis-store-memory = { path = "../trellis-store-memory" }
+trellis-verify = { path = "../trellis-verify" }

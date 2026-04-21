@@ -1,0 +1,10 @@
+[package]
+name = "trellis-cose"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ed25519-dalek = "2.1"
+sha2 = "0.10"
+trellis-types = { path = "../trellis-types" }

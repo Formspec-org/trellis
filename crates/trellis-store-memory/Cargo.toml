@@ -1,0 +1,9 @@
+[package]
+name = "trellis-store-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+trellis-core = { path = "../trellis-core" }
+trellis-types = { path = "../trellis-types" }

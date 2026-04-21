@@ -1,0 +1,10 @@
+[package]
+name = "trellis-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+trellis-cddl = { path = "../trellis-cddl" }
+trellis-cose = { path = "../trellis-cose" }
+trellis-types = { path = "../trellis-types" }

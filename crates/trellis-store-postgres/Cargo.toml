@@ -1,0 +1,13 @@
+[package]
+name = "trellis-store-postgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+postgres = "0.19"
+trellis-core = { path = "../trellis-core" }
+trellis-types = { path = "../trellis-types" }
+
+[dev-dependencies]
+tempfile = "3.14"
