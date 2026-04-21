@@ -19,6 +19,12 @@ holds 7 principles and 4 decided ADRs: **single-parent chain** (ADR 0001),
 
 Every stream below is blocked on this tick-or-redirect.
 
+**Governance rule — zero records before G-5.** No records are issued under
+the Phase-1 envelope shape until the stranger test (G-5) passes. Protects
+the cheap-revision window that minimalism over reservation (ADRs 0001 /
+0002 / 0003) relies on — format drift must remain free to absorb until a
+second impl has proved the spec prose pins the shape.
+
 ---
 
 ## Streams (ordered by Imp × Debt)
@@ -93,6 +99,37 @@ Pure Imp, zero contributor cost — wall-clock runs in parallel.
 - **Flush [`fixtures/vectors/_pending-model-checks.toml`](fixtures/vectors/_pending-model-checks.toml)** — **M**.
   Closes G-2. Depends on G-4 Rust model-check evidence, so sequences
   naturally behind Stream 1.
+
+### 6. WOS `custodyHook` joint ADR
+
+Joint design between WOS and Trellis for the provenance-record shape WOS
+emits and Trellis anchors. Load-bearing for WOS 1.0 closure; mirror of
+WOS TODO Do-next #3.
+
+- **Wire-format ADR** — **M**. Cross-linked ADR in both submodules. Shape
+  covers `{ recordKind, content-hash, WOS lifecycle reference, anchor
+  target }` at minimum; exact surface converges during joint drafting.
+  Trellis-side concern: the record must compose with the existing envelope
+  without reservation-creep (ADR 0003 holds the line).
+
+### 7. O-gates — operational-companion ratification fixtures
+
+Named 1.0 ratification gates from
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
+Cheap relative to G-4 / G-5 but load-bearing for Phase-1 close.
+
+- **O-3 Projection discipline** — **S**. Phase-1 fixtures per Companion
+  §12. Declarative inputs under `fixtures/vectors/_inputs/projection/`;
+  Rust byte-matches per ADR 0004.
+
+- **O-4 Delegated-compute honesty** — **S**. Declaration docs per
+  Companion §19. Covers cases where compute (hashing, signing) is
+  performed by a dependency rather than the Trellis impl itself.
+
+- **O-5 Posture-transition audit** — **M**. Canonical events for custody
+  / disclosure posture changes. Shares `verify/` step-6 fixture surface
+  with Stream 3 but owns its own vector subdirectory and Companion
+  §-pins.
 
 ---
 
