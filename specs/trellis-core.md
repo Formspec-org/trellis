@@ -1250,6 +1250,16 @@ VERIFY(E) -> VerificationReport
 
 4. For each Event COSE_Sign1 e in 010-events.cbor (in order):
      a. Resolve protected-header kid via 030-signing-key-registry.cbor.
+        Check the resolved `SigningKeyEntry` lifecycle against
+        `payload.header.authored_at`:
+          - If `status = Revoked` and `valid_to != null` and
+            `payload.header.authored_at > valid_to`, record
+            `revoked_authority` in `report.event_failures` for that event
+            and continue.
+          - If `status = Revoked` and `valid_to = null`, treat the registry
+            entry as malformed and reject the export.
+        `Retired` is historical-verification-permitted (§8.4) and does not
+        itself fail verification of historical events.
      b. Verify protected-header alg and suite_id, then verify the COSE Sig_structure (§7.4).
      c. Decode the COSE payload as EventPayload; reject unknown top-level fields.
      d. Recompute author_event_hash(payload) per §9.5. Check equals payload.author_event_hash.

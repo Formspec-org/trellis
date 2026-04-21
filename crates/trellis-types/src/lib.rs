@@ -18,6 +18,20 @@ pub const CONTENT_DOMAIN: &str = "trellis-content-v1";
 /// Domain tag for `canonical_event_hash`.
 pub const EVENT_DOMAIN: &str = "trellis-event-v1";
 
+/// Phase-1 Trellis signature suite identifier (Core §7 suite registry).
+pub const SUITE_ID_PHASE_1: u64 = 1;
+
+/// COSE protected-header map label for Trellis `suite_id` (Core §7.4, RFC 9052 §3.1).
+///
+/// This value must stay aligned with Python `COSE_LABEL_SUITE_ID` in
+/// `fixtures/vectors/_generator/_lib/byte_utils.py` and with every runtime
+/// that builds or parses Phase-1 protected headers.
+pub const COSE_LABEL_SUITE_ID: i128 = -65_537;
+
+/// Unsigned magnitude `n` such that the CBOR negative integer `-1 - n` equals
+/// [`COSE_LABEL_SUITE_ID`] (here `n = 65536` gives `-65537`).
+pub const COSE_SUITE_ID_LABEL_MAGNITUDE: u64 = 65_536;
+
 /// Signed and canonical event bytes stored after a successful append.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredEvent {
@@ -137,6 +151,22 @@ pub fn encode_uint(value: u64) -> Vec<u8> {
     encode_major_len(0, value)
 }
 
+/// Encodes a CBOR negative integer `-1 - n` (RFC 8949 major type 1).
+///
+/// For example, `n == 7` yields `-8` (EdDSA `alg` value in COSE headers).
+#[must_use]
+pub fn encode_cbor_negative_int(n: u64) -> Vec<u8> {
+    encode_major_len(1, n)
+}
+
+/// Encodes the CBOR map key bytes for [`COSE_LABEL_SUITE_ID`].
+///
+/// Equivalent to canonical CBOR for integer `-65537` (`-1 - 65536`).
+#[must_use]
+pub fn encode_cose_suite_id_label() -> Vec<u8> {
+    encode_major_len(1, COSE_SUITE_ID_LABEL_MAGNITUDE)
+}
+
 /// Computes a Trellis domain-separated SHA-256 digest.
 pub fn domain_separated_sha256(tag: &str, component: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -167,5 +197,23 @@ fn encode_major_len(major: u8, value: u64) -> Vec<u8> {
             encoded.extend_from_slice(&value.to_be_bytes());
             encoded
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{encode_cose_suite_id_label, encode_uint};
+
+    #[test]
+    fn encode_cose_suite_id_label_matches_historical_bytes() {
+        assert_eq!(
+            encode_cose_suite_id_label(),
+            vec![0x3a, 0x00, 0x01, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn encode_uint_matches_single_byte_for_small_suite_ids() {
+        assert_eq!(encode_uint(1), vec![0x01]);
     }
 }

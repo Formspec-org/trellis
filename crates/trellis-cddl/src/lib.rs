@@ -133,6 +133,17 @@ pub fn parse_canonical_event(bytes: &[u8]) -> Result<ParsedCanonicalEvent, CddlE
     })
 }
 
+/// Map prefix for a CBOR definite-length map of `n` pairs: `(5 << 5) | n`.
+///
+/// Phase-1 append fixtures use a 12-field authored ledger-event map; the
+/// canonical event adds `author_event_hash` as the **13th and last** map entry.
+/// `trellis-verify` recovers the authored preimage by locating that field and
+/// must stay in lockstep with this encoding if the CDDL map shape changes.
+const AUTHORED_LEDGER_EVENT_MAP_ENTRY_COUNT: u8 = 12;
+const AUTHORED_LEDGER_EVENT_MAP_PREFIX: u8 = (5 << 5) | AUTHORED_LEDGER_EVENT_MAP_ENTRY_COUNT;
+const CANONICAL_LEDGER_EVENT_MAP_ENTRY_COUNT: u8 = 13;
+const CANONICAL_LEDGER_EVENT_MAP_PREFIX: u8 = (5 << 5) | CANONICAL_LEDGER_EVENT_MAP_ENTRY_COUNT;
+
 /// Builds the canonical event bytes by adding `author_event_hash` to the
 /// authored-event map.
 ///
@@ -143,14 +154,14 @@ pub fn canonical_event_from_authored(
     authored_event: &[u8],
     author_event_hash: [u8; 32],
 ) -> Result<Vec<u8>, CddlError> {
-    if authored_event.first().copied() != Some(0xac) {
+    if authored_event.first().copied() != Some(AUTHORED_LEDGER_EVENT_MAP_PREFIX) {
         return Err(CddlError::new(
             "append/001 authored event does not start with the expected 12-entry map",
         ));
     }
 
     let mut canonical = Vec::with_capacity(authored_event.len() + 52);
-    canonical.push(0xad);
+    canonical.push(CANONICAL_LEDGER_EVENT_MAP_PREFIX);
     canonical.extend_from_slice(&authored_event[1..]);
     canonical.extend_from_slice(&encode_tstr("author_event_hash"));
     canonical.extend_from_slice(&encode_bstr(&author_event_hash));
