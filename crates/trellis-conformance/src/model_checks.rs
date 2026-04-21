@@ -269,6 +269,10 @@ fn perturb_operational_accidents(candidates: &[Candidate]) -> Vec<Candidate> {
     perturbed
 }
 
+/// Visits all permutations via Heap's method — **O(n!)** in the candidate count.
+///
+/// Permutation count is capped by `candidate_specs_strategy` (`1..=5`
+/// candidates → at most `5! = 120` permutations per proptest case).
 fn visit_permutations<T: Clone>(items: &mut [T], start: usize, visitor: &mut dyn FnMut(&[T])) {
     if start == items.len() {
         visitor(items);

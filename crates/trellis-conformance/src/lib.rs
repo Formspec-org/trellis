@@ -123,22 +123,30 @@ mod tests {
         assert_eq!(report.structure_verified, bool_field(expected_report, "structure_verified"));
         assert_eq!(report.integrity_verified, bool_field(expected_report, "integrity_verified"));
         assert_eq!(report.readability_verified, bool_field(expected_report, "readability_verified"));
+        if let Some(expected_count) = optional_int_field(expected_report, "posture_transition_count")
+        {
+            assert_eq!(report.posture_transitions.len() as i64, expected_count);
+        }
     }
 
     fn assert_tamper_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(manifest, "inputs");
         let expected_report = table_in_table(table(manifest, "expected"), "report");
-        let report = verify_tampered_ledger(
-            &fs::read(root.join(path_field(inputs, "signing_key_registry"))).unwrap(),
-            &fs::read(root.join(path_field(inputs, "ledger"))).unwrap(),
-            optional_path_field(inputs, "initial_posture_declaration")
-                .map(|path| fs::read(root.join(path)).unwrap())
-                .as_deref(),
-            optional_path_field(inputs, "posture_declaration")
-                .map(|path| fs::read(root.join(path)).unwrap())
-                .as_deref(),
-        )
-        .unwrap();
+        let report = if inputs.contains_key("export_zip") {
+            verify_export_zip(&fs::read(root.join(path_field(inputs, "export_zip"))).unwrap())
+        } else {
+            verify_tampered_ledger(
+                &fs::read(root.join(path_field(inputs, "signing_key_registry"))).unwrap(),
+                &fs::read(root.join(path_field(inputs, "ledger"))).unwrap(),
+                optional_path_field(inputs, "initial_posture_declaration")
+                    .map(|path| fs::read(root.join(path)).unwrap())
+                    .as_deref(),
+                optional_path_field(inputs, "posture_declaration")
+                    .map(|path| fs::read(root.join(path)).unwrap())
+                    .as_deref(),
+            )
+            .unwrap()
+        };
 
         assert_eq!(report.structure_verified, bool_field(expected_report, "structure_verified"));
         assert_eq!(report.integrity_verified, bool_field(expected_report, "integrity_verified"));
@@ -147,16 +155,26 @@ mod tests {
         let expected_tamper_kind = pathless_string(expected_report, "tamper_kind");
         if let Some(expected_kind) = expected_tamper_kind {
             assert_eq!(
-                report.event_failures.first().map(|failure| failure.kind.as_str()),
+                first_failure(&report).map(|failure| failure.kind.as_str()),
                 Some(expected_kind.as_str()),
             );
         }
         if let Some(expected_event_id) = pathless_string(expected_report, "failing_event_id") {
             assert_eq!(
-                report.event_failures.first().map(|failure| failure.location.as_str()),
+                first_failure(&report).map(|failure| failure.location.as_str()),
                 Some(expected_event_id.as_str()),
             );
         }
+    }
+
+    fn first_failure(
+        report: &trellis_verify::VerificationReport,
+    ) -> Option<&trellis_verify::VerificationFailure> {
+        report
+            .event_failures
+            .first()
+            .or_else(|| report.checkpoint_failures.first())
+            .or_else(|| report.proof_failures.first())
     }
 
     fn assert_projection_fixture_matches(root: &Path, manifest: &toml::Value) {
@@ -411,6 +429,10 @@ mod tests {
 
     fn int_field(table: &toml::value::Table, key: &str) -> i64 {
         table.get(key).and_then(toml::Value::as_integer).unwrap()
+    }
+
+    fn optional_int_field(table: &toml::value::Table, key: &str) -> Option<i64> {
+        table.get(key).and_then(toml::Value::as_integer)
     }
 
     fn pathless_string(table: &toml::value::Table, key: &str) -> Option<String> {
