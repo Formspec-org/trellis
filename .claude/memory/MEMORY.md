@@ -1,0 +1,1 @@
+- [Trellis Phase-1 MVP framework](trellis_phase1_framework.md) — 7-principle decision model anchoring minimalist + Rust-as-authority + zero-records-before-G-5 posture.
