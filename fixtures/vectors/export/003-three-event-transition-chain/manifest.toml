@@ -1,0 +1,31 @@
+id          = "export/003-three-event-transition-chain"
+op          = "export"
+status      = "active"
+description = """Three-event export over `test-response-ledger`: the append genesis, the committed CM-B → CM-A custody transition, and a generated CM-A → CM-B follow-on transition at sequence 2. Expands the export suite to a larger inclusion/consistency-proof set and the happy-path non-tamper posture-transition surface."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = [
+    "TR-OP-073",
+    "TR-OP-074",
+    "TR-OP-110",
+    "TR-OP-122",
+    "TR-OP-130",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "96be6b2843c595f65b36076d3d9109f2c5a9cc1965422b643340fa1f2e2e25f9"
+
+[derivation]
+document = "derivation.md"

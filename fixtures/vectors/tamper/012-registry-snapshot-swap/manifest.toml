@@ -1,0 +1,19 @@
+id          = "tamper/012-registry-snapshot-swap"
+op          = "tamper"
+status      = "active"
+description = """Registry-binding tamper over `export/003-three-event-transition-chain`. Replaces the bound registry snapshot with the minimal append-only registry from `append/009-signing-key-revocation`, updates the manifest binding digest and member path, and re-signs the manifest. Digest bindings remain valid, but the transition event types are no longer resolvable under the embedded registry snapshot, so Core §19 step 4.j records `registry_digest_mismatch`."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "registry_digest_mismatch"
+
+[derivation]
+document = "derivation.md"

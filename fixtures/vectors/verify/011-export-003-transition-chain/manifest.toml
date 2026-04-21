@@ -1,0 +1,20 @@
+id          = "verify/011-export-003-transition-chain"
+op          = "verify"
+status      = "active"
+description = """Happy-path verify vector for Core §19 step 6. Reuses `export/003-three-event-transition-chain` intact so the verifier emits two clean `PostureTransitionOutcome` records in event order while preserving full archive, checkpoint, and proof integrity."""
+
+[coverage]
+tr_core = ["TR-CORE-067"]
+tr_op = ["TR-OP-041"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = true
+readability_verified = true
+posture_transition_count = 2
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,19 @@
+id          = "tamper/010-missing-head"
+op          = "tamper"
+status      = "active"
+description = """Checkpoint-aware export tamper. Starts from `export/001-two-event-chain`, removes the head checkpoint from `040-checkpoints.cbor`, updates the manifest's `checkpoints_digest`, and re-signs the manifest while leaving `head_checkpoint_digest` pinned to the missing head. The verifier therefore reaches `head_checkpoint_digest_mismatch` as the first integrity failure."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "head_checkpoint_digest_mismatch"
+
+[derivation]
+document = "derivation.md"

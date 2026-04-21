@@ -1,0 +1,31 @@
+id          = "export/004-external-payload-optional-anchor"
+op          = "export"
+status      = "active"
+description = """Single-event export that bundles a `PayloadExternal` body under `060-payloads/<content_hash>.bin` and declares optional external anchoring (`external_anchor_required = false`) in the manifest posture declaration. Exercises export ZIP member variety and manifest-variant coverage without forcing an anchor-resolution failure."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = [
+    "TR-OP-073",
+    "TR-OP-074",
+    "TR-OP-110",
+    "TR-OP-122",
+    "TR-OP-130",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "4bc33ab787c9d861fd4254755540ae06f17420ce5a36c93624c6fbc00d43e8e9"
+
+[derivation]
+document = "derivation.md"

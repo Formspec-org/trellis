@@ -1,0 +1,28 @@
+id          = "verify/008-export-001-prev-checkpoint-hash-mismatch"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector: checkpoint prev_checkpoint_hash mismatch. Takes \
+`export/001-two-event-chain` and rewrites the head checkpoint payload’s \
+`prev_checkpoint_hash` (then re-signs that checkpoint and re-signs the manifest \
+with updated digests) so ZIP structure, manifest bindings, checkpoint roots, \
+and inclusion proofs all remain valid but Core §19 step 5.d fails as a \
+localizable integrity failure. Expected: structure passes, integrity fails. \
+TR-OP-041 (posture-tier declaration) is intentionally not claimed: this vector \
+is scoped to the §19 step 5.d integrity surface; posture coverage lives on \
+`verify/001` and on the declaration-doc lint."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-067",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,22 @@
+id          = "tamper/009-prev-hash-break"
+op          = "tamper"
+status      = "active"
+description = """Mutates `append/005-prior-head-chain`'s `prev_hash`, recomputes the dependent `author_event_hash`, and re-signs the event so the verifier reaches the dedicated `prev_hash_break` branch instead of failing signature or author-hash integrity earlier."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "prev_hash_break"
+failing_event_id     = "1b846e96eee34b6fc8baaa989a3bbea867c48d0f1061d532dae60f51e270056e"
+
+[derivation]
+document = "derivation.md"

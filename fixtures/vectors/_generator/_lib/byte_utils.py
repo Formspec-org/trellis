@@ -23,6 +23,7 @@ import cbor2
 COSE_LABEL_ALG: int = 1
 COSE_LABEL_KID: int = 4
 # §7.4: Trellis-reserved label for suite_id in the COSE protected header.
+# Must match `trellis_types::COSE_LABEL_SUITE_ID` in `crates/trellis-types`.
 COSE_LABEL_SUITE_ID: int = -65537
 
 # §7.1 COSE algorithm value for EdDSA.

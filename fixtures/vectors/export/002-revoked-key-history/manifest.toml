@@ -1,0 +1,31 @@
+id          = "export/002-revoked-key-history"
+op          = "export"
+status      = "active"
+description = """Single-event export whose embedded signing-key registry resolves a `Revoked` key with a non-null historical `valid_to`, exercising export-side key-material handling without invalidating pre-compromise signatures."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = [
+    "TR-OP-073",
+    "TR-OP-074",
+    "TR-OP-110",
+    "TR-OP-122",
+    "TR-OP-130",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "aea64342ed56483b576abbe3c16b487018867d4a118bf840bc1635aba0ed58ca"
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,28 @@
+id          = "verify/009-export-001-consistency-proof-mismatch"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector: consistency proof mismatch. Takes \
+`export/001-two-event-chain` and flips one bit in \
+`025-consistency-proofs.cbor`'s only proof-path node (then re-signs the \
+manifest with updated digests) so ZIP structure, manifest bindings, \
+checkpoint roots, and inclusion proofs remain valid but Core §19 step 5.e \
+fails as a localizable integrity failure. Expected: structure passes, \
+integrity fails. TR-OP-041 (posture-tier declaration) is intentionally not \
+claimed: this vector is scoped to the §19 step 5.e integrity surface; posture \
+coverage lives on `verify/001` and on the declaration-doc lint."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-067",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+
+[derivation]
+document = "derivation.md"

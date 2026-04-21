@@ -1,0 +1,19 @@
+id          = "tamper/011-wrong-scope"
+op          = "tamper"
+status      = "active"
+description = """Manifest-only scope tamper. Re-signs `export/001-two-event-chain` after changing `manifest.scope` to a different ledger-scope byte string, leaving event, checkpoint, and proof material untouched so the first localizable failure is the verifier's scope check."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "scope_mismatch"
+
+[derivation]
+document = "derivation.md"

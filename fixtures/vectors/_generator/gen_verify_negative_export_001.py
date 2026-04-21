@@ -12,6 +12,8 @@ Outputs (all read from `export/001-two-event-chain/` as ground truth):
 - verify/005-export-001-unresolvable-manifest-kid  (fatal, §19 step 2.a)
 - verify/006-export-001-checkpoint-root-mismatch   (localizable, §19 step 5.c + 7.b)
 - verify/007-export-001-inclusion-proof-mismatch   (localizable, §19 step 7.b)
+- verify/008-export-001-prev-checkpoint-hash-mismatch (localizable, §19 step 5.d)
+- verify/009-export-001-consistency-proof-mismatch (localizable, §19 step 5.e)
 
 Authoring aid only. This script is NOT normative; the vectors' derivation.md
 documents cite Core § prose as the reproduction authority.
@@ -54,6 +56,8 @@ OUT_UNSUPPORTED_SUITE = ROOT / "verify" / "004-export-001-unsupported-suite"
 OUT_UNRESOLVABLE_KID = ROOT / "verify" / "005-export-001-unresolvable-manifest-kid"
 OUT_CHECKPOINT_ROOT_MISMATCH = ROOT / "verify" / "006-export-001-checkpoint-root-mismatch"
 OUT_INCLUSION_PROOF_MISMATCH = ROOT / "verify" / "007-export-001-inclusion-proof-mismatch"
+OUT_PREV_CHECKPOINT_HASH_MISMATCH = ROOT / "verify" / "008-export-001-prev-checkpoint-hash-mismatch"
+OUT_CONSISTENCY_PROOF_MISMATCH = ROOT / "verify" / "009-export-001-consistency-proof-mismatch"
 
 
 SUITE_UNSUPPORTED = 999
@@ -286,6 +290,87 @@ def main() -> None:
         overrides={
             "000-manifest.cbor": manifest_resigned,
             "020-inclusion-proofs.cbor": inclusion_new,
+        },
+    )
+
+    # verify/008: prev_checkpoint_hash mismatch (step 5.d localizable failure).
+    checkpoints_bytes = (SOURCE_EXPORT_DIR / "040-checkpoints.cbor").read_bytes()
+    checkpoints = cbor2.loads(checkpoints_bytes)
+    if not isinstance(checkpoints, list) or len(checkpoints) != 2:
+        raise ValueError("export/001 expected 2 checkpoints")
+    head_checkpoint = checkpoints[1]
+    if not isinstance(head_checkpoint, cbor2.CBORTag) or head_checkpoint.tag != CBOR_TAG_COSE_SIGN1:
+        raise ValueError("checkpoint must be COSE_Sign1 tag-18")
+    head_array = head_checkpoint.value
+    head_payload_bstr = head_array[2]
+    head_payload = cbor2.loads(head_payload_bstr)
+    prev_checkpoint_hash = head_payload["prev_checkpoint_hash"]
+    if not isinstance(prev_checkpoint_hash, bytes) or len(prev_checkpoint_hash) != 32:
+        raise ValueError("expected 32-byte prev_checkpoint_hash")
+    head_payload["prev_checkpoint_hash"] = prev_checkpoint_hash[:-1] + bytes(
+        [prev_checkpoint_hash[-1] ^ 0x01]
+    )
+    head_payload_new = dcbor(head_payload)
+    head_checkpoint_bytes = dcbor(head_checkpoint)
+    head_checkpoint_resigned = resign_with_same_protected(
+        head_checkpoint_bytes, new_payload=head_payload_new
+    )
+    checkpoint_0_bytes = dcbor(checkpoints[0])
+    checkpoints_new = b"\x82" + checkpoint_0_bytes + head_checkpoint_resigned
+
+    manifest_tag = cbor2.loads(manifest_bytes)
+    manifest_payload = cbor2.loads(manifest_tag.value[2])
+    manifest_payload["checkpoints_digest"] = sha256(checkpoints_new)
+    manifest_payload["head_checkpoint_digest"] = checkpoint_digest(
+        manifest_payload["scope"], head_payload
+    )
+    manifest_payload_new = dcbor(manifest_payload)
+    manifest_resigned = resign_with_same_protected(
+        manifest_bytes, new_payload=manifest_payload_new
+    )
+    write_zip(
+        OUT_PREV_CHECKPOINT_HASH_MISMATCH,
+        root_dir=root_dir,
+        members=members,
+        overrides={
+            "000-manifest.cbor": manifest_resigned,
+            "040-checkpoints.cbor": checkpoints_new,
+        },
+    )
+
+    # verify/009: consistency proof mismatch (step 5.e localizable failure).
+    consistency_bytes = (SOURCE_EXPORT_DIR / "025-consistency-proofs.cbor").read_bytes()
+    consistency = cbor2.loads(consistency_bytes)
+    if not isinstance(consistency, list) or len(consistency) != 1:
+        raise ValueError("export/001 expected 1 consistency proof record")
+    proof_record = consistency[0]
+    if not isinstance(proof_record, dict):
+        raise ValueError("consistency proof record must be a map")
+    proof_path = proof_record["proof_path"]
+    if not isinstance(proof_path, list) or len(proof_path) != 1:
+        raise ValueError("export/001 expected 1 proof_path node")
+    sibling = proof_path[0]
+    if not isinstance(sibling, bytes) or len(sibling) != 32:
+        raise ValueError("expected 32-byte consistency proof node")
+    proof_path[0] = sibling[:-1] + bytes([sibling[-1] ^ 0x01])
+    proof_record["proof_path"] = proof_path
+    consistency[0] = proof_record
+    consistency_new = dcbor(consistency)
+
+    manifest_tag = cbor2.loads(manifest_bytes)
+    manifest_payload = cbor2.loads(manifest_tag.value[2])
+    manifest_payload["consistency_proofs_digest"] = sha256(consistency_new)
+    manifest_payload_new = dcbor(manifest_payload)
+    manifest_resigned = resign_with_same_protected(
+        manifest_bytes, new_payload=manifest_payload_new
+    )
+    write_zip(
+        OUT_CONSISTENCY_PROOF_MISMATCH,
+        root_dir=root_dir,
+        members=members,
+        overrides={
+            "000-manifest.cbor": manifest_resigned,
+            "025-consistency-proofs.cbor": consistency_new,
         },
     )
 
