@@ -1108,6 +1108,15 @@ class TestVerifyReportConsistency(unittest.TestCase):
         self.assertTrue(errors)
         self.assertIn("[expected.report]", errors[0])
 
+    def test_localizable_without_expected_report_fails(self):
+        errors = self._run({
+            "op": "verify",
+            "description": "Negative: step 5.c localizable failure.",
+        })
+        self.assertTrue(errors)
+        self.assertIn("[expected.report]", errors[0])
+        self.assertIn("localizable", errors[0])
+
     def test_real_corpus_is_clean(self):
         # Guard against regressions in the committed verify/* vectors: the
         # real fixtures MUST pass R12 so the lint stays green.
