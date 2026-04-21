@@ -1,6 +1,6 @@
 # Trellis Phase-1 MVP — Principles and Format ADRs
 
-**Status:** Draft, 2026-04-20. Pending user validation.
+**Status:** Accepted, 2026-04-20.
 
 Captures the vision model used to decide the three open format lock-ins
 (event topology, anchor cardinality, federation hooks) and the
@@ -17,9 +17,9 @@ revising the ADRs; downstream decisions flow from them mechanically.
 - Integrity maintained via two independent byte-level implementations
   (Rust + Python) that must agree.
 
-Authority: this posture overrides vision-model:279 ("minimalism over
-reservation"), which was captured as a placeholder before the maximalist
-directive landed. Vision-model will be updated after validation.
+Authority: this posture overrides the earlier Trellis placeholder in
+`vision-model.md` ("minimalism over reservation"). The vision model is
+updated in lockstep with this accepted document.
 
 ---
 
@@ -291,23 +291,19 @@ validated.
 
 ---
 
-## Validation checklist (for the human)
+## Validation checklist
 
-Tick each item if you agree; redirect if not.
+Validated by owner signal on 2026-04-20 when dispatch moved from task
+construction to execution.
 
-- [ ] Principles 1–7 match your intent under the maximalist directive.
-- [ ] ADR 0001 (DAG envelope, length-1 runtime) is the correct synthesis
+- [x] Principles 1–7 match intent under the maximalist directive.
+- [x] ADR 0001 (DAG envelope, length-1 runtime) is the correct synthesis
       of "be maximalist" for event topology.
-- [ ] ADR 0002 (list-form anchor envelope, multi-anchor legal from day 1,
+- [x] ADR 0002 (list-form anchor envelope, multi-anchor legal from day 1,
       substrate choice deferred to spike) matches.
-- [ ] ADR 0003 (§22 + §24 envelope hooks reserved, MUST-NOT-populate at
-      Phase 1) is the right reservation scope (or name missing fields).
-- [ ] ADR 0004 (retain Python as cross-check, not retire) is the right
+- [x] ADR 0003 (§22 + §24 envelope hooks reserved, MUST-NOT-populate at
+      Phase 1) is the right reservation scope.
+- [x] ADR 0004 (retain Python as cross-check, not retire) is the right
       reading of "maximalist" applied to implementations.
-- [ ] "Revisit when" triggers on each ADR are the right conditions to
+- [x] "Revisit when" triggers on each ADR are the right conditions to
       re-open the decision.
-
-If all six tick, mark this doc **Accepted**, commit it, update
-`vision-model.md`, and pull pointers into `TODO.md` so the Blocker section
-collapses to "done — see this doc" and the Architecture fork section
-collapses to "dual-impl cross-check locked in."
