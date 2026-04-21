@@ -18,6 +18,22 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 9 (working tree) — G-2 traceability cleanup
+
+Closed the remaining local ratification bookkeeping before G-5:
+
+- Added explicit `Core §N` / `Companion §N` anchors to every
+  `spec-cross-ref` matrix row that lacked one.
+- Flipped G-2 in `ratification/ratification-checklist.md` after
+  byte-vector, model-check, declaration-doc, projection-drill, and
+  spec-cross-ref evidence all had live checks or fixtures.
+- Reconciled `TODO.md` and the executable dispatch doc: O-3/O-4/O-5 are
+  closed, the G-5 commission brief exists, and ratification close-out is
+  blocked on the independent G-5 implementation only.
+- Packaged the tracked G-5 allowed read set under `ratification/g5-package/`
+  with per-file and archive SHA-256 checksums. The package excludes forbidden
+  paths and untracked workspace files.
+
 ### Wave 8 (4 commits `ee57780..b0f114d`) — Wave 6 tail closure
 
 Closed out the Wave 6 tail that had been sitting in the working tree. Four

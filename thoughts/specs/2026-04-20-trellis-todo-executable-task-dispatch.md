@@ -104,7 +104,8 @@ blocked for its own dependency reasons, not because the architecture is open.
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
 | S2-01 | NOT-HONEST-FOR-THIS-AGENT | Implement the stranger test in this thread. | Do not do this here; the thread has already read plans, generators, and repo internals. |
-| S2-02 | READY-NOW | Draft a clean commission brief for an independent `trellis-py` or `trellis-go` implementor that names allowed and forbidden inputs. | Brief exists and cites only the three normative specs plus the vector corpus. |
+| S2-02 | COMPLETED | Draft a clean commission brief for an independent `trellis-py` or `trellis-go` implementor that names allowed and forbidden inputs. | `2026-04-21-trellis-g5-stranger-commission-brief.md` exists and names allowed/forbidden inputs. |
+| S2-02a | COMPLETED | Package the tracked allowed read set for handoff without forbidden paths. | `ratification/g5-package/trellis-g5-allowed-readset-2026-04-21.tar.gz` exists; forbidden-path scan is empty; archive checksum verifies. |
 | S2-03 | BLOCKED-EXTERNAL | Commission the independent implementor. | A genuinely separate implementor accepts the brief. |
 | S2-04 | BLOCKED-EXTERNAL | Run the stranger implementation against the corpus and capture byte-match evidence. | G-5 evidence is recorded in `ratification/ratification-checklist.md`. |
 
@@ -152,6 +153,8 @@ blocked for its own dependency reasons, not because the architecture is open.
 | M5-08 | COMPLETED | Add model-check evidence for `TR-OP-061` (conflict handling scoped to affected facts/scope). | Row removed from allowlist; evidence recorded. |
 | M5-09 | COMPLETED | Add model-check evidence for `TR-OP-111` (operational testing guidance exercised concretely). | Row removed from allowlist; evidence recorded. |
 | M5-10 | COMPLETED | Empty [`fixtures/vectors/_pending-model-checks.toml`](../../fixtures/vectors/_pending-model-checks.toml). | Allowlist is empty and lint stays green. |
+| M5-11 | COMPLETED | Add concrete `Core §N` / `Companion §N` anchors for remaining `spec-cross-ref` warning rows. | `python3 scripts/check-specs.py` passes with no warnings. |
+| M5-12 | COMPLETED | Flip G-2 invariant coverage in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | G-2 row is checked and cites byte-vector, model-check, declaration-doc, projection-drill, and spec-cross-ref evidence. |
 
 ## Stream 5 — WOS `custodyHook` joint ADR
 
@@ -166,28 +169,29 @@ blocked for its own dependency reasons, not because the architecture is open.
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
-| O7-01 | COMPLETED | Author O-3 fixture inputs under `fixtures/vectors/_inputs/projection/` once the Rust conformance path exists. | Inputs are committed and consumed by the Rust runner. |
-| O7-02 | READY-NOW | Land O-4 declaration docs per Companion §19 for every delegated-compute deployment fixture. | Declaration docs exist and pass the current validator. |
-| O7-03 | READY-NOW | Author the remaining O-5 canonical events for custody/disclosure posture changes if new gaps remain beyond `append/006..008` and `tamper/002..004`. | O-5 gap list is empty. |
-| O7-04 | READY-NOW | Record evidence SHAs for O-3 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-3 gate has concrete evidence pointers. |
-| O7-05 | READY-NOW | Record evidence SHAs for O-4 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-4 gate has concrete evidence pointers. |
-| O7-06 | READY-NOW | Record evidence SHAs for O-5 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-5 gate has concrete evidence pointers. |
+| O7-01 | COMPLETED | Author O-3 projection/shred fixtures once the Rust conformance path exists. | Projection and shred fixtures are committed and consumed by the Rust runner. |
+| O7-02 | COMPLETED | Land O-4 declaration docs per Companion §19 for every delegated-compute deployment fixture. | Declaration docs exist and pass the current validator. |
+| O7-03 | COMPLETED | Author the remaining O-5 canonical events for custody/disclosure posture changes if new gaps remain beyond `append/006..008` and `tamper/002..004`. | O-5 gap list is empty. |
+| O7-04 | COMPLETED | Record evidence SHAs for O-3 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-3 gate has concrete evidence pointers. |
+| O7-05 | COMPLETED | Record evidence SHAs for O-4 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-4 gate has concrete evidence pointers. |
+| O7-06 | COMPLETED | Record evidence SHAs for O-5 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-5 gate has concrete evidence pointers. |
 
 ## Ratification close-out
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
-| Z-01 | READY-NOW | When all seven gates flip, update the ratification checklist with final evidence SHAs. | Checklist is the evidence-of-record with no placeholders. |
-| Z-02 | READY-NOW | Strike `(Draft)` from Core and Companion titles. | Normative docs reflect ratified status. |
-| Z-03 | READY-NOW | Cut the version tag. | Version tag exists and matches the ratified surface. |
+| Z-01 | BLOCKED-EXTERNAL | When all seven gates flip, update the ratification checklist with final evidence SHAs. | Checklist is the evidence-of-record with no placeholders. |
+| Z-02 | BLOCKED-EXTERNAL | Strike `(Draft)` from Core and Companion titles. | Normative docs reflect ratified status. |
+| Z-03 | BLOCKED-EXTERNAL | Cut the version tag. | Version tag exists and matches the ratified surface. |
 
 ## Suggested remaining execution order
 
 1. ~~`G0-07` through `G0-10`~~ — COMPLETED.
 2. ~~`R1-01` through `R1-16`~~ — COMPLETED.
 3. ~~`R2-01` through `R2-32`~~ — COMPLETED.
-4. `O7-02` through `O7-06` — close the remaining O-gates (O7-01 done).
-5. `Z-01` through `Z-03` — ratify.
+4. ~~`O7-02` through `O7-06`~~ — COMPLETED.
+5. `S2-03` through `S2-04` — commission and collect the independent G-5 implementation.
+6. `Z-01` through `Z-03` — ratify after G-5.
 
 ## Deliberate non-dispatches
 

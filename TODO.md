@@ -44,21 +44,23 @@ corpus byte-for-byte. This stream now tracks sustaining work only.
   New vectors (from Stream 3) need a corresponding Rust conformance entry.
 
 - **Commit declarative inputs under `_inputs/<op>/`** — **S–M**.
-  `fixtures/vectors/_inputs/` has scaffolding only; per-op declarative
-  inputs are the remaining gap for full ADR-0004 traceability.
+  `fixtures/vectors/_inputs/` has shared payload inputs only; most committed
+  vectors remain self-contained in their vector directories. Per-op
+  declarative inputs remain useful for full ADR-0004 traceability, but this is
+  sustaining work, not a ratification blocker.
 
 ### 2. G-5 stranger implementation
 
 Pure Imp, zero contributor cost — wall-clock runs in parallel.
 
 - **Commission `trellis-py` or `trellis-go`** — **L** (elapsed).
-  Implementor reads
-  [`specs/trellis-core.md`](specs/trellis-core.md) +
-  [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) +
-  [`specs/trellis-agreement.md`](specs/trellis-agreement.md) only — never
-  `fixtures/vectors/_generator/`, never the Rust impl. Builds against
-  whatever vectors exist; adds coverage as the corpus grows. Closes when
-  byte-match parity is reached.
+  Commission brief is drafted at
+  [`thoughts/specs/2026-04-21-trellis-g5-stranger-commission-brief.md`](thoughts/specs/2026-04-21-trellis-g5-stranger-commission-brief.md).
+  Clean tracked-file read-set package is staged at
+  [`ratification/g5-package/`](ratification/g5-package/).
+  Implementor reads only the allowed inputs named there — never
+  `fixtures/vectors/_generator/`, never the Rust impl, never planning docs.
+  Closes when a genuinely independent implementation byte-matches the corpus.
 
 ### 3. Vector authoring (feeds Stream 1)
 
@@ -100,37 +102,22 @@ Drafts landed:
 - [`../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md`](../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
 - [`thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md`](thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md)
 
-- **Wire-format ADR** — **M**. Cross-linked ADR in both submodules. Shape
-  covers `{ recordKind, content-hash, WOS lifecycle reference, anchor
-  target }` at minimum; exact surface converges during joint drafting.
-  Trellis-side concern: the record must compose with the existing envelope
-  without reservation-creep (ADR 0003 holds the line).
+No open Trellis-side ADR task remains in this stream. Next changes should be
+driven by WOS-side review or cross-submodule implementation work.
 
 ### 6. O-gates — operational-companion ratification fixtures
 
 Named 1.0 ratification gates from
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
-Cheap relative to G-4 / G-5 but load-bearing for Phase-1 close.
-
-- **O-3 Projection discipline** — **S**. Phase-1 fixtures per Companion
-  §12. Declarative inputs under `fixtures/vectors/_inputs/projection/`;
-  Rust byte-matches per ADR 0004.
-
-- **O-4 Delegated-compute honesty** — **S**. Declaration docs per
-  Companion §19. Covers cases where compute (hashing, signing) is
-  performed by a dependency rather than the Trellis impl itself.
-
-- **O-5 Posture-transition audit** — **M**. Canonical events for custody
-  / disclosure posture changes. Shares `verify/` step-6 fixture surface
-  with Stream 3 but owns its own vector subdirectory and Companion
-  §-pins.
+O-3, O-4, and O-5 are closed. Reopen this stream only if the operational
+companion grows new ratification surface.
 
 ---
 
 ## Ratification close-out
 
 - **Close out** — **XS** (mechanical).
-  When all 7 gates flip to `[x]`: update
+  Blocked on G-5. When G-5 flips to `[x]`: update
   [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)
   with final evidence SHAs, strike "(Draft)" from Core + Companion titles,
   cut a version tag.
