@@ -51,16 +51,25 @@ corpus byte-for-byte. This stream now tracks sustaining work only.
 
 ### 2. G-5 stranger implementation
 
-Pure Imp, zero contributor cost — wall-clock runs in parallel.
+Pure Imp, zero contributor cost — wall-clock runs in parallel. In-repo
+**`trellis-py/`** now ships a second Python implementation (append, verify,
+export ZIP, plus projection/shred runner checks) with a local conformance
+walker; a full run reports **45/45** vectors passing against
+`fixtures/vectors/`. Evidence bundle: `trellis-py/BYTE-MATCH-REPORT.json`,
+`ALLOWED-READ-MANIFEST.txt`, `ATTESTATION.md`, `DISCREPANCY-LOG.txt`.
 
-- **Commission `trellis-py` or `trellis-go`** — **L** (elapsed).
-  Commission brief is drafted at
+**Ratification gate (unchanged):** formal G-5 close still requires a
+**clean-room** stranger pass per the commission brief (allowed read set only,
+no `crates/` or generators), then checklist evidence in
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
+Until that attestation lands, the governance rule at the top of this file
+(**zero records before G-5**) stays in force.
+
+- **Stranger wall + checklist evidence** — **M** (coordination).
+  Commission brief:
   [`thoughts/specs/2026-04-21-trellis-g5-stranger-commission-brief.md`](thoughts/specs/2026-04-21-trellis-g5-stranger-commission-brief.md).
-  Clean tracked-file read-set package is staged at
+  Handoff package:
   [`ratification/g5-package/`](ratification/g5-package/).
-  Implementor reads only the allowed inputs named there — never
-  `fixtures/vectors/_generator/`, never the Rust impl, never planning docs.
-  Closes when a genuinely independent implementation byte-matches the corpus.
 
 ### 3. Vector authoring (feeds Stream 1)
 
@@ -91,19 +100,33 @@ No additional vector-authoring queue remains unless the spec surface grows.
   Phase-1 lint enforces `MUST NOT populate`. Substance (what goes in the
   hooks) defers to Phase 4 scoping.
 
-### 5. WOS `custodyHook` joint ADR
+### 5. WOS `custodyHook` joint ADR — cascade execution
 
 Joint design between WOS and Trellis for the provenance-record shape WOS
 emits and Trellis anchors. Load-bearing for WOS 1.0 closure; mirror of
-WOS TODO Do-next #3.
+WOS TODO Do-next **#1**.
 
-Drafts landed:
+**ADR landed (Accepted):**
 
 - [`../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md`](../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
 - [`thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md`](thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md)
 
-No open Trellis-side ADR task remains in this stream. Next changes should be
-driven by WOS-side review or cross-submodule implementation work.
+Resolution: dCBOR-via-hybrid authored bytes; TypeID identifiers
+(`{tenant}_{type}_{uuidv7_base32}`); two-tuple idempotency
+`(caseId, recordId)`; domain tag `trellis-wos-idempotency-v1`; canonical
+idempotency input is the CBOR map `{"caseId": ..., "recordId": ...}` with
+dCBOR lex-sorted keys and both values as plain CBOR text strings; narrow
+four-field wire; one-field return contract `canonical_event_hash`.
+
+`append/010-wos-custody-hook-state-transition` is regenerated against the
+accepted ADR shape: dCBOR authored payload, TypeID-shaped `caseId` /
+`recordId`, two-field idempotency tuple, and
+`trellis-wos-idempotency-v1`. Trellis Operational Companion §24.9 was checked
+and does not reference the stale 12-field or 3-tuple draft. Rust conformance
+replay passes with `append/010` present.
+
+No open Trellis-side task remains in this stream. Next changes should be
+driven by WOS-side implementation or a new cross-submodule review finding.
 
 ### 6. O-gates — operational-companion ratification fixtures
 
@@ -111,6 +134,55 @@ Named 1.0 ratification gates from
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
 O-3, O-4, and O-5 are closed. Reopen this stream only if the operational
 companion grows new ratification surface.
+
+### 7. Open stack contracts — cross-layer coordination
+
+From [STACK.md Open Contracts](../STACK.md#open-contracts). Four contracts
+that declare Trellis-side shape for events and bundle manifests WOS or
+Formspec originate. None delay G-5 — the envelope shape is free to absorb
+revision during the cheap-revision window (pre-issuance), and per ADR 0003
+any reserved-but-not-populated fields stay locked off until their phase
+opens.
+
+- **(a) Evidence integrity — attachment hash binding** — **M**, Phase 1.
+  Formspec intake attachments (pay stubs, ID photos, supporting documents)
+  bind into the chain as `PayloadExternal` with content hash. Declares a
+  canonical event kind for "attachment-bound" that references the
+  attachment's SHA-256 and media type. Bundle includes attachments as
+  top-level members when `inline_attachments: true`. Storage stays adapter;
+  binding shape is center. **Gate: none — Phase-1-safe, coordinates with
+  Formspec Respondent Ledger §6 companion.**
+
+- **(b) Identity attestation bundle shape** — **S**, Phase 1.
+  Declares how an identity-proofing attestation (from provider-neutral
+  adapter) lands in the record as a canonical event kind and travels in
+  the export bundle. Coordinates with WOS identity-attestation shape
+  backlog item. **Gate: WOS identity-attestation shape settled.**
+
+- **(c) Signature certificate-of-completion bundle format** — **M**,
+  Phase 1. Declares the bundle manifest that carries
+  `SignatureAffirmation` records (WOS-emitted per Signature Profile),
+  signed document hashes, signer attestations, and consent references
+  into an offline-verifiable cert-of-completion export. Pairs with WOS
+  TODO Do-next **#6** Signature Profile. **Gate: WOS α DocuSign parity
+  bar confirmed.**
+
+- **(d) ADR 0066 — amendment / supersession / rescission / correction** — **L**, phased.
+  [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
+  Phase 1: reserve `supersedes_chain_id` in envelope header under
+  ADR 0003 MUST-NOT-populate discipline; land `append/011-correction`,
+  `append/012-amendment`, `append/013-rescission` vectors; extend
+  verifier with D-3 correction-preservation and rescission-terminality
+  checks. Phase 4: activate supersession runtime; draft and land
+  `supersession-graph.json` bundle manifest. **Gate: ADR 0066 accepted.**
+
+- **(e) ADR 0067 — statutory clocks** — **M**, Phase 1.
+  [`../thoughts/adr/0067-stack-statutory-clocks.md`](../thoughts/adr/0067-stack-statutory-clocks.md).
+  Add `open-clocks.json` manifest to export bundle spec; extend verifier
+  with D-3 advisory diagnostic for expired-unresolved clocks; land
+  `append/014-clock-started`, `append/015-clock-satisfied`,
+  `append/016-clock-elapsed`, `append/017-clock-paused-resumed` vectors.
+  **Gate: ADR 0067 accepted.**
 
 ---
 
@@ -148,6 +220,7 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 | Implementation plans | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` |
 | Fixture corpus (ground truth) | `fixtures/vectors/` | `ls fixtures/vectors/*/` |
 | Rust reference implementation | `crates/` | `cargo test --workspace` |
+| Python cross-check (G-5 harness) | `trellis-py/` | `pip install -e trellis-py && python -m trellis_py.conformance` |
 | Lint + test green | — | `python3 scripts/check-specs.py && python3 -m pytest scripts/ && cargo test --workspace` |
 | Recent commits, who changed what | — | `git log --oneline` |
 

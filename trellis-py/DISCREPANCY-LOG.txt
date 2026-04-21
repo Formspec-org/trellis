@@ -1,0 +1,2 @@
+No spec or vector discrepancies observed in the last conformance run (failed=0).
+If a vector fails, log: vector id, artifact paths, and Core / Companion section citations only.

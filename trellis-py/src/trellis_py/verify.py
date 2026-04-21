@@ -1,0 +1,1227 @@
+"""Offline export ZIP and tamper-ledger verification (Core §19)."""
+
+from __future__ import annotations
+
+import io
+import zipfile
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+import cbor2
+from cbor2 import CBORTag
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+from trellis_py.codec import (
+    domain_separated_sha256,
+    encode_bstr,
+    encode_tstr,
+    encode_uint,
+    sig_structure_bytes,
+)
+from trellis_py.constants import (
+    ALG_EDDSA,
+    AUTHOR_EVENT_DOMAIN,
+    CHECKPOINT_DOMAIN,
+    CONTENT_DOMAIN,
+    COSE_LABEL_ALG,
+    COSE_LABEL_KID,
+    COSE_LABEL_SUITE_ID,
+    EVENT_DOMAIN,
+    MERKLE_INTERIOR_DOMAIN,
+    MERKLE_LEAF_DOMAIN,
+    POSTURE_DECLARATION_DOMAIN,
+    SUITE_ID_PHASE_1,
+)
+
+
+@dataclass
+class VerificationFailure:
+    kind: str
+    location: str
+
+
+@dataclass
+class PostureTransitionOutcome:
+    transition_id: str
+    kind: str
+    event_index: int
+    from_state: str
+    to_state: str
+    continuity_verified: bool
+    declaration_resolved: bool
+    attestations_verified: bool
+    failures: list[str] = field(default_factory=list)
+
+
+@dataclass
+class VerificationReport:
+    structure_verified: bool = False
+    integrity_verified: bool = False
+    readability_verified: bool = False
+    event_failures: list[VerificationFailure] = field(default_factory=list)
+    checkpoint_failures: list[VerificationFailure] = field(default_factory=list)
+    proof_failures: list[VerificationFailure] = field(default_factory=list)
+    posture_transitions: list[PostureTransitionOutcome] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @staticmethod
+    def fatal(kind: str, warning: str) -> VerificationReport:
+        return VerificationReport(
+            structure_verified=False,
+            integrity_verified=False,
+            readability_verified=False,
+            event_failures=[VerificationFailure(kind, "structure")],
+            warnings=[warning],
+        )
+
+
+class VerifyError(Exception):
+    pass
+
+
+@dataclass
+class ParsedSign1:
+    protected_bytes: bytes
+    kid: bytes
+    alg: int
+    suite_id: int
+    payload: Optional[bytes]
+    signature: bytes
+
+
+@dataclass
+class SigningKeyEntry:
+    public_key: bytes
+    status: int
+    valid_to: Optional[int]
+
+
+@dataclass
+class RegistryBindingInfo:
+    digest_hex: str
+    bound_at_sequence: int
+
+
+@dataclass
+class BoundRegistry:
+    event_types: list[str]
+    classifications: list[str]
+
+
+@dataclass
+class EventDetails:
+    scope: bytes
+    sequence: int
+    authored_at: int
+    event_type: str
+    classification: str
+    prev_hash: Optional[bytes]
+    author_event_hash: bytes
+    content_hash: bytes
+    canonical_event_hash: bytes
+    payload_ref_inline: Optional[bytes]
+    payload_ref_external: bool
+    transition: Optional["TransitionDetails"]
+
+
+@dataclass
+class TransitionDetails:
+    transition_id: str
+    from_state: str
+    to_state: str
+    declaration_digest: bytes
+    attestation_classes: list[str]
+
+
+def _sha256(b: bytes) -> bytes:
+    import hashlib
+
+    return hashlib.sha256(b).digest()
+
+
+def _hex(b: bytes) -> str:
+    return b.hex()
+
+
+def _hex_decode(text: str) -> bytes:
+    if len(text) % 2:
+        raise VerifyError("hex string must have even length")
+    out = bytearray()
+    for i in range(0, len(text), 2):
+        out.append(int(text[i : i + 2], 16))
+    return bytes(out)
+
+
+def _decode_value(data: bytes) -> Any:
+    try:
+        return cbor2.loads(data)
+    except Exception as exc:  # noqa: BLE001
+        raise VerifyError(f"failed to decode CBOR: {exc}") from exc
+
+
+def _map_lookup_str(m: dict, key: str) -> Any:
+    if key not in m:
+        raise VerifyError(f"missing `{key}`")
+    return m[key]
+
+
+def _map_lookup_optional_str(m: dict, key: str) -> Any:
+    return m.get(key)
+
+
+def _map_lookup_bytes(m: dict, key: str) -> bytes:
+    v = _map_lookup_str(m, key)
+    if not isinstance(v, bytes):
+        raise VerifyError(f"`{key}` is not bytes")
+    return v
+
+
+def _map_lookup_fixed_bytes(m: dict, key: str, n: int) -> bytes:
+    b = _map_lookup_bytes(m, key)
+    if len(b) != n:
+        raise VerifyError(f"`{key}` must be {n} bytes")
+    return b
+
+
+def _map_lookup_u64(m: dict, key: str) -> int:
+    v = _map_lookup_str(m, key)
+    if not isinstance(v, int) or v < 0:
+        raise VerifyError(f"`{key}` is not an unsigned integer")
+    return v
+
+
+def _map_lookup_optional_bytes(m: dict, key: str) -> Optional[bytes]:
+    v = _map_lookup_optional_str(m, key)
+    if v is None:
+        return None
+    if v is False:  # cbor2 undefined? unlikely
+        pass
+    if isinstance(v, bytes):
+        return v
+    if v is None or (isinstance(v, type(None))):  # noqa: E721
+        return None
+    raise VerifyError(f"`{key}` is neither bytes nor null")
+
+
+def _map_lookup_int_label(m: dict, label: int) -> int:
+    if label not in m:
+        raise VerifyError(f"missing COSE label {label} integer")
+    v = m[label]
+    if not isinstance(v, int):
+        raise VerifyError("not int")
+    return v
+
+
+def _map_lookup_int_label_bytes(m: dict, label: int) -> bytes:
+    if label not in m:
+        raise VerifyError(f"missing COSE label {label} bytes")
+    v = m[label]
+    if not isinstance(v, bytes):
+        raise VerifyError("not bytes")
+    return v
+
+
+def _parse_sign1_value(value: Any) -> ParsedSign1:
+    if not isinstance(value, CBORTag) or value.tag != 18:
+        raise VerifyError("value is not a tag-18 COSE_Sign1 item")
+    body = value.value
+    if not isinstance(body, list) or len(body) != 4:
+        raise VerifyError("COSE_Sign1 body does not contain four fields")
+    protected_bytes = body[0]
+    unprotected = body[1]
+    payload_field = body[2]
+    sig_field = body[3]
+    if not isinstance(protected_bytes, bytes):
+        raise VerifyError("protected header is not a byte string")
+    if not isinstance(unprotected, dict) or len(unprotected) != 0:
+        raise VerifyError("unprotected header map must be empty")
+    if isinstance(payload_field, bytes):
+        payload: Optional[bytes] = payload_field
+    elif payload_field is None:
+        payload = None
+    else:
+        raise VerifyError("payload is neither bytes nor null")
+    if not isinstance(sig_field, bytes) or len(sig_field) != 64:
+        raise VerifyError("signature is not 64 bytes")
+    protected_value = _decode_value(protected_bytes)
+    if not isinstance(protected_value, dict):
+        raise VerifyError("protected header does not decode to a map")
+    kid = _map_lookup_int_label_bytes(protected_value, COSE_LABEL_KID)
+    alg = _map_lookup_int_label(protected_value, COSE_LABEL_ALG)
+    suite_id = _map_lookup_int_label(protected_value, COSE_LABEL_SUITE_ID)
+    return ParsedSign1(
+        protected_bytes=protected_bytes,
+        kid=kid,
+        alg=alg,
+        suite_id=suite_id,
+        payload=payload,
+        signature=sig_field,
+    )
+
+
+def _parse_sign1_bytes(data: bytes) -> ParsedSign1:
+    return _parse_sign1_value(_decode_value(data))
+
+
+def _parse_sign1_array(data: bytes) -> list[ParsedSign1]:
+    v = _decode_value(data)
+    if not isinstance(v, list):
+        raise VerifyError("expected a dCBOR array")
+    return [_parse_sign1_value(item) for item in v]
+
+
+def _verify_signature(item: ParsedSign1, public_key_bytes: bytes) -> bool:
+    if item.payload is None:
+        return False
+    try:
+        vk = Ed25519PublicKey.from_public_bytes(public_key_bytes)
+    except Exception:  # noqa: BLE001
+        return False
+    msg = sig_structure_bytes(item.protected_bytes, item.payload)
+    try:
+        vk.verify(item.signature, msg)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _encode_tstr_cbor(s: str) -> bytes:
+    return encode_tstr(s)
+
+
+def _authored_preimage_from_canonical(canonical_event_bytes: bytes) -> Optional[bytes]:
+    key = _encode_tstr_cbor("author_event_hash")
+    key_pos = canonical_event_bytes.rfind(key)
+    if key_pos < 0:
+        return None
+    value_pos = key_pos + len(key)
+    if len(canonical_event_bytes) != value_pos + 34:
+        return None
+    if canonical_event_bytes[value_pos] != 0x58 or canonical_event_bytes[value_pos + 1] != 0x20:
+        return None
+    new_prefix = canonical_event_bytes[0] - 1
+    if new_prefix < 0:
+        return None
+    authored = bytearray()
+    authored.append(new_prefix)
+    authored.extend(canonical_event_bytes[1:key_pos])
+    return bytes(authored)
+
+
+def _recompute_author_event_hash(canonical_event_bytes: bytes) -> Optional[bytes]:
+    authored = _authored_preimage_from_canonical(canonical_event_bytes)
+    if authored is None:
+        return None
+    return domain_separated_sha256(AUTHOR_EVENT_DOMAIN, authored)
+
+
+def _recompute_canonical_event_hash(scope: bytes, canonical_event_bytes: bytes) -> bytes:
+    preimage = bytearray()
+    preimage.append(0xA3)
+    preimage.extend(encode_tstr("version"))
+    preimage.extend(encode_uint(1))
+    preimage.extend(encode_tstr("ledger_scope"))
+    preimage.extend(encode_bstr(scope))
+    preimage.extend(encode_tstr("event_payload"))
+    preimage.extend(canonical_event_bytes)
+    return domain_separated_sha256(EVENT_DOMAIN, bytes(preimage))
+
+
+def _decode_transition_details(extensions: dict) -> Optional[TransitionDetails]:
+    ext = extensions.get("trellis.custody-model-transition.v1")
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("transition extension is not a map")
+    tid = str(_map_lookup_str(ext, "transition_id"))
+    fs = str(_map_lookup_str(ext, "from_custody_model"))
+    ts = str(_map_lookup_str(ext, "to_custody_model"))
+    _ = _map_lookup_u64(ext, "effective_at")
+    dd = _map_lookup_fixed_bytes(ext, "declaration_doc_digest", 32)
+    atts = _map_lookup_str(ext, "attestations")
+    if not isinstance(atts, list):
+        raise VerifyError("attestations not array")
+    classes: list[str] = []
+    for item in atts:
+        if not isinstance(item, dict):
+            continue
+        ac = item.get("authority_class")
+        if isinstance(ac, str):
+            classes.append(ac)
+    return TransitionDetails(
+        transition_id=tid,
+        from_state=fs,
+        to_state=ts,
+        declaration_digest=dd,
+        attestation_classes=classes,
+    )
+
+
+def _decode_event_details(event: ParsedSign1) -> EventDetails:
+    if event.payload is None:
+        raise VerifyError("detached event payloads are out of scope")
+    payload_value = _decode_value(event.payload)
+    if not isinstance(payload_value, dict):
+        raise VerifyError("event payload root is not a map")
+    scope = _map_lookup_bytes(payload_value, "ledger_scope")
+    sequence = _map_lookup_u64(payload_value, "sequence")
+    prev_raw = _map_lookup_optional_bytes(payload_value, "prev_hash")
+    author_event_hash = _map_lookup_fixed_bytes(payload_value, "author_event_hash", 32)
+    content_hash = _map_lookup_fixed_bytes(payload_value, "content_hash", 32)
+    canonical_event_hash = _recompute_canonical_event_hash(scope, event.payload)
+    header = _map_lookup_str(payload_value, "header")
+    if not isinstance(header, dict):
+        raise VerifyError("header not map")
+    authored_at = _map_lookup_u64(header, "authored_at")
+    et = _map_lookup_bytes(header, "event_type")
+    cl = _map_lookup_bytes(header, "classification")
+    if not isinstance(et, bytes) or not isinstance(cl, bytes):
+        raise VerifyError("event_type/classification")
+    event_type = et.decode("utf-8")
+    classification = cl.decode("utf-8")
+    pr = _map_lookup_str(payload_value, "payload_ref")
+    if not isinstance(pr, dict):
+        raise VerifyError("payload_ref")
+    rt = pr.get("ref_type")
+    if rt == "inline":
+        inline = _map_lookup_bytes(pr, "ciphertext")
+        external = False
+    elif rt == "external":
+        inline = None
+        external = True
+    else:
+        raise VerifyError("payload_ref.ref_type unsupported")
+    exts = payload_value.get("extensions")
+    transition: Optional[TransitionDetails] = None
+    if isinstance(exts, dict):
+        transition = _decode_transition_details(exts)
+    elif exts is not None:
+        raise VerifyError("extensions not map")
+    return EventDetails(
+        scope=scope,
+        sequence=sequence,
+        authored_at=authored_at,
+        event_type=event_type,
+        classification=classification,
+        prev_hash=prev_raw,
+        author_event_hash=author_event_hash,
+        content_hash=content_hash,
+        canonical_event_hash=canonical_event_hash,
+        payload_ref_inline=inline,
+        payload_ref_external=external,
+        transition=transition,
+    )
+
+
+def _parse_signing_key_registry(data: bytes) -> dict[bytes, SigningKeyEntry]:
+    v = _decode_value(data)
+    if not isinstance(v, list):
+        raise VerifyError("signing-key registry root is not an array")
+    reg: dict[bytes, SigningKeyEntry] = {}
+    for entry in v:
+        if not isinstance(entry, dict):
+            raise VerifyError("registry entry not map")
+        kid = _map_lookup_bytes(entry, "kid")
+        pubkey = _map_lookup_fixed_bytes(entry, "pubkey", 32)
+        status = _map_lookup_u64(entry, "status")
+        vt_raw = _map_lookup_optional_str(entry, "valid_to")
+        valid_to: Optional[int]
+        if vt_raw is None:
+            valid_to = None
+        elif isinstance(vt_raw, int):
+            valid_to = vt_raw
+        else:
+            raise VerifyError("valid_to invalid")
+        reg[kid] = SigningKeyEntry(public_key=pubkey, status=status, valid_to=valid_to)
+    return reg
+
+
+def _parse_bound_registry(data: bytes) -> BoundRegistry:
+    v = _decode_value(data)
+    if not isinstance(v, dict):
+        raise VerifyError("bound registry root is not a map")
+    et = _map_lookup_str(v, "event_types")
+    if not isinstance(et, dict):
+        raise VerifyError("event_types")
+    event_types = [str(k) for k in et.keys() if isinstance(k, str)]
+    cl_arr = _map_lookup_str(v, "classifications")
+    if not isinstance(cl_arr, list):
+        raise VerifyError("classifications")
+    classifications = [str(x) for x in cl_arr if isinstance(x, str)]
+    return BoundRegistry(event_types=event_types, classifications=classifications)
+
+
+def _event_identity(event: ParsedSign1) -> tuple[bytes, bytes]:
+    d = _decode_event_details(event)
+    return d.scope, d.canonical_event_hash
+
+
+def _parse_custody_model(data: bytes) -> str:
+    v = _decode_value(data)
+    if not isinstance(v, dict):
+        raise VerifyError("posture declaration root is not a map")
+    cm = _map_lookup_str(v, "custody_model")
+    if not isinstance(cm, dict):
+        raise VerifyError("custody_model")
+    return str(_map_lookup_str(cm, "custody_model_id"))
+
+
+def _custody_rank(value: str) -> int:
+    return {"CM-A": 3, "CM-B": 2, "CM-C": 1}.get(value, 0)
+
+
+def _requires_dual_attestation(from_state: str, to_state: str) -> bool:
+    return _custody_rank(to_state) > _custody_rank(from_state)
+
+
+def _verify_event_set(
+    events: list[ParsedSign1],
+    registry: dict[bytes, SigningKeyEntry],
+    initial_posture_declaration: Optional[bytes],
+    posture_declaration: Optional[bytes],
+    classify_tamper: bool,
+    expected_ledger_scope: Optional[bytes],
+    payload_blobs: Optional[dict[bytes, bytes]],
+) -> VerificationReport:
+    event_failures: list[VerificationFailure] = []
+    posture_transitions: list[PostureTransitionOutcome] = []
+    previous_hash: Optional[bytes] = None
+    skip_prev = initial_posture_declaration is not None and len(events) == 1
+    shadow: Optional[str] = None
+    if initial_posture_declaration is not None:
+        try:
+            shadow = _parse_custody_model(initial_posture_declaration)
+        except VerifyError:
+            shadow = None
+
+    suite_i = SUITE_ID_PHASE_1
+
+    for index, event in enumerate(events):
+        key_entry = registry.get(event.kid)
+        if key_entry is None:
+            return VerificationReport.fatal(
+                "unresolvable_manifest_kid",
+                "event kid is not resolvable via the provided signing-key registry",
+            )
+        if event.alg != ALG_EDDSA or event.suite_id != suite_i:
+            return VerificationReport.fatal(
+                "unsupported_suite",
+                "event protected header does not match the Trellis Phase-1 suite",
+            )
+        if not _verify_signature(event, key_entry.public_key):
+            try:
+                loc = _hex(_event_identity(event)[1])
+            except Exception:  # noqa: BLE001
+                loc = f"event[{index}]"
+            event_failures.append(VerificationFailure("signature_invalid", loc))
+            continue
+
+        try:
+            details = _decode_event_details(event)
+        except VerifyError:
+            return VerificationReport.fatal(
+                "malformed_cose",
+                "event payload does not decode as a canonical Trellis event",
+            )
+
+        if key_entry.status == 3:
+            if key_entry.valid_to is None:
+                return VerificationReport.fatal(
+                    "signing_key_registry_invalid",
+                    "revoked signing-key registry entry is missing valid_to",
+                )
+            if details.authored_at > key_entry.valid_to:
+                event_failures.append(
+                    VerificationFailure("revoked_authority", _hex(details.canonical_event_hash))
+                )
+
+        if expected_ledger_scope is not None and details.scope != expected_ledger_scope:
+            event_failures.append(
+                VerificationFailure("scope_mismatch", _hex(details.canonical_event_hash))
+            )
+
+        if details.payload_ref_inline is not None:
+            expected_ch = domain_separated_sha256(CONTENT_DOMAIN, details.payload_ref_inline)
+            if expected_ch != details.content_hash:
+                event_failures.append(
+                    VerificationFailure("content_hash_mismatch", _hex(details.canonical_event_hash))
+                )
+        elif details.payload_ref_external:
+            if payload_blobs is not None:
+                pb = payload_blobs.get(details.content_hash)
+                if pb is not None:
+                    expected_ch = domain_separated_sha256(CONTENT_DOMAIN, pb)
+                    if expected_ch != details.content_hash:
+                        event_failures.append(
+                            VerificationFailure(
+                                "content_hash_mismatch", _hex(details.canonical_event_hash)
+                            )
+                        )
+
+        payload_bytes = event.payload
+        assert payload_bytes is not None
+        rah = _recompute_author_event_hash(payload_bytes)
+        if rah is None:
+            event_failures.append(
+                VerificationFailure("author_preimage_invalid", _hex(details.canonical_event_hash))
+            )
+        elif rah != details.author_event_hash:
+            event_failures.append(
+                VerificationFailure("hash_mismatch", _hex(details.canonical_event_hash))
+            )
+
+        if skip_prev:
+            pass
+        elif details.sequence == 0:
+            if details.prev_hash is not None:
+                kind = "event_reorder" if classify_tamper else "prev_hash_mismatch"
+                event_failures.append(VerificationFailure(kind, _hex(details.canonical_event_hash)))
+        elif previous_hash != details.prev_hash:
+            if classify_tamper:
+                if previous_hash is None and len(events) == 1:
+                    kind = "event_truncation"
+                elif previous_hash is None:
+                    kind = "event_reorder"
+                else:
+                    kind = "prev_hash_break"
+            else:
+                kind = "prev_hash_mismatch"
+            event_failures.append(VerificationFailure(kind, _hex(details.canonical_event_hash)))
+        previous_hash = details.canonical_event_hash
+
+        if details.transition is not None:
+            tr = details.transition
+            outcome = PostureTransitionOutcome(
+                transition_id=tr.transition_id,
+                kind="custody-model",
+                event_index=index,
+                from_state=tr.from_state,
+                to_state=tr.to_state,
+                continuity_verified=True,
+                declaration_resolved=True,
+                attestations_verified=True,
+                failures=[],
+            )
+            if shadow is not None and tr.from_state != shadow:
+                outcome.continuity_verified = False
+                outcome.failures.append("state_continuity_mismatch")
+            if posture_declaration is not None:
+                exp_dd = domain_separated_sha256(POSTURE_DECLARATION_DOMAIN, posture_declaration)
+                if exp_dd != tr.declaration_digest:
+                    outcome.continuity_verified = False
+                    outcome.declaration_resolved = False
+                    outcome.failures.append("posture_declaration_digest_mismatch")
+            if _requires_dual_attestation(tr.from_state, tr.to_state) and not (
+                any(x == "prior" for x in tr.attestation_classes)
+                and any(x == "new" for x in tr.attestation_classes)
+            ):
+                outcome.attestations_verified = False
+                outcome.failures.append("attestation_insufficient")
+            if outcome.failures:
+                event_failures.append(
+                    VerificationFailure(
+                        outcome.failures[0], _hex(details.canonical_event_hash)
+                    )
+                )
+            shadow = tr.to_state
+            posture_transitions.append(outcome)
+
+    posture_ok = all(
+        o.continuity_verified and o.declaration_resolved and o.attestations_verified
+        for o in posture_transitions
+    )
+    return VerificationReport(
+        structure_verified=True,
+        integrity_verified=not event_failures and posture_ok,
+        readability_verified=True,
+        event_failures=event_failures,
+        checkpoint_failures=[],
+        proof_failures=[],
+        posture_transitions=posture_transitions,
+        warnings=[],
+    )
+
+
+def _merkle_leaf_hash(canonical_hash: bytes) -> bytes:
+    return domain_separated_sha256(MERKLE_LEAF_DOMAIN, canonical_hash)
+
+
+def _merkle_interior_hash(left: bytes, right: bytes) -> bytes:
+    joined = left + right
+    return domain_separated_sha256(MERKLE_INTERIOR_DOMAIN, joined)
+
+
+def _merkle_root(leaves: list[bytes]) -> bytes:
+    if len(leaves) == 0:
+        return bytes(32)
+    if len(leaves) == 1:
+        return leaves[0]
+    level = list(leaves)
+    while len(level) > 1:
+        nxt: list[bytes] = []
+        i = 0
+        while i < len(level):
+            if i + 1 == len(level):
+                nxt.append(level[i])
+            else:
+                nxt.append(_merkle_interior_hash(level[i], level[i + 1]))
+            i += 2
+        level = nxt
+    return level[0]
+
+
+def _digest_path_from_values(nodes: list[Any]) -> list[bytes]:
+    out: list[bytes] = []
+    for node in nodes:
+        if not isinstance(node, bytes) or len(node) != 32:
+            raise ValueError("bad node")
+        out.append(node)
+    return out
+
+
+def _inner_proof_size(index: int, size: int) -> int:
+    xor = index ^ (size - 1)
+    if xor == 0:
+        return 0
+    return xor.bit_length()
+
+
+def _decomp_inclusion_proof(index: int, size: int) -> tuple[int, int]:
+    inner = _inner_proof_size(index, size)
+    border = (index >> inner).bit_count()
+    return inner, border
+
+
+def _chain_inner_merkle(seed: bytes, proof: list[bytes], index: int) -> bytes:
+    for i, sibling in enumerate(proof):
+        if (index >> i) & 1 == 0:
+            seed = _merkle_interior_hash(seed, sibling)
+        else:
+            seed = _merkle_interior_hash(sibling, seed)
+    return seed
+
+
+def _chain_inner_right_merkle(seed: bytes, proof: list[bytes], index: int) -> bytes:
+    for i, sibling in enumerate(proof):
+        if (index >> i) & 1 == 1:
+            seed = _merkle_interior_hash(sibling, seed)
+    return seed
+
+
+def _chain_border_right_merkle(seed: bytes, proof: list[bytes]) -> bytes:
+    for sibling in proof:
+        seed = _merkle_interior_hash(sibling, seed)
+    return seed
+
+
+def _root_from_inclusion_proof(
+    leaf_index: int, tree_size: int, leaf_hash: bytes, proof: list[bytes]
+) -> Optional[bytes]:
+    if tree_size == 0 or leaf_index >= tree_size:
+        return None
+    inner, border = _decomp_inclusion_proof(leaf_index, tree_size)
+    if len(proof) != inner + border:
+        return None
+    node = _chain_inner_merkle(leaf_hash, proof[:inner], leaf_index)
+    node = _chain_border_right_merkle(node, proof[inner:])
+    return node
+
+
+def _root_from_consistency_proof(
+    size1: int, size2: int, root1: bytes, proof: list[bytes]
+) -> Optional[bytes]:
+    if size2 < size1:
+        return None
+    if size1 == size2:
+        if proof:
+            return None
+        return root1
+    if size1 == 0:
+        return None
+    if not proof:
+        return None
+    inner, border = _decomp_inclusion_proof(size1 - 1, size2)
+    shift = (size1 & -size1).bit_length() - 1  # trailing_zeros
+    if inner < shift:
+        return None
+    inner -= shift
+    seed = proof[0]
+    start = 1
+    if size1 == 1 << shift:
+        seed = root1
+        start = 0
+    if len(proof) != start + inner + border:
+        return None
+    suffix = proof[start:]
+    mask = (size1 - 1) >> shift
+    hash1 = _chain_inner_right_merkle(seed, suffix[:inner], mask)
+    hash1 = _chain_border_right_merkle(hash1, suffix[inner:])
+    if hash1 != root1:
+        return None
+    hash2 = _chain_inner_merkle(seed, suffix[:inner], mask)
+    return _chain_border_right_merkle(hash2, suffix[inner:])
+
+
+def _checkpoint_digest(scope: bytes, payload_bytes: bytes) -> bytes:
+    preimage = bytearray()
+    preimage.append(0xA3)
+    preimage.extend(encode_tstr("scope"))
+    preimage.extend(encode_bstr(scope))
+    preimage.extend(encode_tstr("version"))
+    preimage.extend(encode_uint(1))
+    preimage.extend(encode_tstr("checkpoint_payload"))
+    preimage.extend(payload_bytes)
+    return domain_separated_sha256(CHECKPOINT_DOMAIN, bytes(preimage))
+
+
+def _map_lookup_array(m: dict, key: str) -> list[Any]:
+    v = _map_lookup_str(m, key)
+    if not isinstance(v, list):
+        raise VerifyError(f"missing or invalid `{key}` array")
+    return v
+
+
+def _map_lookup_map(m: dict, key: str) -> dict:
+    v = _map_lookup_str(m, key)
+    if not isinstance(v, dict):
+        raise VerifyError(f"missing or invalid `{key}` map")
+    return v
+
+
+def _map_lookup_optional_map(m: dict, key: str) -> Optional[dict]:
+    v = m.get(key)
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        return v
+    raise VerifyError(f"`{key}` is not a map")
+
+
+def parse_export_zip(data: bytes) -> dict[str, bytes]:
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data), "r")
+    except Exception as exc:  # noqa: BLE001
+        raise VerifyError(f"failed to parse ZIP: {exc}") from exc
+    members: dict[str, bytes] = {}
+    try:
+        for info in zf.infolist():
+            name = info.filename
+            if "/" not in name:
+                raise VerifyError("ZIP member does not live under one export root")
+            _, relative = name.split("/", 1)
+            with zf.open(info) as fh:
+                members[relative] = fh.read()
+    finally:
+        zf.close()
+    return members
+
+
+def verify_export_zip(export_zip: bytes) -> VerificationReport:
+    try:
+        archive = parse_export_zip(export_zip)
+    except VerifyError as exc:
+        return VerificationReport.fatal("export_zip_invalid", f"failed to open export ZIP: {exc}")
+
+    reg_bytes = archive.get("030-signing-key-registry.cbor")
+    if reg_bytes is None:
+        return VerificationReport.fatal(
+            "missing_signing_key_registry", "export is missing 030-signing-key-registry.cbor"
+        )
+    try:
+        registry = _parse_signing_key_registry(reg_bytes)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "signing_key_registry_invalid", f"failed to decode signing-key registry: {exc}"
+        )
+
+    manifest_bytes = archive.get("000-manifest.cbor")
+    if manifest_bytes is None:
+        return VerificationReport.fatal("missing_manifest", "export is missing 000-manifest.cbor")
+    try:
+        manifest = _parse_sign1_bytes(manifest_bytes)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_structure_invalid", f"manifest is not a valid COSE_Sign1 envelope: {exc}"
+        )
+
+    if manifest.alg != ALG_EDDSA or manifest.suite_id != SUITE_ID_PHASE_1:
+        return VerificationReport.fatal(
+            "unsupported_suite", "manifest protected header does not match the Trellis Phase-1 suite"
+        )
+
+    manifest_entry = registry.get(manifest.kid)
+    if manifest_entry is None:
+        return VerificationReport.fatal(
+            "unresolvable_manifest_kid",
+            "manifest kid is not resolvable via the embedded signing-key registry",
+        )
+    if not _verify_signature(manifest, manifest_entry.public_key):
+        return VerificationReport.fatal("manifest_signature_invalid", "manifest COSE signature is invalid")
+
+    if manifest.payload is None:
+        return VerificationReport.fatal(
+            "manifest_payload_missing", "manifest payload is detached, which is out of scope for Phase 1"
+        )
+    try:
+        manifest_payload = _decode_value(manifest.payload)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"failed to decode manifest payload: {exc}"
+        )
+    if not isinstance(manifest_payload, dict):
+        return VerificationReport.fatal("manifest_payload_invalid", "manifest payload root is not a map")
+    manifest_map = manifest_payload
+
+    required_digests = [
+        ("010-events.cbor", "events_digest"),
+        ("020-inclusion-proofs.cbor", "inclusion_proofs_digest"),
+        ("025-consistency-proofs.cbor", "consistency_proofs_digest"),
+        ("030-signing-key-registry.cbor", "signing_key_registry_digest"),
+        ("040-checkpoints.cbor", "checkpoints_digest"),
+    ]
+    for member_name, field_name in required_digests:
+        try:
+            expected = _map_lookup_fixed_bytes(manifest_map, field_name, 32)
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "manifest_payload_invalid", f"manifest is missing {field_name}: {exc}"
+            )
+        actual_bytes = archive.get(member_name)
+        if actual_bytes is None:
+            return VerificationReport.fatal(
+                "archive_integrity_failure", f"export is missing required member {member_name}"
+            )
+        if expected != _sha256(actual_bytes):
+            return VerificationReport.fatal(
+                "archive_integrity_failure", f"manifest digest mismatch for {member_name}"
+            )
+
+    try:
+        registry_bindings = _map_lookup_array(manifest_map, "registry_bindings")
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"manifest registry_bindings are invalid: {exc}"
+        )
+    parsed_bindings: list[RegistryBindingInfo] = []
+    for binding in registry_bindings:
+        if not isinstance(binding, dict):
+            return VerificationReport.fatal(
+                "manifest_payload_invalid", "registry binding is not a map"
+            )
+        try:
+            digest = _map_lookup_fixed_bytes(binding, "registry_digest", 32)
+            member_name = f"050-registries/{_hex(digest)}.cbor"
+            actual = archive.get(member_name)
+            if actual is None:
+                return VerificationReport.fatal(
+                    "archive_integrity_failure",
+                    f"export is missing bound registry member {member_name}",
+                )
+            if _sha256(actual) != digest:
+                return VerificationReport.fatal(
+                    "archive_integrity_failure",
+                    f"bound registry digest mismatch for {member_name}",
+                )
+            bound_at_sequence = _map_lookup_u64(binding, "bound_at_sequence")
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "manifest_payload_invalid", f"registry binding digest is invalid: {exc}"
+            )
+        parsed_bindings.append(RegistryBindingInfo(digest_hex=_hex(digest), bound_at_sequence=bound_at_sequence))
+    parsed_bindings.sort(key=lambda b: b.bound_at_sequence)
+
+    parsed_registries: dict[str, BoundRegistry] = {}
+    for binding in parsed_bindings:
+        member_name = f"050-registries/{binding.digest_hex}.cbor"
+        registry_member_bytes = archive[member_name]
+        try:
+            parsed_registries[binding.digest_hex] = _parse_bound_registry(registry_member_bytes)
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "bound_registry_invalid", f"failed to decode {member_name}: {exc}"
+            )
+
+    try:
+        scope = _map_lookup_bytes(manifest_map, "scope")
+    except VerifyError as exc:
+        return VerificationReport.fatal("manifest_payload_invalid", f"manifest scope is invalid: {exc}")
+
+    events_bytes = archive["010-events.cbor"]
+    try:
+        events = _parse_sign1_array(events_bytes)
+    except VerifyError as exc:
+        return VerificationReport.fatal("events_invalid", f"failed to decode 010-events.cbor: {exc}")
+
+    payload_blobs: dict[bytes, bytes] = {}
+    for name, blob in archive.items():
+        if not name.startswith("060-payloads/") or not name.endswith(".bin"):
+            continue
+        digest_hex = name[len("060-payloads/") : -len(".bin")]
+        try:
+            d = _hex_decode(digest_hex)
+        except VerifyError:
+            continue
+        if len(d) == 32:
+            payload_blobs[d] = blob
+
+    report = _verify_event_set(events, registry, None, None, False, scope, payload_blobs)
+    for failure in report.event_failures:
+        if failure.kind == "scope_mismatch":
+            failure.location = f"manifest-scope/{failure.location}"
+
+    for event in events:
+        try:
+            details = _decode_event_details(event)
+        except VerifyError:
+            continue
+        eligible = [b for b in parsed_bindings if b.bound_at_sequence <= details.sequence]
+        if not eligible:
+            report.event_failures.append(
+                VerificationFailure("registry_digest_mismatch", _hex(details.canonical_event_hash))
+            )
+            continue
+        binding = max(eligible, key=lambda b: b.bound_at_sequence)
+        bound_registry = parsed_registries.get(binding.digest_hex)
+        if bound_registry is None:
+            report.event_failures.append(
+                VerificationFailure("registry_digest_mismatch", _hex(details.canonical_event_hash))
+            )
+            continue
+        if (details.event_type not in bound_registry.event_types) or (
+            details.classification not in bound_registry.classifications
+        ):
+            report.event_failures.append(
+                VerificationFailure("registry_digest_mismatch", _hex(details.canonical_event_hash))
+            )
+
+    canonical_hashes = []
+    for event in events:
+        try:
+            _, ch = _event_identity(event)
+            canonical_hashes.append(ch)
+        except Exception:  # noqa: BLE001
+            continue
+    leaf_hashes = [_merkle_leaf_hash(h) for h in canonical_hashes]
+
+    checkpoints_bytes = archive["040-checkpoints.cbor"]
+    try:
+        checkpoints = _parse_sign1_array(checkpoints_bytes)
+    except VerifyError as exc:
+        return VerificationReport.fatal("checkpoints_invalid", f"failed to decode 040-checkpoints.cbor: {exc}")
+
+    prior_checkpoint_digest: Optional[bytes] = None
+    head_checkpoint_root: Optional[bytes] = None
+    for checkpoint in checkpoints:
+        ck_entry = registry.get(checkpoint.kid)
+        if ck_entry is None:
+            return VerificationReport.fatal(
+                "unresolvable_manifest_kid",
+                "checkpoint kid is not resolvable via the embedded signing-key registry",
+            )
+        if not _verify_signature(checkpoint, ck_entry.public_key):
+            return VerificationReport.fatal(
+                "checkpoint_signature_invalid", "checkpoint COSE signature is invalid"
+            )
+        payload_bytes_chk = checkpoint.payload
+        if payload_bytes_chk is None:
+            return VerificationReport.fatal("checkpoint_payload_invalid", "detached checkpoint")
+        try:
+            payload = _decode_value(payload_bytes_chk)
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "checkpoint_payload_invalid", f"failed to decode checkpoint payload: {exc}"
+            )
+        if not isinstance(payload, dict):
+            return VerificationReport.fatal(
+                "checkpoint_payload_invalid", "checkpoint payload root is not a map"
+            )
+        try:
+            checkpoint_scope = _map_lookup_bytes(payload, "scope")
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "checkpoint_payload_invalid", f"checkpoint scope is invalid: {exc}"
+            )
+        if checkpoint_scope != scope:
+            report.checkpoint_failures.append(
+                VerificationFailure("scope_mismatch", "checkpoint/scope")
+            )
+            continue
+        try:
+            tree_size = _map_lookup_u64(payload, "tree_size")
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "checkpoint_payload_invalid", f"checkpoint tree_size is invalid: {exc}"
+            )
+        if tree_size == 0 or tree_size > len(leaf_hashes):
+            report.checkpoint_failures.append(
+                VerificationFailure("tree_size_invalid", f"checkpoint/tree_size/{tree_size}")
+            )
+            continue
+        try:
+            actual_root = _map_lookup_fixed_bytes(payload, "tree_head_hash", 32)
+        except VerifyError as exc:
+            return VerificationReport.fatal(
+                "checkpoint_payload_invalid", f"checkpoint tree_head_hash is invalid: {exc}"
+            )
+        expected_root = _merkle_root(leaf_hashes[:tree_size])
+        if expected_root != actual_root:
+            report.checkpoint_failures.append(
+                VerificationFailure("checkpoint_root_mismatch", f"checkpoint/tree_size/{tree_size}")
+            )
+
+        digest = _checkpoint_digest(scope, payload_bytes_chk)
+        if prior_checkpoint_digest is not None:
+            try:
+                actual_prev = _map_lookup_fixed_bytes(payload, "prev_checkpoint_hash", 32)
+            except VerifyError as exc:
+                return VerificationReport.fatal(
+                    "checkpoint_payload_invalid",
+                    f"checkpoint prev_checkpoint_hash is invalid: {exc}",
+                )
+            if prior_checkpoint_digest != actual_prev:
+                report.checkpoint_failures.append(
+                    VerificationFailure(
+                        "prev_checkpoint_hash_mismatch", f"checkpoint/tree_size/{tree_size}"
+                    )
+                )
+        prior_checkpoint_digest = digest
+        head_checkpoint_root = actual_root
+
+    try:
+        head_checkpoint_digest = _map_lookup_fixed_bytes(manifest_map, "head_checkpoint_digest", 32)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"manifest head_checkpoint_digest is invalid: {exc}"
+        )
+    if prior_checkpoint_digest != head_checkpoint_digest:
+        report.checkpoint_failures.append(
+            VerificationFailure("head_checkpoint_digest_mismatch", "manifest/head_checkpoint_digest")
+        )
+
+    inclusion_map = _decode_value(archive["020-inclusion-proofs.cbor"])
+    if isinstance(inclusion_map, dict):
+        expected_root = head_checkpoint_root if head_checkpoint_root is not None else bytes(32)
+        for _k, proof_value in inclusion_map.items():
+            if not isinstance(proof_value, dict):
+                report.proof_failures.append(VerificationFailure("inclusion_proof_invalid", "proof/map"))
+                continue
+            pm = proof_value
+            try:
+                tree_size_p = _map_lookup_u64(pm, "tree_size")
+                leaf_index = _map_lookup_u64(pm, "leaf_index")
+                leaf_hash = _map_lookup_fixed_bytes(pm, "leaf_hash", 32)
+                audit_path_values = _map_lookup_array(pm, "audit_path")
+                audit_path = _digest_path_from_values(audit_path_values)
+            except (VerifyError, ValueError):
+                report.proof_failures.append(VerificationFailure("inclusion_proof_invalid", "proof/map"))
+                continue
+            if tree_size_p != len(leaf_hashes):
+                report.proof_failures.append(
+                    VerificationFailure("inclusion_proof_invalid", f"proof/tree_size/{tree_size_p}")
+                )
+                continue
+            if leaf_index >= len(leaf_hashes):
+                report.proof_failures.append(
+                    VerificationFailure("inclusion_proof_invalid", f"proof/index/{leaf_index}")
+                )
+                continue
+            matches_leaf = leaf_hash == leaf_hashes[leaf_index]
+            rr = _root_from_inclusion_proof(leaf_index, tree_size_p, leaf_hash, audit_path)
+            matches_root = rr is not None and rr == expected_root
+            if not matches_leaf or not matches_root:
+                report.proof_failures.append(
+                    VerificationFailure("inclusion_proof_mismatch", f"proof/index/{leaf_index}")
+                )
+
+    consistency_value = _decode_value(archive["025-consistency-proofs.cbor"])
+    if isinstance(consistency_value, list):
+        for record in consistency_value:
+            if not isinstance(record, dict):
+                report.proof_failures.append(
+                    VerificationFailure("consistency_proof_invalid", "consistency/map")
+                )
+                continue
+            rm = record
+            from_tree_size = int(rm.get("from_tree_size", 0) or 0)
+            to_tree_size = int(rm.get("to_tree_size", 0) or 0)
+            location = f"consistency/{from_tree_size}-{to_tree_size}"
+            try:
+                proof_path_values = _map_lookup_array(rm, "proof_path")
+                proof_path = _digest_path_from_values(proof_path_values)
+            except (VerifyError, ValueError):
+                report.proof_failures.append(
+                    VerificationFailure(
+                        "consistency_proof_invalid", f"{location}/proof_path"
+                    )
+                )
+                continue
+            if from_tree_size == 0:
+                report.proof_failures.append(
+                    VerificationFailure("consistency_proof_invalid", f"{location}/from_zero")
+                )
+                continue
+            if from_tree_size >= to_tree_size or to_tree_size > len(leaf_hashes):
+                report.proof_failures.append(
+                    VerificationFailure("consistency_proof_invalid", location)
+                )
+                continue
+            root_old = _merkle_root(leaf_hashes[:from_tree_size])
+            root_new = _merkle_root(leaf_hashes[:to_tree_size])
+            cr = _root_from_consistency_proof(from_tree_size, to_tree_size, root_old, proof_path)
+            if cr != root_new:
+                report.proof_failures.append(
+                    VerificationFailure("consistency_proof_mismatch", location)
+                )
+
+    report.structure_verified = True
+    report.integrity_verified = (
+        not report.event_failures
+        and not report.checkpoint_failures
+        and not report.proof_failures
+        and all(
+            o.continuity_verified and o.declaration_resolved and o.attestations_verified
+            for o in report.posture_transitions
+        )
+    )
+    report.readability_verified = True
+    return report
+
+
+def verify_tampered_ledger(
+    signing_key_registry: bytes,
+    ledger: bytes,
+    initial_posture_declaration: Optional[bytes] = None,
+    posture_declaration: Optional[bytes] = None,
+) -> VerificationReport:
+    try:
+        registry = _parse_signing_key_registry(signing_key_registry)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "signing_key_registry_invalid", f"failed to decode signing-key registry: {exc}"
+        )
+    try:
+        events = _parse_sign1_array(ledger)
+    except Exception:  # noqa: BLE001
+        events = []
+    if not events:
+        return VerificationReport.fatal(
+            "malformed_cose", "ledger is not a non-empty dCBOR array of COSE_Sign1 events"
+        )
+    return _verify_event_set(
+        events,
+        registry,
+        initial_posture_declaration,
+        posture_declaration,
+        True,
+        None,
+        None,
+    )
+
+
+def verify_single_event(public_key_bytes: bytes, signed_event: bytes) -> VerificationReport:
+    try:
+        parsed = _parse_sign1_bytes(signed_event)
+    except VerifyError as exc:
+        return VerificationReport.fatal("malformed_cose", str(exc))
+    registry = {parsed.kid: SigningKeyEntry(public_key=public_key_bytes, status=0, valid_to=None)}
+    return _verify_event_set([parsed], registry, None, None, False, None, None)

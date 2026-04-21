@@ -1,0 +1,22 @@
+Manifest of normative and fixture inputs used to implement trellis-py (G-5 allowed read set, relative to trellis/ repository root):
+
+SPECS
+  specs/trellis-core.md
+  specs/trellis-operational-companion.md
+  specs/trellis-agreement.md
+
+VECTORS
+  fixtures/vectors/README.md
+  fixtures/vectors/append/
+  fixtures/vectors/verify/
+  fixtures/vectors/export/
+  fixtures/vectors/tamper/
+  fixtures/vectors/projection/
+  fixtures/vectors/shred/
+  fixtures/vectors/_keys/
+  fixtures/vectors/_inputs/
+
+IMPLEMENTATION NOTE (in-repo build)
+  This package was developed with access to trellis/crates/ and generators for debugging parity.
+  A stranger G-5 run MUST restrict reads to the paths above only; this manifest lists the
+  authoritative materials the implementation is intended to track.

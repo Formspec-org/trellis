@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trellis-py"
+version = "0.1.0"
+description = "Independent Python Trellis Phase-1 implementation (append, verify, export) for G-5 vector conformance"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "cbor2>=5.6.0",
+  "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+trellis-py-vectors = "trellis_py.conformance:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

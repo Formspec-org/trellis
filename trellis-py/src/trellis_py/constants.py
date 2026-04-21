@@ -1,0 +1,20 @@
+"""Trellis Phase-1 wire constants (aligned with trellis-types / Core §7)."""
+
+AUTHOR_EVENT_DOMAIN = "trellis-author-event-v1"
+EVENT_DOMAIN = "trellis-event-v1"
+CONTENT_DOMAIN = "trellis-content-v1"
+CHECKPOINT_DOMAIN = "trellis-checkpoint-v1"
+MERKLE_LEAF_DOMAIN = "trellis-merkle-leaf-v1"
+MERKLE_INTERIOR_DOMAIN = "trellis-merkle-interior-v1"
+POSTURE_DECLARATION_DOMAIN = "trellis-posture-declaration-v1"
+
+SUITE_ID_PHASE_1 = 1
+COSE_LABEL_SUITE_ID = -65_537
+COSE_LABEL_ALG = 1
+COSE_LABEL_KID = 4
+ALG_EDDSA = -8
+
+AUTHORED_LEDGER_EVENT_MAP_ENTRY_COUNT = 12
+AUTHORED_LEDGER_EVENT_MAP_PREFIX = (5 << 5) | AUTHORED_LEDGER_EVENT_MAP_ENTRY_COUNT
+CANONICAL_LEDGER_EVENT_MAP_ENTRY_COUNT = 13
+CANONICAL_LEDGER_EVENT_MAP_PREFIX = (5 << 5) | CANONICAL_LEDGER_EVENT_MAP_ENTRY_COUNT
