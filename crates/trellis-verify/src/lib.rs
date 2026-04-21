@@ -14,16 +14,15 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use trellis_cose::sig_structure_bytes;
 use trellis_types::{
-    AUTHOR_EVENT_DOMAIN, CONTENT_DOMAIN, EVENT_DOMAIN, domain_separated_sha256, encode_bstr,
-    encode_tstr, encode_uint,
+    AUTHOR_EVENT_DOMAIN, COSE_LABEL_SUITE_ID, CONTENT_DOMAIN, EVENT_DOMAIN, SUITE_ID_PHASE_1,
+    domain_separated_sha256, encode_bstr, encode_tstr, encode_uint,
 };
 use zip::ZipArchive;
 
-const SUITE_ID_PHASE_1: i128 = 1;
+const SUITE_ID_PHASE_1_I128: i128 = SUITE_ID_PHASE_1 as i128;
 const ALG_EDDSA: i128 = -8;
 const COSE_LABEL_ALG: i128 = 1;
 const COSE_LABEL_KID: i128 = 4;
-const COSE_LABEL_SUITE_ID: i128 = -65_537;
 const CHECKPOINT_DOMAIN: &str = "trellis-checkpoint-v1";
 const MERKLE_LEAF_DOMAIN: &str = "trellis-merkle-leaf-v1";
 const MERKLE_INTERIOR_DOMAIN: &str = "trellis-merkle-interior-v1";
@@ -156,13 +155,21 @@ pub fn verify_single_event(
 ) -> Result<VerificationReport, VerifyError> {
     let parsed = parse_sign1_bytes(signed_event)?;
     let mut registry = BTreeMap::new();
-    registry.insert(parsed.kid.clone(), public_key_bytes);
+    registry.insert(
+        parsed.kid.clone(),
+        SigningKeyEntry {
+            public_key: public_key_bytes,
+            status: 0,
+            valid_to: None,
+        },
+    );
     Ok(verify_event_set(
         &[parsed],
         &registry,
         None,
         None,
         false,
+        None,
         None,
     ))
 }
@@ -192,6 +199,7 @@ pub fn verify_tampered_ledger(
         initial_posture_declaration,
         posture_declaration,
         true,
+        None,
         None,
     ))
 }
@@ -246,7 +254,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         }
     };
 
-    if manifest.alg != ALG_EDDSA || manifest.suite_id != SUITE_ID_PHASE_1 {
+    if manifest.alg != ALG_EDDSA || manifest.suite_id != SUITE_ID_PHASE_1_I128 {
         return VerificationReport::fatal(
             "unsupported_suite",
             "manifest protected header does not match the Trellis Phase-1 suite",
@@ -254,7 +262,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     }
 
     let manifest_public_key = match registry.get(&manifest.kid) {
-        Some(public_key) => *public_key,
+        Some(entry) => entry.public_key,
         None => {
             return VerificationReport::fatal(
                 "unresolvable_manifest_kid",
@@ -340,6 +348,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             );
         }
     };
+    let mut parsed_bindings = Vec::new();
     for binding in registry_bindings {
         let binding_map = match binding.as_map() {
             Some(map) => map,
@@ -375,6 +384,37 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 format!("bound registry digest mismatch for {member_name}"),
             );
         }
+        let bound_at_sequence = match map_lookup_u64(binding_map, "bound_at_sequence") {
+            Ok(value) => value,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    "manifest_payload_invalid",
+                    format!("registry binding bound_at_sequence is invalid: {error}"),
+                );
+            }
+        };
+        parsed_bindings.push(RegistryBindingInfo {
+            digest_hex: hex_string(&digest),
+            bound_at_sequence,
+        });
+    }
+    parsed_bindings.sort_by_key(|binding| binding.bound_at_sequence);
+
+    let mut parsed_registries = BTreeMap::new();
+    for binding in &parsed_bindings {
+        let member_name = format!("050-registries/{}.cbor", binding.digest_hex);
+        let registry_bytes = archive.members.get(&member_name).expect("bound registry exists");
+        match parse_bound_registry(registry_bytes) {
+            Ok(registry) => {
+                parsed_registries.insert(binding.digest_hex.clone(), registry);
+            }
+            Err(error) => {
+                return VerificationReport::fatal(
+                    "bound_registry_invalid",
+                    format!("failed to decode {member_name}: {error}"),
+                );
+            }
+        }
     }
 
     let scope = match map_lookup_bytes(manifest_map, "scope") {
@@ -399,10 +439,65 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         },
         None => unreachable!("required member already checked"),
     };
-    let mut report = verify_event_set(&events, &registry, None, None, false, Some(scope.as_slice()));
+    let payload_blobs = archive
+        .members
+        .iter()
+        .filter_map(|(name, bytes)| {
+            let digest_hex = name
+                .strip_prefix("060-payloads/")?
+                .strip_suffix(".bin")?;
+            let digest_bytes = hex_decode(digest_hex).ok()?;
+            let digest: [u8; 32] = digest_bytes.try_into().ok()?;
+            Some((digest, bytes.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut report = verify_event_set(
+        &events,
+        &registry,
+        None,
+        None,
+        false,
+        Some(scope.as_slice()),
+        Some(&payload_blobs),
+    );
     for failure in &mut report.event_failures {
         if failure.kind == "scope_mismatch" {
             failure.location = format!("manifest-scope/{}", failure.location);
+        }
+    }
+    for event in &events {
+        let details = match decode_event_details(event) {
+            Ok(details) => details,
+            Err(_) => continue,
+        };
+        let Some(binding) = parsed_bindings
+            .iter()
+            .filter(|binding| binding.bound_at_sequence <= details.sequence)
+            .max_by_key(|binding| binding.bound_at_sequence)
+        else {
+            report.event_failures.push(VerificationFailure::new(
+                "registry_digest_mismatch",
+                hex_string(&details.canonical_event_hash),
+            ));
+            continue;
+        };
+        let Some(bound_registry) = parsed_registries.get(&binding.digest_hex) else {
+            report.event_failures.push(VerificationFailure::new(
+                "registry_digest_mismatch",
+                hex_string(&details.canonical_event_hash),
+            ));
+            continue;
+        };
+        if !bound_registry.event_types.iter().any(|value| value == &details.event_type)
+            || !bound_registry
+                .classifications
+                .iter()
+                .any(|value| value == &details.classification)
+        {
+            report.event_failures.push(VerificationFailure::new(
+                "registry_digest_mismatch",
+                hex_string(&details.canonical_event_hash),
+            ));
         }
     }
 
@@ -434,7 +529,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     let mut head_checkpoint_root: Option<[u8; 32]> = None;
     for checkpoint in &checkpoints {
         let public_key = match registry.get(&checkpoint.kid) {
-            Some(public_key) => *public_key,
+            Some(entry) => entry.public_key,
             None => {
                 return VerificationReport::fatal(
                     "unresolvable_manifest_kid",
@@ -774,12 +869,40 @@ struct ParsedSign1 {
 struct EventDetails {
     scope: Vec<u8>,
     sequence: u64,
+    authored_at: u64,
+    event_type: String,
+    classification: String,
     prev_hash: Option<[u8; 32]>,
     author_event_hash: [u8; 32],
     content_hash: [u8; 32],
     canonical_event_hash: [u8; 32],
-    ciphertext: Vec<u8>,
+    payload_ref: PayloadRef,
     transition: Option<TransitionDetails>,
+}
+
+#[derive(Clone, Debug)]
+struct SigningKeyEntry {
+    public_key: [u8; 32],
+    status: u64,
+    valid_to: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+struct RegistryBindingInfo {
+    digest_hex: String,
+    bound_at_sequence: u64,
+}
+
+#[derive(Clone, Debug)]
+struct BoundRegistry {
+    event_types: Vec<String>,
+    classifications: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+enum PayloadRef {
+    Inline(Vec<u8>),
+    External,
 }
 
 #[derive(Clone, Debug)]
@@ -792,10 +915,21 @@ struct TransitionDetails {
 }
 
 #[derive(Debug)]
+/// Parsed export ZIP: keys are **relative** paths under a single root directory
+/// (for example `000-manifest.cbor`), not full ZIP entry names.
+///
+/// Every committed export uses exactly one top-level directory; see
+/// [`parse_export_zip`] for the layout contract.
 struct ExportArchive {
     members: BTreeMap<String, Vec<u8>>,
 }
 
+/// Parses a Trellis export ZIP into [`ExportArchive`] members.
+///
+/// **Layout contract:** each ZIP entry name must contain exactly one `/`
+/// separating `{export_root}/` from the relative member path. Top-level
+/// entries, extra leading segments, or nested roots are rejected so member
+/// paths stay stable across toolchains.
 fn parse_export_zip(bytes: &[u8]) -> Result<ExportArchive, VerifyError> {
     let mut archive = ZipArchive::new(Cursor::new(bytes))
         .map_err(|error| VerifyError::new(format!("failed to parse ZIP: {error}")))?;
@@ -818,11 +952,12 @@ fn parse_export_zip(bytes: &[u8]) -> Result<ExportArchive, VerifyError> {
 
 fn verify_event_set(
     events: &[ParsedSign1],
-    registry: &BTreeMap<Vec<u8>, [u8; 32]>,
+    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
     initial_posture_declaration: Option<&[u8]>,
     posture_declaration: Option<&[u8]>,
     classify_tamper: bool,
     expected_ledger_scope: Option<&[u8]>,
+    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
 ) -> VerificationReport {
     let mut event_failures = Vec::new();
     let mut posture_transitions = Vec::new();
@@ -832,8 +967,8 @@ fn verify_event_set(
         .and_then(|bytes| parse_custody_model(bytes).ok());
 
     for (index, event) in events.iter().enumerate() {
-        let public_key = match registry.get(&event.kid) {
-            Some(public_key) => *public_key,
+        let key_entry = match registry.get(&event.kid) {
+            Some(entry) => entry,
             None => {
                 return VerificationReport::fatal(
                     "unresolvable_manifest_kid",
@@ -841,13 +976,13 @@ fn verify_event_set(
                 );
             }
         };
-        if event.alg != ALG_EDDSA || event.suite_id != SUITE_ID_PHASE_1 {
+        if event.alg != ALG_EDDSA || event.suite_id != SUITE_ID_PHASE_1_I128 {
             return VerificationReport::fatal(
                 "unsupported_suite",
                 "event protected header does not match the Trellis Phase-1 suite",
             );
         }
-        if !verify_signature(event, public_key) {
+        if !verify_signature(event, key_entry.public_key) {
             let location = event_identity(event)
                 .map(|(_, hash)| hex_string(&hash))
                 .unwrap_or_else(|_| format!("event[{index}]"));
@@ -865,6 +1000,26 @@ fn verify_event_set(
             }
         };
 
+        if key_entry.status == 3 {
+            match key_entry.valid_to {
+                Some(valid_to) if details.authored_at > valid_to => {
+                    event_failures.push(VerificationFailure::new(
+                        "revoked_authority",
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+                None => {
+                    return VerificationReport::fatal(
+                        "signing_key_registry_invalid",
+                        "revoked signing-key registry entry is missing valid_to",
+                    );
+                }
+                // Key is revoked, but this event was authored on or before
+                // `valid_to` — accepted per Core §19 (historical signatures).
+                _ => {}
+            }
+        }
+
         if let Some(expected) = expected_ledger_scope {
             if details.scope.as_slice() != expected {
                 event_failures.push(VerificationFailure::new(
@@ -874,12 +1029,30 @@ fn verify_event_set(
             }
         }
 
-        let expected_content_hash = domain_separated_sha256(CONTENT_DOMAIN, &details.ciphertext);
-        if expected_content_hash != details.content_hash {
-            event_failures.push(VerificationFailure::new(
-                "content_hash_mismatch",
-                hex_string(&details.canonical_event_hash),
-            ));
+        match &details.payload_ref {
+            PayloadRef::Inline(ciphertext) => {
+                let expected_content_hash = domain_separated_sha256(CONTENT_DOMAIN, ciphertext);
+                if expected_content_hash != details.content_hash {
+                    event_failures.push(VerificationFailure::new(
+                        "content_hash_mismatch",
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+            PayloadRef::External => {
+                if let Some(blobs) = payload_blobs
+                    && let Some(payload_bytes) = blobs.get(&details.content_hash)
+                {
+                    let expected_content_hash =
+                        domain_separated_sha256(CONTENT_DOMAIN, payload_bytes);
+                    if expected_content_hash != details.content_hash {
+                        event_failures.push(VerificationFailure::new(
+                            "content_hash_mismatch",
+                            hex_string(&details.canonical_event_hash),
+                        ));
+                    }
+                }
+            }
         }
 
         let payload_bytes = match event.payload.as_ref() {
@@ -911,17 +1084,24 @@ fn verify_event_set(
         if skip_prev_hash_check {
         } else if details.sequence == 0 {
             if details.prev_hash.is_some() {
+                let kind = if classify_tamper {
+                    "event_reorder"
+                } else {
+                    "prev_hash_mismatch"
+                };
                 event_failures.push(VerificationFailure::new(
-                    "prev_hash_mismatch",
+                    kind,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
         } else if previous_hash != details.prev_hash {
             let kind = if classify_tamper {
-                if events.len() == 1 {
+                if previous_hash.is_none() && events.len() == 1 {
                     "event_truncation"
-                } else {
+                } else if previous_hash.is_none() {
                     "event_reorder"
+                } else {
+                    "prev_hash_break"
                 }
             } else {
                 "prev_hash_mismatch"
@@ -1098,12 +1278,20 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
     let canonical_event_hash = recompute_canonical_event_hash(&scope, payload_bytes);
 
     let header = map_lookup_map(payload_map, "header")?;
+    let authored_at = map_lookup_u64(header, "authored_at")?;
     let event_type_bytes = map_lookup_bytes(header, "event_type")?;
-    let _event_type = String::from_utf8(event_type_bytes)
+    let event_type = String::from_utf8(event_type_bytes)
         .map_err(|_| VerifyError::new("header.event_type is not valid UTF-8"))?;
+    let classification_bytes = map_lookup_bytes(header, "classification")?;
+    let classification = String::from_utf8(classification_bytes)
+        .map_err(|_| VerifyError::new("header.classification is not valid UTF-8"))?;
 
-    let payload_ref = map_lookup_map(payload_map, "payload_ref")?;
-    let ciphertext = map_lookup_bytes(payload_ref, "ciphertext")?;
+    let payload_ref_map = map_lookup_map(payload_map, "payload_ref")?;
+    let payload_ref = match map_lookup_text(payload_ref_map, "ref_type")?.as_str() {
+        "inline" => PayloadRef::Inline(map_lookup_bytes(payload_ref_map, "ciphertext")?),
+        "external" => PayloadRef::External,
+        _ => return Err(VerifyError::new("payload_ref.ref_type is not a supported Phase-1 value")),
+    };
 
     let transition = match map_lookup_optional_map(payload_map, "extensions")? {
         Some(extensions) => decode_transition_details(extensions)?,
@@ -1113,11 +1301,14 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
     Ok(EventDetails {
         scope,
         sequence,
+        authored_at,
+        event_type,
+        classification,
         prev_hash,
         author_event_hash,
         content_hash,
         canonical_event_hash,
-        ciphertext,
+        payload_ref,
         transition,
     })
 }
@@ -1156,7 +1347,7 @@ fn decode_transition_details(
     }))
 }
 
-fn parse_signing_key_registry(bytes: &[u8]) -> Result<BTreeMap<Vec<u8>, [u8; 32]>, VerifyError> {
+fn parse_signing_key_registry(bytes: &[u8]) -> Result<BTreeMap<Vec<u8>, SigningKeyEntry>, VerifyError> {
     let value = decode_value(bytes)?;
     let entries = value
         .as_array()
@@ -1168,9 +1359,58 @@ fn parse_signing_key_registry(bytes: &[u8]) -> Result<BTreeMap<Vec<u8>, [u8; 32]
             .ok_or_else(|| VerifyError::new("signing-key registry entry is not a map"))?;
         let kid = map_lookup_bytes(map, "kid")?;
         let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
-        registry.insert(kid, pubkey);
+        let status = map_lookup_u64(map, "status")?;
+        let valid_to = match map_lookup_optional_value(map, "valid_to") {
+            Some(Value::Integer(value)) => Some(
+                u64::try_from(*value)
+                    .map_err(|_| VerifyError::new("signing-key registry valid_to is out of range"))?,
+            ),
+            Some(Value::Null) | None => None,
+            Some(_) => {
+                return Err(VerifyError::new(
+                    "signing-key registry valid_to is neither uint nor null",
+                ))
+            }
+        };
+        registry.insert(
+            kid,
+            SigningKeyEntry {
+                public_key: pubkey,
+                status,
+                valid_to,
+            },
+        );
     }
     Ok(registry)
+}
+
+fn parse_bound_registry(bytes: &[u8]) -> Result<BoundRegistry, VerifyError> {
+    let value = decode_value(bytes)?;
+    let map = value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("bound registry root is not a map"))?;
+    let event_types_map = map_lookup_map(map, "event_types")?;
+    let mut event_types = Vec::new();
+    for (key, _) in event_types_map {
+        let name = key
+            .as_text()
+            .ok_or_else(|| VerifyError::new("event_types key is not text"))?;
+        event_types.push(name.to_string());
+    }
+    let classifications_values = map_lookup_array(map, "classifications")?;
+    let classifications = classifications_values
+        .iter()
+        .map(|value| {
+            value
+                .as_text()
+                .map(|text| text.to_string())
+                .ok_or_else(|| VerifyError::new("classification entry is not text"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(BoundRegistry {
+        event_types,
+        classifications,
+    })
 }
 
 fn parse_custody_model(bytes: &[u8]) -> Result<String, VerifyError> {
@@ -1192,6 +1432,13 @@ fn recompute_author_event_hash(canonical_event_bytes: &[u8]) -> Option<[u8; 32]>
     Some(domain_separated_sha256(AUTHOR_EVENT_DOMAIN, &authored))
 }
 
+/// Recovers authored-event CBOR by stripping the `author_event_hash` entry
+/// from the canonical map.
+///
+/// **Coupling:** The `canonical_event_from_authored` helper in `trellis-cddl`
+/// always appends `author_event_hash` as the **last** map field with canonical
+/// key encoding. If the CDDL map gains trailing fields or reorders keys, this
+/// locator must be updated alongside that helper.
 fn authored_preimage_from_canonical(canonical_event_bytes: &[u8]) -> Option<Vec<u8>> {
     let key = encode_tstr("author_event_hash");
     let key_position = canonical_event_bytes
@@ -1248,6 +1495,8 @@ fn merkle_interior_hash(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
 
 fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
     match leaves.len() {
+        // Unreachable for valid checkpoints (`tree_size == 0` is rejected
+        // earlier); kept as a defensive sentinel.
         0 => [0u8; 32],
         1 => leaves[0],
         _ => {
@@ -1257,6 +1506,8 @@ fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
                 let mut index = 0;
                 while index < level.len() {
                     if index + 1 == level.len() {
+                        // RFC 6962 §2.1: unpaired end leaf is promoted without hashing
+                        // with a duplicate of itself.
                         next.push(level[index]);
                     } else {
                         next.push(merkle_interior_hash(level[index], level[index + 1]));
@@ -1413,6 +1664,28 @@ fn hex_string(bytes: &[u8]) -> String {
     text
 }
 
+fn hex_decode(value: &str) -> Result<Vec<u8>, VerifyError> {
+    if value.len() % 2 != 0 {
+        return Err(VerifyError::new("hex string must have even length"));
+    }
+    let mut out = Vec::with_capacity(value.len() / 2);
+    for chunk in value.as_bytes().chunks_exact(2) {
+        let high = hex_nibble(chunk[0])?;
+        let low = hex_nibble(chunk[1])?;
+        out.push((high << 4) | low);
+    }
+    Ok(out)
+}
+
+fn hex_nibble(value: u8) -> Result<u8, VerifyError> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err(VerifyError::new("hex string contains a non-hex digit")),
+    }
+}
+
 fn bytes_array(bytes: &[u8]) -> [u8; 32] {
     bytes.try_into().expect("caller validates fixed size")
 }
@@ -1534,12 +1807,63 @@ fn map_lookup_optional_value<'a>(map: &'a [(Value, Value)], key_name: &str) -> O
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
+    use std::io::{Cursor, Write};
     use std::path::Path;
 
     use trellis_cddl::parse_ed25519_cose_key;
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-    use super::{verify_export_zip, verify_single_event, verify_tampered_ledger};
+    use super::{
+        parse_sign1_bytes, parse_signing_key_registry, verify_event_set, verify_export_zip,
+        verify_single_event, verify_tampered_ledger,
+    };
+
+    fn rebuild_export_zip(
+        template: &[u8],
+        overrides: &[(&str, &[u8])],
+        omit: &[&str],
+    ) -> Vec<u8> {
+        let prefix = {
+            let mut archive = ZipArchive::new(Cursor::new(template)).unwrap();
+            let name = archive.by_index(0).unwrap().name().to_string();
+            let (root, _) = name.split_once('/').unwrap();
+            format!("{root}/")
+        };
+
+        let mut members: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        {
+            let mut archive = ZipArchive::new(Cursor::new(template)).unwrap();
+            for index in 0..archive.len() {
+                let mut file = archive.by_index(index).unwrap();
+                let name = file.name().to_string();
+                let (_, relative) = name.split_once('/').unwrap();
+                let mut data = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut data).unwrap();
+                members.insert(relative.to_string(), data);
+            }
+        }
+        for key in omit {
+            members.remove(*key);
+        }
+        for (rel, data) in overrides {
+            members.insert(rel.to_string(), data.to_vec());
+        }
+
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut zip = ZipWriter::new(&mut cursor);
+            let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            for (relative, data) in members {
+                zip.start_file(format!("{prefix}{relative}"), opts).unwrap();
+                zip.write_all(&data).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        cursor.into_inner()
+    }
 
     #[test]
     fn verify_single_event_accepts_append_001_fixture() {
@@ -1568,6 +1892,77 @@ mod tests {
     }
 
     #[test]
+    fn verify_export_zip_rejects_invalid_zip_bytes() {
+        let report = verify_export_zip(&[1, 2, 3, 4]);
+        assert_eq!(report.event_failures[0].kind, "export_zip_invalid");
+    }
+
+    #[test]
+    fn verify_export_zip_rejects_zip_without_export_root_directory() {
+        let mut buf = Vec::new();
+        {
+            let mut cursor = Cursor::new(&mut buf);
+            let mut zip = ZipWriter::new(&mut cursor);
+            let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            zip.start_file("readme.txt", opts).unwrap();
+            zip.write_all(b"x").unwrap();
+            zip.finish().unwrap();
+        }
+        let report = verify_export_zip(&buf);
+        assert_eq!(report.event_failures[0].kind, "export_zip_invalid");
+        assert!(
+            report.warnings[0].contains("export root")
+                || report.warnings[0].contains("failed to parse ZIP"),
+            "{}",
+            report.warnings[0]
+        );
+    }
+
+    #[test]
+    fn verify_export_zip_missing_manifest_is_fatal() {
+        let template = fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/vectors/verify/001-export-001-two-event-chain/input-export.zip"),
+        )
+        .unwrap();
+        let zip = rebuild_export_zip(&template, &[], &["000-manifest.cbor"]);
+        let report = verify_export_zip(&zip);
+        assert_eq!(report.event_failures[0].kind, "missing_manifest");
+    }
+
+    #[test]
+    fn verify_export_zip_tampered_events_triggers_archive_integrity_failure() {
+        let template = fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/vectors/verify/001-export-001-two-event-chain/input-export.zip"),
+        )
+        .unwrap();
+        let zip = rebuild_export_zip(&template, &[("010-events.cbor", &[0xff])], &[]);
+        let report = verify_export_zip(&zip);
+        assert_eq!(
+            report.event_failures[0].kind,
+            "archive_integrity_failure",
+            "manifest member digests are checked before 010-events.cbor is parsed"
+        );
+    }
+
+    #[test]
+    fn parse_sign1_array_rejects_invalid_cbor() {
+        assert!(super::parse_sign1_array(&[0xff]).is_err());
+    }
+
+    #[test]
+    fn parse_sign1_array_rejects_array_of_non_sign1_items() {
+        let mut bytes = Vec::new();
+        ciborium::into_writer(
+            &ciborium::Value::Array(vec![ciborium::Value::Integer(0.into())]),
+            &mut bytes,
+        )
+        .unwrap();
+        assert!(super::parse_sign1_array(&bytes).is_err());
+    }
+
+    #[test]
     fn verify_tampered_ledger_rejects_signature_flip() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/vectors/tamper/001-signature-flip");
@@ -1582,6 +1977,50 @@ mod tests {
         assert!(!report.integrity_verified);
         assert!(report.readability_verified);
         assert_eq!(report.event_failures[0].kind, "signature_invalid");
+    }
+
+    #[test]
+    fn verify_event_rejects_signature_after_revocation_valid_to() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/append/009-signing-key-revocation");
+        let signed_event = fs::read(fixture_root.join("expected-event.cbor")).unwrap();
+        let mut registry_value =
+            ciborium::from_reader::<ciborium::Value, _>(&fs::read(fixture_root.join("input-signing-key-registry-after.cbor")).unwrap()[..])
+                .unwrap();
+        let registry_entries = registry_value.as_array_mut().unwrap();
+        let entry_map = registry_entries[0].as_map_mut().unwrap();
+        for (key, value) in entry_map.iter_mut() {
+            if key.as_text() == Some("valid_to") {
+                *value = ciborium::Value::Integer(1745109999u64.into());
+            }
+        }
+        let mut registry_bytes = Vec::new();
+        ciborium::into_writer(&registry_value, &mut registry_bytes).unwrap();
+
+        let parsed = parse_sign1_bytes(&signed_event).unwrap();
+        let registry = parse_signing_key_registry(&registry_bytes).unwrap();
+        let report = verify_event_set(&[parsed], &registry, None, None, false, None, None);
+
+        assert!(report.structure_verified);
+        assert!(!report.integrity_verified);
+        assert!(report.readability_verified);
+        assert_eq!(report.event_failures[0].kind, "revoked_authority");
+    }
+
+    #[test]
+    fn verify_event_allows_historical_signature_before_revocation_valid_to() {
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/append/009-signing-key-revocation");
+        let signed_event = fs::read(fixture_root.join("expected-event.cbor")).unwrap();
+        let registry_bytes = fs::read(fixture_root.join("input-signing-key-registry-after.cbor")).unwrap();
+
+        let parsed = parse_sign1_bytes(&signed_event).unwrap();
+        let registry = parse_signing_key_registry(&registry_bytes).unwrap();
+        let report = verify_event_set(&[parsed], &registry, None, None, false, None, None);
+
+        assert!(report.structure_verified);
+        assert!(report.integrity_verified);
+        assert!(report.readability_verified);
     }
 
     #[test]
