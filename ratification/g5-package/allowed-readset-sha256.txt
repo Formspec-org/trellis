@@ -110,6 +110,17 @@ fc12d697003935c92d57a1026b9d41140d0c435a82f1c924b32021fc2eae6221  fixtures/vecto
 b066b13654bba18e3438f733493c1ef2805c23ab48899da3094137aa3ed20cf1  fixtures/vectors/append/009-signing-key-revocation/input-signing-key-registry-before.cbor
 165c8cb00d18e3a1f14fef0903919a9ef237da46a352e97a70008ec7020b66e5  fixtures/vectors/append/009-signing-key-revocation/manifest.toml
 73655f707f06a53b8814e2f7669ad21f5cde8b723e78335a9e91e13bbee5e361  fixtures/vectors/append/009-signing-key-revocation/sig-structure.bin
+7021673cb5744bb8bbcb769325f144baa7e6c889060c2478f357c3d79384fba0  fixtures/vectors/append/010-wos-custody-hook-state-transition/author-event-hash.bin
+32af83a2d46a15c9e950ff8c81016695d262d879bf9f14fe332d4adbf3e9bb29  fixtures/vectors/append/010-wos-custody-hook-state-transition/author-event-preimage.bin
+f5ddb12b4c029c38ae0c4ab3f31693e1c5b4563265767b36f0fae43fc0f11b5c  fixtures/vectors/append/010-wos-custody-hook-state-transition/derivation.md
+dab2d776a19e2a7fd1488f09572cb7044ad7307c9fcaab2d98324309d8631d4c  fixtures/vectors/append/010-wos-custody-hook-state-transition/expected-append-head.cbor
+36fc26c824cc097314c174df976a4aacfd59a31378fb336af5428486efa537b5  fixtures/vectors/append/010-wos-custody-hook-state-transition/expected-event-payload.cbor
+2ed3333fb73e952cc77c37a052d29fd8872df798e6247710b3f9f5f586b0a9e8  fixtures/vectors/append/010-wos-custody-hook-state-transition/expected-event.cbor
+1e7f3bc8047cb47994d52b55195b035261c56bf837c44da628a221b2e007108b  fixtures/vectors/append/010-wos-custody-hook-state-transition/input-author-event-hash-preimage.cbor
+51e091bf12ef392984d8e7fc13db1a7f76fe751a780544b977b44d609ebfb90d  fixtures/vectors/append/010-wos-custody-hook-state-transition/input-wos-idempotency-tuple.cbor
+94a1c2b6a76243dbef00a3e7850e3f16b4c0c03b36755c6bbd265bcf8919da1a  fixtures/vectors/append/010-wos-custody-hook-state-transition/input-wos-record.dcbor
+51b8c09a6e667ffbf9150048070bb53e3cb3c0f78c17627fc745c4e708d2e645  fixtures/vectors/append/010-wos-custody-hook-state-transition/manifest.toml
+52b2a6322ff973c291649a6c179ae33847cd424eacba87ecfc3c2b4c9bccfc4e  fixtures/vectors/append/010-wos-custody-hook-state-transition/sig-structure.bin
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  fixtures/vectors/export/.gitkeep
 4d83ded528ba480d44d0c576520ca169aa477c82a379b5d334eb9fed94316931  fixtures/vectors/export/001-two-event-chain/000-manifest.cbor
 e71fc149ec8f204cf172e33d8f23007a051bfc00804f9d8fb0500b392d83a237  fixtures/vectors/export/001-two-event-chain/010-events.cbor

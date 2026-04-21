@@ -1,1 +1,1 @@
-aa05eb5aab7be9178f4cb8645323afa97e27f33348fbb171391591f1a04fa449  ratification/g5-package/trellis-g5-allowed-readset-2026-04-21.tar.gz
+987e7fd5f3e6df9cee8b97ab33f5af66303abc6946017758d22a6813d41fb372  ratification/g5-package/trellis-g5-allowed-readset-2026-04-21.tar.gz

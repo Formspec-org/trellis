@@ -110,6 +110,17 @@ fixtures/vectors/append/009-signing-key-revocation/input-signing-key-registry-af
 fixtures/vectors/append/009-signing-key-revocation/input-signing-key-registry-before.cbor
 fixtures/vectors/append/009-signing-key-revocation/manifest.toml
 fixtures/vectors/append/009-signing-key-revocation/sig-structure.bin
+fixtures/vectors/append/010-wos-custody-hook-state-transition/author-event-hash.bin
+fixtures/vectors/append/010-wos-custody-hook-state-transition/author-event-preimage.bin
+fixtures/vectors/append/010-wos-custody-hook-state-transition/derivation.md
+fixtures/vectors/append/010-wos-custody-hook-state-transition/expected-append-head.cbor
+fixtures/vectors/append/010-wos-custody-hook-state-transition/expected-event-payload.cbor
+fixtures/vectors/append/010-wos-custody-hook-state-transition/expected-event.cbor
+fixtures/vectors/append/010-wos-custody-hook-state-transition/input-author-event-hash-preimage.cbor
+fixtures/vectors/append/010-wos-custody-hook-state-transition/input-wos-idempotency-tuple.cbor
+fixtures/vectors/append/010-wos-custody-hook-state-transition/input-wos-record.dcbor
+fixtures/vectors/append/010-wos-custody-hook-state-transition/manifest.toml
+fixtures/vectors/append/010-wos-custody-hook-state-transition/sig-structure.bin
 fixtures/vectors/export/.gitkeep
 fixtures/vectors/export/001-two-event-chain/000-manifest.cbor
 fixtures/vectors/export/001-two-event-chain/010-events.cbor
