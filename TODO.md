@@ -1,9 +1,9 @@
 # Trellis — TODO
 
 Forward-looking tactical work only. Priority = `Imp × Debt`; size tags are
-scheduling hints, never priority inputs. Streams run concurrently once you
-validate the principles doc. State, history, and gate tracking live
-elsewhere (see bottom).
+scheduling hints, never priority inputs. Streams run concurrently under the
+accepted Phase-1 principles/ADR posture. State, history, and gate tracking
+live elsewhere (see bottom).
 
 Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (multi-session).
 
@@ -12,18 +12,22 @@ Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (
 ## Gate — validate principles + ADRs
 
 [`thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md`](thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md)
-holds 7 principles and 4 decided ADRs: **single-parent chain** (ADR 0001),
-**single-slot anchor** (ADR 0002), **no §22/§24 reservations** (ADR 0003),
-**Rust is byte authority + Python generators retire** (ADR 0004). Status:
-**Draft — pending the validation checklist at the bottom of the doc.**
+holds 7 accepted principles and 4 decided ADRs: **DAG envelope with
+length-1 Phase-1 runtime** (ADR 0001), **list-form anchors with
+single-anchor deployment default** (ADR 0002), **§22/§24 reservations held
+in the envelope but MUST NOT populate in Phase 1** (ADR 0003), **Rust is
+byte authority with Python retained as cross-check** (ADR 0004).
 
-Every stream below is blocked on this tick-or-redirect.
+Gate status: **accepted**. Streams below execute against this posture.
+
+Executable breakdown for the post-gate queue lives in
+[`thoughts/specs/2026-04-20-trellis-todo-executable-task-dispatch.md`](thoughts/specs/2026-04-20-trellis-todo-executable-task-dispatch.md).
 
 **Governance rule — zero records before G-5.** No records are issued under
 the Phase-1 envelope shape until the stranger test (G-5) passes. Protects
-the cheap-revision window that minimalism over reservation (ADRs 0001 /
-0002 / 0003) relies on — format drift must remain free to absorb until a
-second impl has proved the spec prose pins the shape.
+the cheap-revision window the maximalist-envelope ADRs rely on — runtime
+scope stays Phase 1, but the wire shape remains free to absorb revision
+until a second impl has proved the spec prose pins it.
 
 ---
 
@@ -40,15 +44,16 @@ Debt.
   Goal: `cargo test` produces byte-identical `append/001` output from a
   declarative input. Does not require the rest of the corpus.
 
-- **Incremental op coverage + Python retirement per-op** — **L**.
+- **Incremental op coverage + Python cross-check on every op** — **L**.
   For each op: byte-match every committed fixture; commit declarative
-  input under `fixtures/vectors/_inputs/<op>/`; add Rust CLI; delete
-  `_generator/gen_<op>_*.py` (per ADR 0004). Retire
-  `_generator/_lib/` when the last generator falls.
+  input under `fixtures/vectors/_inputs/<op>/`; add Rust CLI; keep the
+  Python generator path producing byte-identical output (per ADR 0004).
 
 - **Full-corpus parity** — **L**.
-  Closes G-4. Rust trails the latest vectors by hours, not months, while
-  the impl stays healthy.
+  G-4 is closed (see [`COMPLETED.md`](COMPLETED.md) and
+  [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md));
+  this stream keeps Rust within hours of new vectors, not months, while the
+  impl stays healthy.
 
 ### 2. G-5 stranger implementation
 
@@ -94,13 +99,7 @@ Pure Imp, zero contributor cost — wall-clock runs in parallel.
   Phase-1 lint enforces `MUST NOT populate`. Substance (what goes in the
   hooks) defers to Phase 4 scoping.
 
-### 5. G-2 model-check flush
-
-- **Flush [`fixtures/vectors/_pending-model-checks.toml`](fixtures/vectors/_pending-model-checks.toml)** — **M**.
-  Closes G-2. Depends on G-4 Rust model-check evidence, so sequences
-  naturally behind Stream 1.
-
-### 6. WOS `custodyHook` joint ADR
+### 5. WOS `custodyHook` joint ADR
 
 Joint design between WOS and Trellis for the provenance-record shape WOS
 emits and Trellis anchors. Load-bearing for WOS 1.0 closure; mirror of
@@ -112,7 +111,7 @@ WOS TODO Do-next #3.
   Trellis-side concern: the record must compose with the existing envelope
   without reservation-creep (ADR 0003 holds the line).
 
-### 7. O-gates — operational-companion ratification fixtures
+### 6. O-gates — operational-companion ratification fixtures
 
 Named 1.0 ratification gates from
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).

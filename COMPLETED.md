@@ -194,6 +194,25 @@ Brainstorm corrected TODO's prior invariant mislabels. Serial order:
 Closed by Wave 7 `append/009-signing-key-revocation` (TR-CORE-037 +
 TR-CORE-070). `pending_invariants = []` achieved.
 
+### G-2 model-check flush
+
+Closed 2026-04-21. `trellis-conformance` now carries a real model-check
+suite at [`crates/trellis-conformance/src/model_checks.rs`](crates/trellis-conformance/src/model_checks.rs)
+covering TR-CORE-001 / 020 / 023 / 025 / 046 / 050 and TR-OP-061 / 111.
+`thoughts/model-checks/evidence.toml` and the row-specific evidence briefs
+under `thoughts/model-checks/` are live, and
+[`fixtures/vectors/_pending-model-checks.toml`](fixtures/vectors/_pending-model-checks.toml)
+is empty.
+
+### G-4 reference implementation
+
+Closed 2026-04-21. The Rust workspace under `crates/` now provides real
+`append`, `verify`, and `export` behavior, a real Postgres backend, and a
+conformance harness that replays the committed `append`, `export`, `verify`,
+`tamper`, `projection`, and `shred` corpora byte-for-byte. Ratification gate
+G-4 is now checked in
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
+
 ---
 
 ## Closed stream items

@@ -10,12 +10,4 @@
 # refuses a row that lives in both places.
 
 pending_matrix_rows = [
-  "TR-CORE-001",
-  "TR-CORE-020",
-  "TR-CORE-023",
-  "TR-CORE-025",
-  "TR-CORE-046",
-  "TR-CORE-050",
-  "TR-OP-061",
-  "TR-OP-111",
 ]
