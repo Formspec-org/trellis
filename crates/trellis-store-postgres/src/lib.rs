@@ -4,6 +4,14 @@
 //! This crate owns the default production storage seam for the current
 //! Phase-1 append runtime. It intentionally exposes Trellis-owned types and
 //! does not leak `postgres` crate types through its public API.
+//!
+//! # TLS
+//!
+//! [`PostgresStore::connect`] currently uses `postgres::NoTls`. That is
+//! intentional for the Phase-1 scaffold and local test clusters (cleartext on
+//! the loopback interface only). Before any non-localhost deployment, wire in
+//! explicit TLS (or restrict connection strings to trusted transports) so
+//! credentials and ledger payloads are not exposed on the network.
 
 #![forbid(unsafe_code)]
 
@@ -65,6 +73,10 @@ impl std::fmt::Debug for PostgresStore {
 
 impl PostgresStore {
     /// Connects to Postgres and ensures the Trellis schema exists.
+    ///
+    /// Uses cleartext transport ([`NoTls`]). Acceptable for localhost-only
+    /// Phase-1 development; do not point this at untrusted networks without
+    /// adding TLS.
     ///
     /// # Errors
     /// Returns an error when the database connection or schema creation fails.

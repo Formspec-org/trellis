@@ -21,7 +21,10 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let command = std::env::args().nth(1).ok_or_else(|| {
-        "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002>"
+        "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002>\n\
+         \n\
+         These commands mirror a small smoke subset of the Trellis fixture corpus.\n\
+         Run the full committed vector set via the `trellis-conformance` binary."
             .to_string()
     })?;
     dispatch_command(command.as_str())

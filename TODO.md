@@ -33,27 +33,19 @@ until a second impl has proved the spec prose pins it.
 
 ## Streams (ordered by Imp × Debt)
 
-### 1. Rust reference implementation
+### 1. Rust reference implementation — sustaining
 
-Rust is the byte authority (ADR 0004). Every week without it, Python
-generators remain the de facto reference impl — accumulating structural
-Debt.
+G-4 is closed (see [`COMPLETED.md`](COMPLETED.md) and
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)).
+The 10-crate workspace under [`crates/`](crates/) replays the full committed
+corpus byte-for-byte. This stream now tracks sustaining work only.
 
-- **Workspace scaffolding + `append/001` byte-match** — **M**.
-  Per [`thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`](thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md).
-  Goal: `cargo test` produces byte-identical `append/001` output from a
-  declarative input. Does not require the rest of the corpus.
+- **Keep Rust within hours of new vectors** — **XS** per vector.
+  New vectors (from Stream 3) need a corresponding Rust conformance entry.
 
-- **Incremental op coverage + Python cross-check on every op** — **L**.
-  For each op: byte-match every committed fixture; commit declarative
-  input under `fixtures/vectors/_inputs/<op>/`; add Rust CLI; keep the
-  Python generator path producing byte-identical output (per ADR 0004).
-
-- **Full-corpus parity** — **L**.
-  G-4 is closed (see [`COMPLETED.md`](COMPLETED.md) and
-  [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md));
-  this stream keeps Rust within hours of new vectors, not months, while the
-  impl stays healthy.
+- **Commit declarative inputs under `_inputs/<op>/`** — **S–M**.
+  `fixtures/vectors/_inputs/` has scaffolding only; per-op declarative
+  inputs are the remaining gap for full ADR-0004 traceability.
 
 ### 2. G-5 stranger implementation
 
@@ -70,20 +62,18 @@ Pure Imp, zero contributor cost — wall-clock runs in parallel.
 
 ### 3. Vector authoring (feeds Stream 1)
 
-- **`verify/` negative-non-tamper tail** — **S** each.
-  §19 steps 4.* (event-level), 5.d (`prev_checkpoint_hash`), 5.e
-  (consistency-proof mismatch), 6 (posture transition), 8 (anchor).
-  Revoked / `valid_to` enforcement needs an explicit §19 pin — coordinate
-  with Core authoring before writing the vector.
+Phase-1 G-3 breadth is closed for the current surface:
 
-- **`export/` suite expansion** — **M**.
-  ZIP-determinism edge cases, manifest variants, key-material handling,
-  larger inclusion-proof sets. Per Core §18.
+- `verify/001–012` now cover Core §19 steps 1–8, including the residual
+  step-4 revoked/`valid_to` branch, step-6 posture-transition path, and
+  step-8 optional-anchor handling.
+- `export/001–004` now cover the baseline two-event chain, revoked-key
+  history, a three-event transition chain with larger proof sets, and a
+  bundled-`PayloadExternal` / optional-anchor manifest variant.
+- `tamper/001–012` now include the residual `prev_hash_break`,
+  `missing_head`, `wrong_scope`, and `registry_snapshot_swap` cases.
 
-- **Residual `tamper/` cases** — **S** each.
-  `prev_hash_break` (mutated bytes + re-sign), `missing_head` (needs a
-  checkpoint), `wrong_scope` + `registry_snapshot_swap` (bundle with
-  verify / export manifests).
+No additional vector-authoring queue remains unless the spec surface grows.
 
 ### 4. Stream E — Respondent Ledger ↔ Trellis binding
 
@@ -104,6 +94,11 @@ Pure Imp, zero contributor cost — wall-clock runs in parallel.
 Joint design between WOS and Trellis for the provenance-record shape WOS
 emits and Trellis anchors. Load-bearing for WOS 1.0 closure; mirror of
 WOS TODO Do-next #3.
+
+Drafts landed:
+
+- [`../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md`](../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
+- [`thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md`](thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md)
 
 - **Wire-format ADR** — **M**. Cross-linked ADR in both submodules. Shape
   covers `{ recordKind, content-hash, WOS lifecycle reference, anchor
@@ -165,7 +160,8 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 | Strategy, product arc, invariants | [`thoughts/product-vision.md`](thoughts/product-vision.md) | open the file |
 | Implementation plans | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` |
 | Fixture corpus (ground truth) | `fixtures/vectors/` | `ls fixtures/vectors/*/` |
-| Lint + test green | — | `python3 scripts/check-specs.py && python3 -m pytest scripts/` |
+| Rust reference implementation | `crates/` | `cargo test --workspace` |
+| Lint + test green | — | `python3 scripts/check-specs.py && python3 -m pytest scripts/ && cargo test --workspace` |
 | Recent commits, who changed what | — | `git log --oneline` |
 
 When a TODO grows into a spec-sized effort, move the substance to

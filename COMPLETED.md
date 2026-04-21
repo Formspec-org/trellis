@@ -166,6 +166,37 @@ Wave 1 lint-refactor plan: [`thoughts/specs/2026-04-18-trellis-wave1-lint-extens
   `scripts/check-vector-renumbering.py` compares the current tree to a
   ratification/base ref to reject deleted or renumbered `<op>/NNN-*` vector
   prefixes. Landed Wave 5 working tree with CLI/git-path tests.
+- **R12 verify-report consistency check** — Cross-checks failure-kind
+  tokens in verify/* manifests against `[expected.report]` booleans per
+  Core §19. Landed `d3af6a8`.
+- **Generator `_lib/` extraction** — Shared byte-level plumbing
+  centralized in
+  [`fixtures/vectors/_generator/_lib/byte_utils.py`](fixtures/vectors/_generator/_lib/byte_utils.py).
+  Renamed `gen_verify_002_003.py` → `gen_verify_negative_export_001.py`.
+  Landed `b3cb833`.
+- **Verify vectors 008 + 009** — Closed Core §19 step 5.d
+  (`prev_checkpoint_hash` mismatch) and step 5.e (consistency-proof
+  mismatch) with
+  [`verify/008-export-001-prev-checkpoint-hash-mismatch`](fixtures/vectors/verify/008-export-001-prev-checkpoint-hash-mismatch)
+  and
+  [`verify/009-export-001-consistency-proof-mismatch`](fixtures/vectors/verify/009-export-001-consistency-proof-mismatch).
+  Extended `gen_verify_negative_export_001.py`; lint + Trellis
+  conformance replay pass.
+- **Residual V3 breadth closure** — Landed the remaining G-3 fixture batch
+  on 2026-04-21: `export/002-revoked-key-history`,
+  `export/003-three-event-transition-chain`,
+  `export/004-external-payload-optional-anchor`,
+  `verify/010-export-002-revoked-key-after-valid-to`,
+  `verify/011-export-003-transition-chain`,
+  `verify/012-export-004-optional-anchor`,
+  `tamper/009-prev-hash-break`, `tamper/010-missing-head`,
+  `tamper/011-wrong-scope`, and `tamper/012-registry-snapshot-swap`.
+  Also landed the Core §19 revocation-language pin, `trellis-verify`
+  support for bundled `PayloadExternal` export members, and distinct
+  `prev_hash_break` tamper classification. `python3 scripts/check-specs.py`,
+  `cargo test -p trellis-verify`, and
+  `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime`
+  all pass, and ratification gate G-3 is now checked.
 
 ### First vector batch (G-3) — all 5 landed
 

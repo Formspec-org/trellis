@@ -11,8 +11,7 @@ breakdown.
 - **COMPLETED** — closed in the current repo state.
 - **IN-PROGRESS** — partially landed; follow-on work remains in the same row.
 - **READY-NOW** — can be executed immediately in the current repo state.
-- **READY-AFTER-GATE** — blocked only on acceptance of
-  [`2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md`](2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md).
+- **READY-NOW** — can be executed immediately; the gate is accepted.
 - **BLOCKED-EXTERNAL** — requires owner validation, sibling-repo coordination,
   or a genuinely independent implementor.
 - **NOT-HONEST-FOR-THIS-AGENT** — this thread has already read material that
@@ -105,7 +104,7 @@ blocked for its own dependency reasons, not because the architecture is open.
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
 | S2-01 | NOT-HONEST-FOR-THIS-AGENT | Implement the stranger test in this thread. | Do not do this here; the thread has already read plans, generators, and repo internals. |
-| S2-02 | READY-AFTER-GATE | Draft a clean commission brief for an independent `trellis-py` or `trellis-go` implementor that names allowed and forbidden inputs. | Brief exists and cites only the three normative specs plus the vector corpus. |
+| S2-02 | READY-NOW | Draft a clean commission brief for an independent `trellis-py` or `trellis-go` implementor that names allowed and forbidden inputs. | Brief exists and cites only the three normative specs plus the vector corpus. |
 | S2-03 | BLOCKED-EXTERNAL | Commission the independent implementor. | A genuinely separate implementor accepts the brief. |
 | S2-04 | BLOCKED-EXTERNAL | Run the stranger implementation against the corpus and capture byte-match evidence. | G-5 evidence is recorded in `ratification/ratification-checklist.md`. |
 
@@ -113,30 +112,30 @@ blocked for its own dependency reasons, not because the architecture is open.
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
-| V3-01 | READY-AFTER-GATE | Pin Core §19 language for Revoked/`valid_to` enforcement before authoring the corresponding verify vectors. | Spec prose lands; no ambiguity remains about the check point. |
-| V3-02 | READY-AFTER-GATE | Author a verify vector for the remaining §19 step-4 event-level negative-non-tamper obligation. | New `verify/` fixture lands with derivation and claims. |
-| V3-03 | READY-AFTER-GATE | Author a verify vector for §19 step 5.d `prev_checkpoint_hash` mismatch. | New `verify/` fixture lands and lints clean. |
-| V3-04 | READY-AFTER-GATE | Author a verify vector for §19 step 5.e consistency-proof mismatch between non-head checkpoints. | New `verify/` fixture lands and lints clean. |
-| V3-05 | READY-AFTER-GATE | Author a verify vector for §19 step 6 posture-transition verification in the non-tamper path. | New `verify/` fixture lands and lints clean. |
-| V3-06 | READY-AFTER-GATE | Author a verify vector for §19 step 8 external-anchor handling. | New `verify/` fixture lands and lints clean. |
-| V3-07 | READY-AFTER-GATE | Expand the `export/` suite for ZIP determinism edge cases. | At least one new `export/` vector lands with deterministic ZIP evidence. |
-| V3-08 | READY-AFTER-GATE | Expand the `export/` suite for manifest-variant coverage. | At least one new `export/` vector lands with claims/derivation. |
-| V3-09 | READY-AFTER-GATE | Expand the `export/` suite for key-material handling. | At least one new `export/` vector lands with claims/derivation. |
-| V3-10 | READY-AFTER-GATE | Expand the `export/` suite for larger inclusion/consistency-proof sets. | At least one new `export/` vector lands with claims/derivation. |
-| V3-11 | READY-AFTER-GATE | Author `tamper/prev_hash_break` (mutated bytes + re-sign). | New `tamper/` vector lands and lints clean. |
-| V3-12 | READY-AFTER-GATE | Author `tamper/missing_head` (checkpoint-aware). | New `tamper/` vector lands and lints clean. |
-| V3-13 | READY-AFTER-GATE | Author `tamper/wrong_scope`. | New `tamper/` vector lands and lints clean. |
-| V3-14 | READY-AFTER-GATE | Author `tamper/registry_snapshot_swap`. | New `tamper/` vector lands and lints clean. |
-| V3-15 | READY-AFTER-GATE | After each new vector batch, update `ratification/ratification-checklist.md` G-3 evidence text. | G-3 evidence block names the newly landed vectors. |
+| V3-01 | COMPLETED | Pin Core §19 language for Revoked/`valid_to` enforcement before authoring the corresponding verify vectors. | Core §19 step 4.a now names the `Revoked` + `valid_to` decision point explicitly; verifier path landed with historical/rejected tests. |
+| V3-02 | COMPLETED | Author a verify vector for the remaining §19 step-4 event-level negative-non-tamper obligation. | `verify/010-export-002-revoked-key-after-valid-to` landed; lint + `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime` pass. |
+| V3-03 | COMPLETED | Author a verify vector for §19 step 5.d `prev_checkpoint_hash` mismatch. | `verify/008-export-001-prev-checkpoint-hash-mismatch` landed; lint + `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime` pass. |
+| V3-04 | COMPLETED | Author a verify vector for §19 step 5.e consistency-proof mismatch between non-head checkpoints. | `verify/009-export-001-consistency-proof-mismatch` landed; lint + `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime` pass. |
+| V3-05 | COMPLETED | Author a verify vector for §19 step 6 posture-transition verification in the non-tamper path. | `verify/011-export-003-transition-chain` landed with `posture_transition_count = 2`; lint + conformance replay pass. |
+| V3-06 | COMPLETED | Author a verify vector for §19 step 8 external-anchor handling. | `verify/012-export-004-optional-anchor` landed; lint + conformance replay pass. |
+| V3-07 | COMPLETED | Expand the `export/` suite for ZIP determinism edge cases. | `export/004-external-payload-optional-anchor` landed with a deterministic ZIP that includes bundled `060-payloads/*` bytes. |
+| V3-08 | COMPLETED | Expand the `export/` suite for manifest-variant coverage. | `export/004-external-payload-optional-anchor` landed with optional-anchor posture fields and bundled `PayloadExternal` material. |
+| V3-09 | COMPLETED | Expand the `export/` suite for key-material handling. | `export/002-revoked-key-history` landed with a historically valid `Revoked` signing-key registry entry. |
+| V3-10 | COMPLETED | Expand the `export/` suite for larger inclusion/consistency-proof sets. | `export/003-three-event-transition-chain` landed with three inclusion proofs and multi-record consistency material. |
+| V3-11 | COMPLETED | Author `tamper/prev_hash_break` (mutated bytes + re-sign). | `tamper/009-prev-hash-break` landed; verifier classifies it distinctly from truncation/reorder; lint + conformance replay pass. |
+| V3-12 | COMPLETED | Author `tamper/missing_head` (checkpoint-aware). | `tamper/010-missing-head` landed; lint + conformance replay pass. |
+| V3-13 | COMPLETED | Author `tamper/wrong_scope`. | `tamper/011-wrong-scope` landed; lint + conformance replay pass. |
+| V3-14 | COMPLETED | Author `tamper/registry_snapshot_swap`. | `tamper/012-registry-snapshot-swap` landed; lint + conformance replay pass. |
+| V3-15 | COMPLETED | After each new vector batch, update `ratification/ratification-checklist.md` G-3 evidence text. | G-3 evidence now names the full `verify/010-012`, `export/002-004`, and `tamper/009-012` closure batch. |
 
 ## Stream 4 — Respondent Ledger ↔ Trellis binding
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
 | B4-01 | BLOCKED-EXTERNAL | Confirm with Formspec that Respondent Ledger §6.2 `eventHash` / `priorEventHash` become MUST when Trellis-wrapped. | Cross-repo agreement exists. |
-| B4-02 | READY-AFTER-GATE | Draft the Trellis-side spec amendment that references the Formspec MUST promotion. | Trellis prose patch is ready or landed. |
+| B4-02 | READY-NOW | Draft the Trellis-side spec amendment that references the Formspec MUST promotion. | Trellis prose patch is ready or landed. |
 | B4-03 | BLOCKED-EXTERNAL | Land the Formspec-side MUST promotion. | Formspec spec change is committed in the sibling repo. |
-| B4-04 | READY-AFTER-GATE | Add Trellis-side conformance/lint coverage for the promoted requirement once Formspec lands it. | New or amended checks fail when the fields are absent. |
+| B4-04 | READY-NOW | Add Trellis-side conformance/lint coverage for the promoted requirement once Formspec lands it. | New or amended checks fail when the fields are absent. |
 | B4-05 | BLOCKED-EXTERNAL | Phase-4 only: define the semantic contents of Core §22 case ledger and §24 agency log. | Separate Phase-4 design brief exists; not Phase-1 work. |
 
 ## Stream 5 — G-2 model-check flush
@@ -154,42 +153,41 @@ blocked for its own dependency reasons, not because the architecture is open.
 | M5-09 | COMPLETED | Add model-check evidence for `TR-OP-111` (operational testing guidance exercised concretely). | Row removed from allowlist; evidence recorded. |
 | M5-10 | COMPLETED | Empty [`fixtures/vectors/_pending-model-checks.toml`](../../fixtures/vectors/_pending-model-checks.toml). | Allowlist is empty and lint stays green. |
 
-## Stream 6 — WOS `custodyHook` joint ADR
+## Stream 5 — WOS `custodyHook` joint ADR
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
 | C6-01 | BLOCKED-EXTERNAL | Confirm the joint-design boundary with WOS so Trellis does not invent WOS-side primitives. | Cross-submodule scope is agreed. |
-| C6-02 | READY-AFTER-GATE | Draft the Trellis-side half of the joint ADR: envelope composition, hash surface, and anchor-target shape. | Trellis draft exists with explicit open questions. |
-| C6-03 | BLOCKED-EXTERNAL | Draft the WOS-side half: recordKind/lifecycle-reference semantics. | WOS draft exists in the sibling repo. |
-| C6-04 | BLOCKED-EXTERNAL | Land a mirrored ADR in both repos and link it from each TODO. | Same wire-format ADR is committed in both submodules. |
+| C6-02 | COMPLETED | Draft the Trellis-side half of the joint ADR: envelope composition, hash surface, and anchor-target shape. | `thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md` landed. |
+| C6-03 | COMPLETED | Draft the WOS-side half: recordKind/lifecycle-reference semantics. | `../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md` landed. |
+| C6-04 | COMPLETED | Land a mirrored ADR in both repos and link it from each TODO. | Same wire-format ADR is committed in both submodules and linked from each TODO. |
 
-## Stream 7 — O-gate close-out tasks
+## Stream 6 — O-gate close-out tasks
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
 | O7-01 | COMPLETED | Author O-3 fixture inputs under `fixtures/vectors/_inputs/projection/` once the Rust conformance path exists. | Inputs are committed and consumed by the Rust runner. |
-| O7-02 | READY-AFTER-GATE | Land O-4 declaration docs per Companion §19 for every delegated-compute deployment fixture. | Declaration docs exist and pass the current validator. |
-| O7-03 | READY-AFTER-GATE | Author the remaining O-5 canonical events for custody/disclosure posture changes if new gaps remain beyond `append/006..008` and `tamper/002..004`. | O-5 gap list is empty. |
-| O7-04 | READY-AFTER-GATE | Record evidence SHAs for O-3 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-3 gate has concrete evidence pointers. |
-| O7-05 | READY-AFTER-GATE | Record evidence SHAs for O-4 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-4 gate has concrete evidence pointers. |
-| O7-06 | READY-AFTER-GATE | Record evidence SHAs for O-5 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-5 gate has concrete evidence pointers. |
+| O7-02 | READY-NOW | Land O-4 declaration docs per Companion §19 for every delegated-compute deployment fixture. | Declaration docs exist and pass the current validator. |
+| O7-03 | READY-NOW | Author the remaining O-5 canonical events for custody/disclosure posture changes if new gaps remain beyond `append/006..008` and `tamper/002..004`. | O-5 gap list is empty. |
+| O7-04 | READY-NOW | Record evidence SHAs for O-3 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-3 gate has concrete evidence pointers. |
+| O7-05 | READY-NOW | Record evidence SHAs for O-4 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-4 gate has concrete evidence pointers. |
+| O7-06 | READY-NOW | Record evidence SHAs for O-5 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-5 gate has concrete evidence pointers. |
 
 ## Ratification close-out
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
-| Z-01 | READY-AFTER-GATE | When all seven gates flip, update the ratification checklist with final evidence SHAs. | Checklist is the evidence-of-record with no placeholders. |
-| Z-02 | READY-AFTER-GATE | Strike `(Draft)` from Core and Companion titles. | Normative docs reflect ratified status. |
-| Z-03 | READY-AFTER-GATE | Cut the version tag. | Version tag exists and matches the ratified surface. |
+| Z-01 | READY-NOW | When all seven gates flip, update the ratification checklist with final evidence SHAs. | Checklist is the evidence-of-record with no placeholders. |
+| Z-02 | READY-NOW | Strike `(Draft)` from Core and Companion titles. | Normative docs reflect ratified status. |
+| Z-03 | READY-NOW | Cut the version tag. | Version tag exists and matches the ratified surface. |
 
 ## Suggested remaining execution order
 
-1. `G0-07` through `G0-10` — make the accepted architecture authoritative.
-2. `R1-01` through `R1-16` — establish the Rust workspace and first byte match.
-3. `R2-01` through `R2-32` in fixture-directory order — close G-4 against the committed corpus.
-4. `V3-01` through `V3-15` — finish the residual G-3 breadth that the current corpus still lacks.
-5. `O7-01` through `O7-06` — close the remaining O-gates.
-6. `Z-01` through `Z-03` — ratify.
+1. ~~`G0-07` through `G0-10`~~ — COMPLETED.
+2. ~~`R1-01` through `R1-16`~~ — COMPLETED.
+3. ~~`R2-01` through `R2-32`~~ — COMPLETED.
+4. `O7-02` through `O7-06` — close the remaining O-gates (O7-01 done).
+5. `Z-01` through `Z-03` — ratify.
 
 ## Deliberate non-dispatches
 
