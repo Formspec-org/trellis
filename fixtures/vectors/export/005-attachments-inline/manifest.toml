@@ -1,0 +1,31 @@
+id          = "export/005-attachments-inline"
+op          = "export"
+status      = "active"
+description = """Single-event ADR 0072 export that carries a Formspec attachment-binding event, bundles the attachment ciphertext under `060-payloads/`, and binds `061-attachments.cbor` through `trellis.export.attachments.v1`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = [
+    "TR-OP-073",
+    "TR-OP-074",
+    "TR-OP-110",
+    "TR-OP-122",
+    "TR-OP-130",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "4961ed48c88388a79bcb68d858de7638019bfdc7f3cf7f5ad91ccc56417574a5"
+
+[derivation]
+document = "derivation.md"

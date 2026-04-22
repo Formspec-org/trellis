@@ -1,0 +1,19 @@
+id          = "verify/013-export-005-missing-attachment-body"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for ADR 0072 inline attachment carriage. Starts from `export/005-attachments-inline` and removes the `060-payloads/<payload_content_hash>.bin` body while leaving `inline_attachments = true` and all manifest signatures intact."""
+
+[coverage]
+tr_core = ["TR-CORE-067"]
+tr_op = ["TR-OP-041"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+
+[derivation]
+document = "derivation.md"
