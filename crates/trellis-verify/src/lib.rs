@@ -4,7 +4,7 @@
 #![forbid(unsafe_code)]
 
 use std::backtrace::Backtrace;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::io::Cursor;
 
@@ -14,7 +14,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use trellis_cose::sig_structure_bytes;
 use trellis_types::{
-    AUTHOR_EVENT_DOMAIN, COSE_LABEL_SUITE_ID, CONTENT_DOMAIN, EVENT_DOMAIN, SUITE_ID_PHASE_1,
+    AUTHOR_EVENT_DOMAIN, CONTENT_DOMAIN, COSE_LABEL_SUITE_ID, EVENT_DOMAIN, SUITE_ID_PHASE_1,
     domain_separated_sha256, encode_bstr, encode_tstr, encode_uint,
 };
 use zip::ZipArchive;
@@ -27,6 +27,8 @@ const CHECKPOINT_DOMAIN: &str = "trellis-checkpoint-v1";
 const MERKLE_LEAF_DOMAIN: &str = "trellis-merkle-leaf-v1";
 const MERKLE_INTERIOR_DOMAIN: &str = "trellis-merkle-interior-v1";
 const POSTURE_DECLARATION_DOMAIN: &str = "trellis-posture-declaration-v1";
+const ATTACHMENT_EXPORT_EXTENSION: &str = "trellis.export.attachments.v1";
+const ATTACHMENT_EVENT_EXTENSION: &str = "trellis.evidence-attachment-binding.v1";
 
 /// Verification failure localized to one artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -309,7 +311,10 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         ("010-events.cbor", "events_digest"),
         ("020-inclusion-proofs.cbor", "inclusion_proofs_digest"),
         ("025-consistency-proofs.cbor", "consistency_proofs_digest"),
-        ("030-signing-key-registry.cbor", "signing_key_registry_digest"),
+        (
+            "030-signing-key-registry.cbor",
+            "signing_key_registry_digest",
+        ),
         ("040-checkpoints.cbor", "checkpoints_digest"),
     ];
     for (member_name, field_name) in required_digests {
@@ -403,7 +408,10 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     let mut parsed_registries = BTreeMap::new();
     for binding in &parsed_bindings {
         let member_name = format!("050-registries/{}.cbor", binding.digest_hex);
-        let registry_bytes = archive.members.get(&member_name).expect("bound registry exists");
+        let registry_bytes = archive
+            .members
+            .get(&member_name)
+            .expect("bound registry exists");
         match parse_bound_registry(registry_bytes) {
             Ok(registry) => {
                 parsed_registries.insert(binding.digest_hex.clone(), registry);
@@ -443,9 +451,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         .members
         .iter()
         .filter_map(|(name, bytes)| {
-            let digest_hex = name
-                .strip_prefix("060-payloads/")?
-                .strip_suffix(".bin")?;
+            let digest_hex = name.strip_prefix("060-payloads/")?.strip_suffix(".bin")?;
             let digest_bytes = hex_decode(digest_hex).ok()?;
             let digest: [u8; 32] = digest_bytes.try_into().ok()?;
             Some((digest, bytes.clone()))
@@ -460,6 +466,17 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Some(scope.as_slice()),
         Some(&payload_blobs),
     );
+    if let Some(extension) = match parse_attachment_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                "manifest_payload_invalid",
+                format!("attachment export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_attachment_manifest(&archive, &events, &extension, &mut report);
+    }
     for failure in &mut report.event_failures {
         if failure.kind == "scope_mismatch" {
             failure.location = format!("manifest-scope/{}", failure.location);
@@ -488,7 +505,10 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             ));
             continue;
         };
-        if !bound_registry.event_types.iter().any(|value| value == &details.event_type)
+        if !bound_registry
+            .event_types
+            .iter()
+            .any(|value| value == &details.event_type)
             || !bound_registry
                 .classifications
                 .iter()
@@ -617,7 +637,8 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
 
         let digest = checkpoint_digest(&scope, payload_bytes);
         if let Some(previous) = prior_checkpoint_digest {
-            let actual_prev = match map_lookup_fixed_bytes(payload_map, "prev_checkpoint_hash", 32) {
+            let actual_prev = match map_lookup_fixed_bytes(payload_map, "prev_checkpoint_hash", 32)
+            {
                 Ok(bytes) => bytes_array(&bytes),
                 Err(error) => {
                     return VerificationReport::fatal(
@@ -637,15 +658,16 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         head_checkpoint_root = Some(actual_root);
     }
 
-    let head_checkpoint_digest = match map_lookup_fixed_bytes(manifest_map, "head_checkpoint_digest", 32) {
-        Ok(bytes) => bytes_array(&bytes),
-        Err(error) => {
-            return VerificationReport::fatal(
-                "manifest_payload_invalid",
-                format!("manifest head_checkpoint_digest is invalid: {error}"),
-            );
-        }
-    };
+    let head_checkpoint_digest =
+        match map_lookup_fixed_bytes(manifest_map, "head_checkpoint_digest", 32) {
+            Ok(bytes) => bytes_array(&bytes),
+            Err(error) => {
+                return VerificationReport::fatal(
+                    "manifest_payload_invalid",
+                    format!("manifest head_checkpoint_digest is invalid: {error}"),
+                );
+            }
+        };
     if prior_checkpoint_digest != Some(head_checkpoint_digest) {
         report.checkpoint_failures.push(VerificationFailure::new(
             "head_checkpoint_digest_mismatch",
@@ -845,12 +867,11 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     report.integrity_verified = report.event_failures.is_empty()
         && report.checkpoint_failures.is_empty()
         && report.proof_failures.is_empty()
-        && report
-            .posture_transitions
-            .iter()
-            .all(|outcome| outcome.continuity_verified
+        && report.posture_transitions.iter().all(|outcome| {
+            outcome.continuity_verified
                 && outcome.declaration_resolved
-                && outcome.attestations_verified);
+                && outcome.attestations_verified
+        });
     report.readability_verified = true;
     report
 }
@@ -878,6 +899,7 @@ struct EventDetails {
     canonical_event_hash: [u8; 32],
     payload_ref: PayloadRef,
     transition: Option<TransitionDetails>,
+    attachment_binding: Option<AttachmentBindingDetails>,
 }
 
 #[derive(Clone, Debug)]
@@ -914,6 +936,37 @@ struct TransitionDetails {
     attestation_classes: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+struct AttachmentBindingDetails {
+    attachment_id: String,
+    slot_path: String,
+    media_type: String,
+    byte_length: u64,
+    attachment_sha256: [u8; 32],
+    payload_content_hash: [u8; 32],
+    filename: Option<String>,
+    prior_binding_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug)]
+struct AttachmentExportExtension {
+    manifest_digest: [u8; 32],
+    inline_attachments: bool,
+}
+
+#[derive(Clone, Debug)]
+struct AttachmentManifestEntry {
+    binding_event_hash: [u8; 32],
+    attachment_id: String,
+    slot_path: String,
+    media_type: String,
+    byte_length: u64,
+    attachment_sha256: [u8; 32],
+    payload_content_hash: [u8; 32],
+    filename: Option<String>,
+    prior_binding_hash: Option<[u8; 32]>,
+}
+
 #[derive(Debug)]
 /// Parsed export ZIP: keys are **relative** paths under a single root directory
 /// (for example `000-manifest.cbor`), not full ZIP entry names.
@@ -940,11 +993,14 @@ fn parse_export_zip(bytes: &[u8]) -> Result<ExportArchive, VerifyError> {
             .map_err(|error| VerifyError::new(format!("failed to read ZIP member: {error}")))?;
         let name = file.name().to_string();
         let Some((_, relative_name)) = name.split_once('/') else {
-            return Err(VerifyError::new("ZIP member does not live under one export root"));
+            return Err(VerifyError::new(
+                "ZIP member does not live under one export root",
+            ));
         };
         let mut data = Vec::new();
-        std::io::Read::read_to_end(&mut file, &mut data)
-            .map_err(|error| VerifyError::new(format!("failed to read ZIP member bytes: {error}")))?;
+        std::io::Read::read_to_end(&mut file, &mut data).map_err(|error| {
+            VerifyError::new(format!("failed to read ZIP member bytes: {error}"))
+        })?;
         members.insert(relative_name.to_string(), data);
     }
     Ok(ExportArchive { members })
@@ -963,8 +1019,8 @@ fn verify_event_set(
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
     let skip_prev_hash_check = initial_posture_declaration.is_some() && events.len() == 1;
-    let mut shadow_custody_model = initial_posture_declaration
-        .and_then(|bytes| parse_custody_model(bytes).ok());
+    let mut shadow_custody_model =
+        initial_posture_declaration.and_then(|bytes| parse_custody_model(bytes).ok());
 
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
@@ -1146,8 +1202,14 @@ fn verify_event_set(
             }
 
             if requires_dual_attestation(&transition.from_state, &transition.to_state)
-                && !(transition.attestation_classes.iter().any(|value| value == "prior")
-                    && transition.attestation_classes.iter().any(|value| value == "new"))
+                && !(transition
+                    .attestation_classes
+                    .iter()
+                    .any(|value| value == "prior")
+                    && transition
+                        .attestation_classes
+                        .iter()
+                        .any(|value| value == "new"))
             {
                 outcome.attestations_verified = false;
                 outcome.failures.push("attestation_insufficient".into());
@@ -1200,7 +1262,9 @@ fn parse_sign1_value(value: &Value) -> Result<ParsedSign1, VerifyError> {
         .as_array()
         .ok_or_else(|| VerifyError::new("COSE_Sign1 body is not an array"))?;
     if items.len() != 4 {
-        return Err(VerifyError::new("COSE_Sign1 body does not contain four fields"));
+        return Err(VerifyError::new(
+            "COSE_Sign1 body does not contain four fields",
+        ));
     }
 
     let protected_bytes = items[0]
@@ -1273,7 +1337,11 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         Some(bytes) => Some(bytes_array(&bytes)),
         None => None,
     };
-    let author_event_hash = bytes_array(&map_lookup_fixed_bytes(payload_map, "author_event_hash", 32)?);
+    let author_event_hash = bytes_array(&map_lookup_fixed_bytes(
+        payload_map,
+        "author_event_hash",
+        32,
+    )?);
     let content_hash = bytes_array(&map_lookup_fixed_bytes(payload_map, "content_hash", 32)?);
     let canonical_event_hash = recompute_canonical_event_hash(&scope, payload_bytes);
 
@@ -1290,12 +1358,20 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
     let payload_ref = match map_lookup_text(payload_ref_map, "ref_type")?.as_str() {
         "inline" => PayloadRef::Inline(map_lookup_bytes(payload_ref_map, "ciphertext")?),
         "external" => PayloadRef::External,
-        _ => return Err(VerifyError::new("payload_ref.ref_type is not a supported Phase-1 value")),
+        _ => {
+            return Err(VerifyError::new(
+                "payload_ref.ref_type is not a supported Phase-1 value",
+            ));
+        }
     };
 
-    let transition = match map_lookup_optional_map(payload_map, "extensions")? {
-        Some(extensions) => decode_transition_details(extensions)?,
-        None => None,
+    let (transition, attachment_binding) = match map_lookup_optional_map(payload_map, "extensions")?
+    {
+        Some(extensions) => (
+            decode_transition_details(extensions)?,
+            decode_attachment_binding_details(extensions)?,
+        ),
+        None => (None, None),
     };
 
     Ok(EventDetails {
@@ -1310,16 +1386,16 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         canonical_event_hash,
         payload_ref,
         transition,
+        attachment_binding,
     })
 }
 
 fn decode_transition_details(
     extensions: &[(Value, Value)],
 ) -> Result<Option<TransitionDetails>, VerifyError> {
-    let Some(extension_value) = map_lookup_optional_value(
-        extensions,
-        "trellis.custody-model-transition.v1",
-    ) else {
+    let Some(extension_value) =
+        map_lookup_optional_value(extensions, "trellis.custody-model-transition.v1")
+    else {
         return Ok(None);
     };
     let extension_map = extension_value
@@ -1329,8 +1405,11 @@ fn decode_transition_details(
     let from_state = map_lookup_text(extension_map, "from_custody_model")?;
     let to_state = map_lookup_text(extension_map, "to_custody_model")?;
     let _effective_at = map_lookup_u64(extension_map, "effective_at")?;
-    let declaration_digest =
-        bytes_array(&map_lookup_fixed_bytes(extension_map, "declaration_doc_digest", 32)?);
+    let declaration_digest = bytes_array(&map_lookup_fixed_bytes(
+        extension_map,
+        "declaration_doc_digest",
+        32,
+    )?);
     let attestations = map_lookup_array(extension_map, "attestations")?;
     let attestation_classes = attestations
         .iter()
@@ -1347,7 +1426,337 @@ fn decode_transition_details(
     }))
 }
 
-fn parse_signing_key_registry(bytes: &[u8]) -> Result<BTreeMap<Vec<u8>, SigningKeyEntry>, VerifyError> {
+fn decode_attachment_binding_details(
+    extensions: &[(Value, Value)],
+) -> Result<Option<AttachmentBindingDetails>, VerifyError> {
+    let Some(extension_value) = map_lookup_optional_value(extensions, ATTACHMENT_EVENT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("attachment binding extension is not a map"))?;
+    let attachment_id = map_lookup_text(extension_map, "attachment_id")?;
+    let slot_path = map_lookup_text(extension_map, "slot_path")?;
+    let media_type = map_lookup_text(extension_map, "media_type")?;
+    let byte_length = map_lookup_u64(extension_map, "byte_length")?;
+    let attachment_sha256 =
+        parse_sha256_text(&map_lookup_text(extension_map, "attachment_sha256")?)?;
+    let payload_content_hash =
+        parse_sha256_text(&map_lookup_text(extension_map, "payload_content_hash")?)?;
+    let filename = map_lookup_optional_text(extension_map, "filename")?;
+    let prior_binding_hash = match map_lookup_optional_value(extension_map, "prior_binding_hash") {
+        Some(Value::Text(value)) => Some(parse_sha256_text(value)?),
+        Some(Value::Null) | None => None,
+        Some(_) => {
+            return Err(VerifyError::new(
+                "attachment binding prior_binding_hash is neither sha256 text nor null",
+            ));
+        }
+    };
+
+    Ok(Some(AttachmentBindingDetails {
+        attachment_id,
+        slot_path,
+        media_type,
+        byte_length,
+        attachment_sha256,
+        payload_content_hash,
+        filename,
+        prior_binding_hash,
+    }))
+}
+
+fn binding_lineage_graph_has_cycle(adj: &BTreeMap<[u8; 32], Vec<[u8; 32]>>) -> bool {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    let mut nodes: BTreeSet<[u8; 32]> = BTreeSet::new();
+    for (from, tos) in adj {
+        nodes.insert(*from);
+        for t in tos {
+            nodes.insert(*t);
+        }
+    }
+
+    let mut color: BTreeMap<[u8; 32], Color> = BTreeMap::new();
+    for node in &nodes {
+        color.insert(*node, Color::White);
+    }
+
+    fn dfs(
+        node: [u8; 32],
+        adj: &BTreeMap<[u8; 32], Vec<[u8; 32]>>,
+        color: &mut BTreeMap<[u8; 32], Color>,
+    ) -> bool {
+        use Color::{Black, Gray, White};
+        match color.get(&node).copied().unwrap_or(White) {
+            Gray => return true,
+            Black => return false,
+            White => {}
+        }
+        color.insert(node, Gray);
+        if let Some(neighbors) = adj.get(&node) {
+            for &next in neighbors {
+                if dfs(next, adj, color) {
+                    return true;
+                }
+            }
+        }
+        color.insert(node, Black);
+        false
+    }
+
+    for node in nodes {
+        if matches!(color.get(&node).copied(), Some(Color::White)) && dfs(node, adj, &mut color) {
+            return true;
+        }
+    }
+    false
+}
+
+/// ADR 0072 topology: duplicate manifest rows, prior resolution, strict prior-before-binding
+/// order in the exported event array, and cycles in the prior-pointer graph.
+fn attachment_manifest_topology_failures(
+    entries: &[AttachmentManifestEntry],
+    hash_to_index: &BTreeMap<[u8; 32], usize>,
+) -> Vec<VerificationFailure> {
+    let mut failures = Vec::new();
+
+    let mut seen_bindings = BTreeSet::new();
+    for entry in entries {
+        if !seen_bindings.insert(entry.binding_event_hash) {
+            failures.push(VerificationFailure::new(
+                "attachment_manifest_duplicate_binding",
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+    }
+
+    let mut adj: BTreeMap<[u8; 32], Vec<[u8; 32]>> = BTreeMap::new();
+    for entry in entries {
+        let Some(prior_hash) = entry.prior_binding_hash else {
+            continue;
+        };
+        if hash_to_index.contains_key(&entry.binding_event_hash)
+            && hash_to_index.contains_key(&prior_hash)
+        {
+            adj.entry(entry.binding_event_hash)
+                .or_default()
+                .push(prior_hash);
+        }
+    }
+    if binding_lineage_graph_has_cycle(&adj) {
+        failures.push(VerificationFailure::new(
+            "attachment_binding_lineage_cycle",
+            "061-attachments.cbor",
+        ));
+    }
+
+    for entry in entries {
+        let Some(&current_idx) = hash_to_index.get(&entry.binding_event_hash) else {
+            continue;
+        };
+        let Some(prior_hash) = entry.prior_binding_hash else {
+            continue;
+        };
+        let Some(&prior_idx) = hash_to_index.get(&prior_hash) else {
+            failures.push(VerificationFailure::new(
+                "attachment_prior_binding_unresolved",
+                hex_string(&entry.binding_event_hash),
+            ));
+            continue;
+        };
+        if prior_idx >= current_idx {
+            failures.push(VerificationFailure::new(
+                "attachment_prior_binding_forward_reference",
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+    }
+
+    failures
+}
+
+fn parse_attachment_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<AttachmentExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) = map_lookup_optional_value(extensions, ATTACHMENT_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("attachment export extension is not a map"))?;
+    Ok(Some(AttachmentExportExtension {
+        manifest_digest: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "attachment_manifest_digest",
+            32,
+        )?),
+        inline_attachments: map_lookup_bool(extension_map, "inline_attachments")?,
+    }))
+}
+
+fn verify_attachment_manifest(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    extension: &AttachmentExportExtension,
+    report: &mut VerificationReport,
+) {
+    let Some(manifest_bytes) = archive.members.get("061-attachments.cbor") else {
+        report.event_failures.push(VerificationFailure::new(
+            "missing_attachment_manifest",
+            "061-attachments.cbor",
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(manifest_bytes);
+    if actual_digest.as_slice() != extension.manifest_digest {
+        report.event_failures.push(VerificationFailure::new(
+            "attachment_manifest_digest_mismatch",
+            "061-attachments.cbor",
+        ));
+    }
+
+    let entries = match parse_attachment_manifest_entries(manifest_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                "attachment_manifest_invalid",
+                format!("061-attachments.cbor/{error}"),
+            ));
+            return;
+        }
+    };
+    let event_details = events
+        .iter()
+        .filter_map(|event| decode_event_details(event).ok())
+        .collect::<Vec<_>>();
+
+    let mut hash_to_index: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+    for (index, event) in events.iter().enumerate() {
+        if let Ok(details) = decode_event_details(event) {
+            hash_to_index.insert(details.canonical_event_hash, index);
+        }
+    }
+    for failure in attachment_manifest_topology_failures(&entries, &hash_to_index) {
+        report.event_failures.push(failure);
+    }
+
+    for entry in &entries {
+        let matching_events = event_details
+            .iter()
+            .filter(|details| details.canonical_event_hash == entry.binding_event_hash)
+            .collect::<Vec<_>>();
+        if matching_events.len() != 1 {
+            report.event_failures.push(VerificationFailure::new(
+                "attachment_binding_event_unresolved",
+                hex_string(&entry.binding_event_hash),
+            ));
+            continue;
+        }
+        let details = matching_events[0];
+        let Some(binding) = &details.attachment_binding else {
+            report.event_failures.push(VerificationFailure::new(
+                "attachment_binding_missing",
+                hex_string(&entry.binding_event_hash),
+            ));
+            continue;
+        };
+        if !attachment_entry_matches_binding(entry, binding) {
+            report.event_failures.push(VerificationFailure::new(
+                "attachment_binding_mismatch",
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+        if entry.payload_content_hash != details.content_hash
+            || binding.payload_content_hash != details.content_hash
+        {
+            report.event_failures.push(VerificationFailure::new(
+                "attachment_payload_hash_mismatch",
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+        if extension.inline_attachments {
+            let member = format!(
+                "060-payloads/{}.bin",
+                hex_string(&entry.payload_content_hash)
+            );
+            if !archive.members.contains_key(&member) {
+                report
+                    .event_failures
+                    .push(VerificationFailure::new("missing_attachment_body", member));
+            }
+        }
+    }
+}
+
+fn parse_attachment_manifest_entries(
+    manifest_bytes: &[u8],
+) -> Result<Vec<AttachmentManifestEntry>, VerifyError> {
+    let value = decode_value(manifest_bytes)?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| VerifyError::new("attachment manifest root is not an array"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let map = entry
+                .as_map()
+                .ok_or_else(|| VerifyError::new("attachment manifest entry is not a map"))?;
+            Ok(AttachmentManifestEntry {
+                binding_event_hash: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "binding_event_hash",
+                    32,
+                )?),
+                attachment_id: map_lookup_text(map, "attachment_id")?,
+                slot_path: map_lookup_text(map, "slot_path")?,
+                media_type: map_lookup_text(map, "media_type")?,
+                byte_length: map_lookup_u64(map, "byte_length")?,
+                attachment_sha256: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "attachment_sha256",
+                    32,
+                )?),
+                payload_content_hash: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "payload_content_hash",
+                    32,
+                )?),
+                filename: map_lookup_optional_text(map, "filename")?,
+                prior_binding_hash: map_lookup_optional_fixed_bytes(map, "prior_binding_hash", 32)?
+                    .map(|bytes| bytes_array(&bytes)),
+            })
+        })
+        .collect()
+}
+
+fn attachment_entry_matches_binding(
+    entry: &AttachmentManifestEntry,
+    binding: &AttachmentBindingDetails,
+) -> bool {
+    entry.attachment_id == binding.attachment_id
+        && entry.slot_path == binding.slot_path
+        && entry.media_type == binding.media_type
+        && entry.byte_length == binding.byte_length
+        && entry.attachment_sha256 == binding.attachment_sha256
+        && entry.payload_content_hash == binding.payload_content_hash
+        && entry.filename == binding.filename
+        && entry.prior_binding_hash == binding.prior_binding_hash
+}
+
+fn parse_signing_key_registry(
+    bytes: &[u8],
+) -> Result<BTreeMap<Vec<u8>, SigningKeyEntry>, VerifyError> {
     let value = decode_value(bytes)?;
     let entries = value
         .as_array()
@@ -1360,18 +1769,18 @@ fn parse_signing_key_registry(bytes: &[u8]) -> Result<BTreeMap<Vec<u8>, SigningK
         let kid = map_lookup_bytes(map, "kid")?;
         let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
         let status = map_lookup_u64(map, "status")?;
-        let valid_to = match map_lookup_optional_value(map, "valid_to") {
-            Some(Value::Integer(value)) => Some(
-                u64::try_from(*value)
-                    .map_err(|_| VerifyError::new("signing-key registry valid_to is out of range"))?,
-            ),
-            Some(Value::Null) | None => None,
-            Some(_) => {
-                return Err(VerifyError::new(
-                    "signing-key registry valid_to is neither uint nor null",
-                ))
-            }
-        };
+        let valid_to =
+            match map_lookup_optional_value(map, "valid_to") {
+                Some(Value::Integer(value)) => Some(u64::try_from(*value).map_err(|_| {
+                    VerifyError::new("signing-key registry valid_to is out of range")
+                })?),
+                Some(Value::Null) | None => None,
+                Some(_) => {
+                    return Err(VerifyError::new(
+                        "signing-key registry valid_to is neither uint nor null",
+                    ));
+                }
+            };
         registry.insert(
             kid,
             SigningKeyEntry {
@@ -1448,7 +1857,9 @@ fn authored_preimage_from_canonical(canonical_event_bytes: &[u8]) -> Option<Vec<
     if canonical_event_bytes.len() != value_position + 34 {
         return None;
     }
-    if canonical_event_bytes[value_position] != 0x58 || canonical_event_bytes[value_position + 1] != 0x20 {
+    if canonical_event_bytes[value_position] != 0x58
+        || canonical_event_bytes[value_position + 1] != 0x20
+    {
         return None;
     }
     let mut authored = Vec::with_capacity(canonical_event_bytes.len() - 35);
@@ -1686,6 +2097,17 @@ fn hex_nibble(value: u8) -> Result<u8, VerifyError> {
     }
 }
 
+fn parse_sha256_text(value: &str) -> Result<[u8; 32], VerifyError> {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return Err(VerifyError::new("hash text must use sha256: prefix"));
+    };
+    let bytes = hex_decode(hex)?;
+    bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| VerifyError::new("sha256 hash text must be 32 bytes"))
+}
+
 fn bytes_array(bytes: &[u8]) -> [u8; 32] {
     bytes.try_into().expect("caller validates fixed size")
 }
@@ -1729,6 +2151,20 @@ fn map_lookup_optional_bytes(
     }
 }
 
+fn map_lookup_optional_fixed_bytes(
+    map: &[(Value, Value)],
+    key_name: &str,
+    expected_len: usize,
+) -> Result<Option<Vec<u8>>, VerifyError> {
+    match map_lookup_optional_bytes(map, key_name)? {
+        Some(bytes) if bytes.len() == expected_len => Ok(Some(bytes)),
+        Some(_) => Err(VerifyError::new(format!(
+            "`{key_name}` must be {expected_len} bytes"
+        ))),
+        None => Ok(None),
+    }
+}
+
 fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, VerifyError> {
     let value = map_lookup_optional_value(map, key_name)
         .ok_or_else(|| VerifyError::new(format!("missing `{key_name}`")))?;
@@ -1738,10 +2174,29 @@ fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, VerifyE
         .ok_or_else(|| VerifyError::new(format!("`{key_name}` is not an unsigned integer")))
 }
 
+fn map_lookup_bool(map: &[(Value, Value)], key_name: &str) -> Result<bool, VerifyError> {
+    map_lookup_optional_value(map, key_name)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` bool")))
+}
+
 fn map_lookup_text(map: &[(Value, Value)], key_name: &str) -> Result<String, VerifyError> {
     map_lookup_optional_value(map, key_name)
         .and_then(|value| value.as_text().map(ToOwned::to_owned))
         .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` text")))
+}
+
+fn map_lookup_optional_text(
+    map: &[(Value, Value)],
+    key_name: &str,
+) -> Result<Option<String>, VerifyError> {
+    match map_lookup_optional_value(map, key_name) {
+        Some(Value::Text(value)) => Ok(Some(value.clone())),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => Err(VerifyError::new(format!(
+            "`{key_name}` is neither text nor null"
+        ))),
+    }
 }
 
 fn map_lookup_map<'a>(
@@ -1783,17 +2238,20 @@ fn map_lookup_integer_label_bytes(
     label: i128,
 ) -> Result<Vec<u8>, VerifyError> {
     map.iter()
-        .find(|(key, _)| key.as_integer().is_some_and(|value| i128::from(value) == label))
+        .find(|(key, _)| {
+            key.as_integer()
+                .is_some_and(|value| i128::from(value) == label)
+        })
         .and_then(|(_, value)| value.as_bytes().cloned())
         .ok_or_else(|| VerifyError::new(format!("missing COSE label {label} bytes")))
 }
 
-fn map_lookup_integer_label(
-    map: &[(Value, Value)],
-    label: i128,
-) -> Result<i128, VerifyError> {
+fn map_lookup_integer_label(map: &[(Value, Value)], label: i128) -> Result<i128, VerifyError> {
     map.iter()
-        .find(|(key, _)| key.as_integer().is_some_and(|value| i128::from(value) == label))
+        .find(|(key, _)| {
+            key.as_integer()
+                .is_some_and(|value| i128::from(value) == label)
+        })
         .and_then(|(_, value)| value.as_integer())
         .map(i128::from)
         .ok_or_else(|| VerifyError::new(format!("missing COSE label {label} integer")))
@@ -1821,11 +2279,7 @@ mod tests {
         verify_single_event, verify_tampered_ledger,
     };
 
-    fn rebuild_export_zip(
-        template: &[u8],
-        overrides: &[(&str, &[u8])],
-        omit: &[&str],
-    ) -> Vec<u8> {
+    fn rebuild_export_zip(template: &[u8], overrides: &[(&str, &[u8])], omit: &[&str]) -> Vec<u8> {
         let prefix = {
             let mut archive = ZipArchive::new(Cursor::new(template)).unwrap();
             let name = archive.by_index(0).unwrap().name().to_string();
@@ -1920,11 +2374,11 @@ mod tests {
 
     #[test]
     fn verify_export_zip_missing_manifest_is_fatal() {
-        let template = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../fixtures/vectors/verify/001-export-001-two-event-chain/input-export.zip"),
-        )
-        .unwrap();
+        let template =
+            fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(
+                "../../fixtures/vectors/verify/001-export-001-two-event-chain/input-export.zip",
+            ))
+            .unwrap();
         let zip = rebuild_export_zip(&template, &[], &["000-manifest.cbor"]);
         let report = verify_export_zip(&zip);
         assert_eq!(report.event_failures[0].kind, "missing_manifest");
@@ -1932,16 +2386,15 @@ mod tests {
 
     #[test]
     fn verify_export_zip_tampered_events_triggers_archive_integrity_failure() {
-        let template = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../fixtures/vectors/verify/001-export-001-two-event-chain/input-export.zip"),
-        )
-        .unwrap();
+        let template =
+            fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(
+                "../../fixtures/vectors/verify/001-export-001-two-event-chain/input-export.zip",
+            ))
+            .unwrap();
         let zip = rebuild_export_zip(&template, &[("010-events.cbor", &[0xff])], &[]);
         let report = verify_export_zip(&zip);
         assert_eq!(
-            report.event_failures[0].kind,
-            "archive_integrity_failure",
+            report.event_failures[0].kind, "archive_integrity_failure",
             "manifest member digests are checked before 010-events.cbor is parsed"
         );
     }
@@ -1984,9 +2437,10 @@ mod tests {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/vectors/append/009-signing-key-revocation");
         let signed_event = fs::read(fixture_root.join("expected-event.cbor")).unwrap();
-        let mut registry_value =
-            ciborium::from_reader::<ciborium::Value, _>(&fs::read(fixture_root.join("input-signing-key-registry-after.cbor")).unwrap()[..])
-                .unwrap();
+        let mut registry_value = ciborium::from_reader::<ciborium::Value, _>(
+            &fs::read(fixture_root.join("input-signing-key-registry-after.cbor")).unwrap()[..],
+        )
+        .unwrap();
         let registry_entries = registry_value.as_array_mut().unwrap();
         let entry_map = registry_entries[0].as_map_mut().unwrap();
         for (key, value) in entry_map.iter_mut() {
@@ -2012,7 +2466,8 @@ mod tests {
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/vectors/append/009-signing-key-revocation");
         let signed_event = fs::read(fixture_root.join("expected-event.cbor")).unwrap();
-        let registry_bytes = fs::read(fixture_root.join("input-signing-key-registry-after.cbor")).unwrap();
+        let registry_bytes =
+            fs::read(fixture_root.join("input-signing-key-registry-after.cbor")).unwrap();
 
         let parsed = parse_sign1_bytes(&signed_event).unwrap();
         let registry = parse_signing_key_registry(&registry_bytes).unwrap();
@@ -2025,7 +2480,9 @@ mod tests {
 
     #[test]
     fn rfc6962_inclusion_paths_reconstruct_three_leaf_root() {
-        use super::{merkle_interior_hash, merkle_leaf_hash, merkle_root, root_from_inclusion_proof};
+        use super::{
+            merkle_interior_hash, merkle_leaf_hash, merkle_root, root_from_inclusion_proof,
+        };
 
         let c0 = [1u8; 32];
         let c1 = [2u8; 32];
@@ -2036,10 +2493,7 @@ mod tests {
         let root = merkle_root(&[l0, l1, l2]);
         let h01 = merkle_interior_hash(l0, l1);
 
-        assert_eq!(
-            root_from_inclusion_proof(2, 3, l2, &[h01]).unwrap(),
-            root
-        );
+        assert_eq!(root_from_inclusion_proof(2, 3, l2, &[h01]).unwrap(), root);
         assert_eq!(
             root_from_inclusion_proof(0, 3, l0, &[l1, l2]).unwrap(),
             root
@@ -2058,10 +2512,7 @@ mod tests {
         let l1 = merkle_leaf_hash([8u8; 32]);
         let r1 = merkle_root(&[l0]);
         let r2 = merkle_root(&[l0, l1]);
-        assert_eq!(
-            root_from_consistency_proof(1, 2, r1, &[l1]).unwrap(),
-            r2
-        );
+        assert_eq!(root_from_consistency_proof(1, 2, r1, &[l1]).unwrap(), r2);
         let wrong_head = root_from_consistency_proof(1, 2, r1, &[[0u8; 32]]).unwrap();
         assert_ne!(wrong_head, r2);
     }
@@ -2077,5 +2528,135 @@ mod tests {
         assert!(super::digest_path_from_values(&path).is_err());
         assert!(root_from_inclusion_proof(0, 1, leaf, &[]).unwrap() == leaf);
         assert!(root_from_inclusion_proof(0, 2, leaf, &[]).is_err());
+    }
+
+    fn test_attachment_hash(suffix: u8) -> [u8; 32] {
+        let mut b = [0u8; 32];
+        b[31] = suffix;
+        b
+    }
+
+    fn attachment_manifest_cbor(rows: &[([u8; 32], Option<[u8; 32]>)]) -> Vec<u8> {
+        use ciborium::Value as V;
+        let entries = rows
+            .iter()
+            .map(|(binding, prior)| {
+                let mut pairs: Vec<(V, V)> = vec![
+                    (
+                        V::Text("binding_event_hash".into()),
+                        V::Bytes(binding.to_vec()),
+                    ),
+                    (V::Text("attachment_id".into()), V::Text("id".into())),
+                    (V::Text("slot_path".into()), V::Text("slot".into())),
+                    (
+                        V::Text("media_type".into()),
+                        V::Text("application/octet-stream".into()),
+                    ),
+                    (V::Text("byte_length".into()), V::Integer(1u64.into())),
+                    (V::Text("attachment_sha256".into()), V::Bytes([7u8; 32].to_vec())),
+                    (V::Text("payload_content_hash".into()), V::Bytes([8u8; 32].to_vec())),
+                ];
+                if let Some(p) = prior {
+                    pairs.push((
+                        V::Text("prior_binding_hash".into()),
+                        V::Bytes(p.to_vec()),
+                    ));
+                }
+                V::Map(pairs)
+            })
+            .collect::<Vec<_>>();
+        let root = V::Array(entries);
+        let mut out = Vec::new();
+        ciborium::into_writer(&root, &mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn attachment_topology_duplicate_binding_event_hash() {
+        let h = test_attachment_hash(1);
+        let bytes = attachment_manifest_cbor(&[(h, None), (h, None)]);
+        let entries = super::parse_attachment_manifest_entries(&bytes).unwrap();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(h, 0usize);
+        let f = super::attachment_manifest_topology_failures(&entries, &m);
+        assert!(f
+            .iter()
+            .any(|e| e.kind == "attachment_manifest_duplicate_binding"));
+    }
+
+    #[test]
+    fn attachment_topology_unresolved_prior() {
+        let h0 = test_attachment_hash(2);
+        let h_unknown = test_attachment_hash(99);
+        let bytes = attachment_manifest_cbor(&[(h0, Some(h_unknown))]);
+        let entries = super::parse_attachment_manifest_entries(&bytes).unwrap();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(h0, 0usize);
+        let f = super::attachment_manifest_topology_failures(&entries, &m);
+        assert!(f
+            .iter()
+            .any(|e| e.kind == "attachment_prior_binding_unresolved"));
+    }
+
+    #[test]
+    fn attachment_topology_forward_reference() {
+        let h0 = test_attachment_hash(3);
+        let h1 = test_attachment_hash(4);
+        let bytes = attachment_manifest_cbor(&[(h0, Some(h1))]);
+        let entries = super::parse_attachment_manifest_entries(&bytes).unwrap();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(h0, 0usize);
+        m.insert(h1, 1);
+        let f = super::attachment_manifest_topology_failures(&entries, &m);
+        assert!(f
+            .iter()
+            .any(|e| e.kind == "attachment_prior_binding_forward_reference"));
+    }
+
+    #[test]
+    fn attachment_topology_lineage_two_cycle() {
+        let h0 = test_attachment_hash(10);
+        let h1 = test_attachment_hash(11);
+        let bytes = attachment_manifest_cbor(&[(h1, Some(h0)), (h0, Some(h1))]);
+        let entries = super::parse_attachment_manifest_entries(&bytes).unwrap();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(h0, 0usize);
+        m.insert(h1, 1);
+        let f = super::attachment_manifest_topology_failures(&entries, &m);
+        assert!(f
+            .iter()
+            .any(|e| e.kind == "attachment_binding_lineage_cycle"));
+    }
+
+    #[test]
+    fn attachment_topology_lineage_three_cycle() {
+        let h0 = test_attachment_hash(20);
+        let h1 = test_attachment_hash(21);
+        let h2 = test_attachment_hash(22);
+        let bytes = attachment_manifest_cbor(&[(h0, Some(h2)), (h1, Some(h0)), (h2, Some(h1))]);
+        let entries = super::parse_attachment_manifest_entries(&bytes).unwrap();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(h0, 0usize);
+        m.insert(h1, 1);
+        m.insert(h2, 2);
+        let f = super::attachment_manifest_topology_failures(&entries, &m);
+        assert!(f
+            .iter()
+            .any(|e| e.kind == "attachment_binding_lineage_cycle"));
+    }
+
+    #[test]
+    fn attachment_topology_multirevision_ok() {
+        let h0 = test_attachment_hash(30);
+        let h1 = test_attachment_hash(31);
+        let h2 = test_attachment_hash(32);
+        let bytes = attachment_manifest_cbor(&[(h0, None), (h1, Some(h0)), (h2, Some(h1))]);
+        let entries = super::parse_attachment_manifest_entries(&bytes).unwrap();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(h0, 0usize);
+        m.insert(h1, 1);
+        m.insert(h2, 2);
+        let f = super::attachment_manifest_topology_failures(&entries, &m);
+        assert!(f.is_empty());
     }
 }
