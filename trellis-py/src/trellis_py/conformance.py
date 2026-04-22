@@ -124,6 +124,14 @@ def _assert_verify(root: Path, manifest: dict[str, Any]) -> None:
     assert report.readability_verified == expected_report["readability_verified"]
     if "posture_transition_count" in expected_report:
         assert len(report.posture_transitions) == expected_report["posture_transition_count"]
+    if "first_failure_kind" in expected_report:
+        ff = _first_failure(report)
+        assert ff is not None
+        assert ff.kind == expected_report["first_failure_kind"]
+    if "failing_event_id" in expected_report:
+        ff = _first_failure(report)
+        assert ff is not None
+        assert ff.location == expected_report["failing_event_id"]
 
 
 def _first_failure(report: VerificationReport):

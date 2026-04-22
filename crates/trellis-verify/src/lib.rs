@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 use std::backtrace::Backtrace;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::io::Cursor;
@@ -29,6 +30,8 @@ const MERKLE_INTERIOR_DOMAIN: &str = "trellis-merkle-interior-v1";
 const POSTURE_DECLARATION_DOMAIN: &str = "trellis-posture-declaration-v1";
 const ATTACHMENT_EXPORT_EXTENSION: &str = "trellis.export.attachments.v1";
 const ATTACHMENT_EVENT_EXTENSION: &str = "trellis.evidence-attachment-binding.v1";
+const SIGNATURE_EXPORT_EXTENSION: &str = "trellis.export.signature-affirmations.v1";
+const WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE: &str = "wos.kernel.signatureAffirmation";
 
 /// Verification failure localized to one artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -476,6 +479,23 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         }
     } {
         verify_attachment_manifest(&archive, &events, &extension, &mut report);
+    }
+    if let Some(extension) = match parse_signature_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                "manifest_payload_invalid",
+                format!("signature export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_signature_catalog(
+            &archive,
+            &events,
+            &payload_blobs,
+            &extension,
+            &mut report,
+        );
     }
     for failure in &mut report.event_failures {
         if failure.kind == "scope_mismatch" {
@@ -965,6 +985,48 @@ struct AttachmentManifestEntry {
     payload_content_hash: [u8; 32],
     filename: Option<String>,
     prior_binding_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug)]
+struct SignatureExportExtension {
+    catalog_digest: [u8; 32],
+}
+
+#[derive(Clone, Debug)]
+struct SignatureManifestEntry {
+    canonical_event_hash: [u8; 32],
+    signer_id: String,
+    role_id: String,
+    role: String,
+    document_id: String,
+    document_hash: String,
+    document_hash_algorithm: String,
+    signed_at: String,
+    identity_binding: Value,
+    consent_reference: Value,
+    signature_provider: String,
+    ceremony_id: String,
+    profile_ref: Option<String>,
+    profile_key: Option<String>,
+    formspec_response_ref: String,
+}
+
+#[derive(Clone, Debug)]
+struct SignatureAffirmationRecordDetails {
+    signer_id: String,
+    role_id: String,
+    role: String,
+    document_id: String,
+    document_hash: String,
+    document_hash_algorithm: String,
+    signed_at: String,
+    identity_binding: Value,
+    consent_reference: Value,
+    signature_provider: String,
+    ceremony_id: String,
+    profile_ref: Option<String>,
+    profile_key: Option<String>,
+    formspec_response_ref: String,
 }
 
 #[derive(Debug)]
@@ -1605,6 +1667,28 @@ fn parse_attachment_export_extension(
     }))
 }
 
+fn parse_signature_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<SignatureExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) = map_lookup_optional_value(extensions, SIGNATURE_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("signature export extension is not a map"))?;
+    Ok(Some(SignatureExportExtension {
+        catalog_digest: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "signature_catalog_digest",
+            32,
+        )?),
+    }))
+}
+
 fn verify_attachment_manifest(
     archive: &ExportArchive,
     events: &[ParsedSign1],
@@ -1699,6 +1783,107 @@ fn verify_attachment_manifest(
     }
 }
 
+fn verify_signature_catalog(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
+    extension: &SignatureExportExtension,
+    report: &mut VerificationReport,
+) {
+    let Some(catalog_bytes) = archive.members.get("062-signature-affirmations.cbor") else {
+        report.event_failures.push(VerificationFailure::new(
+            "missing_signature_catalog",
+            "062-signature-affirmations.cbor",
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(catalog_bytes);
+    if actual_digest.as_slice() != extension.catalog_digest {
+        report.event_failures.push(VerificationFailure::new(
+            "signature_catalog_digest_mismatch",
+            "062-signature-affirmations.cbor",
+        ));
+    }
+
+    let entries = match parse_signature_manifest_entries(catalog_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                "signature_catalog_invalid",
+                format!("062-signature-affirmations.cbor/{error}"),
+            ));
+            return;
+        }
+    };
+
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            match event_by_hash.entry(details.canonical_event_hash) {
+                Entry::Vacant(slot) => {
+                    slot.insert(details);
+                }
+                Entry::Occupied(_) => {
+                    report.event_failures.push(VerificationFailure::new(
+                        "export_events_duplicate_canonical_hash",
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_hashes = BTreeSet::new();
+    for entry in &entries {
+        if !seen_hashes.insert(entry.canonical_event_hash) {
+            report.event_failures.push(VerificationFailure::new(
+                "signature_catalog_duplicate_event",
+                hex_string(&entry.canonical_event_hash),
+            ));
+        }
+    }
+
+    for entry in &entries {
+        let Some(details) = event_by_hash.get(&entry.canonical_event_hash) else {
+            report.event_failures.push(VerificationFailure::new(
+                "signature_catalog_event_unresolved",
+                hex_string(&entry.canonical_event_hash),
+            ));
+            continue;
+        };
+        if details.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
+            report.event_failures.push(VerificationFailure::new(
+                "signature_catalog_event_type_mismatch",
+                hex_string(&entry.canonical_event_hash),
+            ));
+            continue;
+        }
+        let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
+            report.event_failures.push(VerificationFailure::new(
+                "signature_affirmation_payload_unreadable",
+                hex_string(&entry.canonical_event_hash),
+            ));
+            continue;
+        };
+        let record = match parse_signature_affirmation_record(&payload_bytes) {
+            Ok(record) => record,
+            Err(error) => {
+                report.event_failures.push(VerificationFailure::new(
+                    "signature_affirmation_payload_invalid",
+                    format!("{}/{}", hex_string(&entry.canonical_event_hash), error),
+                ));
+                continue;
+            }
+        };
+        if !signature_entry_matches_record(entry, &record) {
+            report.event_failures.push(VerificationFailure::new(
+                "signature_catalog_mismatch",
+                hex_string(&entry.canonical_event_hash),
+            ));
+        }
+    }
+}
+
 fn parse_attachment_manifest_entries(
     manifest_bytes: &[u8],
 ) -> Result<Vec<AttachmentManifestEntry>, VerifyError> {
@@ -1740,6 +1925,86 @@ fn parse_attachment_manifest_entries(
         .collect()
 }
 
+fn parse_signature_manifest_entries(
+    manifest_bytes: &[u8],
+) -> Result<Vec<SignatureManifestEntry>, VerifyError> {
+    let value = decode_value(manifest_bytes)?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| VerifyError::new("signature catalog root is not an array"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let map = entry
+                .as_map()
+                .ok_or_else(|| VerifyError::new("signature catalog entry is not a map"))?;
+            Ok(SignatureManifestEntry {
+                canonical_event_hash: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "canonical_event_hash",
+                    32,
+                )?),
+                signer_id: map_lookup_text(map, "signer_id")?,
+                role_id: map_lookup_text(map, "role_id")?,
+                role: map_lookup_text(map, "role")?,
+                document_id: map_lookup_text(map, "document_id")?,
+                document_hash: map_lookup_text(map, "document_hash")?,
+                document_hash_algorithm: map_lookup_text(map, "document_hash_algorithm")?,
+                signed_at: map_lookup_text(map, "signed_at")?,
+                identity_binding: map_lookup_value_clone(map, "identity_binding")?,
+                consent_reference: map_lookup_value_clone(map, "consent_reference")?,
+                signature_provider: map_lookup_text(map, "signature_provider")?,
+                ceremony_id: map_lookup_text(map, "ceremony_id")?,
+                profile_ref: map_lookup_optional_text(map, "profile_ref")?,
+                profile_key: map_lookup_optional_text(map, "profile_key")?,
+                formspec_response_ref: map_lookup_text(map, "formspec_response_ref")?,
+            })
+        })
+        .collect()
+}
+
+fn readable_payload_bytes(
+    details: &EventDetails,
+    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
+) -> Option<Vec<u8>> {
+    match &details.payload_ref {
+        PayloadRef::Inline(bytes) => Some(bytes.clone()),
+        PayloadRef::External => payload_blobs.get(&details.content_hash).cloned(),
+    }
+}
+
+fn parse_signature_affirmation_record(
+    payload_bytes: &[u8],
+) -> Result<SignatureAffirmationRecordDetails, VerifyError> {
+    let value = decode_value(payload_bytes)?;
+    let map = value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("signature affirmation payload root is not a map"))?;
+    let record_kind = map_lookup_text(map, "recordKind")?;
+    if record_kind != "signatureAffirmation" {
+        return Err(VerifyError::new(
+            "signature affirmation payload recordKind is not signatureAffirmation",
+        ));
+    }
+    let data = map_lookup_map(map, "data")?;
+    Ok(SignatureAffirmationRecordDetails {
+        signer_id: map_lookup_text(data, "signerId")?,
+        role_id: map_lookup_text(data, "roleId")?,
+        role: map_lookup_text(data, "role")?,
+        document_id: map_lookup_text(data, "documentId")?,
+        document_hash: map_lookup_text(data, "documentHash")?,
+        document_hash_algorithm: map_lookup_text(data, "documentHashAlgorithm")?,
+        signed_at: map_lookup_text(data, "signedAt")?,
+        identity_binding: map_lookup_value_clone(data, "identityBinding")?,
+        consent_reference: map_lookup_value_clone(data, "consentReference")?,
+        signature_provider: map_lookup_text(data, "signatureProvider")?,
+        ceremony_id: map_lookup_text(data, "ceremonyId")?,
+        profile_ref: map_lookup_optional_text(data, "profileRef")?,
+        profile_key: map_lookup_optional_text(data, "profileKey")?,
+        formspec_response_ref: map_lookup_text(data, "formspecResponseRef")?,
+    })
+}
+
 fn attachment_entry_matches_binding(
     entry: &AttachmentManifestEntry,
     binding: &AttachmentBindingDetails,
@@ -1752,6 +2017,64 @@ fn attachment_entry_matches_binding(
         && entry.payload_content_hash == binding.payload_content_hash
         && entry.filename == binding.filename
         && entry.prior_binding_hash == binding.prior_binding_hash
+}
+
+/// RFC 8949 §4.2.2 map key ordering: sort keys by the bytewise lexicographic order
+/// of their encoded CBOR form. Used only for semantic equality of nested maps.
+fn cbor_map_key_sort_bytes(key: &Value) -> Vec<u8> {
+    let mut buf = Vec::new();
+    ciborium::into_writer(key, &mut buf).expect("cbor map key encode");
+    buf
+}
+
+/// Recursively re-encode CBOR maps with canonically sorted keys so two values
+/// that differ only in map entry order compare equal.
+fn normalize_cbor_value_for_compare(value: &Value) -> Value {
+    match value {
+        Value::Map(pairs) => {
+            let mut normalized: Vec<(Value, Value)> = pairs
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        normalize_cbor_value_for_compare(k),
+                        normalize_cbor_value_for_compare(v),
+                    )
+                })
+                .collect();
+            normalized.sort_by(|a, b| cbor_map_key_sort_bytes(&a.0).cmp(&cbor_map_key_sort_bytes(&b.0)));
+            Value::Map(normalized)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(normalize_cbor_value_for_compare).collect()),
+        Value::Tag(tag, inner) => Value::Tag(
+            *tag,
+            Box::new(normalize_cbor_value_for_compare(inner)),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn cbor_nested_map_semantic_eq(a: &Value, b: &Value) -> bool {
+    normalize_cbor_value_for_compare(a) == normalize_cbor_value_for_compare(b)
+}
+
+fn signature_entry_matches_record(
+    entry: &SignatureManifestEntry,
+    record: &SignatureAffirmationRecordDetails,
+) -> bool {
+    entry.signer_id == record.signer_id
+        && entry.role_id == record.role_id
+        && entry.role == record.role
+        && entry.document_id == record.document_id
+        && entry.document_hash == record.document_hash
+        && entry.document_hash_algorithm == record.document_hash_algorithm
+        && entry.signed_at == record.signed_at
+        && cbor_nested_map_semantic_eq(&entry.identity_binding, &record.identity_binding)
+        && cbor_nested_map_semantic_eq(&entry.consent_reference, &record.consent_reference)
+        && entry.signature_provider == record.signature_provider
+        && entry.ceremony_id == record.ceremony_id
+        && entry.profile_ref == record.profile_ref
+        && entry.profile_key == record.profile_key
+        && entry.formspec_response_ref == record.formspec_response_ref
 }
 
 fn parse_signing_key_registry(
@@ -2263,6 +2586,12 @@ fn map_lookup_optional_value<'a>(map: &'a [(Value, Value)], key_name: &str) -> O
         .map(|(_, value)| value)
 }
 
+fn map_lookup_value_clone(map: &[(Value, Value)], key_name: &str) -> Result<Value, VerifyError> {
+    map_lookup_optional_value(map, key_name)
+        .cloned()
+        .ok_or_else(|| VerifyError::new(format!("missing `{key_name}` value")))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -2270,6 +2599,7 @@ mod tests {
     use std::io::{Cursor, Write};
     use std::path::Path;
 
+    use ciborium::Value;
     use trellis_cddl::parse_ed25519_cose_key;
     use zip::write::SimpleFileOptions;
     use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -2658,5 +2988,113 @@ mod tests {
         m.insert(h2, 2);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
         assert!(f.is_empty());
+    }
+
+    fn signature_manifest_entry(event_hash: [u8; 32]) -> super::SignatureManifestEntry {
+        super::SignatureManifestEntry {
+            canonical_event_hash: event_hash,
+            signer_id: "applicant".to_string(),
+            role_id: "applicantSigner".to_string(),
+            role: "signer".to_string(),
+            document_id: "benefitsApplication".to_string(),
+            document_hash:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            document_hash_algorithm: "sha-256".to_string(),
+            signed_at: "2026-04-22T14:30:00Z".to_string(),
+            identity_binding: Value::Map(vec![
+                (Value::Text("method".into()), Value::Text("email-otp".into())),
+                (
+                    Value::Text("assuranceLevel".into()),
+                    Value::Text("standard".into()),
+                ),
+            ]),
+            consent_reference: Value::Map(vec![
+                (
+                    Value::Text("consentTextRef".into()),
+                    Value::Text("urn:agency.gov:consent:esign-benefits:v1".into()),
+                ),
+                (
+                    Value::Text("consentVersion".into()),
+                    Value::Text("1.0.0".into()),
+                ),
+                (
+                    Value::Text("acceptedAtPath".into()),
+                    Value::Text("response.signature.acceptedAt".into()),
+                ),
+                (
+                    Value::Text("affirmationPath".into()),
+                    Value::Text("response.signature.affirmed".into()),
+                ),
+            ]),
+            signature_provider: "urn:agency.gov:signature:providers:formspec".to_string(),
+            ceremony_id: "ceremony-2026-0001".to_string(),
+            profile_ref: Some("urn:agency.gov:wos:signature-profile:benefits:v1".to_string()),
+            profile_key: None,
+            formspec_response_ref:
+                "urn:agency.gov:formspec:responses:benefits:case-2026-0001".to_string(),
+        }
+    }
+
+    fn signature_record_details() -> super::SignatureAffirmationRecordDetails {
+        let entry = signature_manifest_entry(test_attachment_hash(40));
+        super::SignatureAffirmationRecordDetails {
+            signer_id: entry.signer_id,
+            role_id: entry.role_id,
+            role: entry.role,
+            document_id: entry.document_id,
+            document_hash: entry.document_hash,
+            document_hash_algorithm: entry.document_hash_algorithm,
+            signed_at: entry.signed_at,
+            identity_binding: entry.identity_binding,
+            consent_reference: entry.consent_reference,
+            signature_provider: entry.signature_provider,
+            ceremony_id: entry.ceremony_id,
+            profile_ref: entry.profile_ref,
+            profile_key: entry.profile_key,
+            formspec_response_ref: entry.formspec_response_ref,
+        }
+    }
+
+    #[test]
+    fn signature_catalog_entry_matches_record_when_fields_align() {
+        let entry = signature_manifest_entry(test_attachment_hash(41));
+        let record = signature_record_details();
+        assert!(super::signature_entry_matches_record(&entry, &record));
+    }
+
+    #[test]
+    fn signature_catalog_entry_detects_field_mismatch() {
+        let entry = signature_manifest_entry(test_attachment_hash(42));
+        let mut record = signature_record_details();
+        record.document_hash_algorithm = "sha-512".to_string();
+        assert!(!super::signature_entry_matches_record(&entry, &record));
+    }
+
+    #[test]
+    fn cbor_nested_map_semantic_eq_ignores_map_entry_order() {
+        let a = Value::Map(vec![
+            (Value::Text("z".into()), Value::Integer(1.into())),
+            (Value::Text("a".into()), Value::Integer(2.into())),
+        ]);
+        let b = Value::Map(vec![
+            (Value::Text("a".into()), Value::Integer(2.into())),
+            (Value::Text("z".into()), Value::Integer(1.into())),
+        ]);
+        assert!(super::cbor_nested_map_semantic_eq(&a, &b));
+    }
+
+    #[test]
+    fn cbor_nested_map_semantic_eq_nested_maps_ignore_order() {
+        let inner_a = Value::Map(vec![
+            (Value::Text("second".into()), Value::Bool(false)),
+            (Value::Text("first".into()), Value::Bool(true)),
+        ]);
+        let inner_b = Value::Map(vec![
+            (Value::Text("first".into()), Value::Bool(true)),
+            (Value::Text("second".into()), Value::Bool(false)),
+        ]);
+        let outer_a = Value::Map(vec![(Value::Text("k".into()), inner_a)]);
+        let outer_b = Value::Map(vec![(Value::Text("k".into()), inner_b)]);
+        assert!(super::cbor_nested_map_semantic_eq(&outer_a, &outer_b));
     }
 }

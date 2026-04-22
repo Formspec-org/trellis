@@ -145,6 +145,18 @@ mod tests {
         {
             assert_eq!(report.posture_transitions.len() as i64, expected_count);
         }
+        if let Some(expected_kind) = pathless_string(expected_report, "first_failure_kind") {
+            assert_eq!(
+                first_failure(&report).map(|failure| failure.kind.as_str()),
+                Some(expected_kind.as_str()),
+            );
+        }
+        if let Some(expected_loc) = pathless_string(expected_report, "failing_event_id") {
+            assert_eq!(
+                first_failure(&report).map(|failure| failure.location.as_str()),
+                Some(expected_loc.as_str()),
+            );
+        }
     }
 
     fn assert_tamper_fixture_matches(root: &Path, manifest: &toml::Value) {

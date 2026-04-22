@@ -1,0 +1,21 @@
+id          = "verify/014-export-006-signature-row-mismatch"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the WOS-T4 signature export catalog. Starts from `export/006-signature-affirmations-inline`, changes the catalog row signer id, and re-signs the export manifest so structure stays valid while the catalog no longer matches the chain-authored WOS record."""
+
+[coverage]
+tr_core = ["TR-CORE-067"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signature_catalog_mismatch"
+failing_event_id     = "2dd7c5e89f452c83cda859502c2b31dd4e2d8f8671e7acb385a5e15158229eb3"
+
+[derivation]
+document = "derivation.md"

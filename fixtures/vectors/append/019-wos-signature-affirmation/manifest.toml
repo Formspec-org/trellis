@@ -1,0 +1,31 @@
+id          = "append/019-wos-signature-affirmation"
+op          = "append"
+status      = "active"
+description = """Genesis append of a WOS `SignatureAffirmation` provenance record through Trellis Core §23 `custodyHook`. Exercises the WOS Signature Profile Facts-tier record family: WOS owns the authored dCBOR record bytes; Trellis owns the envelope, canonical append, hash chain, and COSE signature; idempotency follows ADR-0061 `(caseId, recordId)`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+wos_record     = "input-wos-record.dcbor"
+wos_tuple      = "input-wos-idempotency-tuple.cbor"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

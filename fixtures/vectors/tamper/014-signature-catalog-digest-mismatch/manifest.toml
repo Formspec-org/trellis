@@ -1,0 +1,19 @@
+id          = "tamper/014-signature-catalog-digest-mismatch"
+op          = "tamper"
+status      = "active"
+description = """WOS-T4 export tamper. Mutates `062-signature-affirmations.cbor` after manifest signing so the required archive spine remains intact but the `trellis.export.signature-affirmations.v1.signature_catalog_digest` check fails."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "signature_catalog_digest_mismatch"
+
+[derivation]
+document = "derivation.md"

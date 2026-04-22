@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -32,6 +33,11 @@ from trellis_py.constants import (
     POSTURE_DECLARATION_DOMAIN,
     SUITE_ID_PHASE_1,
 )
+
+ATTACHMENT_EXPORT_EXTENSION = "trellis.export.attachments.v1"
+ATTACHMENT_EVENT_EXTENSION = "trellis.evidence-attachment-binding.v1"
+SIGNATURE_EXPORT_EXTENSION = "trellis.export.signature-affirmations.v1"
+WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signatureAffirmation"
 
 
 @dataclass
@@ -109,6 +115,18 @@ class BoundRegistry:
 
 
 @dataclass
+class AttachmentBindingDetails:
+    attachment_id: str
+    slot_path: str
+    media_type: str
+    byte_length: int
+    attachment_sha256: bytes
+    payload_content_hash: bytes
+    filename: Optional[str]
+    prior_binding_hash: Optional[bytes]
+
+
+@dataclass
 class EventDetails:
     scope: bytes
     sequence: int
@@ -122,6 +140,7 @@ class EventDetails:
     payload_ref_inline: Optional[bytes]
     payload_ref_external: bool
     transition: Optional["TransitionDetails"]
+    attachment_binding: Optional[AttachmentBindingDetails] = None
 
 
 @dataclass
@@ -188,6 +207,32 @@ def _map_lookup_u64(m: dict, key: str) -> int:
     if not isinstance(v, int) or v < 0:
         raise VerifyError(f"`{key}` is not an unsigned integer")
     return v
+
+
+def _map_lookup_bool(m: dict, key: str) -> bool:
+    v = _map_lookup_str(m, key)
+    if not isinstance(v, bool):
+        raise VerifyError(f"`{key}` is not a bool")
+    return v
+
+
+def _map_lookup_optional_fixed_bytes(m: dict, key: str, n: int) -> Optional[bytes]:
+    v = m.get(key)
+    if v is None:
+        return None
+    if not isinstance(v, bytes) or len(v) != n:
+        raise VerifyError(f"`{key}` must be {n} bytes or absent")
+    return v
+
+
+def _parse_sha256_prefix_text(value: str) -> bytes:
+    if not value.startswith("sha256:"):
+        raise VerifyError("hash text must use sha256: prefix")
+    hx = value[len("sha256:") :]
+    raw = _hex_decode(hx)
+    if len(raw) != 32:
+        raise VerifyError("sha256 hash text must be 32 bytes")
+    return raw
 
 
 def _map_lookup_optional_bytes(m: dict, key: str) -> Optional[bytes]:
@@ -357,6 +402,70 @@ def _decode_transition_details(extensions: dict) -> Optional[TransitionDetails]:
     )
 
 
+def _decode_attachment_binding_details(exts: dict) -> Optional[AttachmentBindingDetails]:
+    ext = exts.get(ATTACHMENT_EVENT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("attachment binding extension is not a map")
+    attachment_id = str(_map_lookup_str(ext, "attachment_id"))
+    slot_path = str(_map_lookup_str(ext, "slot_path"))
+    media_type = str(_map_lookup_str(ext, "media_type"))
+    byte_length = _map_lookup_u64(ext, "byte_length")
+    att_txt = str(_map_lookup_str(ext, "attachment_sha256"))
+    pay_txt = str(_map_lookup_str(ext, "payload_content_hash"))
+    attachment_sha256 = _parse_sha256_prefix_text(att_txt)
+    payload_content_hash = _parse_sha256_prefix_text(pay_txt)
+    fn_raw = _map_lookup_optional_str(ext, "filename")
+    filename: Optional[str]
+    if fn_raw is None:
+        filename = None
+    elif isinstance(fn_raw, str):
+        filename = fn_raw
+    else:
+        raise VerifyError("filename invalid")
+    prior_binding_hash: Optional[bytes]
+    pb = ext.get("prior_binding_hash")
+    if pb is None:
+        prior_binding_hash = None
+    elif isinstance(pb, bytes) and len(pb) == 32:
+        prior_binding_hash = pb
+    else:
+        raise VerifyError("prior_binding_hash is neither 32 bytes nor null")
+    return AttachmentBindingDetails(
+        attachment_id=attachment_id,
+        slot_path=slot_path,
+        media_type=media_type,
+        byte_length=byte_length,
+        attachment_sha256=attachment_sha256,
+        payload_content_hash=payload_content_hash,
+        filename=filename,
+        prior_binding_hash=prior_binding_hash,
+    )
+
+
+def _normalize_cbor_compare(obj: Any) -> Any:
+    """RFC8949-style map key ordering for semantic nested-map equality."""
+    if isinstance(obj, dict):
+        parts: list[tuple[bytes, Any, Any]] = []
+        for k, v in obj.items():
+            nk = _normalize_cbor_compare(k)
+            nv = _normalize_cbor_compare(v)
+            kb = cbor2.dumps(nk, canonical=True)
+            parts.append((kb, nk, nv))
+        parts.sort(key=lambda x: x[0])
+        return tuple((k, v) for _, k, v in parts)
+    if isinstance(obj, list):
+        return tuple(_normalize_cbor_compare(x) for x in obj)
+    if isinstance(obj, CBORTag):
+        return ("tag", obj.tag, _normalize_cbor_compare(obj.value))
+    return obj
+
+
+def _cbor_nested_semantic_eq(a: Any, b: Any) -> bool:
+    return _normalize_cbor_compare(a) == _normalize_cbor_compare(b)
+
+
 def _decode_event_details(event: ParsedSign1) -> EventDetails:
     if event.payload is None:
         raise VerifyError("detached event payloads are out of scope")
@@ -393,8 +502,10 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         raise VerifyError("payload_ref.ref_type unsupported")
     exts = payload_value.get("extensions")
     transition: Optional[TransitionDetails] = None
+    attachment_binding: Optional[AttachmentBindingDetails] = None
     if isinstance(exts, dict):
         transition = _decode_transition_details(exts)
+        attachment_binding = _decode_attachment_binding_details(exts)
     elif exts is not None:
         raise VerifyError("extensions not map")
     return EventDetails(
@@ -410,6 +521,7 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         payload_ref_inline=inline,
         payload_ref_external=external,
         transition=transition,
+        attachment_binding=attachment_binding,
     )
 
 
@@ -797,6 +909,435 @@ def _map_lookup_optional_map(m: dict, key: str) -> Optional[dict]:
     raise VerifyError(f"`{key}` is not a map")
 
 
+def _map_lookup_optional_extensions(manifest_map: dict) -> Optional[dict]:
+    ext = manifest_map.get("extensions")
+    if ext is None:
+        return None
+    if isinstance(ext, dict):
+        return ext
+    raise VerifyError("manifest extensions is not a map")
+
+
+def _parse_attachment_export_extension(
+    manifest_map: dict,
+) -> Optional[tuple[bytes, bool]]:
+    exts = _map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(ATTACHMENT_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("attachment export extension is not a map")
+    digest = _map_lookup_fixed_bytes(ext, "attachment_manifest_digest", 32)
+    inline = _map_lookup_bool(ext, "inline_attachments")
+    return digest, inline
+
+
+def _parse_signature_export_extension(manifest_map: dict) -> Optional[bytes]:
+    exts = _map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(SIGNATURE_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("signature export extension is not a map")
+    return _map_lookup_fixed_bytes(ext, "signature_catalog_digest", 32)
+
+
+def _parse_attachment_manifest_entries(data: bytes) -> list[dict[str, Any]]:
+    v = _decode_value(data)
+    if not isinstance(v, list):
+        raise VerifyError("attachment manifest root is not an array")
+    out: list[dict[str, Any]] = []
+    for entry in v:
+        if not isinstance(entry, dict):
+            raise VerifyError("attachment manifest entry is not a map")
+        out.append(
+            {
+                "binding_event_hash": _map_lookup_fixed_bytes(entry, "binding_event_hash", 32),
+                "attachment_id": str(_map_lookup_str(entry, "attachment_id")),
+                "slot_path": str(_map_lookup_str(entry, "slot_path")),
+                "media_type": str(_map_lookup_str(entry, "media_type")),
+                "byte_length": _map_lookup_u64(entry, "byte_length"),
+                "attachment_sha256": _map_lookup_fixed_bytes(entry, "attachment_sha256", 32),
+                "payload_content_hash": _map_lookup_fixed_bytes(entry, "payload_content_hash", 32),
+                "filename": entry.get("filename"),
+                "prior_binding_hash": _map_lookup_optional_fixed_bytes(
+                    entry, "prior_binding_hash", 32
+                ),
+            }
+        )
+    return out
+
+
+def _binding_lineage_graph_has_cycle(adj: dict[bytes, list[bytes]]) -> bool:
+    class Color:
+        WHITE = 0
+        GRAY = 1
+        BLACK = 2
+
+    nodes: set[bytes] = set()
+    for frm, tos in adj.items():
+        nodes.add(frm)
+        nodes.update(tos)
+    color: dict[bytes, int] = {n: Color.WHITE for n in nodes}
+
+    def dfs(node: bytes) -> bool:
+        c = color.get(node, Color.WHITE)
+        if c == Color.GRAY:
+            return True
+        if c == Color.BLACK:
+            return False
+        color[node] = Color.GRAY
+        for nxt in adj.get(node, []):
+            if dfs(nxt):
+                return True
+        color[node] = Color.BLACK
+        return False
+
+    for n in list(nodes):
+        if color.get(n, Color.WHITE) == Color.WHITE and dfs(n):
+            return True
+    return False
+
+
+def _attachment_manifest_topology_failures(
+    entries: list[dict[str, Any]], hash_to_index: dict[bytes, int]
+) -> list[VerificationFailure]:
+    failures: list[VerificationFailure] = []
+    seen: set[bytes] = set()
+    for e in entries:
+        bh = e["binding_event_hash"]
+        if bh in seen:
+            failures.append(
+                VerificationFailure("attachment_manifest_duplicate_binding", _hex(bh))
+            )
+        seen.add(bh)
+    adj: dict[bytes, list[bytes]] = defaultdict(list)
+    for e in entries:
+        prior = e.get("prior_binding_hash")
+        if prior is None:
+            continue
+        bh = e["binding_event_hash"]
+        if bh in hash_to_index and prior in hash_to_index:
+            adj[bh].append(prior)
+    if _binding_lineage_graph_has_cycle(dict(adj)):
+        failures.append(
+            VerificationFailure("attachment_binding_lineage_cycle", "061-attachments.cbor")
+        )
+    for e in entries:
+        prior = e.get("prior_binding_hash")
+        if prior is None:
+            continue
+        bh = e["binding_event_hash"]
+        cur_i = hash_to_index.get(bh)
+        pri_i = hash_to_index.get(prior)
+        if cur_i is None or pri_i is None:
+            failures.append(
+                VerificationFailure("attachment_prior_binding_unresolved", _hex(bh))
+            )
+            continue
+        if pri_i >= cur_i:
+            failures.append(
+                VerificationFailure(
+                    "attachment_prior_binding_forward_reference", _hex(bh)
+                )
+            )
+    return failures
+
+
+def _attachment_entry_matches_binding(
+    entry: dict[str, Any], binding: AttachmentBindingDetails
+) -> bool:
+    if entry["attachment_id"] != binding.attachment_id:
+        return False
+    if entry["slot_path"] != binding.slot_path:
+        return False
+    if entry["media_type"] != binding.media_type:
+        return False
+    if entry["byte_length"] != binding.byte_length:
+        return False
+    if entry["attachment_sha256"] != binding.attachment_sha256:
+        return False
+    if entry["payload_content_hash"] != binding.payload_content_hash:
+        return False
+    fn = entry.get("filename")
+    if fn != binding.filename:
+        return False
+    if entry.get("prior_binding_hash") != binding.prior_binding_hash:
+        return False
+    return True
+
+
+def _verify_attachment_manifest(
+    archive: dict[str, bytes],
+    events: list[ParsedSign1],
+    manifest_digest: bytes,
+    inline_attachments: bool,
+    report: VerificationReport,
+) -> None:
+    man_bytes = archive.get("061-attachments.cbor")
+    if man_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("missing_attachment_manifest", "061-attachments.cbor")
+        )
+        return
+    if _sha256(man_bytes) != manifest_digest:
+        report.event_failures.append(
+            VerificationFailure("attachment_manifest_digest_mismatch", "061-attachments.cbor")
+        )
+    try:
+        entries = _parse_attachment_manifest_entries(man_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure("attachment_manifest_invalid", f"061-attachments.cbor/{exc}")
+        )
+        return
+    details_list: list[EventDetails] = []
+    for ev in events:
+        try:
+            details_list.append(_decode_event_details(ev))
+        except VerifyError:
+            continue
+    hash_to_index: dict[bytes, int] = {}
+    for index, ev in enumerate(events):
+        try:
+            d = _decode_event_details(ev)
+            hash_to_index[d.canonical_event_hash] = index
+        except VerifyError:
+            continue
+    for f in _attachment_manifest_topology_failures(entries, hash_to_index):
+        report.event_failures.append(f)
+    for e in entries:
+        bh = e["binding_event_hash"]
+        matches = [d for d in details_list if d.canonical_event_hash == bh]
+        if len(matches) != 1:
+            report.event_failures.append(
+                VerificationFailure("attachment_binding_event_unresolved", _hex(bh))
+            )
+            continue
+        det = matches[0]
+        binding = det.attachment_binding
+        if binding is None:
+            report.event_failures.append(
+                VerificationFailure("attachment_binding_missing", _hex(bh))
+            )
+            continue
+        if not _attachment_entry_matches_binding(e, binding):
+            report.event_failures.append(
+                VerificationFailure("attachment_binding_mismatch", _hex(bh))
+            )
+            continue
+        if e["payload_content_hash"] != det.content_hash or binding.payload_content_hash != det.content_hash:
+            report.event_failures.append(
+                VerificationFailure("attachment_payload_hash_mismatch", _hex(bh))
+            )
+            continue
+        if inline_attachments:
+            member = f"060-payloads/{_hex(e['payload_content_hash'])}.bin"
+            if member not in archive:
+                report.event_failures.append(
+                    VerificationFailure("missing_attachment_body", member)
+                )
+
+
+def _readable_payload_bytes(
+    details: EventDetails, payload_blobs: dict[bytes, bytes]
+) -> Optional[bytes]:
+    if details.payload_ref_inline is not None:
+        return details.payload_ref_inline
+    if details.payload_ref_external:
+        return payload_blobs.get(details.content_hash)
+    return None
+
+
+def _parse_signature_catalog_entries(data: bytes) -> list[dict[str, Any]]:
+    v = _decode_value(data)
+    if not isinstance(v, list):
+        raise VerifyError("signature catalog root is not an array")
+    rows: list[dict[str, Any]] = []
+    for entry in v:
+        if not isinstance(entry, dict):
+            raise VerifyError("signature catalog entry is not a map")
+        pr = entry.get("profile_ref")
+        pk = entry.get("profile_key")
+        ib = entry.get("identity_binding")
+        cr = entry.get("consent_reference")
+        if not isinstance(ib, dict) or not isinstance(cr, dict):
+            raise VerifyError("identity_binding or consent_reference is not a map")
+        rows.append(
+            {
+                "canonical_event_hash": _map_lookup_fixed_bytes(
+                    entry, "canonical_event_hash", 32
+                ),
+                "signer_id": str(_map_lookup_str(entry, "signer_id")),
+                "role_id": str(_map_lookup_str(entry, "role_id")),
+                "role": str(_map_lookup_str(entry, "role")),
+                "document_id": str(_map_lookup_str(entry, "document_id")),
+                "document_hash": str(_map_lookup_str(entry, "document_hash")),
+                "document_hash_algorithm": str(_map_lookup_str(entry, "document_hash_algorithm")),
+                "signed_at": str(_map_lookup_str(entry, "signed_at")),
+                "identity_binding": ib,
+                "consent_reference": cr,
+                "signature_provider": str(_map_lookup_str(entry, "signature_provider")),
+                "ceremony_id": str(_map_lookup_str(entry, "ceremony_id")),
+                "profile_ref": str(pr) if isinstance(pr, str) else None,
+                "profile_key": str(pk) if isinstance(pk, str) else None,
+                "formspec_response_ref": str(_map_lookup_str(entry, "formspec_response_ref")),
+            }
+        )
+    return rows
+
+
+def _parse_signature_affirmation_record(payload_bytes: bytes) -> dict[str, Any]:
+    v = _decode_value(payload_bytes)
+    if not isinstance(v, dict):
+        raise VerifyError("signature affirmation payload root is not a map")
+    rk = str(_map_lookup_str(v, "recordKind"))
+    if rk != "signatureAffirmation":
+        raise VerifyError("recordKind is not signatureAffirmation")
+    data = _map_lookup_map(v, "data")
+    pr = data.get("profileRef")
+    pk = data.get("profileKey")
+    ib = _map_lookup_map(data, "identityBinding")
+    cr = _map_lookup_map(data, "consentReference")
+    return {
+        "signer_id": str(_map_lookup_str(data, "signerId")),
+        "role_id": str(_map_lookup_str(data, "roleId")),
+        "role": str(_map_lookup_str(data, "role")),
+        "document_id": str(_map_lookup_str(data, "documentId")),
+        "document_hash": str(_map_lookup_str(data, "documentHash")),
+        "document_hash_algorithm": str(_map_lookup_str(data, "documentHashAlgorithm")),
+        "signed_at": str(_map_lookup_str(data, "signedAt")),
+        "identity_binding": ib,
+        "consent_reference": cr,
+        "signature_provider": str(_map_lookup_str(data, "signatureProvider")),
+        "ceremony_id": str(_map_lookup_str(data, "ceremonyId")),
+        "profile_ref": str(pr) if isinstance(pr, str) else None,
+        "profile_key": str(pk) if isinstance(pk, str) else None,
+        "formspec_response_ref": str(_map_lookup_str(data, "formspecResponseRef")),
+    }
+
+
+def _signature_entry_matches_record(entry: dict[str, Any], record: dict[str, Any]) -> bool:
+    if entry["signer_id"] != record["signer_id"]:
+        return False
+    if entry["role_id"] != record["role_id"]:
+        return False
+    if entry["role"] != record["role"]:
+        return False
+    if entry["document_id"] != record["document_id"]:
+        return False
+    if entry["document_hash"] != record["document_hash"]:
+        return False
+    if entry["document_hash_algorithm"] != record["document_hash_algorithm"]:
+        return False
+    if entry["signed_at"] != record["signed_at"]:
+        return False
+    if not _cbor_nested_semantic_eq(entry["identity_binding"], record["identity_binding"]):
+        return False
+    if not _cbor_nested_semantic_eq(entry["consent_reference"], record["consent_reference"]):
+        return False
+    if entry["signature_provider"] != record["signature_provider"]:
+        return False
+    if entry["ceremony_id"] != record["ceremony_id"]:
+        return False
+    if entry["profile_ref"] != record["profile_ref"]:
+        return False
+    if entry["profile_key"] != record["profile_key"]:
+        return False
+    if entry["formspec_response_ref"] != record["formspec_response_ref"]:
+        return False
+    return True
+
+
+def _verify_signature_catalog(
+    archive: dict[str, bytes],
+    events: list[ParsedSign1],
+    payload_blobs: dict[bytes, bytes],
+    catalog_digest: bytes,
+    report: VerificationReport,
+) -> None:
+    cat_bytes = archive.get("062-signature-affirmations.cbor")
+    if cat_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("missing_signature_catalog", "062-signature-affirmations.cbor")
+        )
+        return
+    if _sha256(cat_bytes) != catalog_digest:
+        report.event_failures.append(
+            VerificationFailure(
+                "signature_catalog_digest_mismatch", "062-signature-affirmations.cbor"
+            )
+        )
+    try:
+        entries = _parse_signature_catalog_entries(cat_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure(
+                "signature_catalog_invalid", f"062-signature-affirmations.cbor/{exc}"
+            )
+        )
+        return
+    event_by_hash: dict[bytes, EventDetails] = {}
+    for ev in events:
+        try:
+            d = _decode_event_details(ev)
+        except VerifyError:
+            continue
+        if d.canonical_event_hash in event_by_hash:
+            report.event_failures.append(
+                VerificationFailure(
+                    "export_events_duplicate_canonical_hash",
+                    _hex(d.canonical_event_hash),
+                )
+            )
+            continue
+        event_by_hash[d.canonical_event_hash] = d
+    seen_row: set[bytes] = set()
+    for row in entries:
+        h = row["canonical_event_hash"]
+        if h in seen_row:
+            report.event_failures.append(
+                VerificationFailure("signature_catalog_duplicate_event", _hex(h))
+            )
+        seen_row.add(h)
+    for row in entries:
+        h = row["canonical_event_hash"]
+        det = event_by_hash.get(h)
+        if det is None:
+            report.event_failures.append(
+                VerificationFailure("signature_catalog_event_unresolved", _hex(h))
+            )
+            continue
+        if det.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE:
+            report.event_failures.append(
+                VerificationFailure("signature_catalog_event_type_mismatch", _hex(h))
+            )
+            continue
+        payload = _readable_payload_bytes(det, payload_blobs)
+        if payload is None:
+            report.event_failures.append(
+                VerificationFailure("signature_affirmation_payload_unreadable", _hex(h))
+            )
+            continue
+        try:
+            record = _parse_signature_affirmation_record(payload)
+        except VerifyError as exc:
+            report.event_failures.append(
+                VerificationFailure(
+                    "signature_affirmation_payload_invalid", f"{_hex(h)}/{exc}"
+                )
+            )
+            continue
+        if not _signature_entry_matches_record(row, record):
+            report.event_failures.append(
+                VerificationFailure("signature_catalog_mismatch", _hex(h))
+            )
+
+
 def parse_export_zip(data: bytes) -> dict[str, bytes]:
     try:
         zf = zipfile.ZipFile(io.BytesIO(data), "r")
@@ -965,6 +1506,24 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
             payload_blobs[d] = blob
 
     report = _verify_event_set(events, registry, None, None, False, scope, payload_blobs)
+    try:
+        attachment_export = _parse_attachment_export_extension(manifest_map)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"attachment export extension is invalid: {exc}"
+        )
+    if attachment_export is not None:
+        att_digest, att_inline = attachment_export
+        _verify_attachment_manifest(archive, events, att_digest, att_inline, report)
+    try:
+        signature_catalog_digest = _parse_signature_export_extension(manifest_map)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"signature export extension is invalid: {exc}"
+        )
+    if signature_catalog_digest is not None:
+        _verify_signature_catalog(archive, events, payload_blobs, signature_catalog_digest, report)
+
     for failure in report.event_failures:
         if failure.kind == "scope_mismatch":
             failure.location = f"manifest-scope/{failure.location}"
