@@ -310,6 +310,7 @@ Registered extension identifiers:
 | `EventPayload.extensions` | `trellis.custody-model-transition.v1` | 1 | Custody-model Posture-transition record; payload shape per Companion §10 and Appendix A.5.1. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.disclosure-profile-transition.v1` | 1 | Posture-transition record for the disclosure-profile axis; payload shape per Companion §10 and Appendix A.5.2. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.staff-view-decision-binding.v1` | 1 | Staff-view decision-binding record carrying the §15.2 `Watermark` seen by the adjudicator for a rights-impacting decision; payload shape `StaffViewDecisionBinding`. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.evidence-attachment-binding.v1` | 1 | Evidence attachment-binding record from ADR 0072 / Formspec Respondent Ledger §6.9. `PayloadExternal` names the attachment ciphertext bytes; this extension carries the binding metadata. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
 | `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
 | `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
@@ -1598,6 +1599,8 @@ A WOS runtime frequently retries governance submissions — a scheduler redelive
 - (c) the construction is computable from identifiers the WOS runtime supplies per its own vocabulary — namely, a case identifier, an identifier for the governance rule or state transition being governed, and a stable per-attempt identifier that the WOS runtime preserves across network-level retries of the same authored attempt.
 
 The recommended construction is a deterministic hash (§17.2) over the canonical encoding (§5) of the WOS-supplied identifier tuple, domain-separated per §9.1. A SHA-256 hash per §9 yields 32 bytes and therefore satisfies the `.size (1..64)` bound on `idempotency_key` in §6.1 by construction. Concrete WOS-side field names and their stability guarantees are normatively the WOS specification's to publish; Trellis does not pin WOS-vocabulary identifiers here. A UUIDv7 ([RFC 9562]) per §17.2 is conformant when the WOS runtime can guarantee one UUIDv7 per logical authored attempt.
+
+For the **WOS-as-custody-backend** profile (Kernel §10.5 `custodyHook` into Trellis), the Operational Companion publishes the operational binding — including the WOS-authored append surface, idempotency inputs, and minimum return shape — in **§24.9**; Core defers WOS vocabulary to WOS and to that companion section rather than duplicating it here.
 
 A WOS-Trellis deployment MUST NOT let the WOS runtime's retry/compensation machinery mint a new `idempotency_key` for the same authored governance decision; the `(ledger_scope, idempotency_key)` identity rule of §17.3 is scope-permanent regardless of WOS-layer retry semantics, and §17.5 `IdempotencyKeyPayloadMismatch` applies when a WOS-layer bug produces a different canonical payload under the same key.
 
