@@ -1,8 +1,8 @@
 ---
 title: Trellis Requirements Matrix (Consolidated)
-version: 1.0.0-draft.1
-date: 2026-04-17
-status: draft
+version: 1.0.0
+date: 2026-04-21
+status: released
 supersedes:
   - specs/archive/core/unified-ledger-requirements-matrix.md
   - specs/archive/core/unified-ledger-companion-requirements-matrix.md

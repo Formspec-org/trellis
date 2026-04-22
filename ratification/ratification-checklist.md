@@ -1,4 +1,4 @@
-# Trellis Ratification Checklist (Draft)
+# Trellis Ratification Checklist
 
 ## Purpose
 
@@ -14,7 +14,7 @@ The acceptance bar is the **stranger test** from [`../specs/trellis-agreement.md
 - [x] **G-2 — Invariant coverage.** Every Phase 1 envelope invariant #1–#15 appears as normative MUST text in Core and is cross-referenced from at least one `TR-CORE-*` row. Byte-testable invariants are audited via the G-3 lint (`check_invariant_coverage`); non-byte-testable invariants are covered by the model-check registry, declaration-document validator, projection/shred drill coverage, and matrix cross-reference lint. *(evidence: matrix §4 invariant summary; `thoughts/model-checks/evidence.toml`; `crates/trellis-conformance/src/model_checks.rs`; `fixtures/declarations/ssdi-intake-triage/`; `fixtures/vectors/{projection,shred}/`; `scripts/check-specs.py` R7/R8/R11; `python3 scripts/check-specs.py` passed cleanly on 2026-04-21 after the remaining `spec-cross-ref` warning rows gained explicit `Core §N` / `Companion §N` anchors.)*
 - [x] **G-3 — Byte-exact vectors.** ~50 test vectors under `fixtures/vectors/{append,verify,export,tamper,projection,shred}/` cover every byte-level claim. Every vector reproducible from Core prose alone. *(evidence: fixture system design `thoughts/specs/2026-04-18-trellis-g3-fixture-system-design.md`; 12-task scaffold plan `thoughts/specs/2026-04-18-trellis-g3-fixture-scaffold-plan.md`. 44 vectors now landed across six op-dirs — append/1-9, verify/1-12, export/1-4, tamper/1-12, projection/1-5, shred/1-2. The residual V3 breadth batch on 2026-04-21 landed `verify/008-012`, `export/002-004`, and `tamper/009-012`, including the §19 step-4 revoked/`valid_to` branch, step-6 posture-transition happy path, and step-8 optional-anchor happy path. All G-3 coverage allowlists are closed (`_pending-projection-drills.toml` removed, `_pending-invariants.toml` removed, `_pending-matrix-rows.toml` removed, `_pending-model-checks.toml` emptied). Core gaps surfaced by G-3 authoring are documented at `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`, and the revocation-language pin landed in Core §19 step 4.a. Validation passed on 2026-04-21 via `python3 scripts/check-specs.py`, `cargo test -p trellis-verify`, and `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime`.)*
 - [x] **G-4 — Reference implementation passes.** `trellis-core`, `trellis-cose`, `trellis-store-postgres`, `trellis-store-memory`, `trellis-verify`, `trellis-cli`, `trellis-conformance` build; public API is `append` / `verify` / `export`; every vector passes. *(evidence: Rust workspace under `crates/`; `cargo test -p trellis-types -p trellis-cddl -p trellis-cose -p trellis-core -p trellis-store-memory -p trellis-store-postgres -p trellis-export -p trellis-verify -p trellis-conformance -p trellis-cli`; committed-corpus replay in `crates/trellis-conformance/src/lib.rs`; model-check suite in `crates/trellis-conformance/src/model_checks.rs`.)*
-- [ ] **G-5 — Second implementation byte-matches.** An independent implementation (Python or Go) written by someone who read only the specs produces byte-identical output on every vector. *(evidence: `G-5`)*
+- [x] **G-5 — Second implementation byte-matches.** An independent implementation (Python or Go) written by someone who read only the specs produces byte-identical output on every vector. *(evidence: clean-room `trellis-py/` stranger pass; `trellis-py/BYTE-MATCH-REPORT.json` (`failed = 0`, `total_vectors = 45`), `trellis-py/ATTESTATION.md`, `trellis-py/ALLOWED-READ-MANIFEST.txt`, `trellis-py/DISCREPANCY-LOG.txt`; final SHA-256s pinned below in §Evidence SHAs.)*
 - [x] **G-6 — Lint clean.** `python3 scripts/check-specs.py` reports zero violations across all normative documents. *(evidence: 3a143a1)*
 
 ## Per-document readiness gates
@@ -44,6 +44,13 @@ The acceptance bar is the **stranger test** from [`../specs/trellis-agreement.md
 - [x] **M-2 — Gap-log soundness.** Every dropped legacy row is justified against an invariant, an upstream spec, or a replacement `TR-*` row. *(evidence: 3a143a1)*
 - [x] **M-3 — Invariant coverage.** All 15 invariants are covered by at least one `TR-CORE-*` row, except invariant #11 (Profile-namespace disambiguation) which is covered by Matrix §4 prose. *(evidence: 3a143a1; wording refined in a later commit to reflect #11's §4 routing accurately.)*
 
+## Evidence SHAs
+
+- `trellis-py/BYTE-MATCH-REPORT.json` — `2e06747a6f8f9071b6d446d2ae497421a9ed0dac4b0792ff20432e392726c3e0`
+- `trellis-py/ATTESTATION.md` — `1ec74e00a4716e8fdeba1797ec990de2128b0f5db35f908d198fa4a1f69cbf89`
+- `trellis-py/ALLOWED-READ-MANIFEST.txt` — `50e52a5d4b3e96b4fe88d4342bf9b6029e9b537c682089bb6d7781809c952f3d`
+- `trellis-py/DISCREPANCY-LOG.txt` — `274817e01b19b6fe9757759f5b181911fa3673739a2266fd2ca5aa4e0b37f6f0`
+
 ## Natural stopping point
 
-Ratification is complete when all gates above are checked, all handoff tasks are closed, G-5 has landed an independently-written second implementation that byte-matches every vector, and the lint reports zero violations.
+Ratification is complete: all gates above are checked, the stranger test has landed an independently-written second implementation that byte-matches every vector, and the lint reports zero violations.

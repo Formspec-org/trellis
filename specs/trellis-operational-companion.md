@@ -1,18 +1,18 @@
 ---
 title: Trellis Operational Companion
-version: 1.0.0-draft.1
-date: 2026-04-17
-status: draft
+version: 1.0.0
+date: 2026-04-21
+status: ratified
 phase: 2
 companion-to: trellis-core.md
 ---
 
 # Trellis Operational Companion
 
-**Version:** 1.0.0-draft.1
-**Date:** 2026-04-17
+**Version:** 1.0.0
+**Date:** 2026-04-21
 **Editors:** Formspec Working Group
-**Companion to:** Trellis Core v1.0.0-draft.1
+**Companion to:** Trellis Core v1.0.0
 **Phase:** 2 (Runtime-time integrity)
 
 ---
@@ -31,12 +31,12 @@ This companion is a **Phase 2 deliverable**: it ships with the runtime-time-inte
 
 ## Status of This Document
 
-This document is a **draft specification**. It is the second of the two Trellis W3C-style specifications described in the Trellis delivery arc:
+This document is the **ratified operational companion**. It is the second of the two Trellis W3C-style specifications described in the Trellis delivery arc:
 
 1. **Trellis Core** — byte-level protocol (Phase 1).
 2. **Trellis Operational Companion** (this document) — operator obligations layered on Core (Phase 2+).
 
-Implementors are encouraged to experiment with this companion and provide feedback, but MUST NOT treat it as stable for production use until a 1.0.0 release is published. Where this companion elaborates a semantic already fixed by Trellis Core, Trellis Core governs. Where this companion defines operational detail that Trellis Core does not fix, this companion is the normative source.
+This companion is stable for production use as of the 1.0.0 release. Where this companion elaborates a semantic already fixed by Trellis Core, Trellis Core governs. Where this companion defines operational detail that Trellis Core does not fix, this companion is the normative source.
 
 ---
 
@@ -1374,7 +1374,7 @@ Implementations MUST NOT attach high-stakes outcomes — adverse action, selecti
 
 ### 29.1 Normative References
 
-- **[Trellis Core]** — Trellis Core Specification v1.0.0-draft.1. Canonical byte-level substrate for Trellis.
+- **[Trellis Core]** — Trellis Core Specification v1.0.0. Canonical byte-level substrate for Trellis.
 - **[RFC 2119]** — Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels," BCP 14, RFC 2119, March 1997.
 - **[RFC 8174]** — Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words," BCP 14, RFC 8174, May 2017.
 - **[RFC 8259]** — Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format," STD 90, RFC 8259, December 2017.
@@ -1815,4 +1815,4 @@ Operational traceability rows:
 
 ---
 
-*End of Trellis Operational Companion v1.0.0-draft.1.*
+*End of Trellis Operational Companion v1.0.0.*

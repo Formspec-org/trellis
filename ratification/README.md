@@ -1,4 +1,4 @@
-# Trellis ratification (draft)
+# Trellis ratification
 
 Process gates and evidence for moving the two normative Trellis specs under [`../specs/`](../specs/) toward ratification. These documents are **not** protocol specs; they track readiness and proof artifacts.
 

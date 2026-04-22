@@ -1,15 +1,15 @@
 ---
 title: Trellis Core Specification (Phase 1)
-version: 1.0.0-draft.1
-date: 2026-04-17
-status: draft
+version: 1.0.0
+date: 2026-04-21
+status: ratified
 editors: Formspec / WOS / Trellis Working Group
 ---
 
 # Trellis Core Specification (Phase 1)
 
-**Version:** 1.0.0-draft.1
-**Date:** 2026-04-17
+**Version:** 1.0.0
+**Date:** 2026-04-21
 **Editors:** Formspec / WOS / Trellis Working Group
 **Companion to:** Formspec Core v1.0, Formspec Respondent Ledger v0.1, WOS Kernel v1.0
 
@@ -21,11 +21,11 @@ Trellis is the cryptographic integrity substrate for the Formspec / WOS / Trelli
 
 ## Status of This Document
 
-This is the **Phase 1 Core** deliverable of the Trellis specification family: the constitutional byte-level substrate on which Phase 2 runtime integrity and Phase 3 portable case files are built. Implementors are encouraged to build against this specification and file interop reports. The single success criterion for Phase 1 is that an independent implementor, reading only this document and the cited normative references, can produce a second implementation whose byte output matches the reference fixtures (§29).
+This is the **ratified Phase 1 Core** deliverable of the Trellis specification family: the constitutional byte-level substrate on which Phase 2 runtime integrity and Phase 3 portable case files are built. The Phase-1 stranger test is closed: an independent implementation, reading only this document and the cited normative references, produced byte-identical output against the committed fixture corpus (§29).
 
 Operational guarantees that depend on live system behavior — projection snapshot policy, metadata-budget declaration tables, posture-transition auditability, rights-impacting evaluator rebuild — are normatively delegated to the **Trellis Operational Companion** (Phase 2 deliverable), which is a separate document. This core does not block on the companion: Phase 1 ships complete without it.
 
-This core is the first Trellis document that may be cited in production procurement. Previous `thoughts/archive/drafts/*` material and earlier split-out companion drafts now archived under `specs/archive/` are consolidated and superseded by this file for all Phase 1 normative purposes. Where the earlier documents contained material that is operational rather than constitutional, that material migrates to the Operational Companion and not to this document.
+This core may be cited in production procurement. Previous `thoughts/archive/drafts/*` material and earlier split-out companion drafts now archived under `specs/archive/` are consolidated and superseded by this file for all Phase 1 normative purposes. Where the earlier documents contained material that is operational rather than constitutional, that material migrates to the Operational Companion and not to this document.
 
 ## Table of Contents
 

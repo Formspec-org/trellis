@@ -18,6 +18,17 @@ This is not a request to "port the Rust code." It is a request to
 independently derive the implementation from the normative docs and the
 committed vectors.
 
+## Handoff package
+
+The reviewer or project owner SHOULD hand the implementor the packaged allowed
+read set archive at:
+
+- `ratification/g5-package/trellis-g5-allowed-readset-2026-04-21.tar.gz`
+
+That archive is the concrete delivery vehicle for the allowed read set below.
+Do not hand the implementor the surrounding `ratification/` directory, its
+README, or its checksum files; those are reviewer-side materials only.
+
 ## Allowed inputs
 
 The implementor MAY read only these repo paths:

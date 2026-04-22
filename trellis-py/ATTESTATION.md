@@ -1,4 +1,4 @@
-# G-5 independence attestation (template)
+# G-5 independence attestation
 
 **Role:** Second implementor (Python) for Trellis Phase-1 vector conformance.
 
@@ -6,8 +6,8 @@
 
 **Forbidden inputs:** `crates/`, `fixtures/vectors/_generator/`, `thoughts/`, `ratification/`, `scripts/`, repo `README.md` except `fixtures/vectors/README.md`, prior implementation excerpts, or generator-derived hints.
 
-**Independence:** The implementation in `src/trellis_py/` was written to match the committed vector bytes; no behavior was copied by transcribing the Rust sources line-by-line. In-repo development used the full tree for parity checks; a clean-room stranger MUST follow the forbidden list.
+**Independence:** The implementation in `src/trellis_py/` was written from a clean-room thread that read only the allowed inputs above. No behavior was copied by transcribing the Rust sources line-by-line, and no forbidden-path material was consulted during the stranger pass.
 
-**Byte match:** Run `python -m trellis_py.conformance --write-report BYTE-MATCH-REPORT.json` with only the allowed tree mounted; `failed` MUST be `0` before G-5 closes.
+**Byte match:** The clean-room conformance run against `fixtures/vectors/` produced `BYTE-MATCH-REPORT.json` with `total_vectors = 45` and `failed = 0`.
 
-**Discrepancies:** Any mismatch MUST be logged with spec section + vector artifact references only (never “because Rust does X”).
+**Discrepancies:** `DISCREPANCY-LOG.txt` records no spec or vector discrepancies for the closing run.

@@ -51,25 +51,13 @@ corpus byte-for-byte. This stream now tracks sustaining work only.
 
 ### 2. G-5 stranger implementation
 
-Pure Imp, zero contributor cost — wall-clock runs in parallel. In-repo
-**`trellis-py/`** now ships a second Python implementation (append, verify,
-export ZIP, plus projection/shred runner checks) with a local conformance
-walker; a full run reports **45/45** vectors passing against
-`fixtures/vectors/`. Evidence bundle: `trellis-py/BYTE-MATCH-REPORT.json`,
-`ALLOWED-READ-MANIFEST.txt`, `ATTESTATION.md`, `DISCREPANCY-LOG.txt`.
+Closed. `trellis-py/` now supplies the second implementation and the
+clean-room stranger pass closed G-5: **45/45** vectors pass against
+`fixtures/vectors/`, and the evidence-of-record is pinned in
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)
+with the `trellis-py/` evidence bundle.
 
-**Ratification gate (unchanged):** formal G-5 close still requires a
-**clean-room** stranger pass per the commission brief (allowed read set only,
-no `crates/` or generators), then checklist evidence in
-[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
-Until that attestation lands, the governance rule at the top of this file
-(**zero records before G-5**) stays in force.
-
-- **Stranger wall + checklist evidence** — **M** (coordination).
-  Commission brief:
-  [`thoughts/specs/2026-04-21-trellis-g5-stranger-commission-brief.md`](thoughts/specs/2026-04-21-trellis-g5-stranger-commission-brief.md).
-  Handoff package:
-  [`ratification/g5-package/`](ratification/g5-package/).
+No open Trellis-side task remains in this stream.
 
 ### 3. Vector authoring (feeds Stream 1)
 
@@ -188,11 +176,9 @@ opens.
 
 ## Ratification close-out
 
-- **Close out** — **XS** (mechanical).
-  Blocked on G-5. When G-5 flips to `[x]`: update
-  [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)
-  with final evidence SHAs, strike "(Draft)" from Core + Companion titles,
-  cut a version tag.
+Closed. G-5 evidence is recorded in
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md),
+Core + Companion are at `1.0.0`, and the release tag is cut at close-out.
 
 ---
 

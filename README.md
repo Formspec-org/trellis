@@ -10,9 +10,9 @@ Paths below are relative to `trellis/`.
 
 ## Status
 
-Trellis is **actively being refined**. The repository contains normative drafts (under [`specs/`](specs/)), the product vision and roadmap (under [`thoughts/`](thoughts/)), and valuable prior research that informed both (under [`thoughts/research/`](thoughts/research/) and [`thoughts/reviews/`](thoughts/reviews/)).
+Trellis now has **ratified 1.0.0 normative specs** under [`specs/`](specs/): [`trellis-core.md`](specs/trellis-core.md) and [`trellis-operational-companion.md`](specs/trellis-operational-companion.md). The repository also contains active strategy and follow-on design work under [`thoughts/`](thoughts/), plus prior research that informed the ratified surface.
 
-**No document here is an accepted final decision** for Formspec, WOS, or any shipped system. Trellis is greenfield: no production legacy to preserve, no backwards-compatibility obligation.
+Trellis remains greenfield for follow-on phases and cross-stack contracts: no production legacy to preserve, no backwards-compatibility obligation beyond the ratified 1.0.0 surface.
 
 **Operating lens:** compute is cheap, time is cheaper, development is near-free next to the long-term cost of architectural debt. Expensive mistakes are architectural (data model, crypto boundaries, event taxonomy, sync contracts), not editorial. Prefer clean rethink over carrying a weak compromise forward. The [product vision](thoughts/product-vision.md) and the [Phase 1 envelope invariants](thoughts/product-vision.md#phase-1-envelope-invariants-non-negotiable) encode this: Phase 1 must name byte-exact decisions now because each is cheap to include and wire-breaking to retrofit.
 

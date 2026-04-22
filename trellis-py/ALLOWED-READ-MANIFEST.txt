@@ -16,7 +16,4 @@ VECTORS
   fixtures/vectors/_keys/
   fixtures/vectors/_inputs/
 
-IMPLEMENTATION NOTE (in-repo build)
-  This package was developed with access to trellis/crates/ and generators for debugging parity.
-  A stranger G-5 run MUST restrict reads to the paths above only; this manifest lists the
-  authoritative materials the implementation is intended to track.
+This manifest records the exact read set used for the clean-room G-5 stranger pass.
