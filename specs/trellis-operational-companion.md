@@ -1069,6 +1069,20 @@ A workflow or orchestration engine contributes to canonical truth only by submit
 2. record the returned canonical append attestation as the durable evidence of the governance event,
 3. preserve the provenance distinction between the WOS governance envelope and the Trellis canonical record — the `custodyHook` does not replace WOS; it gives WOS a durable substrate.
 
+The WOS-authored append surface crossing `custodyHook` is exactly the accepted
+four-field WOS contract:
+
+1. `caseId` — WOS TypeID-structured case identifier.
+2. `recordId` — WOS TypeID-structured authored-record identifier.
+3. `eventType` — registered outcome-neutral `wos.*` event-type identifier.
+4. `record` — the authored WOS record rendered as dCBOR.
+
+The WOS-owned semantic idempotency input is exactly `(caseId, recordId)`,
+bound under the domain tag `trellis-wos-idempotency-v1` per Core §23 (Composition with WOS `custodyHook`) §23.5. The
+minimum WOS-facing receipt is `{ canonical_event_hash }`; Operators MAY expose
+additive local convenience fields, but MUST NOT treat them as required
+`custodyHook` contract fields.
+
 **OC-113 (MUST).** The `custodyHook` binding MUST NOT redefine the Trellis canonical append semantics. An Operator MUST NOT use `custodyHook` to admit records under alternate proof models or alternate Custody Models within the same declared scope. The wire-level obligations of Core §23 (Composition with WOS `custodyHook`) — `wos.*` event-type namespace (§23.4), idempotency-key construction (§23.5), autonomy-cap attribution (§23.6), non-redefinition (§23.7) — are requirements on the Operator running a WOS-Trellis deployment and MUST be implemented without alteration.
 
 **OC-113a (MUST).** For any two WOS governance records whose causal relation is established by WOS-runtime provenance (per WOS Kernel §4 Lifecycle and §8 Facts tier), the admitting chain order MUST respect that relation: the canonical event admitting the earlier record MUST have a smaller `sequence` (Core §6 (Event Format) §6.2) than the canonical event admitting the later record within the common `ledger_scope` (Core §23 (Composition with WOS `custodyHook`) §23.3). Records that are causally concurrent per WOS MAY be ordered by the admitting Canonical Append Service at its discretion; the chosen order is canonical once admitted. Causality verification itself is a WOS-runtime obligation outside Core §19 (Verification Algorithm). Out-of-order admission relative to a WOS-established causal relation — for example, a late-arriving governance decision admitted after a record it causally precedes — is NON-CONFORMANT; the deployment MUST treat the late decision as a posture-correcting forward event under §10.2 rather than inserting it into prior positions. The ordering obligation extends across the composed case-ledger scope (Core §22 (Composition with Respondent Ledger) §22.4) where present, not just within a single `ledger_scope`.
