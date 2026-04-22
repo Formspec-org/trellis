@@ -1,0 +1,35 @@
+id          = "append/010-wos-custody-hook-state-transition"
+op          = "append"
+status      = "active"
+description = """Genesis append of a WOS `custodyHook` state-transition provenance \
+record. Exercises Core §23 composition with WOS: `EventHeader.event_type` uses \
+the `wos.*` namespace, payload bytes are the WOS-authored dCBOR provenance \
+record, and `idempotency_key` is deterministically derived from ADR-0061's \
+WOS-owned `(caseId, recordId)` tuple."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",  # canonical append contract preserved for a WOS-authored fact
+    "TR-CORE-018",  # authored / canonical / signed event surfaces still apply
+    "TR-CORE-021",  # ledger_scope declared; genesis sequence = 0
+    "TR-CORE-030",  # dCBOR encoding + canonical event hash construction
+    "TR-CORE-031",  # content_hash computed over payload bytes
+    "TR-CORE-050",  # idempotency_key stable in wire contract
+    "TR-CORE-051",  # idempotency semantics for retried submissions
+    "TR-CORE-080",  # Phase-1 envelope admits case-ledger WOS events
+]
+
+[inputs]
+signing_key       = "../../_keys/issuer-001.cose_key"
+wos_record        = "input-wos-record.dcbor"
+wos_tuple         = "input-wos-idempotency-tuple.cbor"
+authored_event    = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
