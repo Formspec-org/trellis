@@ -82,21 +82,24 @@ canonical event payload.
 
 ---
 
-## Post-ratification implication
+## Structural rule — extend, don't mutate
 
-`v1.0.0` is already cut. Therefore:
+ADR 0072 lands through extension surfaces rather than top-level field
+additions, for a reason that is independent of the `v1.0.0` tag state:
+mutating Core's top-level `EventPayload` or `ExportManifestPayload` field
+set breaks the ciphertext-hash invariant and muddies the extension-vs-core
+seam. Therefore:
 
-- **Do not silently mutate Core's top-level `EventPayload` or
-  `ExportManifestPayload` field set.**
-- Any implementation of ADR 0072 on the Trellis side must enter through:
+- Implementation enters through:
   - a registered manifest extension (`trellis.export.attachments.v1`),
   - a new derived archive member (`061-attachments.cbor`),
   - additional verifier logic,
   - new fixture coverage.
 
-If a later acceptance pass decides Core prose should name this contract
-directly, that is a post-ratification compatibility/versioning decision, not a
-drive-by doc edit.
+If a later design insight shows Core prose should name this contract
+directly, that is a real architectural decision — take it deliberately,
+retag, and migrate vectors. Nothing is released; the constraint is clean
+design, not version hygiene.
 
 ---
 

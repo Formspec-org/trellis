@@ -25,11 +25,14 @@ against this posture.
 Executable breakdown for the post-gate queue lives in
 [`thoughts/specs/2026-04-20-trellis-todo-executable-task-dispatch.md`](thoughts/specs/2026-04-20-trellis-todo-executable-task-dispatch.md).
 
-**Post-ratification rule — Phase-1 shape is now pinned.** The cheap-revision
-window closed when G-5 passed and `v1.0.0` was tagged. New work may extend
-the stack, but any change that mutates the released Phase-1 wire shape,
-verification contract, or export layout now requires an explicit
-post-ratification compatibility/versioning decision rather than silent drift.
+**On the `v1.0.0` tag — snapshot, not a freeze.** G-5 passed and `v1.0.0`
+is tagged, but nothing is released and no production records exist.
+Economic model: coding, time, and compute are cheap; architectural tech
+debt we'd have to unwind later is the only expensive cost. If an
+architectural change to the Phase-1 wire shape, verification contract,
+or export layout prevents future debt, make it and retag. The revision
+window is not closed — only real adopters can close it, and there are
+none yet.
 
 ---
 
@@ -175,8 +178,9 @@ opens.
 
   No open Trellis-side task remains for the accepted ADR 0072 Phase-1 batch.
   Reopen only for new origin-layer evidence-binding surfaces, Companion /
-  projection alignment if export semantics drift, or a post-ratification
-  compatibility decision that changes the Phase-1 wire or verifier contract.
+  projection alignment if export semantics drift, or a later design
+  insight that makes the current wire or verifier contract load-bearing
+  tech debt.
 
 - **(b) Identity attestation bundle shape** — **S**, Phase 1.
   Declares how an identity-proofing attestation (from provider-neutral
@@ -219,16 +223,17 @@ Core + Companion are at `1.0.0`, and the release tag is cut at close-out.
 
 ---
 
-## Released baseline
+## Tagged baseline
 
-The released Phase-1 baseline is now fixed: a second implementation, written from
-[`specs/trellis-core.md`](specs/trellis-core.md) +
+`v1.0.0` describes a coherent Phase-1 snapshot: a second implementation,
+written from [`specs/trellis-core.md`](specs/trellis-core.md) +
 [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) +
 [`specs/trellis-agreement.md`](specs/trellis-agreement.md) alone,
 byte-matches every vector in `fixtures/vectors/`, and all ratification gates
 in [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)
-are closed. Phase 2–4 remain explicitly out of scope for the released
-surface; work below is follow-on scope, not unfinished ratification.
+are closed. Phase 2–4 are out of scope for this snapshot; follow-on work
+below may revisit Phase-1 surface when doing so prevents architectural
+debt. Nothing here is released.
 
 ---
 
