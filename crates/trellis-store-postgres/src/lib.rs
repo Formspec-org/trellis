@@ -100,7 +100,10 @@ impl PostgresStore {
     /// # Errors
     /// Returns an error when the query fails or stored values do not fit the
     /// current Phase-1 type bounds.
-    pub fn load_scope_events(&mut self, scope: &[u8]) -> Result<Vec<StoredEvent>, PostgresStoreError> {
+    pub fn load_scope_events(
+        &mut self,
+        scope: &[u8],
+    ) -> Result<Vec<StoredEvent>, PostgresStoreError> {
         let rows = self
             .client
             .query(
@@ -263,7 +266,10 @@ mod tests {
         }
 
         fn connection_string(&self) -> String {
-            format!("host=127.0.0.1 port={} user=postgres dbname=postgres", self.port)
+            format!(
+                "host=127.0.0.1 port={} user=postgres dbname=postgres",
+                self.port
+            )
         }
     }
 

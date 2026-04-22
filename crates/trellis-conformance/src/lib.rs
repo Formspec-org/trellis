@@ -25,7 +25,14 @@ mod tests {
 
     #[test]
     fn committed_vectors_match_the_rust_runtime() {
-        for op in ["append", "export", "verify", "tamper", "projection", "shred"] {
+        for op in [
+            "append",
+            "export",
+            "verify",
+            "tamper",
+            "projection",
+            "shred",
+        ] {
             for dir in vector_dirs(op) {
                 assert_fixture_matches(&dir);
             }
@@ -82,7 +89,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(artifacts.author_event_hash.as_slice(), expected_author_hash.as_slice());
+        assert_eq!(
+            artifacts.author_event_hash.as_slice(),
+            expected_author_hash.as_slice()
+        );
         assert_eq!(artifacts.canonical_event, expected_canonical_event);
         assert_eq!(artifacts.sig_structure, expected_sig_structure);
         assert_eq!(artifacts.signed_event, expected_signed_event);
@@ -92,9 +102,8 @@ mod tests {
     fn assert_export_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(manifest, "inputs");
         let expected = table(manifest, "expected");
-        let ledger_state = decode_value(
-            &fs::read(root.join(path_field(inputs, "ledger_state"))).unwrap(),
-        );
+        let ledger_state =
+            decode_value(&fs::read(root.join(path_field(inputs, "ledger_state"))).unwrap());
         let ledger_state_map = ledger_state.as_map().unwrap();
         let root_dir = value_text(map_value(ledger_state_map, "root_dir"));
         let members = map_value(ledger_state_map, "members").as_array().unwrap();
@@ -116,14 +125,23 @@ mod tests {
     fn assert_verify_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(manifest, "inputs");
         let expected_report = table_in_table(table(manifest, "expected"), "report");
-        let report = verify_export_zip(
-            &fs::read(root.join(path_field(inputs, "export_zip"))).unwrap(),
-        );
+        let report =
+            verify_export_zip(&fs::read(root.join(path_field(inputs, "export_zip"))).unwrap());
 
-        assert_eq!(report.structure_verified, bool_field(expected_report, "structure_verified"));
-        assert_eq!(report.integrity_verified, bool_field(expected_report, "integrity_verified"));
-        assert_eq!(report.readability_verified, bool_field(expected_report, "readability_verified"));
-        if let Some(expected_count) = optional_int_field(expected_report, "posture_transition_count")
+        assert_eq!(
+            report.structure_verified,
+            bool_field(expected_report, "structure_verified")
+        );
+        assert_eq!(
+            report.integrity_verified,
+            bool_field(expected_report, "integrity_verified")
+        );
+        assert_eq!(
+            report.readability_verified,
+            bool_field(expected_report, "readability_verified")
+        );
+        if let Some(expected_count) =
+            optional_int_field(expected_report, "posture_transition_count")
         {
             assert_eq!(report.posture_transitions.len() as i64, expected_count);
         }
@@ -148,9 +166,18 @@ mod tests {
             .unwrap()
         };
 
-        assert_eq!(report.structure_verified, bool_field(expected_report, "structure_verified"));
-        assert_eq!(report.integrity_verified, bool_field(expected_report, "integrity_verified"));
-        assert_eq!(report.readability_verified, bool_field(expected_report, "readability_verified"));
+        assert_eq!(
+            report.structure_verified,
+            bool_field(expected_report, "structure_verified")
+        );
+        assert_eq!(
+            report.integrity_verified,
+            bool_field(expected_report, "integrity_verified")
+        );
+        assert_eq!(
+            report.readability_verified,
+            bool_field(expected_report, "readability_verified")
+        );
 
         let expected_tamper_kind = pathless_string(expected_report, "tamper_kind");
         if let Some(expected_kind) = expected_tamper_kind {
@@ -195,8 +222,7 @@ mod tests {
                 &fs::read(root.join(path_field(inputs, "checkpoint"))).unwrap(),
             );
             let checkpoint_payload_value = decode_value(&checkpoint_payload);
-            let checkpoint_scope =
-                map_bytes(checkpoint_payload_value.as_map().unwrap(), "scope");
+            let checkpoint_scope = map_bytes(checkpoint_payload_value.as_map().unwrap(), "scope");
             let checkpoint_digest = checkpoint_digest(&checkpoint_scope, &checkpoint_payload);
             let watermark_map = watermark.as_map().unwrap();
             assert_eq!(
@@ -227,7 +253,8 @@ mod tests {
                 ]);
                 assert_eq!(
                     encode_value(&binding),
-                    fs::read(root.join(path_field(expected, "staff_view_decision_binding"))).unwrap()
+                    fs::read(root.join(path_field(expected, "staff_view_decision_binding")))
+                        .unwrap()
                 );
             }
         }
@@ -235,15 +262,22 @@ mod tests {
         if expected.contains_key("view_rebuilt") {
             let chain = decode_value(&fs::read(root.join(path_field(inputs, "chain"))).unwrap());
             let events = chain.as_array().unwrap();
-            let last_payload = decode_value(&sign1_payload_bytes_from_value(events.last().unwrap()));
+            let last_payload =
+                decode_value(&sign1_payload_bytes_from_value(events.last().unwrap()));
             let last_payload_map = last_payload.as_map().unwrap();
             let scope = map_bytes(last_payload_map, "ledger_scope");
             let canonical_hash = domain_separated_sha256(
                 EVENT_DOMAIN,
-                &canonical_event_hash_preimage(&scope, &sign1_payload_bytes_from_value(events.last().unwrap())),
+                &canonical_event_hash_preimage(
+                    &scope,
+                    &sign1_payload_bytes_from_value(events.last().unwrap()),
+                ),
             );
             let rebuilt = Value::Map(vec![
-                (Value::Text("event_count".into()), Value::Integer((events.len() as u64).into())),
+                (
+                    Value::Text("event_count".into()),
+                    Value::Integer((events.len() as u64).into()),
+                ),
                 (
                     Value::Text("last_canonical_event_hash".into()),
                     Value::Bytes(canonical_hash.to_vec()),
@@ -254,7 +288,10 @@ mod tests {
                 rebuilt_bytes,
                 fs::read(root.join(path_field(expected, "view_rebuilt"))).unwrap()
             );
-            assert_eq!(rebuilt_bytes, fs::read(root.join(path_field(inputs, "view"))).unwrap());
+            assert_eq!(
+                rebuilt_bytes,
+                fs::read(root.join(path_field(inputs, "view"))).unwrap()
+            );
         }
 
         if expected.contains_key("cadence_report") {
@@ -335,7 +372,8 @@ mod tests {
         let chain = decode_value(&fs::read(root.join(path_field(inputs, "chain"))).unwrap());
         let events = chain.as_array().unwrap();
         let target_event_payload = decode_value(&sign1_payload_bytes_from_value(&events[0]));
-        let target_content_hash = map_fixed_bytes(target_event_payload.as_map().unwrap(), "content_hash", 32);
+        let target_content_hash =
+            map_fixed_bytes(target_event_payload.as_map().unwrap(), "content_hash", 32);
 
         let declared_scope = table_paths_as_strings(procedure, "cascade_scope");
         let mut report_entries = vec![(
@@ -361,7 +399,9 @@ mod tests {
                             Value::Map(vec![
                                 (
                                     Value::Text("rationale".into()),
-                                    Value::Text(format!("{scope}-backup-restore-refused-per-§16.5")),
+                                    Value::Text(format!(
+                                        "{scope}-backup-restore-refused-per-§16.5"
+                                    )),
                                 ),
                                 (
                                     Value::Text("backup_resurrection_refused".into()),
@@ -436,7 +476,10 @@ mod tests {
     }
 
     fn pathless_string(table: &toml::value::Table, key: &str) -> Option<String> {
-        table.get(key).and_then(toml::Value::as_str).map(ToOwned::to_owned)
+        table
+            .get(key)
+            .and_then(toml::Value::as_str)
+            .map(ToOwned::to_owned)
     }
 
     fn table_paths(table: &toml::value::Table, key: &str) -> Vec<String> {
@@ -480,7 +523,10 @@ mod tests {
     }
 
     fn sign1_payload_bytes(bytes: &[u8]) -> Vec<u8> {
-        sign1_payload_value(&decode_value(bytes)).as_bytes().unwrap().clone()
+        sign1_payload_value(&decode_value(bytes))
+            .as_bytes()
+            .unwrap()
+            .clone()
     }
 
     fn sign1_payload_bytes_from_value(value: &Value) -> Vec<u8> {

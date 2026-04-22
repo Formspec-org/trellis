@@ -113,8 +113,10 @@ impl AppendContractModel {
         *position += 1;
 
         self.admitted_records.insert(call.record_id);
-        self.idempotency_by_scope
-            .insert((call.scope, call.idempotency_key), (call.payload, canonical_ref));
+        self.idempotency_by_scope.insert(
+            (call.scope, call.idempotency_key),
+            (call.payload, canonical_ref),
+        );
         if let Some(fact_group) = call.fact_group {
             self.fact_values
                 .entry((call.scope, fact_group))
@@ -258,7 +260,10 @@ fn perturb_operational_accidents(candidates: &[Candidate]) -> Vec<Candidate> {
         .map(|(index, candidate)| {
             let mut clone = candidate.clone();
             clone.accident = Accident {
-                received_at: candidate.accident.received_at.wrapping_add(17 + index as u8),
+                received_at: candidate
+                    .accident
+                    .received_at
+                    .wrapping_add(17 + index as u8),
                 worker_id: candidate.accident.worker_id.wrapping_add(3),
                 queue_depth: candidate.accident.queue_depth.wrapping_add(9),
             };
@@ -294,7 +299,10 @@ fn append_fixture_inputs() -> (Vec<u8>, Vec<u8>) {
     let root = fixtures_root().join("append/001-minimal-inline-payload");
     let manifest: toml::Value =
         toml::from_str(&fs::read_to_string(root.join("manifest.toml")).unwrap()).unwrap();
-    let inputs = manifest.get("inputs").and_then(toml::Value::as_table).unwrap();
+    let inputs = manifest
+        .get("inputs")
+        .and_then(toml::Value::as_table)
+        .unwrap();
     let authored_event = fs::read(root.join(inputs["authored_event"].as_str().unwrap())).unwrap();
     let signing_key = fs::read(root.join(inputs["signing_key"].as_str().unwrap())).unwrap();
     (authored_event, signing_key)
@@ -576,7 +584,10 @@ fn tr_core_001_append_fixture_replay_is_identical_across_memory_and_indexed_stor
     let indexed_artifacts = replay_append_fixture_with_store(&mut indexed_store).unwrap();
 
     assert_eq!(memory_artifacts, indexed_artifacts);
-    assert_eq!(memory_store.events(), indexed_store.events_in_order().as_slice());
+    assert_eq!(
+        memory_store.events(),
+        indexed_store.events_in_order().as_slice()
+    );
 }
 
 #[test]
@@ -603,7 +614,10 @@ fn tr_op_111_replay_and_property_battery_are_live() {
             queue_depth: 2,
         },
     ]);
-    assert_eq!(canonical_order_by_scope(&candidates).get(&0).cloned(), Some(vec![1, 0]));
+    assert_eq!(
+        canonical_order_by_scope(&candidates).get(&0).cloned(),
+        Some(vec![1, 0])
+    );
 
     let mut memory_store = MemoryStore::new();
     let mut indexed_store = IndexedStore::default();
@@ -611,5 +625,8 @@ fn tr_op_111_replay_and_property_battery_are_live() {
     let indexed_artifacts = replay_append_fixture_with_store(&mut indexed_store).unwrap();
 
     assert_eq!(memory_artifacts, indexed_artifacts);
-    assert_eq!(memory_store.events(), indexed_store.events_in_order().as_slice());
+    assert_eq!(
+        memory_store.events(),
+        indexed_store.events_in_order().as_slice()
+    );
 }

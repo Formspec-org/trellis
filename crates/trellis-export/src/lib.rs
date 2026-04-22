@@ -136,11 +136,13 @@ impl ExportPackage {
                 ExportError::new(format!("entry `{}` exceeds ZIP32 size bounds", entry.path))
             })?;
             let path_len = u16::try_from(path_bytes.len()).map_err(|_| {
-                ExportError::new(format!("entry path `{}` exceeds ZIP32 name bounds", entry.path))
+                ExportError::new(format!(
+                    "entry path `{}` exceeds ZIP32 name bounds",
+                    entry.path
+                ))
             })?;
-            let local_offset = u32::try_from(offset).map_err(|_| {
-                ExportError::new("archive offset exceeds ZIP32 bounds")
-            })?;
+            let local_offset = u32::try_from(offset)
+                .map_err(|_| ExportError::new("archive offset exceeds ZIP32 bounds"))?;
 
             let mut local = Vec::new();
             push_u32_le(&mut local, ZIP_LOCAL_FILE_HEADER_SIGNATURE);
@@ -188,9 +190,7 @@ impl ExportPackage {
             .map_err(|_| ExportError::new("archive exceeds ZIP32 entry-count bounds"))?;
 
         let mut archive = Vec::with_capacity(
-            local_sections.iter().map(Vec::len).sum::<usize>()
-                + central_directory_size
-                + 22,
+            local_sections.iter().map(Vec::len).sum::<usize>() + central_directory_size + 22,
         );
         for section in local_sections {
             archive.extend_from_slice(&section);
@@ -257,9 +257,12 @@ mod tests {
     fn export_001_fixture_matches_byte_for_byte() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/vectors/export/001-two-event-chain");
-        let ledger_state: ciborium::Value =
-            ciborium::from_reader(fs::read(root.join("input-ledger-state.cbor")).unwrap().as_slice())
-                .unwrap();
+        let ledger_state: ciborium::Value = ciborium::from_reader(
+            fs::read(root.join("input-ledger-state.cbor"))
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap();
         let state_map = ledger_state.as_map().unwrap();
         let root_dir = state_map
             .iter()

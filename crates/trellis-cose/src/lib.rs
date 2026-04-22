@@ -6,8 +6,8 @@
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use sha2::{Digest, Sha256};
 use trellis_types::{
-    encode_bstr, encode_cbor_negative_int, encode_cose_suite_id_label, encode_tstr, encode_uint,
-    SUITE_ID_PHASE_1,
+    SUITE_ID_PHASE_1, encode_bstr, encode_cbor_negative_int, encode_cose_suite_id_label,
+    encode_tstr, encode_uint,
 };
 
 /// Derives the 16-byte `kid` from `suite_id` and the Ed25519 public key.
