@@ -318,6 +318,7 @@ Registered extension identifiers:
 | `CheckpointPayload.extensions` | `trellis.agency_log.witness_signature.v1` | 3 | Agency-log per-head witness cosignature. |
 | `CheckpointPayload.extensions` | `trellis.case_ledger.composed_response_heads.v1` | 3 | Case-ledger head composition manifest. |
 | `CheckpointPayload.extensions` | `trellis.case_ledger.case_scope_metadata.v1` | 3 | Case-scope adjudication metadata. |
+| `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
@@ -963,7 +964,7 @@ The `projection_schema_id` field is REQUIRED whenever the bearer is a projection
 
 **Rebuild-output encoding.** Rebuilt derived artifacts MUST use dCBOR (§5) as their canonical encoding whenever the artifact shape admits CBOR serialization. Two conforming implementations that rebuild the same derived artifact from the same canonical events and configuration history MUST produce byte-equal output. Fields whose determinism depends on external state (wall-clock timestamps, per-implementation resource IDs) MUST be declared in the rebuild-path identifier as non-deterministic; byte-equality is required over the declared-deterministic portion only (Companion §15.3 OC-40).
 
-**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry derived artifacts, and Watermark records are not members of a Phase 1 export package. Watermarks are runtime state consumed by Companion projection discipline, not Phase 1 export content. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
+**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19). Such members MUST NOT introduce new authority beyond what the signed chain already attests. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
 
 ### 15.4 Rule applies to agency-log entries
 
@@ -1096,6 +1097,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/040-checkpoints.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/050-registries/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/060-payloads/... \
+  trellis-export-<scope>-<tree_size>-<shorthash>/061-attachments.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
   trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
   trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-x86_64 \
@@ -1119,6 +1121,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
     <registry_digest_hex>.cbor    ; one file per distinct RegistryBinding
   060-payloads/                   ; OPTIONAL — encrypted payloads if inlined or included
     <content_hash_hex>.bin
+  061-attachments.cbor            ; OPTIONAL — dCBOR array of attachment-manifest entries (chain-derived; §6.7 `trellis.export.attachments.v1`, stack ADR 0072)
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
   099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
@@ -1338,6 +1341,14 @@ VERIFY(E) -> VerificationReport
    structure_verified. Continuity and attestation failures surface through
    integrity_verified per step 9.
 
+**Attachment manifest (optional, stack ADR 0072).** If `ExportManifestPayload.extensions` carries `trellis.export.attachments.v1` (§6.7), the verifier MUST:
+
+     a. Require the archive member `061-attachments.cbor` (§18.2).
+     b. Verify `SHA-256(061-attachments.cbor)` equals `attachment_manifest_digest` in the extension payload and apply `inline_attachments` per ADR 0072.
+     c. For each manifest row: resolve `binding_event_hash` to exactly one exported event whose `EventPayload.extensions` carries `trellis.evidence-attachment-binding.v1`; require field-wise agreement between the row and that extension; require `payload_content_hash` equals the event's `EventPayload.content_hash`.
+     d. When `inline_attachments = true`, require each referenced ciphertext file `060-payloads/<payload_content_hash>.bin` to exist and to satisfy the ciphertext-hash rule in step 4.g.
+     e. For each non-null `prior_binding_hash`, require it resolve to a strict prior event in `010-events.cbor` order (array index strictly less than the binding event's index). Forward references and cycles in the binding-lineage graph MUST be recorded as localizable failures in `report.event_failures`.
+
 7. For each inclusion proof ip in 020-inclusion-proofs.cbor:
      a. Recompute Merkle root per ip.audit_path, ip.leaf_hash, ip.leaf_index.
      b. Check it matches the head checkpoint's tree_head_hash.
@@ -1369,6 +1380,8 @@ VERIFY(E) -> VerificationReport
 10. Return report with structure_verified, integrity_verified,
     readability_verified, failures, warnings, and omitted_payload_checks.
 ```
+
+Implementations record attachment-manifest failures (the optional ADR 0072 step above) in `report.event_failures` together with per-event failures from step 4; both kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty.
 
 The verifier's output is a structured report enumerating every integrity observation. The overall convenience boolean MAY be computed as all three booleans true, but implementations MUST expose the three booleans independently. A package that omits ciphertext bytes can still be structurally verified, but it cannot claim payload integrity or readability were verified offline for the omitted payloads.
 
@@ -1600,7 +1613,7 @@ A WOS runtime frequently retries governance submissions — a scheduler redelive
 
 The recommended construction is a deterministic hash (§17.2) over the canonical encoding (§5) of the WOS-supplied identifier tuple, domain-separated per §9.1. A SHA-256 hash per §9 yields 32 bytes and therefore satisfies the `.size (1..64)` bound on `idempotency_key` in §6.1 by construction. Concrete WOS-side field names and their stability guarantees are normatively the WOS specification's to publish; Trellis does not pin WOS-vocabulary identifiers here. A UUIDv7 ([RFC 9562]) per §17.2 is conformant when the WOS runtime can guarantee one UUIDv7 per logical authored attempt.
 
-For the **WOS-as-custody-backend** profile (Kernel §10.5 `custodyHook` into Trellis), the Operational Companion publishes the operational binding — including the WOS-authored append surface, idempotency inputs, and minimum return shape — in **§24.9**; Core defers WOS vocabulary to WOS and to that companion section rather than duplicating it here.
+For the **WOS-as-custody-backend** binding (Kernel §10.5 `custodyHook` into Trellis), the Operational Companion publishes the operational binding — including the WOS-authored append surface, idempotency inputs, and minimum return shape — in **§24.9**; Core defers WOS vocabulary to WOS and to that companion section rather than duplicating it here.
 
 A WOS-Trellis deployment MUST NOT let the WOS runtime's retry/compensation machinery mint a new `idempotency_key` for the same authored governance decision; the `(ledger_scope, idempotency_key)` identity rule of §17.3 is scope-permanent regardless of WOS-layer retry semantics, and §17.5 `IdempotencyKeyPayloadMismatch` applies when a WOS-layer bug produces a different canonical payload under the same key.
 
