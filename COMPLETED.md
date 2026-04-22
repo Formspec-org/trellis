@@ -18,6 +18,18 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 10 (working tree) — G-5 close and 1.0.0 ratification
+
+Closed ratification after the clean-room stranger pass landed:
+
+- Bound the `trellis-py/` evidence bundle into
+  `ratification/ratification-checklist.md` and flipped G-5 to closed.
+- Reissued `specs/trellis-core.md` and
+  `specs/trellis-operational-companion.md` as `1.0.0`.
+- Updated repo-facing status text so active docs no longer describe the
+  ratified surface as draft-only.
+- Cut the first Trellis release tag for the ratified 1.0.0 surface.
+
 ### Wave 9 (working tree) — G-2 traceability cleanup
 
 Closed the remaining local ratification bookkeeping before G-5:
@@ -33,6 +45,10 @@ Closed the remaining local ratification bookkeeping before G-5:
 - Packaged the tracked G-5 allowed read set under `ratification/g5-package/`
   with per-file and archive SHA-256 checksums. The package excludes forbidden
   paths and untracked workspace files.
+- Accepted the Trellis-side custodyHook wire-format note and regenerated
+  `append/010-wos-custody-hook-state-transition` on the accepted ADR-0061
+  shape: dCBOR authored WOS bytes, TypeID-shaped `caseId` / `recordId`, and
+  the two-field `trellis-wos-idempotency-v1` idempotency construction.
 
 ### Wave 8 (4 commits `ee57780..b0f114d`) — Wave 6 tail closure
 

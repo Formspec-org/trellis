@@ -2,14 +2,15 @@
 
 Forward-looking tactical work only. Priority = `Imp × Debt`; size tags are
 scheduling hints, never priority inputs. Streams run concurrently under the
-accepted Phase-1 principles/ADR posture. State, history, and gate tracking
-live elsewhere (see bottom).
+accepted Phase-1 principles/ADR posture and the ratified `v1.0.0` Core +
+Operational Companion surface. State, history, and gate tracking live
+elsewhere (see bottom).
 
 Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (multi-session).
 
 ---
 
-## Gate — validate principles + ADRs
+## Gate — validated principles + ADRs
 
 [`thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md`](thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md)
 holds 7 accepted principles and 4 decided ADRs: **DAG envelope with
@@ -18,16 +19,17 @@ single-anchor deployment default** (ADR 0002), **§22/§24 reservations held
 in the envelope but MUST NOT populate in Phase 1** (ADR 0003), **Rust is
 byte authority with Python retained as cross-check** (ADR 0004).
 
-Gate status: **accepted**. Streams below execute against this posture.
+Gate status: **accepted and ratified into `v1.0.0`**. Streams below execute
+against this posture.
 
 Executable breakdown for the post-gate queue lives in
 [`thoughts/specs/2026-04-20-trellis-todo-executable-task-dispatch.md`](thoughts/specs/2026-04-20-trellis-todo-executable-task-dispatch.md).
 
-**Governance rule — zero records before G-5.** No records are issued under
-the Phase-1 envelope shape until the stranger test (G-5) passes. Protects
-the cheap-revision window the maximalist-envelope ADRs rely on — runtime
-scope stays Phase 1, but the wire shape remains free to absorb revision
-until a second impl has proved the spec prose pins it.
+**Post-ratification rule — Phase-1 shape is now pinned.** The cheap-revision
+window closed when G-5 passed and `v1.0.0` was tagged. New work may extend
+the stack, but any change that mutates the released Phase-1 wire shape,
+verification contract, or export layout now requires an explicit
+post-ratification compatibility/versioning decision rather than silent drift.
 
 ---
 
@@ -125,21 +127,40 @@ companion grows new ratification surface.
 
 ### 7. Open stack contracts — cross-layer coordination
 
-From [STACK.md Open Contracts](../STACK.md#open-contracts). Four contracts
-that declare Trellis-side shape for events and bundle manifests WOS or
-Formspec originate. None delay G-5 — the envelope shape is free to absorb
-revision during the cheap-revision window (pre-issuance), and per ADR 0003
+From [STACK.md Open Contracts](../STACK.md#open-contracts). Five contracts
+declare Trellis-side shape for events and bundle manifests WOS or Formspec
+originate. These no longer block ratification — `v1.0.0` is cut — but they
+are the highest-value center work remaining on the Trellis side. Per ADR 0003
 any reserved-but-not-populated fields stay locked off until their phase
 opens.
 
-- **(a) Evidence integrity — attachment hash binding** — **M**, Phase 1.
-  Formspec intake attachments (pay stubs, ID photos, supporting documents)
-  bind into the chain as `PayloadExternal` with content hash. Declares a
-  canonical event kind for "attachment-bound" that references the
-  attachment's SHA-256 and media type. Bundle includes attachments as
-  top-level members when `inline_attachments: true`. Storage stays adapter;
-  binding shape is center. **Gate: none — Phase-1-safe, coordinates with
-  Formspec Respondent Ledger §6 companion.**
+- **(a) Evidence integrity — attachment hash binding** — **M**, next.
+  Accepted stack ADR:
+  [`../thoughts/adr/0072-stack-evidence-integrity-and-attachment-binding.md`](../thoughts/adr/0072-stack-evidence-integrity-and-attachment-binding.md).
+  Trellis-side execution note:
+  [`thoughts/specs/2026-04-21-trellis-evidence-integrity-attachment-binding.md`](thoughts/specs/2026-04-21-trellis-evidence-integrity-attachment-binding.md).
+  Declares the `EvidenceAttachmentBinding` shape, dual hash binding
+  (`attachment_sha256` + Trellis `payload_content_hash`), `PayloadExternal`
+  carriage, and export-bundle `061-attachments.cbor` manifest via
+  `trellis.export.attachments.v1`.
+
+  Closed Trellis-side setup:
+  - ADR 0072 is accepted.
+  - `trellis.export.attachments.v1` and `061-attachments.cbor` semantics are
+    pinned in the Trellis execution note.
+  - Formspec Respondent Ledger §6.9 publishes the origin-layer
+    `EvidenceAttachmentBinding` shape.
+  - `append/018-attachment-bound` proves event-side binding from the
+    Formspec-authored fixture and replays in Rust conformance.
+
+  Remaining:
+  - `export/005-attachments-inline` — prove manifest-extension binding plus
+    inline ciphertext carriage under `060-payloads/`.
+  - `verify/013-export-005-missing-attachment-body` — missing inline body
+    must fail the claimed inline path.
+  - `tamper/013-attachment-manifest-digest-mismatch` — attachment manifest
+    digest tampering must localize correctly.
+  - Rust conformance replay after the export/verify/tamper batch lands.
 
 - **(b) Identity attestation bundle shape** — **S**, Phase 1.
   Declares how an identity-proofing attestation (from provider-neutral
@@ -182,14 +203,16 @@ Core + Companion are at `1.0.0`, and the release tag is cut at close-out.
 
 ---
 
-## Phase-1 end-state
+## Released baseline
 
-The stranger test passes: a second implementation, written from
+The released Phase-1 baseline is now fixed: a second implementation, written from
 [`specs/trellis-core.md`](specs/trellis-core.md) +
 [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) +
 [`specs/trellis-agreement.md`](specs/trellis-agreement.md) alone,
-byte-matches every vector in `fixtures/vectors/`. Closes when all 7
-ratification gates flip to `[x]`. Phase 2–4 are explicitly out of scope.
+byte-matches every vector in `fixtures/vectors/`, and all ratification gates
+in [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)
+are closed. Phase 2–4 remain explicitly out of scope for the released
+surface; work below is follow-on scope, not unfinished ratification.
 
 ---
 

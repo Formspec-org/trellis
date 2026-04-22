@@ -176,13 +176,26 @@ blocked for its own dependency reasons, not because the architecture is open.
 | O7-05 | COMPLETED | Record evidence SHAs for O-4 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-4 gate has concrete evidence pointers. |
 | O7-06 | COMPLETED | Record evidence SHAs for O-5 in [`ratification/ratification-checklist.md`](../../ratification/ratification-checklist.md). | O-5 gate has concrete evidence pointers. |
 
+## Stream 7 — Open Contract (a): evidence integrity / attachment hash binding
+
+| ID | Status | Task | Acceptance |
+|---|---|---|---|
+| A8-01 | COMPLETED | Get ADR 0072 accepted or redirected so the attachment-binding contract is no longer proposal-only. | [`../../../thoughts/adr/0072-stack-evidence-integrity-and-attachment-binding.md`](../../../thoughts/adr/0072-stack-evidence-integrity-and-attachment-binding.md) is marked accepted. |
+| A8-02 | COMPLETED | Register the Trellis export-manifest extension shape for `trellis.export.attachments.v1` in a Trellis-owned design note without widening `ExportManifestPayload` top-level fields. | [`2026-04-21-trellis-evidence-integrity-attachment-binding.md`](2026-04-21-trellis-evidence-integrity-attachment-binding.md) names the extension payload fields, digest semantics, and verifier behavior, and stays explicitly outside silent `v1.0.0` core mutation. |
+| A8-03 | COMPLETED | Specify the derived `061-attachments.cbor` archive member contract: purpose, non-authoritative status, and archive-path rules. | [`2026-04-21-trellis-evidence-integrity-attachment-binding.md`](2026-04-21-trellis-evidence-integrity-attachment-binding.md) pins `061-attachments.cbor` as a derived verifier aid bound through `ExportManifestPayload.extensions`. |
+| A8-04 | COMPLETED | Pin the first origin-layer attachment-binding authored bytes: event kind, canonical field names, and at least one concrete authored fixture input. | Formspec Respondent Ledger §6.9 and [`../fixtures/respondent-ledger/attachment-added-binding.json`](../../../fixtures/respondent-ledger/attachment-added-binding.json) publish the canonical attachment-binding record shape used to derive Trellis fixture bytes. |
+| A8-05 | COMPLETED | Author `append/018-attachment-bound` from the accepted origin-layer record, not by inventing attachment semantics locally in Trellis. | `append/018-attachment-bound` lands with derivation evidence traceable to the accepted origin-layer binding contract and replays in Rust conformance. |
+| A8-06 | READY-NOW | Once `append/018` exists, author `export/005-attachments-inline` to prove manifest extension binding plus inline ciphertext carriage under `060-payloads/`. | Export fixture includes `061-attachments.cbor`, manifest extension metadata, and deterministic ZIP bytes that replay in Rust. |
+| A8-07 | READY-NOW | Add negative verification coverage for the inline-attachment claim and manifest-digest integrity. | `verify/013-export-005-missing-attachment-body` and `tamper/013-attachment-manifest-digest-mismatch` land and localize the failure correctly. |
+| A8-08 | READY-NOW | Extend Rust conformance coverage once the vector batch lands. | `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime` passes with the new append/export/verify/tamper vectors included. |
+
 ## Ratification close-out
 
 | ID | Status | Task | Acceptance |
 |---|---|---|---|
-| Z-01 | BLOCKED-EXTERNAL | When all seven gates flip, update the ratification checklist with final evidence SHAs. | Checklist is the evidence-of-record with no placeholders. |
-| Z-02 | BLOCKED-EXTERNAL | Strike `(Draft)` from Core and Companion titles. | Normative docs reflect ratified status. |
-| Z-03 | BLOCKED-EXTERNAL | Cut the version tag. | Version tag exists and matches the ratified surface. |
+| Z-01 | COMPLETED | Update the ratification checklist with final evidence SHAs. | Checklist is the evidence-of-record with no placeholders. |
+| Z-02 | COMPLETED | Strike `(Draft)` from Core and Companion titles. | Normative docs reflect ratified status. |
+| Z-03 | COMPLETED | Cut the version tag. | Version tag exists and matches the ratified surface. |
 
 ## Suggested remaining execution order
 
@@ -190,8 +203,10 @@ blocked for its own dependency reasons, not because the architecture is open.
 2. ~~`R1-01` through `R1-16`~~ — COMPLETED.
 3. ~~`R2-01` through `R2-32`~~ — COMPLETED.
 4. ~~`O7-02` through `O7-06`~~ — COMPLETED.
-5. `S2-03` through `S2-04` — commission and collect the independent G-5 implementation.
-6. `Z-01` through `Z-03` — ratify after G-5.
+5. ~~`A8-01` through `A8-03`~~ — COMPLETED.
+6. ~~`A8-04`~~ — COMPLETED.
+7. ~~`A8-05`~~ — COMPLETED.
+8. `A8-06` through `A8-08` — finish export/verify/tamper coverage and replay Rust conformance.
 
 ## Deliberate non-dispatches
 
@@ -199,6 +214,6 @@ blocked for its own dependency reasons, not because the architecture is open.
   requires a cleaner epistemic boundary than this session can honestly claim.
 - Do not treat Phase-4 §22/§24 substance as Phase-1 work. The reservation
   decision may land now; the semantics do not.
-- Do not start Rust code before the principles/ADR gate is accepted or
-  redirected. Otherwise the workspace risks calcifying around a decision the
-  project still marks as open.
+- Do not fabricate origin-layer attachment-binding bytes inside Trellis merely
+  to unblock vector authoring. `append/018` is only honest once Formspec or
+  WOS has published the authored record shape that Trellis is wrapping.
