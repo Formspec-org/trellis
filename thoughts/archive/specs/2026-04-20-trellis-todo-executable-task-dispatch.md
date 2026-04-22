@@ -1,5 +1,12 @@
 # Trellis TODO — Executable Task Dispatch
 
+**Archived:** 2026-04-22
+**Reason:** The live backlog was collapsed back into [`TODO.md`](../../../TODO.md),
+closed execution history lives in [`COMPLETED.md`](../../../COMPLETED.md),
+and ratification evidence lives in
+[`ratification/ratification-checklist.md`](../../../ratification/ratification-checklist.md).
+This document is retained only as historical dispatch provenance.
+
 **Date:** 2026-04-20
 **Scope:** Explode [`TODO.md`](../../TODO.md) into concrete tasks that can be
 dispatched without re-deriving the backlog each session.
