@@ -65,14 +65,17 @@ No open Trellis-side task remains in this stream.
 
 Phase-1 G-3 breadth is closed for the current surface:
 
-- `verify/001–012` now cover Core §19 steps 1–8, including the residual
-  step-4 revoked/`valid_to` branch, step-6 posture-transition path, and
-  step-8 optional-anchor handling.
-- `export/001–004` now cover the baseline two-event chain, revoked-key
-  history, a three-event transition chain with larger proof sets, and a
-  bundled-`PayloadExternal` / optional-anchor manifest variant.
-- `tamper/001–012` now include the residual `prev_hash_break`,
-  `missing_head`, `wrong_scope`, and `registry_snapshot_swap` cases.
+- `verify/001–013` now cover Core §19 steps 1–8, including the residual
+  step-4 revoked/`valid_to` branch, step-6 posture-transition path,
+  step-8 optional-anchor handling, and `verify/013` for ADR 0072 inline
+  attachment-body absence under `trellis.export.attachments.v1`.
+- `export/001–005` now cover the baseline two-event chain, revoked-key
+  history, a three-event transition chain with larger proof sets, a
+  bundled-`PayloadExternal` / optional-anchor manifest variant, and
+  `export/005` for ADR 0072 (`061-attachments.cbor` + inline `060-payloads/`).
+- `tamper/001–013` now include the residual `prev_hash_break`,
+  `missing_head`, `wrong_scope`, `registry_snapshot_swap` cases, and
+  `tamper/013` for attachment-manifest digest mismatch.
 
 No additional vector-authoring queue remains unless the spec surface grows.
 
@@ -90,11 +93,14 @@ No additional vector-authoring queue remains unless the spec surface grows.
   Phase-1 lint enforces `MUST NOT populate`. Substance (what goes in the
   hooks) defers to Phase 4 scoping.
 
-### 5. WOS `custodyHook` joint ADR — cascade execution
+### 5. WOS `custodyHook` — ADR-0061 execution (closed)
 
-Joint design between WOS and Trellis for the provenance-record shape WOS
-emits and Trellis anchors. Load-bearing for WOS 1.0 closure; mirror of
-WOS TODO Do-next **#1**.
+Normative wire and verification for the provenance-record shape WOS emits and
+Trellis anchors. **ADR-0061 is accepted**; WOS-T1 closeout and `append/010`
+cover the binding. Further work is **cross-stack proof** (Formspec signed-response
+fixtures, Studio authoring, extra record families) — see **WOS-T4** next slice
+and [wos-spec/TODO.md](../wos-spec/TODO.md) “Open architectural questions” §3,
+not a pending joint ADR on the four-field surface.
 
 **ADR landed (Accepted):**
 
@@ -134,7 +140,7 @@ are the highest-value center work remaining on the Trellis side. Per ADR 0003
 any reserved-but-not-populated fields stay locked off until their phase
 opens.
 
-- **(a) Evidence integrity — attachment hash binding** — **M**, next.
+- **(a) Evidence integrity — attachment hash binding** — **closed Trellis-side execution**.
   Accepted stack ADR:
   [`../thoughts/adr/0072-stack-evidence-integrity-and-attachment-binding.md`](../thoughts/adr/0072-stack-evidence-integrity-and-attachment-binding.md).
   Trellis-side execution note:
@@ -144,23 +150,33 @@ opens.
   carriage, and export-bundle `061-attachments.cbor` manifest via
   `trellis.export.attachments.v1`.
 
-  Closed Trellis-side setup:
+  Closed Trellis-side execution:
   - ADR 0072 is accepted.
   - `trellis.export.attachments.v1` and `061-attachments.cbor` semantics are
-    pinned in the Trellis execution note.
+    pinned in the Trellis execution note and registered in
+    [`specs/trellis-core.md`](specs/trellis-core.md) (§6.7 extension table, §18
+    archive layout, §19 optional attachment-manifest verification step).
   - Formspec Respondent Ledger §6.9 publishes the origin-layer
     `EvidenceAttachmentBinding` shape.
   - `append/018-attachment-bound` proves event-side binding from the
     Formspec-authored fixture and replays in Rust conformance.
-
-  Remaining:
   - `export/005-attachments-inline` — prove manifest-extension binding plus
     inline ciphertext carriage under `060-payloads/`.
   - `verify/013-export-005-missing-attachment-body` — missing inline body
     must fail the claimed inline path.
   - `tamper/013-attachment-manifest-digest-mismatch` — attachment manifest
     digest tampering must localize correctly.
-  - Rust conformance replay after the export/verify/tamper batch lands.
+  - Rust verifier checks manifest digest, resolves binding events, matches
+    manifest rows to chain `trellis.evidence-attachment-binding.v1`, enforces
+    inline ciphertext presence, rejects duplicate `binding_event_hash` rows,
+    unresolved / forward-reference `prior_binding_hash`, and cycles in the
+    prior-pointer graph (`trellis-verify` unit tests cover topology cases).
+  - Rust conformance replay passes with the export/verify/tamper batch.
+
+  No open Trellis-side task remains for the accepted ADR 0072 Phase-1 batch.
+  Reopen only for new origin-layer evidence-binding surfaces, Companion /
+  projection alignment if export semantics drift, or a post-ratification
+  compatibility decision that changes the Phase-1 wire or verifier contract.
 
 - **(b) Identity attestation bundle shape** — **S**, Phase 1.
   Declares how an identity-proofing attestation (from provider-neutral

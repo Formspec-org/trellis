@@ -185,9 +185,9 @@ blocked for its own dependency reasons, not because the architecture is open.
 | A8-03 | COMPLETED | Specify the derived `061-attachments.cbor` archive member contract: purpose, non-authoritative status, and archive-path rules. | [`2026-04-21-trellis-evidence-integrity-attachment-binding.md`](2026-04-21-trellis-evidence-integrity-attachment-binding.md) pins `061-attachments.cbor` as a derived verifier aid bound through `ExportManifestPayload.extensions`. |
 | A8-04 | COMPLETED | Pin the first origin-layer attachment-binding authored bytes: event kind, canonical field names, and at least one concrete authored fixture input. | Formspec Respondent Ledger §6.9 and [`../fixtures/respondent-ledger/attachment-added-binding.json`](../../../fixtures/respondent-ledger/attachment-added-binding.json) publish the canonical attachment-binding record shape used to derive Trellis fixture bytes. |
 | A8-05 | COMPLETED | Author `append/018-attachment-bound` from the accepted origin-layer record, not by inventing attachment semantics locally in Trellis. | `append/018-attachment-bound` lands with derivation evidence traceable to the accepted origin-layer binding contract and replays in Rust conformance. |
-| A8-06 | READY-NOW | Once `append/018` exists, author `export/005-attachments-inline` to prove manifest extension binding plus inline ciphertext carriage under `060-payloads/`. | Export fixture includes `061-attachments.cbor`, manifest extension metadata, and deterministic ZIP bytes that replay in Rust. |
-| A8-07 | READY-NOW | Add negative verification coverage for the inline-attachment claim and manifest-digest integrity. | `verify/013-export-005-missing-attachment-body` and `tamper/013-attachment-manifest-digest-mismatch` land and localize the failure correctly. |
-| A8-08 | READY-NOW | Extend Rust conformance coverage once the vector batch lands. | `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime` passes with the new append/export/verify/tamper vectors included. |
+| A8-06 | COMPLETED | Once `append/018` exists, author `export/005-attachments-inline` to prove manifest extension binding plus inline ciphertext carriage under `060-payloads/`. | Export fixture includes `061-attachments.cbor`, manifest extension metadata, and deterministic ZIP bytes that replay in Rust. |
+| A8-07 | COMPLETED | Add negative verification coverage for the inline-attachment claim and manifest-digest integrity. | `verify/013-export-005-missing-attachment-body` and `tamper/013-attachment-manifest-digest-mismatch` land and localize the failure correctly. |
+| A8-08 | COMPLETED | Extend Rust conformance coverage once the vector batch lands. | `cargo test -p trellis-conformance committed_vectors_match_the_rust_runtime` passes with the new append/export/verify/tamper vectors included. |
 
 ## Ratification close-out
 
@@ -206,7 +206,7 @@ blocked for its own dependency reasons, not because the architecture is open.
 5. ~~`A8-01` through `A8-03`~~ — COMPLETED.
 6. ~~`A8-04`~~ — COMPLETED.
 7. ~~`A8-05`~~ — COMPLETED.
-8. `A8-06` through `A8-08` — finish export/verify/tamper coverage and replay Rust conformance.
+8. ~~`A8-06` through `A8-08`~~ — COMPLETED.
 
 ## Deliberate non-dispatches
 

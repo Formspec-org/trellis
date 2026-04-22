@@ -18,6 +18,23 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 11 (working tree) — ADR 0072 attachment export closure
+
+Closed the Trellis-side Phase-1 evidence-integrity export batch:
+
+- Added deterministic fixture generation for `export/005-attachments-inline`,
+  `verify/013-export-005-missing-attachment-body`, and
+  `tamper/013-attachment-manifest-digest-mismatch`.
+- Landed `061-attachments.cbor` fixture coverage bound through
+  `ExportManifestPayload.extensions["trellis.export.attachments.v1"]`, with
+  inline attachment ciphertext under `060-payloads/`.
+- Extended the Rust verifier to check the attachment-manifest digest, resolve
+  each `binding_event_hash` to an event carrying
+  `trellis.evidence-attachment-binding.v1`, compare manifest fields to the
+  chain-authored binding, and reject missing inline attachment bodies.
+- Reconciled TODO / executable-dispatch state so ADR 0072 has no remaining
+  Trellis-side task in the current Phase-1 batch.
+
 ### Wave 10 (working tree) — G-5 close and 1.0.0 ratification
 
 Closed ratification after the clean-room stranger pass landed:
