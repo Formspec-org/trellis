@@ -47,21 +47,26 @@ This file tracks only open center work.
 
 ### 1. WOS-T4 cross-stack proof + certificate-of-completion export
 
-- **Cross-stack proof for `SignatureAffirmation` through Trellis** — **M**,
-  Phase 1.
-  WOS-side Signature Profile semantics, runtime emission, lint, and
-  conformance are now landed; the remaining stack work is to prove the
-  end-to-end path from Formspec-authored signed-response evidence to
-  WOS-emitted `SignatureAffirmation` records to Trellis append / verify /
-  export artifacts. Trellis-side deliverables:
-  - shared Formspec-authored canonical signed-response fixture consumed across
-    Formspec / WOS / Trellis;
-  - signature-specific Trellis append / export / verify coverage through the
-    accepted ADR-0061 `custodyHook` wire;
-  - export-bundle contract for the offline-verifiable certificate of
-    completion that carries `SignatureAffirmation`, signed document hashes,
-    signer attestations, and consent references.
-  **Gate:** WOS-T4 next slice and the Formspec signed-response fixture.
+- **Cross-stack proof for `SignatureAffirmation` through Trellis** — **S**,
+  Phase 1 (downgraded from **M** now that the byte proof path exists).
+  **Landed 2026-04-22 (Trellis center):** `append/019-wos-signature-affirmation`
+  pins WOS `SignatureAffirmation` through ADR-0061 `custodyHook` with the
+  `(caseId, recordId)` idempotency tuple; `export/006-signature-affirmations-inline`
+  carries the signed event plus chain-derived `062-signature-affirmations.cbor`
+  bound by `trellis.export.signature-affirmations.v1` in the export manifest;
+  `verify/014-export-006-signature-row-mismatch` and
+  `tamper/014-signature-catalog-digest-mismatch` exercise verifier failure modes;
+  `trellis/specs/trellis-core.md` registers the extension and verifier
+  obligations; generators live under `fixtures/vectors/_generator/`
+  (`gen_append_019.py`, `gen_signature_export_006.py`). Evidence:
+  `cargo test -p trellis-verify -p trellis-conformance`, `python3 scripts/check-specs.py`.
+  **Still open:** Trellis-owned *human-facing* certificate-of-completion
+  composition spec and any requirement to re-seed vectors from the parent
+  Formspec signed-response fixture URL for a single cross-repo bundle;
+  shared fixture consumption across Formspec / WOS / Trellis remains a
+  parent-repo coordination item ([`../TODO.md`](../TODO.md) stack tracker).
+  **Gate:** none for the Trellis machine-verifiable slice; parent alignment is
+  coordination-only.
 
 ### 2. Identity attestation bundle shape
 

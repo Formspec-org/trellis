@@ -173,6 +173,8 @@ One case ledger per case, composing sealed response-ledger heads with WOS govern
 
 **Unlocks.** Multi-agency federal programs (Medicaid across states, SSDI federal↔state DDS, grants federal↔pass-through). The strategic Adobe/ServiceNow displacement narrative at the product-category level. "A case is a file — hand it over."
 
+**Locked narrative (2026-04-22).** Phase 3 is the **implementation home** for [ADR-0059: unified ledger as canonical case store](../../thoughts/adr/0059-unified-ledger-as-canonical-event-store.md) (one append-only spine per case, encrypt-then-hash, disposable projections). Phase 1–2 are **strict subsets** of that story: Phase 1 establishes the **byte-exact envelope and offline verifier** without populating reserved federation fields ([Phase-1 MVP principles](specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md)). WOS-facing sequencing summary: [`../../wos-spec/thoughts/plans/0059-unified-ledger-as-canonical-event-store.md`](../../wos-spec/thoughts/plans/0059-unified-ledger-as-canonical-event-store.md).
+
 ### Phase 4 — **Federation + Sovereign** (Trellis Visions 5 and 3)
 
 Two variants, same core.
@@ -216,32 +218,32 @@ Status legend: ✅ done · 🟡 in progress · ⬜ open.
 
 ### Track B — Finish the in-flight specs and runtimes
 
-10. **Complete the WOS runtime.** `wos-runtime` lands all 105 conformance fixtures green. `wos-cli` ships. `wos-export` (PROV-O, XES, OCEL 2.0) stabilizes.
-11. **Ship the Formspec Coprocessor handoff** (Runtime Companion §15). This is the binding that lets Formspec responses flow into WOS case instances cleanly.
-12. **Iterate Formspec specs** for remaining spec-complete-but-unimplemented items per the enterprise-feature-gaps doc (References, Ontology, Locale, Screener, Assist, Mapping). Continue the existing loop.
+1. **Complete the WOS runtime.** `wos-runtime` lands all 105 conformance fixtures green. `wos-cli` ships. `wos-export` (PROV-O, XES, OCEL 2.0) stabilizes.
+2. **Ship the Formspec Coprocessor handoff** (Runtime Companion §15). This is the binding that lets Formspec responses flow into WOS case instances cleanly.
+3. **Iterate Formspec specs** for remaining spec-complete-but-unimplemented items per the enterprise-feature-gaps doc (References, Ontology, Locale, Screener, Assist, Mapping). Continue the existing loop.
 
 ### Track C — First-sale blockers (calendar-gated, start clock now)
 
 These are not specs or engineering — they are certifications with 12–18 month timelines. Starting the clock matters more than perfecting any single artifact.
 
-13. **Start FedRAMP Moderate authorization.** Partner with a 3PAO, select an ATO sponsor, begin posture work. The spec suite's mechanisms (data minimization, version pinning, PII tracing, regulatory references) are the foundation of the narrative.
-14. **Start SOC 2 Type II.** Requires 6–12 months of operating history, so the clock starts when a production system does.
-15. **File for a GSA Schedule.** Without this, agencies cannot easily buy.
-16. **Commission a formal WCAG 2.1 AA audit + VPAT.** The Component spec's per-component ARIA mandates, Theme spec's WCAG guidance, and Locale spec's `@accessibility` context suffix are strong substrate; a production audit converts substrate into procurement evidence.
+1. **Start FedRAMP Moderate authorization.** Partner with a 3PAO, select an ATO sponsor, begin posture work. The spec suite's mechanisms (data minimization, version pinning, PII tracing, regulatory references) are the foundation of the narrative.
+2. **Start SOC 2 Type II.** Requires 6–12 months of operating history, so the clock starts when a production system does.
+3. **File for a GSA Schedule.** Without this, agencies cannot easily buy.
+4. **Commission a formal WCAG 2.1 AA audit + VPAT.** The Component spec's per-component ARIA mandates, Theme spec's WCAG guidance, and Locale spec's `@accessibility` context suffix are strong substrate; a production audit converts substrate into procurement evidence.
 
 ### Track D — First-sale engineering (the actual gaps)
 
 Per enterprise-feature-gaps.md, these are the genuinely-unspecified critical paths that are not closed by WOS or Formspec specs.
 
-17. **Reviewer dashboard.** The UI that consumes WOS governance and displays it to adjudicators. Purely implementation; the data model is spec-complete.
-18. **Document storage backend.** File upload exists client-side; no storage service. Blob store + preview + virus scanning + bulk upload.
-19. **Webhook infrastructure.** Outbound event delivery — roadmap Phase 1, currently unimplemented.
-20. **Notification delivery.** WOS Notification Template sidecar is spec-complete; email/SMS delivery is not built.
+1. **Reviewer dashboard.** The UI that consumes WOS governance and displays it to adjudicators. Purely implementation; the data model is spec-complete.
+2. **Document storage backend.** File upload exists client-side; no storage service. Blob store + preview + virus scanning + bulk upload.
+3. **Webhook infrastructure.** Outbound event delivery — roadmap Phase 1, currently unimplemented.
+4. **Notification delivery.** WOS Notification Template sidecar is spec-complete; email/SMS delivery is not built.
 
 ### Track E — Cross-cutting bindings
 
-21. **Close the Respondent Ledger ↔ Trellis binding.** Three parts, none of them a one-liner. (a) Promote §6.2 `eventHash`/`priorEventHash` from SHOULD to MUST when a Trellis envelope wraps the event, and define the binding against both the per-event layer (§6.2) and the per-range checkpoint layer (§13) — they are different hashes covering different scopes. (b) Define the **case ledger** as a new top-level object that composes sealed response-ledger heads with WOS governance events; specify the response→case composition rule. (c) Define the **agency log** as the operator-maintained log of case-ledger heads; specify the case→agency-log composition rule and the agency log's head format. This is a spec extension, not a nesting note.
-22. **Close the WOS `custodyHook` ↔ Trellis binding.** Document how a WOS runtime uses Trellis as its custody backend without redefining either spec.
+1. **Close the Respondent Ledger ↔ Trellis binding.** Three parts, none of them a one-liner. (a) Promote §6.2 `eventHash`/`priorEventHash` from SHOULD to MUST when a Trellis envelope wraps the event, and define the binding against both the per-event layer (§6.2) and the per-range checkpoint layer (§13) — they are different hashes covering different scopes. (b) Define the **case ledger** as a new top-level object that composes sealed response-ledger heads with WOS governance events; specify the response→case composition rule. (c) Define the **agency log** as the operator-maintained log of case-ledger heads; specify the case→agency-log composition rule and the agency log's head format. This is a spec extension, not a nesting note.
+2. **Close the WOS `custodyHook` ↔ Trellis binding.** Document how a WOS runtime uses Trellis as its custody backend without redefining either spec.
 
 ---
 

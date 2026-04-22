@@ -319,6 +319,7 @@ Registered extension identifiers:
 | `CheckpointPayload.extensions` | `trellis.case_ledger.composed_response_heads.v1` | 3 | Case-ledger head composition manifest. |
 | `CheckpointPayload.extensions` | `trellis.case_ledger.case_scope_metadata.v1` | 3 | Case-scope adjudication metadata. |
 | `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.signatureAffirmation` events; verifier obligations in §19. Reject-if-unknown-at-version. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
@@ -964,7 +965,7 @@ The `projection_schema_id` field is REQUIRED whenever the bearer is a projection
 
 **Rebuild-output encoding.** Rebuilt derived artifacts MUST use dCBOR (§5) as their canonical encoding whenever the artifact shape admits CBOR serialization. Two conforming implementations that rebuild the same derived artifact from the same canonical events and configuration history MUST produce byte-equal output. Fields whose determinism depends on external state (wall-clock timestamps, per-implementation resource IDs) MUST be declared in the rebuild-path identifier as non-deterministic; byte-equality is required over the declared-deterministic portion only (Companion §15.3 OC-40).
 
-**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19). Such members MUST NOT introduce new authority beyond what the signed chain already attests. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
+**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19), and the optional `062-signature-affirmations.cbor` signature-affirmation catalog bound under `trellis.export.signature-affirmations.v1` (WOS Signature Profile / stack WOS-T4 closeout; §18.2, §19). Such members MUST NOT introduce new authority beyond what the signed chain already attests. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
 
 ### 15.4 Rule applies to agency-log entries
 
@@ -1098,6 +1099,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/050-registries/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/060-payloads/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/061-attachments.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/062-signature-affirmations.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
   trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
   trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-x86_64 \
@@ -1122,6 +1124,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   060-payloads/                   ; OPTIONAL — encrypted payloads if inlined or included
     <content_hash_hex>.bin
   061-attachments.cbor            ; OPTIONAL — dCBOR array of attachment-manifest entries (chain-derived; §6.7 `trellis.export.attachments.v1`, stack ADR 0072)
+  062-signature-affirmations.cbor ; OPTIONAL — dCBOR array of signature-affirmation catalog entries (chain-derived; §6.7 `trellis.export.signature-affirmations.v1`)
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
   099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
@@ -1349,6 +1352,13 @@ VERIFY(E) -> VerificationReport
      d. When `inline_attachments = true`, require each referenced ciphertext file `060-payloads/<payload_content_hash>.bin` to exist and to satisfy the ciphertext-hash rule in step 4.g.
      e. For each non-null `prior_binding_hash`, require it resolve to a strict prior event in `010-events.cbor` order (array index strictly less than the binding event's index). Forward references and cycles in the binding-lineage graph MUST be recorded as localizable failures in `report.event_failures`.
 
+**Signature affirmation catalog (optional, WOS Signature Profile).** If `ExportManifestPayload.extensions` carries `trellis.export.signature-affirmations.v1` (§6.7), the verifier MUST:
+
+     a. Require the archive member `062-signature-affirmations.cbor` (§18.2).
+     b. Verify `SHA-256(062-signature-affirmations.cbor)` equals `signature_catalog_digest` in the extension payload map.
+     c. For each catalog row: resolve `canonical_event_hash` to exactly one exported event whose `EventHeader.event_type` is `wos.kernel.signatureAffirmation`; decode that event's readable payload bytes as the WOS-authored `SignatureAffirmation` provenance record; require field-wise agreement between the catalog row and the decoded record for every field the catalog carries (including signer, role, document hash, consent reference, identity binding, provider, ceremony, profile binding, and `formspecResponseRef`). For nested CBOR maps `identity_binding` and `consent_reference`, comparison MUST be semantic under RFC 8949 §4.2.2 canonical map key ordering (encoded-key bytewise sort), not raw map-entry order in the catalog bytes versus the event payload bytes.
+     d. Reject duplicate catalog rows that name the same `canonical_event_hash`.
+
 7. For each inclusion proof ip in 020-inclusion-proofs.cbor:
      a. Recompute Merkle root per ip.audit_path, ip.leaf_hash, ip.leaf_index.
      b. Check it matches the head checkpoint's tree_head_hash.
@@ -1381,7 +1391,7 @@ VERIFY(E) -> VerificationReport
     readability_verified, failures, warnings, and omitted_payload_checks.
 ```
 
-Implementations record attachment-manifest failures (the optional ADR 0072 step above) in `report.event_failures` together with per-event failures from step 4; both kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty.
+Implementations record attachment-manifest failures (the optional ADR 0072 step above) and signature-affirmation catalog failures (the optional `trellis.export.signature-affirmations.v1` step above) in `report.event_failures` together with per-event failures from step 4; all such kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty.
 
 The verifier's output is a structured report enumerating every integrity observation. The overall convenience boolean MAY be computed as all three booleans true, but implementations MUST expose the three booleans independently. A package that omits ciphertext bytes can still be structurally verified, but it cannot claim payload integrity or readability were verified offline for the omitted payloads.
 

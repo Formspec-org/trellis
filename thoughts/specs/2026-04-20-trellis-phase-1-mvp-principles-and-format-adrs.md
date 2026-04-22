@@ -2,6 +2,8 @@
 
 **Status:** Accepted, 2026-04-20.
 
+**Aligned narrative:** Phase 1 wire discipline supports the **Phase 3 unified case ledger** target in [ADR-0059 program summary](../../../wos-spec/thoughts/plans/0059-unified-ledger-as-canonical-event-store.md) and [`trellis/thoughts/product-vision.md`](../product-vision.md) (strict superset; no envelope break at Phase 3).
+
 Captures the vision model used to decide the three open format lock-ins
 (event topology, anchor cardinality, federation hooks) and the
 Rust-vs-Python authority question from `TODO.md`. The principles below are
@@ -9,6 +11,7 @@ load-bearing for ADRs 0001–0004 that follow. Revise the principles before
 revising the ADRs; downstream decisions flow from them mechanically.
 
 **User posture (captured 2026-04-20):**
+
 - Zero records will be issued under Phase-1-shape before G-5 ratifies it.
 - PROD-MVP deployable as fast as possible; G-5 is soon-next.
 - **Maximalist envelope, restrictive Phase-1 runtime.** Reserve architectural
@@ -87,10 +90,11 @@ Phase-1 runtime lint: `len(priorEventHash) MUST equal 1` for all events
 in Phase-1 scope.
 
 **Principles applied.** #5 maximalist envelope + restrictive runtime,
-#3 cost-at-moment (envelope cheap now, expensive post-issuance), #4 Rust
+# 3 cost-at-moment (envelope cheap now, expensive post-issuance), #4 Rust
 is byte authority (implements both envelope and Phase-1 lint rule).
 
 **Cost analysis.**
+
 - Single-parent cases under list form: envelope carries `[hash]` instead
   of `hash`. Trivial runtime cost; zero semantic cost (list-of-one
   degenerates).
@@ -111,6 +115,7 @@ one parent hash in `priorEventHash` (array length = 1). Phase-1 lint;
 relaxes at Phase 3 scoping.*
 
 **Revisit when.**
+
 - Real Phase-1 consolidation use case emerges (relax lint; runtime
   semantics specified in an amendment).
 - Phase 3 scoping begins (formal DAG-semantics spec).
@@ -134,6 +139,7 @@ bounded spike; not in scope for this ADR.
 list form beats scalar on capacity).
 
 **Cost analysis.**
+
 - List-of-one in Phase-1 deployments: trivial envelope cost.
 - Phase 4 multi-witness federation: envelope ready; threshold semantics
   added via the Federation Profile without format break.
@@ -150,6 +156,7 @@ list verifies. Multi-anchor threshold semantics defer to the Federation
 Profile.*
 
 **Revisit when.**
+
 - Operational experience reveals substrate fragility (add a second anchor
   per-deployment).
 - Phase 4 Federation Profile scoping begins.
@@ -165,16 +172,18 @@ agency log as optional-but-validated fields. Phase-1 runtime lint:
 records).
 
 **Reserved fields (proposed; confirm in Core prose):**
+
 - §22: `case_ledger_ref: Optional[CaseLedgerRef]` with content-addressable
   ID + cross-case-ledger reference shape + version pinning slots.
 - §24: `agency_log_head: Optional[AgencyLogHeadRef]` with head digest +
   log identifier.
 
 **Principles applied.** #5 maximalist envelope + restrictive runtime,
-#4 Rust is byte authority (implements both envelope fields and lint),
-#7 architectural-capacity tie-break.
+# 4 Rust is byte authority (implements both envelope fields and lint),
+# 7 architectural-capacity tie-break.
 
 **Cost analysis.**
+
 - Reserved-absent fields in Phase-1 records: zero bytes on the wire
   (optional CBOR encoding omits absent fields). Zero runtime cost.
 - Reader-cognitive cost of reserved fields: nonzero but bounded; mitigated
@@ -215,6 +224,7 @@ cross-check is secondary integrity surface, #5 applied to implementations
 (maintain architectural capacity; don't retire what's cheap).
 
 **Integrity model.**
+
 - **G-5 stranger** — the primary external integrity anchor. Reads spec
   prose alone; byte-matches Rust output.
 - **Python ↔ Rust cross-check** — CI-enforced on every PR. Catches:
@@ -228,6 +238,7 @@ cross-check is secondary integrity surface, #5 applied to implementations
   spec-prose clarification ticket.
 
 **CI discipline.**
+
 - `python3 scripts/check-specs.py` runs both generators for every vector;
   asserts byte-identity.
 - Disagreements fail the PR. Investigation ticket is load-bearing; don't
@@ -235,6 +246,7 @@ cross-check is secondary integrity surface, #5 applied to implementations
 
 **Principles applied to retention (why NOT retire despite DRY/KISS
 appeal).**
+
 - Principle 5: maintaining two byte-level implementations is
   architectural capacity (two independent witnesses of byte correctness).
   Retiring one loses that capacity irreversibly once muscle memory
@@ -252,6 +264,7 @@ unsupervised. Here CI guarantees byte-identity, so the "duplication" is
 actively verified to be semantically identical. Not drift; cross-check.
 
 **Revisit when.**
+
 - After G-5 commissioning + first month of production deployment: if the
   Python/Rust cross-check has caught zero interesting bugs (only noise)
   across a representative sample of PRs, reconsider retirement. Decision
