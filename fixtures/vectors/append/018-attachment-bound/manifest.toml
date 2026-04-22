@@ -1,0 +1,32 @@
+id          = "append/018-attachment-bound"
+op          = "append"
+status      = "active"
+description = """Genesis append of a Formspec Respondent Ledger `attachment.added` event under ADR 0072. The Formspec `EvidenceAttachmentBinding` metadata rides in `EventPayload.extensions["trellis.evidence-attachment-binding.v1"]`; `PayloadExternal` names the attachment ciphertext bytes."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",  # canonical append contract
+    "TR-CORE-018",  # authored / canonical / signed event surfaces
+    "TR-CORE-021",  # ledger_scope declared; genesis sequence = 0
+    "TR-CORE-030",  # dCBOR encoding + canonical event hash construction
+    "TR-CORE-031",  # content_hash computed over ciphertext bytes
+    "TR-CORE-050",  # idempotency_key stable in wire contract
+    "TR-CORE-080",  # Phase-1 envelope admits later case-ledger evidence events
+]
+
+[inputs]
+signing_key              = "../../_keys/issuer-001.cose_key"
+formspec_event           = "input-formspec-respondent-ledger-event.json"
+attachment_ciphertext    = "input-attachment-ciphertext.bin"
+attachment_binding       = "input-evidence-attachment-binding.cbor"
+idempotency_preimage     = "input-formspec-idempotency-preimage.cbor"
+authored_event           = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
