@@ -21,3 +21,7 @@ trellis-py-vectors = "trellis_py.conformance:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

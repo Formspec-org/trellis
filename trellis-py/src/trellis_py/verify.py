@@ -1432,12 +1432,35 @@ def _signature_entry_matches_record(entry: dict[str, Any], record: dict[str, Any
     return True
 
 
+def _index_events_by_canonical_hash(
+    events: list[ParsedSign1],
+) -> tuple[dict[bytes, EventDetails], list[VerificationFailure]]:
+    """Single pass for signature + intake catalog verifiers; duplicate failures once."""
+    event_by_hash: dict[bytes, EventDetails] = {}
+    duplicate_failures: list[VerificationFailure] = []
+    for ev in events:
+        try:
+            d = _decode_event_details(ev)
+        except VerifyError:
+            continue
+        if d.canonical_event_hash in event_by_hash:
+            duplicate_failures.append(
+                VerificationFailure(
+                    "export_events_duplicate_canonical_hash",
+                    _hex(d.canonical_event_hash),
+                )
+            )
+            continue
+        event_by_hash[d.canonical_event_hash] = d
+    return event_by_hash, duplicate_failures
+
+
 def _verify_signature_catalog(
     archive: dict[str, bytes],
-    events: list[ParsedSign1],
     payload_blobs: dict[bytes, bytes],
     catalog_digest: bytes,
     report: VerificationReport,
+    event_by_hash: dict[bytes, EventDetails],
 ) -> None:
     cat_bytes = archive.get("062-signature-affirmations.cbor")
     if cat_bytes is None:
@@ -1460,21 +1483,6 @@ def _verify_signature_catalog(
             )
         )
         return
-    event_by_hash: dict[bytes, EventDetails] = {}
-    for ev in events:
-        try:
-            d = _decode_event_details(ev)
-        except VerifyError:
-            continue
-        if d.canonical_event_hash in event_by_hash:
-            report.event_failures.append(
-                VerificationFailure(
-                    "export_events_duplicate_canonical_hash",
-                    _hex(d.canonical_event_hash),
-                )
-            )
-            continue
-        event_by_hash[d.canonical_event_hash] = d
     seen_row: set[bytes] = set()
     for row in entries:
         h = row["canonical_event_hash"]
@@ -1519,10 +1527,10 @@ def _verify_signature_catalog(
 
 def _verify_intake_catalog(
     archive: dict[str, bytes],
-    events: list[ParsedSign1],
     payload_blobs: dict[bytes, bytes],
     catalog_digest: bytes,
     report: VerificationReport,
+    event_by_hash: dict[bytes, EventDetails],
 ) -> None:
     cat_bytes = archive.get("063-intake-handoffs.cbor")
     if cat_bytes is None:
@@ -1543,22 +1551,6 @@ def _verify_intake_catalog(
             VerificationFailure("intake_handoff_catalog_invalid", f"063-intake-handoffs.cbor/{exc}")
         )
         return
-
-    event_by_hash: dict[bytes, EventDetails] = {}
-    for ev in events:
-        try:
-            d = _decode_event_details(ev)
-        except VerifyError:
-            continue
-        if d.canonical_event_hash in event_by_hash:
-            report.event_failures.append(
-                VerificationFailure(
-                    "export_events_duplicate_canonical_hash",
-                    _hex(d.canonical_event_hash),
-                )
-            )
-            continue
-        event_by_hash[d.canonical_event_hash] = d
 
     seen_row: set[bytes] = set()
     for entry in entries:
@@ -1668,12 +1660,6 @@ def _verify_intake_catalog(
                     )
                 )
             continue
-        report.event_failures.append(
-            VerificationFailure(
-                "intake_handoff_catalog_invalid",
-                f"{_hex(intake_h)}/unknown-initiation-mode",
-            )
-        )
 
 
 def parse_export_zip(data: bytes) -> dict[str, bytes]:
@@ -1859,16 +1845,24 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         return VerificationReport.fatal(
             "manifest_payload_invalid", f"signature export extension is invalid: {exc}"
         )
-    if signature_catalog_digest is not None:
-        _verify_signature_catalog(archive, events, payload_blobs, signature_catalog_digest, report)
     try:
         intake_catalog_digest = _parse_intake_export_extension(manifest_map)
     except VerifyError as exc:
         return VerificationReport.fatal(
             "manifest_payload_invalid", f"intake export extension is invalid: {exc}"
         )
+    shared_event_by_hash: dict[bytes, EventDetails] = {}
+    if signature_catalog_digest is not None or intake_catalog_digest is not None:
+        shared_event_by_hash, dup_failures = _index_events_by_canonical_hash(events)
+        report.event_failures.extend(dup_failures)
+    if signature_catalog_digest is not None:
+        _verify_signature_catalog(
+            archive, payload_blobs, signature_catalog_digest, report, shared_event_by_hash
+        )
     if intake_catalog_digest is not None:
-        _verify_intake_catalog(archive, events, payload_blobs, intake_catalog_digest, report)
+        _verify_intake_catalog(
+            archive, payload_blobs, intake_catalog_digest, report, shared_event_by_hash
+        )
 
     for failure in report.event_failures:
         if failure.kind == "scope_mismatch":
