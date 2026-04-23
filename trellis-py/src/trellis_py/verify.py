@@ -37,7 +37,10 @@ from trellis_py.constants import (
 ATTACHMENT_EXPORT_EXTENSION = "trellis.export.attachments.v1"
 ATTACHMENT_EVENT_EXTENSION = "trellis.evidence-attachment-binding.v1"
 SIGNATURE_EXPORT_EXTENSION = "trellis.export.signature-affirmations.v1"
+INTAKE_EXPORT_EXTENSION = "trellis.export.intake-handoffs.v1"
 WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signatureAffirmation"
+WOS_INTAKE_ACCEPTED_EVENT_TYPE = "wos.kernel.intakeAccepted"
+WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.caseCreated"
 
 
 @dataclass
@@ -946,6 +949,182 @@ def _parse_signature_export_extension(manifest_map: dict) -> Optional[bytes]:
     return _map_lookup_fixed_bytes(ext, "signature_catalog_digest", 32)
 
 
+def _parse_intake_export_extension(manifest_map: dict) -> Optional[bytes]:
+    exts = _map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(INTAKE_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("intake export extension is not a map")
+    return _map_lookup_fixed_bytes(ext, "intake_catalog_digest", 32)
+
+
+def _map_lookup_optional_text(m: dict, key: str) -> Optional[str]:
+    v = m.get(key)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    raise VerifyError(f"`{key}` is neither text nor null")
+
+
+def _parse_intake_handoff_details(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise VerifyError("handoff is not a map")
+    initiation_mode = str(_map_lookup_str(value, "initiationMode"))
+    case_ref = _map_lookup_optional_text(value, "caseRef")
+    if initiation_mode == "workflowInitiated" and case_ref is None:
+        raise VerifyError("workflowInitiated handoff is missing caseRef")
+    if initiation_mode == "publicIntake" and case_ref is not None:
+        raise VerifyError("publicIntake handoff caseRef must be null or absent")
+    if initiation_mode not in ("workflowInitiated", "publicIntake"):
+        raise VerifyError("handoff initiationMode is unsupported")
+    definition_ref = _map_lookup_map(value, "definitionRef")
+    response_hash = str(_map_lookup_str(value, "responseHash"))
+    _parse_sha256_prefix_text(response_hash)
+    return {
+        "handoff_id": str(_map_lookup_str(value, "handoffId")),
+        "initiation_mode": initiation_mode,
+        "case_ref": case_ref,
+        "definition_url": str(_map_lookup_str(definition_ref, "url")),
+        "definition_version": str(_map_lookup_str(definition_ref, "version")),
+        "response_ref": str(_map_lookup_str(value, "responseRef")),
+        "response_hash": response_hash,
+        "validation_report_ref": str(_map_lookup_str(value, "validationReportRef")),
+        "ledger_head_ref": str(_map_lookup_str(value, "ledgerHeadRef")),
+    }
+
+
+def _first_array_text(outputs: list[Any]) -> Optional[str]:
+    if not outputs:
+        return None
+    first = outputs[0]
+    if isinstance(first, str):
+        return first
+    return None
+
+
+def _parse_intake_accepted_record(payload_bytes: bytes) -> dict[str, Any]:
+    v = _decode_value(payload_bytes)
+    if not isinstance(v, dict):
+        raise VerifyError("intake accepted payload root is not a map")
+    record_kind = str(_map_lookup_str(v, "recordKind"))
+    if record_kind != "intakeAccepted":
+        raise VerifyError("intake accepted payload recordKind is not intakeAccepted")
+    data = _map_lookup_map(v, "data")
+    case_ref = str(_map_lookup_str(data, "caseRef"))
+    outputs = _map_lookup_array(v, "outputs")
+    output_case_ref = _first_array_text(outputs)
+    if output_case_ref is None:
+        raise VerifyError("intake accepted outputs array is missing or empty")
+    if output_case_ref != case_ref:
+        raise VerifyError("intake accepted outputs[0] does not match data.caseRef")
+    return {
+        "intake_id": str(_map_lookup_str(data, "intakeId")),
+        "case_intent": str(_map_lookup_str(data, "caseIntent")),
+        "case_disposition": str(_map_lookup_str(data, "caseDisposition")),
+        "case_ref": case_ref,
+        "definition_url": _map_lookup_optional_text(data, "definitionUrl"),
+        "definition_version": _map_lookup_optional_text(data, "definitionVersion"),
+    }
+
+
+def _parse_case_created_record(payload_bytes: bytes) -> dict[str, Any]:
+    v = _decode_value(payload_bytes)
+    if not isinstance(v, dict):
+        raise VerifyError("case created payload root is not a map")
+    record_kind = str(_map_lookup_str(v, "recordKind"))
+    if record_kind != "caseCreated":
+        raise VerifyError("case created payload recordKind is not caseCreated")
+    data = _map_lookup_map(v, "data")
+    case_ref = str(_map_lookup_str(data, "caseRef"))
+    outputs = _map_lookup_array(v, "outputs")
+    output_case_ref = _first_array_text(outputs)
+    if output_case_ref is None:
+        raise VerifyError("case created outputs array is missing or empty")
+    if output_case_ref != case_ref:
+        raise VerifyError("case created outputs[0] does not match data.caseRef")
+    return {
+        "case_ref": case_ref,
+        "intake_handoff_ref": str(_map_lookup_str(data, "intakeHandoffRef")),
+        "formspec_response_ref": str(_map_lookup_str(data, "formspecResponseRef")),
+        "validation_report_ref": str(_map_lookup_str(data, "validationReportRef")),
+        "ledger_head_ref": str(_map_lookup_str(data, "ledgerHeadRef")),
+        "initiation_mode": str(_map_lookup_str(data, "initiationMode")),
+    }
+
+
+def _parse_intake_manifest_entries(data: bytes) -> list[dict[str, Any]]:
+    v = _decode_value(data)
+    if not isinstance(v, list):
+        raise VerifyError("intake handoff catalog root is not an array")
+    out: list[dict[str, Any]] = []
+    for entry in v:
+        if not isinstance(entry, dict):
+            raise VerifyError("intake handoff catalog entry is not a map")
+        handoff_raw = entry.get("handoff")
+        if handoff_raw is None:
+            raise VerifyError("missing `handoff`")
+        handoff = _parse_intake_handoff_details(handoff_raw)
+        out.append(
+            {
+                "intake_event_hash": _map_lookup_fixed_bytes(entry, "intake_event_hash", 32),
+                "case_created_event_hash": _map_lookup_optional_fixed_bytes(
+                    entry, "case_created_event_hash", 32
+                ),
+                "handoff": handoff,
+                "response_bytes": _map_lookup_bytes(entry, "response_bytes"),
+            }
+        )
+    return out
+
+
+def _intake_entry_matches_record(entry: dict[str, Any], record: dict[str, Any]) -> bool:
+    handoff = entry["handoff"]
+    if handoff["handoff_id"] != record["intake_id"]:
+        return False
+    mode = handoff["initiation_mode"]
+    if mode == "workflowInitiated":
+        return (
+            handoff.get("case_ref") == record["case_ref"]
+            and record["case_intent"] == "attachToExistingCase"
+            and record["case_disposition"] == "attachToExistingCase"
+        )
+    if mode == "publicIntake":
+        return (
+            record["case_intent"] == "requestGovernedCaseCreation"
+            and record["case_disposition"] == "createGovernedCase"
+            and record.get("definition_url") == handoff["definition_url"]
+            and record.get("definition_version") == handoff["definition_version"]
+        )
+    return False
+
+
+def _case_created_record_matches_handoff(
+    entry: dict[str, Any], intake_record: dict[str, Any], case_record: dict[str, Any]
+) -> bool:
+    handoff = entry["handoff"]
+    return (
+        case_record["case_ref"] == intake_record["case_ref"]
+        and case_record["intake_handoff_ref"] == handoff["handoff_id"]
+        and case_record["formspec_response_ref"] == handoff["response_ref"]
+        and case_record["validation_report_ref"] == handoff["validation_report_ref"]
+        and case_record["ledger_head_ref"] == handoff["ledger_head_ref"]
+        and case_record["initiation_mode"] == handoff["initiation_mode"]
+    )
+
+
+def _response_hash_matches(value: str, response_bytes: bytes) -> tuple[bool, Optional[str]]:
+    try:
+        expected = _parse_sha256_prefix_text(value)
+    except VerifyError as exc:
+        return False, str(exc)
+    actual = _sha256(response_bytes)
+    return (actual == expected), None
+
+
 def _parse_attachment_manifest_entries(data: bytes) -> list[dict[str, Any]]:
     v = _decode_value(data)
     if not isinstance(v, list):
@@ -1338,6 +1517,165 @@ def _verify_signature_catalog(
             )
 
 
+def _verify_intake_catalog(
+    archive: dict[str, bytes],
+    events: list[ParsedSign1],
+    payload_blobs: dict[bytes, bytes],
+    catalog_digest: bytes,
+    report: VerificationReport,
+) -> None:
+    cat_bytes = archive.get("063-intake-handoffs.cbor")
+    if cat_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("missing_intake_handoff_catalog", "063-intake-handoffs.cbor")
+        )
+        return
+    if _sha256(cat_bytes) != catalog_digest:
+        report.event_failures.append(
+            VerificationFailure(
+                "intake_handoff_catalog_digest_mismatch", "063-intake-handoffs.cbor"
+            )
+        )
+    try:
+        entries = _parse_intake_manifest_entries(cat_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure("intake_handoff_catalog_invalid", f"063-intake-handoffs.cbor/{exc}")
+        )
+        return
+
+    event_by_hash: dict[bytes, EventDetails] = {}
+    for ev in events:
+        try:
+            d = _decode_event_details(ev)
+        except VerifyError:
+            continue
+        if d.canonical_event_hash in event_by_hash:
+            report.event_failures.append(
+                VerificationFailure(
+                    "export_events_duplicate_canonical_hash",
+                    _hex(d.canonical_event_hash),
+                )
+            )
+            continue
+        event_by_hash[d.canonical_event_hash] = d
+
+    seen_row: set[bytes] = set()
+    for entry in entries:
+        h = entry["intake_event_hash"]
+        if h in seen_row:
+            report.event_failures.append(
+                VerificationFailure("intake_handoff_catalog_duplicate_event", _hex(h))
+            )
+        seen_row.add(h)
+
+    for entry in entries:
+        intake_h = entry["intake_event_hash"]
+        det = event_by_hash.get(intake_h)
+        if det is None:
+            report.event_failures.append(
+                VerificationFailure("intake_event_unresolved", _hex(intake_h))
+            )
+            continue
+        if det.event_type != WOS_INTAKE_ACCEPTED_EVENT_TYPE:
+            report.event_failures.append(
+                VerificationFailure("intake_event_type_mismatch", _hex(intake_h))
+            )
+            continue
+        payload = _readable_payload_bytes(det, payload_blobs)
+        if payload is None:
+            report.event_failures.append(
+                VerificationFailure("intake_payload_unreadable", _hex(intake_h))
+            )
+            continue
+        try:
+            intake_record = _parse_intake_accepted_record(payload)
+        except VerifyError as exc:
+            report.event_failures.append(
+                VerificationFailure("intake_payload_invalid", f"{_hex(intake_h)}/{exc}")
+            )
+            continue
+        if not _intake_entry_matches_record(entry, intake_record):
+            report.event_failures.append(
+                VerificationFailure("intake_handoff_mismatch", _hex(intake_h))
+            )
+        ok, err_detail = _response_hash_matches(
+            entry["handoff"]["response_hash"], entry["response_bytes"]
+        )
+        if err_detail is not None:
+            report.event_failures.append(
+                VerificationFailure(
+                    "intake_handoff_catalog_invalid",
+                    f"{_hex(intake_h)}/{err_detail}",
+                )
+            )
+        elif not ok:
+            report.event_failures.append(
+                VerificationFailure("intake_response_hash_mismatch", _hex(intake_h))
+            )
+
+        handoff = entry["handoff"]
+        mode = handoff["initiation_mode"]
+        case_created_hash = entry["case_created_event_hash"]
+        if mode == "workflowInitiated":
+            if case_created_hash is not None:
+                report.event_failures.append(
+                    VerificationFailure("case_created_handoff_mismatch", _hex(intake_h))
+                )
+            continue
+        if mode == "publicIntake":
+            if case_created_hash is None:
+                report.event_failures.append(
+                    VerificationFailure("case_created_handoff_mismatch", _hex(intake_h))
+                )
+                continue
+            case_details = event_by_hash.get(case_created_hash)
+            if case_details is None:
+                report.event_failures.append(
+                    VerificationFailure(
+                        "case_created_event_unresolved", _hex(case_created_hash)
+                    )
+                )
+                continue
+            if case_details.event_type != WOS_CASE_CREATED_EVENT_TYPE:
+                report.event_failures.append(
+                    VerificationFailure(
+                        "case_created_event_type_mismatch", _hex(case_created_hash)
+                    )
+                )
+                continue
+            case_payload = _readable_payload_bytes(case_details, payload_blobs)
+            if case_payload is None:
+                report.event_failures.append(
+                    VerificationFailure(
+                        "case_created_payload_unreadable", _hex(case_created_hash)
+                    )
+                )
+                continue
+            try:
+                case_record = _parse_case_created_record(case_payload)
+            except VerifyError as exc:
+                report.event_failures.append(
+                    VerificationFailure(
+                        "case_created_payload_invalid", f"{_hex(case_created_hash)}/{exc}"
+                    )
+                )
+                continue
+            if not _case_created_record_matches_handoff(entry, intake_record, case_record):
+                report.event_failures.append(
+                    VerificationFailure(
+                        "case_created_handoff_mismatch", _hex(case_created_hash)
+                    )
+                )
+            continue
+        report.event_failures.append(
+            VerificationFailure(
+                "intake_handoff_catalog_invalid",
+                f"{_hex(intake_h)}/unknown-initiation-mode",
+            )
+        )
+
+
 def parse_export_zip(data: bytes) -> dict[str, bytes]:
     try:
         zf = zipfile.ZipFile(io.BytesIO(data), "r")
@@ -1523,6 +1861,14 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         )
     if signature_catalog_digest is not None:
         _verify_signature_catalog(archive, events, payload_blobs, signature_catalog_digest, report)
+    try:
+        intake_catalog_digest = _parse_intake_export_extension(manifest_map)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"intake export extension is invalid: {exc}"
+        )
+    if intake_catalog_digest is not None:
+        _verify_intake_catalog(archive, events, payload_blobs, intake_catalog_digest, report)
 
     for failure in report.event_failures:
         if failure.kind == "scope_mismatch":
