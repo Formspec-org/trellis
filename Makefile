@@ -1,0 +1,71 @@
+# Trellis Makefile
+#
+# Primary entry point for building and testing the Trellis integrity substrate.
+
+# Basic configuration
+PYTHON = python3
+CARGO = cargo
+PYTEST = $(PYTHON) -m pytest
+
+# Paths
+TRELLIS_PY_DIR = trellis-py
+SCRIPTS_DIR = scripts
+VECTORS_DIR = fixtures/vectors
+
+.PHONY: all help build test test-rust test-python test-scripts check-specs lint fmt clean
+
+all: build test
+
+help:
+	@echo "Trellis Build & Test Tool"
+	@echo ""
+	@echo "Usage:"
+	@echo "  make build          Build all Rust crates"
+	@echo "  make test           Run all tests (Rust, Python, Scripts, Specs)"
+	@echo "  make test-rust      Run all Rust tests"
+	@echo "  make test-python    Run Python conformance tests"
+	@echo "  make test-scripts   Run tests for helper scripts"
+	@echo "  make check-specs    Run spec discipline and coverage lint"
+	@echo "  make lint           Run Rust clippy"
+	@echo "  make fmt            Check Rust formatting"
+	@echo "  make clean          Clean build artifacts"
+	@echo ""
+
+build:
+	@echo "Building Rust workspace..."
+	$(CARGO) build --workspace
+
+test: test-rust test-python test-scripts check-specs
+
+test-rust:
+	@echo "Running Rust tests..."
+	$(CARGO) test --workspace
+
+test-python:
+	@echo "Running Python conformance tests..."
+	cd $(TRELLIS_PY_DIR) && PYTHONPATH=src $(PYTHON) -m trellis_py.conformance --vectors ../$(VECTORS_DIR)
+	@echo "Checking for Python unit tests..."
+	-cd $(TRELLIS_PY_DIR) && $(PYTEST) -q
+
+test-scripts:
+	@echo "Running script tests..."
+	$(PYTHON) $(SCRIPTS_DIR)/test_check_specs.py
+	$(PYTHON) $(SCRIPTS_DIR)/test_check_vector_renumbering.py
+
+check-specs:
+	@echo "Running spec checks..."
+	$(PYTHON) $(SCRIPTS_DIR)/check-specs.py
+
+lint:
+	@echo "Running Rust clippy..."
+	$(CARGO) clippy --workspace -- -D warnings
+
+fmt:
+	@echo "Checking Rust formatting..."
+	$(CARGO) fmt --all -- --check
+
+clean:
+	@echo "Cleaning build artifacts..."
+	$(CARGO) clean
+	find . -name "__pycache__" -type d -exec rm -rf {} +
+	rm -f $(TRELLIS_PY_DIR)/BYTE-MATCH-REPORT.json
