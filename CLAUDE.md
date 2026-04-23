@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working on Trellis — the **cryptographic integrity substrate** of the three-spec stack.
 
+## HIGH PRIORITY — Writing backlog / TODO / task items
+
+**Every backlog entry, TODO, or task description MUST carry its own context.** A reader (human or agent) opening the item cold — no surrounding conversation, no memory of the session that produced it — must know *what the work is*, *why it matters*, and *what "done" looks like*, from the words on the page alone.
+
+Write dense, not verbose. The model is a poem or a well-contextualized meme: few words, heavy payload, still easy to read. Every sentence pulls weight — if a phrase can be cut without losing meaning, cut it; if a phrase that looks redundant is actually the anchor that makes the rest make sense, keep it. No orphan pronouns, no "see above", no "the thing we discussed" — name the thing.
+
+**The test:** if this item sat untouched for six weeks and a different agent picked it up, could they act on it without asking a clarifying question? If no, rewrite until yes.
+
+Applies to `TODO.md`, plan files in `thoughts/plans/`, ADR follow-ups, ratification-gate backlog entries, fixture-vector stubs, Companion-declaration TODOs, and any inline `// TODO` comments that escape a single session.
+
 ## Project Overview
 
 Trellis is the integrity layer beneath **Formspec** (intake) and **WOS** (governance). It specifies the envelope, chain, checkpoint, and export-bundle format by which a Formspec response and its downstream WOS governance events become a single append-only, signed, offline-verifiable record.
@@ -76,6 +86,8 @@ From the vision model, refined for Trellis:
 | Federation Profile (Phase 4 cooperative trust-anchor network) | Integrity | **Trellis** (deferred) |
 
 Trellis does NOT own: workflow semantics, signer-role workflow patterns, consent capture, form rendering, intake validation. Those live upstream in WOS and Formspec.
+
+Trellis also does NOT own case initiation semantics. Per accepted [ADR 0073](../thoughts/adr/0073-stack-case-initiation-and-intake-handoff.md), WOS owns governed case identity and `case.created`; Formspec owns the intake session and `IntakeHandoff` evidence. Trellis anchors and exports that evidence path without deciding whether a case exists.
 
 ## Phase arc
 

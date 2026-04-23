@@ -31,7 +31,10 @@ const POSTURE_DECLARATION_DOMAIN: &str = "trellis-posture-declaration-v1";
 const ATTACHMENT_EXPORT_EXTENSION: &str = "trellis.export.attachments.v1";
 const ATTACHMENT_EVENT_EXTENSION: &str = "trellis.evidence-attachment-binding.v1";
 const SIGNATURE_EXPORT_EXTENSION: &str = "trellis.export.signature-affirmations.v1";
+const INTAKE_EXPORT_EXTENSION: &str = "trellis.export.intake-handoffs.v1";
 const WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE: &str = "wos.kernel.signatureAffirmation";
+const WOS_INTAKE_ACCEPTED_EVENT_TYPE: &str = "wos.kernel.intakeAccepted";
+const WOS_CASE_CREATED_EVENT_TYPE: &str = "wos.kernel.caseCreated";
 
 /// Verification failure localized to one artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -489,13 +492,18 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             );
         }
     } {
-        verify_signature_catalog(
-            &archive,
-            &events,
-            &payload_blobs,
-            &extension,
-            &mut report,
-        );
+        verify_signature_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
+    }
+    if let Some(extension) = match parse_intake_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                "manifest_payload_invalid",
+                format!("intake export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_intake_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
     }
     for failure in &mut report.event_failures {
         if failure.kind == "scope_mismatch" {
@@ -993,6 +1001,11 @@ struct SignatureExportExtension {
 }
 
 #[derive(Clone, Debug)]
+struct IntakeExportExtension {
+    catalog_digest: [u8; 32],
+}
+
+#[derive(Clone, Debug)]
 struct SignatureManifestEntry {
     canonical_event_hash: [u8; 32],
     signer_id: String,
@@ -1012,6 +1025,14 @@ struct SignatureManifestEntry {
 }
 
 #[derive(Clone, Debug)]
+struct IntakeManifestEntry {
+    intake_event_hash: [u8; 32],
+    case_created_event_hash: Option<[u8; 32]>,
+    handoff: IntakeHandoffDetails,
+    response_bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
 struct SignatureAffirmationRecordDetails {
     signer_id: String,
     role_id: String,
@@ -1027,6 +1048,39 @@ struct SignatureAffirmationRecordDetails {
     profile_ref: Option<String>,
     profile_key: Option<String>,
     formspec_response_ref: String,
+}
+
+#[derive(Clone, Debug)]
+struct IntakeHandoffDetails {
+    handoff_id: String,
+    initiation_mode: String,
+    case_ref: Option<String>,
+    definition_url: String,
+    definition_version: String,
+    response_ref: String,
+    response_hash: String,
+    validation_report_ref: String,
+    ledger_head_ref: String,
+}
+
+#[derive(Clone, Debug)]
+struct IntakeAcceptedRecordDetails {
+    intake_id: String,
+    case_intent: String,
+    case_disposition: String,
+    case_ref: String,
+    definition_url: Option<String>,
+    definition_version: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct CaseCreatedRecordDetails {
+    case_ref: String,
+    intake_handoff_ref: String,
+    formspec_response_ref: String,
+    validation_report_ref: String,
+    ledger_head_ref: String,
+    initiation_mode: String,
 }
 
 #[derive(Debug)]
@@ -1689,6 +1743,28 @@ fn parse_signature_export_extension(
     }))
 }
 
+fn parse_intake_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<IntakeExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) = map_lookup_optional_value(extensions, INTAKE_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("intake export extension is not a map"))?;
+    Ok(Some(IntakeExportExtension {
+        catalog_digest: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "intake_catalog_digest",
+            32,
+        )?),
+    }))
+}
+
 fn verify_attachment_manifest(
     archive: &ExportArchive,
     events: &[ParsedSign1],
@@ -1884,6 +1960,192 @@ fn verify_signature_catalog(
     }
 }
 
+fn verify_intake_catalog(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
+    extension: &IntakeExportExtension,
+    report: &mut VerificationReport,
+) {
+    let Some(catalog_bytes) = archive.members.get("063-intake-handoffs.cbor") else {
+        report.event_failures.push(VerificationFailure::new(
+            "missing_intake_handoff_catalog",
+            "063-intake-handoffs.cbor",
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(catalog_bytes);
+    if actual_digest.as_slice() != extension.catalog_digest {
+        report.event_failures.push(VerificationFailure::new(
+            "intake_handoff_catalog_digest_mismatch",
+            "063-intake-handoffs.cbor",
+        ));
+    }
+
+    let entries = match parse_intake_manifest_entries(catalog_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                "intake_handoff_catalog_invalid",
+                format!("063-intake-handoffs.cbor/{error}"),
+            ));
+            return;
+        }
+    };
+
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            match event_by_hash.entry(details.canonical_event_hash) {
+                Entry::Vacant(slot) => {
+                    slot.insert(details);
+                }
+                Entry::Occupied(_) => {
+                    report.event_failures.push(VerificationFailure::new(
+                        "export_events_duplicate_canonical_hash",
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_hashes = BTreeSet::new();
+    for entry in &entries {
+        if !seen_hashes.insert(entry.intake_event_hash) {
+            report.event_failures.push(VerificationFailure::new(
+                "intake_handoff_catalog_duplicate_event",
+                hex_string(&entry.intake_event_hash),
+            ));
+        }
+    }
+
+    for entry in &entries {
+        let Some(details) = event_by_hash.get(&entry.intake_event_hash) else {
+            report.event_failures.push(VerificationFailure::new(
+                "intake_event_unresolved",
+                hex_string(&entry.intake_event_hash),
+            ));
+            continue;
+        };
+        if details.event_type != WOS_INTAKE_ACCEPTED_EVENT_TYPE {
+            report.event_failures.push(VerificationFailure::new(
+                "intake_event_type_mismatch",
+                hex_string(&entry.intake_event_hash),
+            ));
+            continue;
+        }
+        let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
+            report.event_failures.push(VerificationFailure::new(
+                "intake_payload_unreadable",
+                hex_string(&entry.intake_event_hash),
+            ));
+            continue;
+        };
+        let intake_record = match parse_intake_accepted_record(&payload_bytes) {
+            Ok(record) => record,
+            Err(error) => {
+                report.event_failures.push(VerificationFailure::new(
+                    "intake_payload_invalid",
+                    format!("{}/{}", hex_string(&entry.intake_event_hash), error),
+                ));
+                continue;
+            }
+        };
+        if !intake_entry_matches_record(entry, &intake_record) {
+            report.event_failures.push(VerificationFailure::new(
+                "intake_handoff_mismatch",
+                hex_string(&entry.intake_event_hash),
+            ));
+        }
+        match response_hash_matches(&entry.handoff.response_hash, &entry.response_bytes) {
+            Ok(true) => {}
+            Ok(false) => {
+                report.event_failures.push(VerificationFailure::new(
+                    "intake_response_hash_mismatch",
+                    hex_string(&entry.intake_event_hash),
+                ));
+            }
+            Err(error) => {
+                report.event_failures.push(VerificationFailure::new(
+                    "intake_handoff_catalog_invalid",
+                    format!("{}/{}", hex_string(&entry.intake_event_hash), error),
+                ));
+            }
+        }
+
+        match (
+            entry.handoff.initiation_mode.as_str(),
+            entry.case_created_event_hash,
+        ) {
+            ("workflowInitiated", Some(_)) => {
+                report.event_failures.push(VerificationFailure::new(
+                    "case_created_handoff_mismatch",
+                    hex_string(&entry.intake_event_hash),
+                ));
+                continue;
+            }
+            ("workflowInitiated", None) => continue,
+            ("publicIntake", None) => {
+                report.event_failures.push(VerificationFailure::new(
+                    "case_created_handoff_mismatch",
+                    hex_string(&entry.intake_event_hash),
+                ));
+                continue;
+            }
+            ("publicIntake", Some(case_created_hash)) => {
+                let Some(case_details) = event_by_hash.get(&case_created_hash) else {
+                    report.event_failures.push(VerificationFailure::new(
+                        "case_created_event_unresolved",
+                        hex_string(&case_created_hash),
+                    ));
+                    continue;
+                };
+                if case_details.event_type != WOS_CASE_CREATED_EVENT_TYPE {
+                    report.event_failures.push(VerificationFailure::new(
+                        "case_created_event_type_mismatch",
+                        hex_string(&case_created_hash),
+                    ));
+                    continue;
+                }
+                let Some(case_payload_bytes) = readable_payload_bytes(case_details, payload_blobs)
+                else {
+                    report.event_failures.push(VerificationFailure::new(
+                        "case_created_payload_unreadable",
+                        hex_string(&case_created_hash),
+                    ));
+                    continue;
+                };
+                let case_record = match parse_case_created_record(&case_payload_bytes) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        report.event_failures.push(VerificationFailure::new(
+                            "case_created_payload_invalid",
+                            format!("{}/{}", hex_string(&case_created_hash), error),
+                        ));
+                        continue;
+                    }
+                };
+                if !case_created_record_matches_handoff(entry, &intake_record, &case_record) {
+                    report.event_failures.push(VerificationFailure::new(
+                        "case_created_handoff_mismatch",
+                        hex_string(&case_created_hash),
+                    ));
+                }
+            }
+            _ => {
+                report.event_failures.push(VerificationFailure::new(
+                    "intake_handoff_catalog_invalid",
+                    format!(
+                        "{}/unknown-initiation-mode",
+                        hex_string(&entry.intake_event_hash)
+                    ),
+                ));
+            }
+        }
+    }
+}
+
 fn parse_attachment_manifest_entries(
     manifest_bytes: &[u8],
 ) -> Result<Vec<AttachmentManifestEntry>, VerifyError> {
@@ -1963,6 +2225,42 @@ fn parse_signature_manifest_entries(
         .collect()
 }
 
+fn parse_intake_manifest_entries(
+    manifest_bytes: &[u8],
+) -> Result<Vec<IntakeManifestEntry>, VerifyError> {
+    let value = decode_value(manifest_bytes)?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| VerifyError::new("intake handoff catalog root is not an array"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let map = entry
+                .as_map()
+                .ok_or_else(|| VerifyError::new("intake handoff catalog entry is not a map"))?;
+            let handoff = parse_intake_handoff_details(
+                map_lookup_optional_value(map, "handoff")
+                    .ok_or_else(|| VerifyError::new("missing `handoff`"))?,
+            )?;
+            Ok(IntakeManifestEntry {
+                intake_event_hash: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "intake_event_hash",
+                    32,
+                )?),
+                case_created_event_hash: map_lookup_optional_fixed_bytes(
+                    map,
+                    "case_created_event_hash",
+                    32,
+                )?
+                .map(|bytes| bytes_array(&bytes)),
+                handoff,
+                response_bytes: map_lookup_bytes(map, "response_bytes")?,
+            })
+        })
+        .collect()
+}
+
 fn readable_payload_bytes(
     details: &EventDetails,
     payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
@@ -2005,6 +2303,114 @@ fn parse_signature_affirmation_record(
     })
 }
 
+fn parse_intake_accepted_record(
+    payload_bytes: &[u8],
+) -> Result<IntakeAcceptedRecordDetails, VerifyError> {
+    let value = decode_value(payload_bytes)?;
+    let map = value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("intake accepted payload root is not a map"))?;
+    let record_kind = map_lookup_text(map, "recordKind")?;
+    if record_kind != "intakeAccepted" {
+        return Err(VerifyError::new(
+            "intake accepted payload recordKind is not intakeAccepted",
+        ));
+    }
+    let data = map_lookup_map(map, "data")?;
+    let case_ref = map_lookup_text(data, "caseRef")?;
+    let outputs = map_lookup_array(map, "outputs")?;
+    let Some(output_case_ref) = first_array_text(outputs) else {
+        return Err(VerifyError::new(
+            "intake accepted outputs array is missing or empty",
+        ));
+    };
+    if output_case_ref != case_ref {
+        return Err(VerifyError::new(
+            "intake accepted outputs[0] does not match data.caseRef",
+        ));
+    }
+    Ok(IntakeAcceptedRecordDetails {
+        intake_id: map_lookup_text(data, "intakeId")?,
+        case_intent: map_lookup_text(data, "caseIntent")?,
+        case_disposition: map_lookup_text(data, "caseDisposition")?,
+        case_ref,
+        definition_url: map_lookup_optional_text(data, "definitionUrl")?,
+        definition_version: map_lookup_optional_text(data, "definitionVersion")?,
+    })
+}
+
+fn parse_case_created_record(
+    payload_bytes: &[u8],
+) -> Result<CaseCreatedRecordDetails, VerifyError> {
+    let value = decode_value(payload_bytes)?;
+    let map = value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("case created payload root is not a map"))?;
+    let record_kind = map_lookup_text(map, "recordKind")?;
+    if record_kind != "caseCreated" {
+        return Err(VerifyError::new(
+            "case created payload recordKind is not caseCreated",
+        ));
+    }
+    let data = map_lookup_map(map, "data")?;
+    let case_ref = map_lookup_text(data, "caseRef")?;
+    let outputs = map_lookup_array(map, "outputs")?;
+    let Some(output_case_ref) = first_array_text(outputs) else {
+        return Err(VerifyError::new(
+            "case created outputs array is missing or empty",
+        ));
+    };
+    if output_case_ref != case_ref {
+        return Err(VerifyError::new(
+            "case created outputs[0] does not match data.caseRef",
+        ));
+    }
+    Ok(CaseCreatedRecordDetails {
+        case_ref,
+        intake_handoff_ref: map_lookup_text(data, "intakeHandoffRef")?,
+        formspec_response_ref: map_lookup_text(data, "formspecResponseRef")?,
+        validation_report_ref: map_lookup_text(data, "validationReportRef")?,
+        ledger_head_ref: map_lookup_text(data, "ledgerHeadRef")?,
+        initiation_mode: map_lookup_text(data, "initiationMode")?,
+    })
+}
+
+fn parse_intake_handoff_details(value: &Value) -> Result<IntakeHandoffDetails, VerifyError> {
+    let map = value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("handoff is not a map"))?;
+    let initiation_mode = map_lookup_text(map, "initiationMode")?;
+    let case_ref = map_lookup_optional_text(map, "caseRef")?;
+    match initiation_mode.as_str() {
+        "workflowInitiated" if case_ref.is_none() => {
+            return Err(VerifyError::new(
+                "workflowInitiated handoff is missing caseRef",
+            ));
+        }
+        "publicIntake" if case_ref.is_some() => {
+            return Err(VerifyError::new(
+                "publicIntake handoff caseRef must be null or absent",
+            ));
+        }
+        "workflowInitiated" | "publicIntake" => {}
+        _ => return Err(VerifyError::new("handoff initiationMode is unsupported")),
+    }
+    let definition_ref = map_lookup_map(map, "definitionRef")?;
+    let response_hash = map_lookup_text(map, "responseHash")?;
+    parse_sha256_text(&response_hash)?;
+    Ok(IntakeHandoffDetails {
+        handoff_id: map_lookup_text(map, "handoffId")?,
+        initiation_mode,
+        case_ref,
+        definition_url: map_lookup_text(definition_ref, "url")?,
+        definition_version: map_lookup_text(definition_ref, "version")?,
+        response_ref: map_lookup_text(map, "responseRef")?,
+        response_hash,
+        validation_report_ref: map_lookup_text(map, "validationReportRef")?,
+        ledger_head_ref: map_lookup_text(map, "ledgerHeadRef")?,
+    })
+}
+
 fn attachment_entry_matches_binding(
     entry: &AttachmentManifestEntry,
     binding: &AttachmentBindingDetails,
@@ -2041,14 +2447,16 @@ fn normalize_cbor_value_for_compare(value: &Value) -> Value {
                     )
                 })
                 .collect();
-            normalized.sort_by(|a, b| cbor_map_key_sort_bytes(&a.0).cmp(&cbor_map_key_sort_bytes(&b.0)));
+            normalized
+                .sort_by(|a, b| cbor_map_key_sort_bytes(&a.0).cmp(&cbor_map_key_sort_bytes(&b.0)));
             Value::Map(normalized)
         }
-        Value::Array(items) => Value::Array(items.iter().map(normalize_cbor_value_for_compare).collect()),
-        Value::Tag(tag, inner) => Value::Tag(
-            *tag,
-            Box::new(normalize_cbor_value_for_compare(inner)),
-        ),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(normalize_cbor_value_for_compare).collect())
+        }
+        Value::Tag(tag, inner) => {
+            Value::Tag(*tag, Box::new(normalize_cbor_value_for_compare(inner)))
+        }
         _ => value.clone(),
     }
 }
@@ -2075,6 +2483,44 @@ fn signature_entry_matches_record(
         && entry.profile_ref == record.profile_ref
         && entry.profile_key == record.profile_key
         && entry.formspec_response_ref == record.formspec_response_ref
+}
+
+fn intake_entry_matches_record(
+    entry: &IntakeManifestEntry,
+    record: &IntakeAcceptedRecordDetails,
+) -> bool {
+    if entry.handoff.handoff_id != record.intake_id {
+        return false;
+    }
+
+    match entry.handoff.initiation_mode.as_str() {
+        "workflowInitiated" => {
+            entry.handoff.case_ref.as_deref() == Some(record.case_ref.as_str())
+                && record.case_intent == "attachToExistingCase"
+                && record.case_disposition == "attachToExistingCase"
+        }
+        "publicIntake" => {
+            record.case_intent == "requestGovernedCaseCreation"
+                && record.case_disposition == "createGovernedCase"
+                && record.definition_url.as_deref() == Some(entry.handoff.definition_url.as_str())
+                && record.definition_version.as_deref()
+                    == Some(entry.handoff.definition_version.as_str())
+        }
+        _ => false,
+    }
+}
+
+fn case_created_record_matches_handoff(
+    entry: &IntakeManifestEntry,
+    intake_record: &IntakeAcceptedRecordDetails,
+    case_record: &CaseCreatedRecordDetails,
+) -> bool {
+    case_record.case_ref == intake_record.case_ref
+        && case_record.intake_handoff_ref == entry.handoff.handoff_id
+        && case_record.formspec_response_ref == entry.handoff.response_ref
+        && case_record.validation_report_ref == entry.handoff.validation_report_ref
+        && case_record.ledger_head_ref == entry.handoff.ledger_head_ref
+        && case_record.initiation_mode == entry.handoff.initiation_mode
 }
 
 fn parse_signing_key_registry(
@@ -2431,6 +2877,10 @@ fn parse_sha256_text(value: &str) -> Result<[u8; 32], VerifyError> {
         .map_err(|_| VerifyError::new("sha256 hash text must be 32 bytes"))
 }
 
+fn response_hash_matches(value: &str, response_bytes: &[u8]) -> Result<bool, VerifyError> {
+    Ok(parse_sha256_text(value)? == bytes_array(&sha256_bytes(response_bytes)))
+}
+
 fn bytes_array(bytes: &[u8]) -> [u8; 32] {
     bytes.try_into().expect("caller validates fixed size")
 }
@@ -2556,6 +3006,13 @@ fn map_lookup_array<'a>(
         .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` array")))
 }
 
+fn first_array_text(values: &[Value]) -> Option<String> {
+    values
+        .first()
+        .and_then(Value::as_text)
+        .map(ToOwned::to_owned)
+}
+
 fn map_lookup_integer_label_bytes(
     map: &[(Value, Value)],
     label: i128,
@@ -2647,6 +3104,123 @@ mod tests {
             zip.finish().unwrap();
         }
         cursor.into_inner()
+    }
+
+    fn intake_accepted_payload(outputs: Option<Vec<Value>>) -> Vec<u8> {
+        let mut map = vec![
+            (
+                Value::Text("recordKind".into()),
+                Value::Text("intakeAccepted".into()),
+            ),
+            (
+                Value::Text("data".into()),
+                Value::Map(vec![
+                    (
+                        Value::Text("intakeId".into()),
+                        Value::Text("handoff-1".into()),
+                    ),
+                    (
+                        Value::Text("caseIntent".into()),
+                        Value::Text("attachToExistingCase".into()),
+                    ),
+                    (
+                        Value::Text("caseDisposition".into()),
+                        Value::Text("attachToExistingCase".into()),
+                    ),
+                    (Value::Text("caseRef".into()), Value::Text("case-1".into())),
+                ]),
+            ),
+        ];
+        if let Some(outputs) = outputs {
+            map.push((Value::Text("outputs".into()), Value::Array(outputs)));
+        }
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&Value::Map(map), &mut bytes).unwrap();
+        bytes
+    }
+
+    fn case_created_payload(outputs: Option<Vec<Value>>) -> Vec<u8> {
+        let mut map = vec![
+            (
+                Value::Text("recordKind".into()),
+                Value::Text("caseCreated".into()),
+            ),
+            (
+                Value::Text("data".into()),
+                Value::Map(vec![
+                    (Value::Text("caseRef".into()), Value::Text("case-1".into())),
+                    (
+                        Value::Text("intakeHandoffRef".into()),
+                        Value::Text("handoff-1".into()),
+                    ),
+                    (
+                        Value::Text("formspecResponseRef".into()),
+                        Value::Text("response-1".into()),
+                    ),
+                    (
+                        Value::Text("validationReportRef".into()),
+                        Value::Text("validation-1".into()),
+                    ),
+                    (
+                        Value::Text("ledgerHeadRef".into()),
+                        Value::Text("ledger-1".into()),
+                    ),
+                    (
+                        Value::Text("initiationMode".into()),
+                        Value::Text("publicIntake".into()),
+                    ),
+                ]),
+            ),
+        ];
+        if let Some(outputs) = outputs {
+            map.push((Value::Text("outputs".into()), Value::Array(outputs)));
+        }
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&Value::Map(map), &mut bytes).unwrap();
+        bytes
+    }
+
+    fn intake_handoff_value(initiation_mode: &str, case_ref: Value) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("handoffId".into()),
+                Value::Text("handoff-1".into()),
+            ),
+            (
+                Value::Text("initiationMode".into()),
+                Value::Text(initiation_mode.into()),
+            ),
+            (Value::Text("caseRef".into()), case_ref),
+            (
+                Value::Text("definitionRef".into()),
+                Value::Map(vec![
+                    (
+                        Value::Text("url".into()),
+                        Value::Text("https://example.test/definitions/intake".into()),
+                    ),
+                    (Value::Text("version".into()), Value::Text("1.0.0".into())),
+                ]),
+            ),
+            (
+                Value::Text("responseRef".into()),
+                Value::Text("response-1".into()),
+            ),
+            (
+                Value::Text("responseHash".into()),
+                Value::Text(
+                    "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .into(),
+                ),
+            ),
+            (
+                Value::Text("validationReportRef".into()),
+                Value::Text("validation-1".into()),
+            ),
+            (
+                Value::Text("ledgerHeadRef".into()),
+                Value::Text("ledger-1".into()),
+            ),
+        ])
     }
 
     #[test]
@@ -2743,6 +3317,47 @@ mod tests {
         )
         .unwrap();
         assert!(super::parse_sign1_array(&bytes).is_err());
+    }
+
+    #[test]
+    fn parse_intake_accepted_record_rejects_missing_or_empty_outputs() {
+        let missing = super::parse_intake_accepted_record(&intake_accepted_payload(None))
+            .expect_err("missing outputs must fail");
+        assert!(missing.to_string().contains("outputs"), "{missing}");
+
+        let empty = super::parse_intake_accepted_record(&intake_accepted_payload(Some(vec![])))
+            .expect_err("empty outputs must fail");
+        assert!(empty.to_string().contains("outputs"), "{empty}");
+    }
+
+    #[test]
+    fn parse_case_created_record_rejects_missing_or_empty_outputs() {
+        let missing = super::parse_case_created_record(&case_created_payload(None))
+            .expect_err("missing outputs must fail");
+        assert!(missing.to_string().contains("outputs"), "{missing}");
+
+        let empty = super::parse_case_created_record(&case_created_payload(Some(vec![])))
+            .expect_err("empty outputs must fail");
+        assert!(empty.to_string().contains("outputs"), "{empty}");
+    }
+
+    #[test]
+    fn parse_intake_handoff_details_rejects_public_intake_with_case_ref() {
+        let error = super::parse_intake_handoff_details(&intake_handoff_value(
+            "publicIntake",
+            Value::Text("urn:wos:case:case-1".into()),
+        ))
+        .expect_err("public intake caseRef must fail");
+        assert!(error.to_string().contains("caseRef"), "{error}");
+    }
+
+    #[test]
+    fn parse_intake_handoff_details_accepts_public_intake_with_null_case_ref() {
+        let details =
+            super::parse_intake_handoff_details(&intake_handoff_value("publicIntake", Value::Null))
+                .expect("null public intake caseRef must pass");
+        assert_eq!(details.initiation_mode, "publicIntake");
+        assert_eq!(details.case_ref, None);
     }
 
     #[test]
@@ -2883,14 +3498,17 @@ mod tests {
                         V::Text("application/octet-stream".into()),
                     ),
                     (V::Text("byte_length".into()), V::Integer(1u64.into())),
-                    (V::Text("attachment_sha256".into()), V::Bytes([7u8; 32].to_vec())),
-                    (V::Text("payload_content_hash".into()), V::Bytes([8u8; 32].to_vec())),
+                    (
+                        V::Text("attachment_sha256".into()),
+                        V::Bytes([7u8; 32].to_vec()),
+                    ),
+                    (
+                        V::Text("payload_content_hash".into()),
+                        V::Bytes([8u8; 32].to_vec()),
+                    ),
                 ];
                 if let Some(p) = prior {
-                    pairs.push((
-                        V::Text("prior_binding_hash".into()),
-                        V::Bytes(p.to_vec()),
-                    ));
+                    pairs.push((V::Text("prior_binding_hash".into()), V::Bytes(p.to_vec())));
                 }
                 V::Map(pairs)
             })
@@ -2909,9 +3527,10 @@ mod tests {
         let mut m = std::collections::BTreeMap::new();
         m.insert(h, 0usize);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(f
-            .iter()
-            .any(|e| e.kind == "attachment_manifest_duplicate_binding"));
+        assert!(
+            f.iter()
+                .any(|e| e.kind == "attachment_manifest_duplicate_binding")
+        );
     }
 
     #[test]
@@ -2923,9 +3542,10 @@ mod tests {
         let mut m = std::collections::BTreeMap::new();
         m.insert(h0, 0usize);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(f
-            .iter()
-            .any(|e| e.kind == "attachment_prior_binding_unresolved"));
+        assert!(
+            f.iter()
+                .any(|e| e.kind == "attachment_prior_binding_unresolved")
+        );
     }
 
     #[test]
@@ -2938,9 +3558,10 @@ mod tests {
         m.insert(h0, 0usize);
         m.insert(h1, 1);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(f
-            .iter()
-            .any(|e| e.kind == "attachment_prior_binding_forward_reference"));
+        assert!(
+            f.iter()
+                .any(|e| e.kind == "attachment_prior_binding_forward_reference")
+        );
     }
 
     #[test]
@@ -2953,9 +3574,10 @@ mod tests {
         m.insert(h0, 0usize);
         m.insert(h1, 1);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(f
-            .iter()
-            .any(|e| e.kind == "attachment_binding_lineage_cycle"));
+        assert!(
+            f.iter()
+                .any(|e| e.kind == "attachment_binding_lineage_cycle")
+        );
     }
 
     #[test]
@@ -2970,9 +3592,10 @@ mod tests {
         m.insert(h1, 1);
         m.insert(h2, 2);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(f
-            .iter()
-            .any(|e| e.kind == "attachment_binding_lineage_cycle"));
+        assert!(
+            f.iter()
+                .any(|e| e.kind == "attachment_binding_lineage_cycle")
+        );
     }
 
     #[test]
@@ -2997,12 +3620,15 @@ mod tests {
             role_id: "applicantSigner".to_string(),
             role: "signer".to_string(),
             document_id: "benefitsApplication".to_string(),
-            document_hash:
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            document_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
             document_hash_algorithm: "sha-256".to_string(),
             signed_at: "2026-04-22T14:30:00Z".to_string(),
             identity_binding: Value::Map(vec![
-                (Value::Text("method".into()), Value::Text("email-otp".into())),
+                (
+                    Value::Text("method".into()),
+                    Value::Text("email-otp".into()),
+                ),
                 (
                     Value::Text("assuranceLevel".into()),
                     Value::Text("standard".into()),
@@ -3030,8 +3656,8 @@ mod tests {
             ceremony_id: "ceremony-2026-0001".to_string(),
             profile_ref: Some("urn:agency.gov:wos:signature-profile:benefits:v1".to_string()),
             profile_key: None,
-            formspec_response_ref:
-                "urn:agency.gov:formspec:responses:benefits:case-2026-0001".to_string(),
+            formspec_response_ref: "urn:agency.gov:formspec:responses:benefits:case-2026-0001"
+                .to_string(),
         }
     }
 

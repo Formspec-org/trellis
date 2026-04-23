@@ -1,0 +1,27 @@
+id          = "export/008-intake-handoffs-workflow-attach"
+op          = "export"
+status      = "active"
+description = """Single-event ADR 0073 export carrying a workflow-initiated Formspec handoff and the admitted WOS `intakeAccepted` attach record. The catalog row omits `case_created_event_hash` because no governed-case birth occurs on attach."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-006",
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-067",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "299d439f61444b646093cb55c5e46690b14c32e80ad330fac05e6c0526fe5c3a"
+
+[derivation]
+document = "derivation.md"

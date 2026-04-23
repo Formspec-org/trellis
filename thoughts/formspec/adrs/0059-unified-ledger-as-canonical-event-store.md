@@ -3,9 +3,11 @@
 **Status:** Proposed
 **Date:** 10 April 2026
 **Author:** Mike (TealWolf Consulting LLC)
-**Applies to:** Formspec Respondent Ledger Spec, WOS Runtime Companion, Formspec Coprocessor (not yet specified), Enterprise Implementation Roadmap
+**Applies to:** Formspec Respondent Ledger Spec, WOS Runtime Companion, Formspec/WOS intake handoff (ADR 0073), Enterprise Implementation Roadmap
 **Depends on:** ADR-0003 (Audit Ledger), ADR-0007 (Key Management), ADR-0054 (Client/Server Ledger Chain), ADR-0012 (Data Lifecycle)
 **Supersedes:** None (extends ADR-0054 into the WOS governance domain)
+
+**Refined by:** Parent [ADR 0073](../../../../thoughts/adr/0073-stack-case-initiation-and-intake-handoff.md) for case-boundary ownership. WOS owns governed case identity and `case.created`; Formspec emits intake handoff evidence; Trellis anchors and exports the evidence path.
 
 ---
 
@@ -355,7 +357,7 @@ Three layers, three independent purposes:
 | Privacy tier model | **Build** | -- | Who sees what when. Audience-scoped views backed by BBS+ selective disclosure. |
 | Regulatory compliance semantics | **Build** | -- | Retention, legal hold, redaction as ledger operations. Crypto-shredding lifecycle. |
 | WOS governance event definitions | **Build** | -- | ~25 governance event types with field schemas, privacy classifications, provenance tier mappings. |
-| Coprocessor protocol | **Build** | -- | How intake events become governance events. The `case.created` transition. |
+| Coprocessor protocol | **Build** | -- | How intake handoffs become governance events. WOS-owned `case.created` transition per ADR 0073. |
 | Materialized view projections | **Build** | -- | How ledger events project to Postgres read models. Domain-specific CQRS. |
 
 ### 3.2 Architecture diagram
@@ -424,11 +426,11 @@ These must be answered before implementation:
 | `response.stopped` | Submission abandoned |
 | `system.merge-resolved` | Concurrent edit conflict resolved |
 
-### 4.2 Coprocessor transition (not yet specified)
+### 4.2 Coprocessor transition (refined by ADR 0073)
 
 | Event | Description |
 |-------|-------------|
-| `case.created` | Submission mapped to WOS case instance. Links intake events to governance events. Records case file mapping and contract validation result. |
+| `case.created` | WOS-created case boundary after accepting an intake handoff. Links intake events to governance events. Records case file mapping and contract validation result. |
 | `case.field.mapped` | Records how response fields mapped to case file fields. |
 | `case.contract.validated` | Records contract validation result before workflow fires. |
 
@@ -587,7 +589,7 @@ Use Hyperledger Fabric, Ethereum L2, or similar for immutability and distributed
 
 4. **Selective disclosure replaces redaction.** A FOIA officer produces a BBS+ proof revealing requested fields. The proof is verifiable. The unrevealed fields remain encrypted. No manual redaction. No risk of incomplete redaction.
 
-5. **The Coprocessor simplifies.** It does not copy data between systems. It appends a `case.created` event to a ledger that already contains intake events. The case file is a materialized view.
+5. **The coprocessor simplifies.** It does not copy data between systems. Formspec hands off pinned intake evidence; WOS accepts the handoff and emits `case.created` into the ledger that already contains intake events. The case file is a materialized view.
 
 6. **Disaster recovery is replay.** The ledger is the backup. Any materialized view can be rebuilt by replaying ledger events.
 
@@ -622,7 +624,7 @@ Use Hyperledger Fabric, Ethereum L2, or similar for immutability and distributed
 ### Respondent Ledger spec changes
 
 1. Add a governance event namespace (`wos.*`) with extension mechanism for governance-phase events.
-2. Define the `case.created` transition event linking intake and governance phases.
+2. Define the WOS-owned `case.created` transition event linking intake and governance phases after intake-handoff acceptance.
 3. Add encryption envelope specification: plaintext envelope schema, ciphertext format, key bag structure.
 4. Add `ledger.*` lifecycle event types for retention, hold, key destruction, schema evolution.
 5. Specify that checkpoint and signing mechanisms apply identically to all event phases.
@@ -630,8 +632,8 @@ Use Hyperledger Fabric, Ethereum L2, or similar for immutability and distributed
 
 ### Formspec Coprocessor spec
 
-1. The `case.created` event structure: submission reference, case file mapping, contract validation result, kernel document reference.
-2. How `response.completed` triggers `case.created` -- the phase transition.
+1. The `IntakeHandoff` / `CaseInitiationRequest` structure: submission reference, response hash, validation report, case file mapping, contract validation result, and kernel document reference.
+2. How `response.completed` produces an intake handoff, and how WOS acceptance produces `case.created` -- the phase transition.
 3. How subsequent Formspec events (RFI responses) append to the same ledger.
 4. The checkpoint hash at case creation, linking the intake chain to the governance chain.
 
@@ -725,7 +727,7 @@ The unified ledger exists as two copies that sync:
 
 ### The Coprocessor transition
 
-The `case.created` event is where the client ledger hands off to the server ledger:
+The intake handoff plus WOS-owned `case.created` event is where the client ledger hands off to the server ledger:
 
 ```
 Client ledger (respondent's browser):
@@ -737,13 +739,14 @@ Server verifies chain integrity, verifies respondent signatures
 
      ↓ Coprocessor
 
-Server appends: case.created (links intake chain to governance chain)
+Formspec emits: IntakeHandoff (pins response, validation, and ledger head)
+WOS accepts; Trellis appends: case.created (links intake chain to governance chain)
 
 Server ledger continues:
   wos.transition.fired → wos.task.created → ... → wos.explanation.assembled
 ```
 
-Before `case.created`, the respondent owns the chain. After it, the platform extends the chain with governance events co-signed by the platform key. The respondent's local copy stays at the submission point (or continues if they file an RFI response or appeal).
+Before WOS accepts the intake handoff and emits `case.created`, the respondent owns the chain. After it, the platform extends the chain with governance events co-signed by the platform key. The respondent's local copy stays at the submission point (or continues if they file an RFI response or appeal).
 
 ### Browser-side technology
 
@@ -791,7 +794,7 @@ This reframe does not invalidate Parts 1-6 of the ADR. It clarifies WHERE the le
 The Formspec Coprocessor spec must now define:
 
 1. The sync protocol (client → server event transfer with chain verification)
-2. The `case.created` transition from client-owned chain to server-extended chain
+2. The intake handoff and WOS-owned `case.created` transition from client-owned chain to server-extended chain
 3. How subsequent client events (RFI responses, appeal submissions) append to the same chain
 4. Consistency verification protocol (client verifying server's governance extensions)
 

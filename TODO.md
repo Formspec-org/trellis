@@ -68,7 +68,30 @@ This file tracks only open center work.
   **Gate:** none for the Trellis machine-verifiable slice; parent alignment is
   coordination-only.
 
-### 2. Identity attestation bundle shape
+### 2. Case-initiation handoff export evidence
+
+- **ADR 0073 handoff evidence in export/verify** — **S**, Phase 1.
+  [`../thoughts/adr/0073-stack-case-initiation-and-intake-handoff.md`](../thoughts/adr/0073-stack-case-initiation-and-intake-handoff.md).
+  **Landed 2026-04-23 (Trellis center):** `trellis.export.intake-handoffs.v1`
+  is registered in Core §6.7; `063-intake-handoffs.cbor` is now a first-class
+  optional export member; `trellis-verify` localizes digest mismatch, malformed
+  catalog, unresolved WOS events, WOS payload mismatch, and Formspec
+  `responseHash` mismatch; committed vectors now cover:
+  `append/020-wos-intake-accepted-workflow-attach`,
+  `append/021-wos-intake-accepted-public-create`,
+  `append/022-wos-case-created-public-intake`,
+  `export/007-intake-handoffs-public-create`,
+  `export/008-intake-handoffs-workflow-attach`,
+  `verify/015-export-007-intake-response-hash-mismatch`, and
+  `tamper/015-intake-handoff-catalog-digest-mismatch`. Trellis now proves both
+  accepted ADR 0073 paths in machine-verifiable export artifacts rather than
+  prose only. **Still open:** if the parent repo standardizes one shared
+  cross-stack fixture bundle, Trellis should consume those declarative inputs
+  instead of seeding a parallel intake corpus. That is coordination work, not a
+  Trellis-center gap.
+  **Gate:** none — ADR 0073 is accepted and the Formspec/WOS handoff schema/reference parser landed 2026-04-23.
+
+### 3. Identity attestation bundle shape
 
 - **Identity attestation bundle shape** — **S**, Phase 1.
   Declare how a provider-neutral identity-proofing attestation lands in the
@@ -77,7 +100,7 @@ This file tracks only open center work.
   `SignatureAffirmation.identityBinding` into a reusable shape.
   **Gate:** WOS identity-attestation shape settled.
 
-### 3. Respondent Ledger ↔ Trellis binding
+### 4. Respondent Ledger ↔ Trellis binding
 
 - **`eventHash` / `priorEventHash` MUST promotion** — **M**, Phase 1.
   Promote Formspec Respondent Ledger §6.2 `eventHash` / `priorEventHash` from
@@ -86,7 +109,7 @@ This file tracks only open center work.
   accepted.
   **Gate:** Formspec-side coordination.
 
-### 4. ADR 0066 — amendment / supersession / rescission / correction
+### 5. ADR 0066 — amendment / supersession / rescission / correction
 
 - **ADR 0066 execution** — **L**, phased.
   [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
@@ -97,7 +120,7 @@ This file tracks only open center work.
   activate supersession runtime and land `supersession-graph.json`.
   **Gate:** ADR 0066 accepted.
 
-### 5. ADR 0067 — statutory clocks
+### 6. ADR 0067 — statutory clocks
 
 - **ADR 0067 execution** — **M**, Phase 1.
   [`../thoughts/adr/0067-stack-statutory-clocks.md`](../thoughts/adr/0067-stack-statutory-clocks.md).
@@ -107,7 +130,7 @@ This file tracks only open center work.
   `append/016-clock-elapsed`, `append/017-clock-paused-resumed`.
   **Gate:** ADR 0067 accepted.
 
-### 6. Deferred by phase, not forgotten
+### 7. Deferred by phase, not forgotten
 
 - **Case ledger + agency log semantic definitions** — **M**, Phase 4.
   Core §22 case ledger composes sealed response-ledger heads with WOS
@@ -115,7 +138,7 @@ This file tracks only open center work.
   case-ledger heads. Envelope hooks stay reserved under ADR 0003 and
   `MUST NOT populate` in Phase 1. Substance waits for Phase-4 scoping.
 
-### 7. Sustaining maintenance
+### 8. Sustaining maintenance
 
 - **Keep Rust within hours of new vectors** — **XS** per vector.
   Any new vector added by an open contract needs matching Rust conformance

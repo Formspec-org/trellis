@@ -1,0 +1,19 @@
+id          = "tamper/015-intake-handoff-catalog-digest-mismatch"
+op          = "tamper"
+status      = "active"
+description = """ADR 0073 export tamper. Mutates `063-intake-handoffs.cbor` after manifest signing so the archive spine remains intact but the `trellis.export.intake-handoffs.v1.intake_catalog_digest` check fails."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "intake_handoff_catalog_digest_mismatch"
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,31 @@
+id          = "append/022-wos-case-created-public-intake"
+op          = "append"
+status      = "active"
+description = """First non-genesis append extending `append/021-wos-intake-accepted-public-create`. Records the governed-case boundary for the same public Formspec handoff as a WOS `caseCreated` provenance record."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+wos_record     = "input-wos-record.dcbor"
+wos_tuple      = "input-wos-idempotency-tuple.cbor"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
