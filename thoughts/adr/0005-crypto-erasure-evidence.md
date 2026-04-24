@@ -92,7 +92,7 @@ SubjectScope = {
 - **`cascade_scopes`** — a non-empty subset of CS-01..CS-06. An operator who performs crypto-erasure without any cascade is non-conformant under OC-77; this field makes the scope explicit per destruction event rather than only in Posture Declaration policy prose.
 - **`completion_mode`** — records the cascade state at emission time. Phase-1 operators should emit `"complete"` or `"in-progress"`. `"best-effort"` is reserved for environments where the operator cannot prove cascade completion (e.g., third-party cache-invalidation API without a signed receipt) and opts to attest partial execution rather than silently over-claim.
 - **`subject_scope`** — describes what the destroyed key protected. Disjoint unions on `kind` drive which `*_refs` field is populated. Verifier SHALL validate the cross-field requirement.
-- **`hsm_receipt`** — opaque bytes from the KMS/HSM confirming key destruction. Verifier does NOT parse these in Phase 1 — they are operator-supplied evidence for post-hoc human review. `hsm_receipt_kind` tags the format (e.g., `"aws-kms-audit-v1"`, `"pkcs11-destruction-receipt-v1"`); the Phase-1 verifier only checks the null-consistency rule.
+- **`hsm_receipt`** — opaque bytes from the KMS/HSM confirming key destruction. Verifier does NOT parse these in Phase 1 — they are operator-supplied evidence for post-hoc human review. `hsm_receipt_kind` tags the format (e.g., `"aws-kms-audit-v1"`, `"pkcs11-destruction-receipt-v1"`); the Phase-1 verifier only checks the null-consistency rule. Values of `hsm_receipt_kind` are **append-only registry strings** (Companion §20 or Core §6.7 follow-on table — same discipline as `CascadeScope`'s `tstr` escape); Phase-1 MAY use a single catch-all such as `"opaque-vendor-receipt-v1"` until the vendor registry in Open questions §2 lands.
 - **`attestations`** — at least one attestation required. Operators SHOULD require dual attestation for destruction events that affect data shared across governance boundaries (analogous to the A.5.3 step 4 dual-attestation rule for Widening / Orthogonal posture changes). Specific attestation-count rules per `reason_code` are registered per deployment in the Posture Declaration.
 
 ### Reason codes (registered, extensible)
@@ -128,6 +128,8 @@ A conforming verifier processing an export bundle containing `trellis.erasure-ev
    - Let `destroyed_at` be the `destroyed_at` value.
    - For every canonical event in the chain authored-at > `destroyed_at` whose COSE_Sign1 protected header `kid` equals `kid_destroyed`: mark it as **`post_erasure_use`**. This is a localizable failure per Core §19 step 6.
    - For every canonical event in the chain authored-at > `destroyed_at` whose `key_bag.entries` contains an entry wrapped under `kid_destroyed`: mark it as **`post_erasure_wrap`**. Also localizable.
+
+   **Phase-1 scope (explicit bound; pairs with ADR 0006):** The two checks above are defined for the **signing / HPKE-wrap** surfaces that exist in Phase-1 exports today. They do **not**, until a follow-on verifier milestone lands with ADR 0006, forbid post-`destroyed_at` use of **descendant** material that was encrypted under a destroyed **scope**, **tenant-root**, **subject**, or **recovery** class kid (those registry classes are envelope-reserved but not yet load-bearing in the reference verifier). Erasure evidence for non-`signing` `key_class` values remains wire-valid; normative "forbid the whole subtree" semantics **co-land with ADR 0006** (extend step 5 or add a dedicated subtree walk).
 6. **Cross-check cascade scope against export contents:**
    - For each `CascadeScope` entry declared, if the export bundle contains derived artifacts corresponding to that scope (e.g., CS-01 projections in `070-projections/`, CS-03 snapshots in `080-snapshots/`), check that those artifacts do NOT decode the destroyed key's material. Detection is best-effort in Phase 1 (full lint is deferred to the O-3 projection-discipline infrastructure); Phase-1 verifier MAY emit a warning if it cannot perform the check for a given scope.
 7. **Accumulate outcomes** into a new `VerificationReport.erasure_evidence` array, parallel to `posture_transitions`. Each entry carries: `evidence_id`, `kid_destroyed`, `destroyed_at`, `cascade_scopes`, `completion_mode`, `signature_verified`, `post_erasure_uses` (count), `post_erasure_wraps` (count), `cascade_violations` (array of scope + artifact refs), `failures` (array of localizable failure codes).
@@ -194,9 +196,9 @@ Separation-of-concerns note: destroying the key without emitting the evidence is
 - **OC-76** unchanged.
 - **OC-77** unchanged.
 - **OC-78** promoted from SHOULD-adjacent guidance to normative: every cryptographic erasure performed by the Operator MUST be accompanied by a canonical `trellis.erasure-evidence.v1` event per this ADR. The Posture Declaration continues to document policy scope; the event records execution.
-- **New OC-79 (MUST)** — every cascade-scope entry declared in an `ErasureEvidencePayload` MUST be one of (a) a value registered in Appendix A.7 or (b) a registry-appended future identifier per the append-only convention. Emitting free-text scope identifiers is non-conformant.
-- **New OC-80 (MUST)** — for every canonical event in chain order after a destroyed kid's `destroyed_at`, the operator MUST NOT sign under that kid and MUST NOT emit a key-bag entry wrapped under that kid. This is the sibling of the verifier cross-check in step 5 above; the obligation is on the emit side, the check is on the verify side.
-- **New OC-81 (SHOULD)** — operators SHOULD require dual attestation (prior + new) for erasure events with `reason_code ∈ {3, 5}` (legal order, compromise mitigation) and for `subject_scope.kind ∈ {per-tenant, deployment-wide}`. The specific policy is declared per deployment in the Posture Declaration.
+- **New OC-141 (MUST)** — every cascade-scope entry declared in an `ErasureEvidencePayload` MUST be one of (a) a value registered in Appendix A.7 or (b) a registry-appended future identifier per the append-only convention. Emitting free-text scope identifiers is non-conformant. *(Numbering uses OC-141, not OC-79: Companion already assigns OC-79..OC-81 in §20.6 to rejection / admissibility taxonomy — reusing those ids would silently rebind traceability rows.)*
+- **New OC-142 (MUST)** — for every canonical event in chain order after a destroyed kid's `destroyed_at`, the operator MUST NOT sign under that kid and MUST NOT emit a key-bag entry wrapped under that kid, **within the Phase-1 verifier surfaces named in step 5** (signing `kid` + `key_bag` wraps). This is the sibling of the verifier cross-check in step 5 above; the obligation is on the emit side, the check is on the verify side. *(Subtree obligations for non-signing registry classes follow ADR 0006.)*
+- **New OC-143 (SHOULD)** — operators SHOULD require dual attestation (prior + new) for erasure events with `reason_code ∈ {3, 5}` (legal order, compromise mitigation) and for `subject_scope.kind ∈ {per-tenant, deployment-wide}`. The specific policy is declared per deployment in the Posture Declaration.
 
 ## Fixture plan
 
@@ -214,7 +216,9 @@ Minimum Phase-1 fixture set (landed alongside the Rust implementation):
 | `tamper/018-erasure-post-wrap` | Tampered chain: a later event's key_bag wraps under the destroyed kid. Expected `post_erasure_wrap > 0` → `integrity_verified = false`. | CS-03 | per-subject |
 | `tamper/019-erasure-catalog-digest-mismatch` | Tampered export catalog; verifier rejects per §18 pattern. | — | — |
 
-Six positive + three tamper. Exercises the full verifier state space without exploding the corpus. Follow-on fixtures (per-scope erasure, third-party HSM-receipt-kind variants) deferred to the trigger-gated list.
+Six positive + three tamper cover the **minimum** happy path + the two post-erasure checks + catalog integrity. Follow-on tamper vectors (execution backlog, not optional forever): invalid `cascade_scopes` free-text (OC-141), `attestations` signature failure, `subject_scope` shape violations, `completion_mode` / `reason_code` illegal combinations, and dual-key posture-extension collision (custody + disclosure keys on one event) should mirror Trellis's general **tamper-first** discipline once the erasure decoder lands.
+
+Follow-on fixtures (per-scope erasure, third-party HSM-receipt-kind variants) deferred to the trigger-gated list.
 
 ## Adversary model
 
@@ -279,7 +283,7 @@ Emit erasure evidence as a sidecar manifest outside the canonical event chain (s
 
 ## Implementation sequencing
 
-1. **Spec** — Companion §20 rewrite (OC-78 promotion, new OC-79, OC-80, OC-81). Core §6.7 registration row. Core §19 verifier-obligation step. Appendix A.5 attestation reuse confirmation. This ADR pinned as the design anchor.
+1. **Spec** — Companion §20 rewrite (OC-78 promotion, new OC-141, OC-142, OC-143). Core §6.7 registration row. Core §19 verifier-obligation step. Appendix A.5 attestation reuse confirmation. This ADR pinned as the design anchor.
 2. **Rust verifier** — extend `trellis-verify` with erasure-evidence decode, chain cross-check, report accumulation. `VerificationReport.erasure_evidence` field added.
 3. **First positive vector** — `append/023-erasure-evidence-per-subject-cs-03` byte-matched end-to-end.
 4. **Python stranger mirror** — `trellis-py` fix.

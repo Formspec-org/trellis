@@ -2,6 +2,7 @@
 
 **Date:** 2026-04-24
 **Status:** Decided at the abstraction level; concrete choice deferred per-deployment.
+**Lifecycle:** Spike — `AnchorAdapter` + Core §28 field mapping below are **normative-adjacent** until a Core/Companion ADR promotes them; keep here (not archive) while TODO #19 / external-anchor priority remains open.
 **Owner:** Trellis center (abstraction); adapter authors (concrete).
 **Relates to:** Core §11.5 (`CheckpointPayload.anchor_ref`); ADR 0002 (list-form anchors, single-anchor deployment default); Core §18.3 (`external_anchors` export-manifest entry); Companion §26 (witness / federation, Phase-4); `.claude/vision-model.md` § Active uncertainties (ε — anchor substrate).
 
@@ -84,23 +85,33 @@ pub struct AnchorVerification {
 }
 ```
 
-### Adapter identity at the wire level
+### Adapter identity at the wire level (Core §28 `ExternalAnchor` — no silent field drop)
 
-The export-manifest `external_anchors` entry gains an `adapter_id` field alongside the opaque receipt bytes:
+Core §28 / export-manifest `external_anchors` already use the CDDL type **`ExternalAnchor`**:
 
 ```cddl
-AnchorRef = {
-  adapter_id:           tstr,          ; "opentimestamps-v1" / "rekor-v1" / "trillian-v1" / tstr
-  receipt:              bstr,          ; adapter-opaque serialization
-  submission_timestamp: uint,          ; Unix seconds UTC — when the operator submitted
-  anchor_witness:       tstr / null,   ; optional human-readable witness URI (block explorer link,
-                                       ; Rekor log URI, Trillian log URI) for diagnostic use only
+ExternalAnchor = {
+  kind:         tstr,
+  anchor_ref:   bstr,
+  required:     bool,
+  description:  tstr,
 }
 ```
 
-A verifier encountering an `external_anchors` entry looks up an `AnchorAdapter` implementation for the given `adapter_id` in its adapter registry, dispatches `verify(checkpoint_digest, submission_timestamp, receipt)`, and records the result in the verification report.
+This spike's earlier sketch renamed `kind → adapter_id` and `anchor_ref → receipt`, which **breaks** existing fixtures and prose that rely on `required` / `description`. **Normative mapping:**
 
-A verifier without an adapter for a given `adapter_id` records the anchor as `adapter_unknown` and does NOT fail verification (the export is still byte-verifiable; just unanchored-from-this-verifier's-perspective). Adopters who require a specific anchor type publish that requirement in their Posture Declaration.
+| Spike / trait concept | Core `ExternalAnchor` field |
+|---|---|
+| `adapter_id()` / adapter family string | `kind` |
+| opaque receipt / proof bytes | `anchor_ref` |
+| Posture Declaration policy | `required` |
+| operator / auditor prose | `description` |
+
+**`submission_timestamp` and `anchor_witness`:** not representable in Core §28 today without a **spec-level** extension (optional `extensions` on `ExternalAnchor`, a parallel metadata array in the manifest, or embedding those values inside adapter-opaque `anchor_ref` bytes). Adapters SHOULD embed everything the offline verifier needs inside `anchor_ref` until a Core ADR extends the type; do not strip `required` / `description` to shoehorn new top-level keys.
+
+A verifier encountering an `external_anchors` entry looks up an `AnchorAdapter` implementation for the **`kind`** string in its adapter registry, dispatches `verify(checkpoint_digest, submission_timestamp, anchor_ref)` (where `submission_timestamp` is parsed from inside `anchor_ref` when not yet a first-class field), and records the result in the verification report.
+
+A verifier without an adapter for a given `kind` records the anchor as `adapter_unknown` and does NOT fail verification (the export is still byte-verifiable; just unanchored-from-this-verifier's-perspective). Adopters who require a specific anchor type publish that requirement in their Posture Declaration.
 
 ## The three first-class candidate adapters
 

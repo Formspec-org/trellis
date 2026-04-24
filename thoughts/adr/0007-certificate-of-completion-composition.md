@@ -66,7 +66,9 @@ PresentationArtifact = {
   template_id:      tstr / null,                       ; optional reference to a pinned operator-chosen
                                                        ; template; non-normative
   template_hash:    digest / null,                     ; optional content-hash of the template used;
-                                                       ; REQUIRED non-null iff template_id is non-null
+                                                       ; REQUIRED non-null iff template_id is non-null.
+                                                       ; When media_type = "text/html", MUST be non-null
+                                                       ; even if template_id is null (HTML binding requires a template pin)
 }
 
 ChainSummary = {
@@ -79,6 +81,9 @@ ChainSummary = {
                       tstr,                            ; tstr permits registered status extensions
   impact_level:       "low" / "moderate" / "high" / tstr,  ; echoes WOS Signature Profile impactLevel
                                                            ; when present; null for signing-only flows
+  covered_claims:   [* tstr],                          ; optional machine-routable tags naming which
+                                                       ; cross-checks the operator asserts the PDF covers
+                                                       ; (e.g. "signer_count", "response_ref"); empty = default set
 }
 
 SignerDisplayEntry = {
@@ -86,8 +91,11 @@ SignerDisplayEntry = {
                                                        ; SignatureAffirmation event
   display_name:    tstr,                               ; what the PDF shows for this signer
   display_role:    tstr / null,                        ; "applicant" / "notary" / "witness" / custom
-  signed_at:       uint,                               ; must equal or be within the SignatureAffirmation
-                                                       ; event's authored_at window
+  signed_at:       uint,                               ; MUST exactly equal the resolved SignatureAffirmation
+                                                       ; event header's authored_at (uint seconds). Phase-1 uses
+                                                       ; exact equality; optional deployment policy for sub-second
+                                                       ; skew belongs in Companion §11 / Posture Declaration, not
+                                                       ; silent verifier slack.
 }
 ```
 
@@ -98,7 +106,9 @@ SignerDisplayEntry = {
 - **`certificate_id`** — operator-minted stable identifier. Enables idempotent re-emission and cross-reference from export manifests.
 - **`case_ref`** — null for intake-record-scoped signing where a governed case doesn't yet exist (per STACK.md intake vs. governed-case distinction). Matches ADR 0073's handoff distinction.
 - **`presentation_artifact.content_hash`** — under a new domain tag `trellis-presentation-artifact-v1`, added to Core §9 alongside existing tags. Verifier recomputes against attachment bytes on verification.
-- **`template_id` / `template_hash`** — null for one-off/operator-bespoke renderings. When both are non-null, a verifier MAY re-render from the template + chain data to detect rendering divergence; this is an optional stronger check, not a Phase-1 requirement.
+- **`template_id` / `template_hash`** — null for one-off/operator-bespoke renderings **when `media_type` is `application/pdf`**. When both are non-null, a verifier MAY re-render from the template + chain data to detect rendering divergence; this is an optional stronger check, not a Phase-1 requirement. **`text/html` presentations MUST carry `template_hash` non-null** (operator-chosen pin of the HTML template bytes) even when `template_id` is null — HTML is too fluid for hash-less binding.
+- **`workflow_status` / `impact_level` escapes** — `tstr` extensions MUST use append-only identifiers registered alongside WOS Signature Profile enums (Companion cross-reference); free-text vendor statuses are non-conformant.
+- **`covered_claims`** — when non-empty, the verifier MUST confirm it evaluated every listed cross-check tag or fail closed (`certificate_covered_claim_unknown`). Empty/absent means the default checks in §Verifier obligations apply.
 - **`signing_events`** — each digest MUST reference a `SignatureAffirmation` event in the chain (either inline via Core §6.7 registration or catalogued in `062-signature-affirmations.cbor` per the WOS-T4 export pattern).
 - **`workflow_ref`** — opaque to Trellis; set by the operator to a WOS workflow-execution URI when WOS drives the signing ceremony. Null for signing-only deployments that use Trellis without WOS (rare but contemplated).
 - **`chain_summary.signer_count == len(signing_events)`** — invariant. Verifier MUST flag mismatch.
@@ -125,11 +135,11 @@ Also add the new domain tag to Core §9 domain-separation discipline:
 A conforming verifier processing an export bundle containing `trellis.certificate-of-completion.v1` events MUST:
 
 1. **Decode** the payload against the CDDL above. Mismatch is a structure failure (Core §19 step 1).
-2. **Validate** the invariants: `signer_count == len(signing_events)`, `len(signer_display) == len(signing_events)`, and each `signer_display[i].principal_ref` equals the principal on `signing_events[i]`. Any mismatch flips `integrity_verified = false` with failure `certificate_chain_summary_mismatch`.
+2. **Validate** the invariants: `signer_count == len(signing_events)`, `len(signer_display) == len(signing_events)`, and each `signer_display[i].principal_ref` equals the principal on `signing_events[i]`. Any mismatch flips `integrity_verified = false` with failure `certificate_chain_summary_mismatch`. If `covered_claims` is non-empty, every tag MUST be in the verifier's supported tag registry for this release; unknown tags flip `integrity_verified = false` with `certificate_covered_claim_unknown`.
 3. **Verify** every `attestations[*].signature` under `trellis-transition-attestation-v1` domain separation (shared with A.5.3 and ADR 0005).
 4. **Resolve** `presentation_artifact.attachment_id` via the ADR 0072 attachment-binding lineage. If the attached artifact is present, recompute its content hash under `trellis-presentation-artifact-v1` and confirm it equals `presentation_artifact.content_hash`. Mismatch flips `integrity_verified = false` with failure `presentation_artifact_content_mismatch`.
 5. **Resolve** every `signing_events[i]` digest against the chain. Each MUST be a chain-present `SignatureAffirmation` event (or WOS equivalent registered in Core §6.7). Missing or wrong-type events flag `signing_event_unresolved`.
-6. **Validate temporal consistency**: every `signer_display[i].signed_at` MUST equal or fall within the `authored_at` window of `signing_events[i]`. Mismatch flags `signing_event_timestamp_mismatch`.
+6. **Validate temporal consistency**: every `signer_display[i].signed_at` MUST exactly equal the resolved `SignatureAffirmation` header `authored_at` for `signing_events[i]`. Mismatch flags `signing_event_timestamp_mismatch`.
 7. **Validate** `chain_summary.response_ref` when non-null: MUST equal the canonical-response-hash on the referenced Formspec authoring events. Mismatch flags `response_ref_mismatch`.
 8. **Accumulate** outcomes into a new `VerificationReport.certificates_of_completion` array, parallel to `posture_transitions` and `erasure_evidence`. Each entry carries: `certificate_id`, `completed_at`, `signer_count`, `attachment_resolved`, `all_signing_events_resolved`, `chain_summary_consistent`, `failures`.
 
@@ -248,8 +258,11 @@ Minimum Phase-1 fixture set:
 | `tamper/020-cert-content-hash-mismatch` | PDF content doesn't match bound hash. |
 | `tamper/021-cert-signer-count-mismatch` | Chain_summary.signer_count != len(signing_events). |
 | `tamper/022-cert-signing-event-unresolved` | Referenced signing_event hash not in chain. |
+| `tamper/023-cert-attestation-signature-invalid` | Valid structure, bad attestation COSE under `trellis-transition-attestation-v1`. |
+| `tamper/024-cert-response-ref-mismatch` | Non-null `response_ref` disagrees with Formspec canonical-response hash. |
+| `tamper/025-cert-html-missing-template-hash` | `media_type = text/html` with `template_hash = null` (structure failure). |
 
-Three positive + three tamper + one export catalog. Exercises the full verifier state space.
+Three positive + six tamper + one export catalog. Minimum set covers primary failures; expand with `covered_claims` mismatch and template re-render drift as implementation matures.
 
 ## Open questions / follow-ons
 
@@ -277,7 +290,7 @@ Three positive + three tamper + one export catalog. Exercises the full verifier 
 3. **First positive vector** — `append/028-certificate-of-completion-minimal` byte-matched end-to-end.
 4. **Python stranger mirror** — `trellis-py` fix.
 5. **Remaining positive vectors** — `append/029..030`.
-6. **Tamper vectors** — `tamper/020..022`.
+6. **Tamper vectors** — `tamper/020..025` (per §Fixture plan).
 7. **Export catalog** — `export/010` + `065-certificates-of-completion.cbor`.
 8. **`trellis-cli seal-completion`** command.
 9. **Reference template** — non-normative HTML/CSS at `reference/certificate-of-completion/template-v1/`.

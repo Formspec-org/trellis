@@ -2,6 +2,7 @@
 
 **Date:** 2026-04-24
 **Status:** Decided; pending implementation landing.
+**Lifecycle:** Spike — crate + interface are authoritative for TODO item #6 until execution lands; **promote to ADR 0008** (or fold into ADR 0004 amendment) when the first `trellis-core` HPKE PR opens so normative prose carries an ADR id.
 **Owner:** Trellis center.
 **Unblocks:** Sequence item #6 (HPKE wrap/unwrap in Rust) in [`../../TODO.md`](../../TODO.md). Also item #7 (duplicate-ephemeral lint), which hangs off the Rust HPKE infrastructure this item stands up.
 

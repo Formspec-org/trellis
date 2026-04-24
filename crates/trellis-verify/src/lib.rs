@@ -1558,14 +1558,17 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
 fn decode_transition_details(
     extensions: &[(Value, Value)],
 ) -> Result<Option<TransitionDetails>, VerifyError> {
-    if let Some(extension_value) =
-        map_lookup_optional_value(extensions, "trellis.custody-model-transition.v1")
-    {
+    let custody = map_lookup_optional_value(extensions, "trellis.custody-model-transition.v1");
+    let disclosure = map_lookup_optional_value(extensions, "trellis.disclosure-profile-transition.v1");
+    if custody.is_some() && disclosure.is_some() {
+        return Err(VerifyError::new(
+            "extensions MUST NOT contain both trellis.custody-model-transition.v1 and trellis.disclosure-profile-transition.v1 on the same event",
+        ));
+    }
+    if let Some(extension_value) = custody {
         return Ok(Some(decode_custody_model_transition(extension_value)?));
     }
-    if let Some(extension_value) =
-        map_lookup_optional_value(extensions, "trellis.disclosure-profile-transition.v1")
-    {
+    if let Some(extension_value) = disclosure {
         return Ok(Some(decode_disclosure_profile_transition(extension_value)?));
     }
     Ok(None)

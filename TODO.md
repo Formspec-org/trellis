@@ -45,6 +45,8 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
 
 1. **`tamper_kind` normative enum in Core §17.5** — **XS**.
+   Prerequisite: add or extend a tamper vector (or conformance assertion)
+   that fails today if enum values drift — then pin prose in Core §17.5.
    Values are de-facto consistent across the tamper corpus but not
    normatively enumerated. Closes a de-facto contract with spec prose.
 
@@ -68,20 +70,11 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
    renumber corrupts both. Corpus-integrity protection.
 
 5. **Key-class taxonomy — execute per ADR 0006** — **M**.
-   [ADR 0006](thoughts/adr/0006-key-class-taxonomy.md) accepted 2026-04-24:
-   generalize Core §8 `SigningKeyEntry` to a tagged-union `KeyEntry` with
-   five variants (`signing`, `tenant-root`, `scope`, `subject`, `recovery`).
-   Phase-1 CDDL lands all five as envelope-reserved; Phase-1 lint warns
-   on non-`signing` entries (reservation is valid but unused). Phase-2+
-   custody models CM-D (threshold) and CM-F (client-origin sovereign)
-   activate the remaining variants without a wire break. Seven-step arc:
-   Core §8 CDDL rewrite → Rust `KeyEntry` + `KeyAttributes` enum + class-
-   dispatched lookup → Phase-1 lint warn → `append/031-key-entry-signing-
-   lifecycle` byte-match → Python stranger mirror → reservation vectors
-   (`append/032..035`) → tamper vectors (`tamper/023..025`). ADR 0005
-   `key_class` enum reconciliation is a reconciliation step at the end.
-   Gap source: [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md)
-   §8.
+   [ADR 0006](thoughts/adr/0006-key-class-taxonomy.md): Core §8 `KeyEntry`
+   + five classes; flat signing arm per ADR *Wire preservation*; Rust/Python
+   dispatch; lint warn on non-`signing`; vectors `append/031..035` +
+   `tamper/023..025`; reconcile ADR 0005 `key_class`. Gap source:
+   [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md) §8.
 
 6. **HPKE wrap/unwrap in Rust** — **M**.
    Core §9.4 amendment landed; `append/004-hpke-wrapped-inline` and the
@@ -101,29 +94,18 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
    freshness ADR until Rust-side infrastructure exists to hang the lint on.
 
 8. **Crypto-erasure evidence — execute per ADR 0005** — **M–L**.
-   [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md) nine-step arc:
-   Companion §20 rewrite + Core §6.7 + Core §19 extension → Rust decode +
-   chain cross-check → first positive vector (`append/023`) → Python
-   stranger mirror → remaining positives (`append/024..027`) → tamper
-   vectors (`tamper/017..019`) → export catalog (`export/009` +
-   `064-erasure-evidence.cbor`) → `trellis-cli erase-key` → Companion §27
-   conformance extension. Steps 1–3 are the minimum for the claim to
-   hold; later steps are breadth + ergonomics.
+   [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md): spec deltas
+   (Companion §20 + OC-141..143) → Core §6.7/§19 → Rust decode + Phase-1–scoped
+   step-5 chain checks → vectors `append/023..027` + `tamper/017..019` +
+   export `009` / catalog → CLI → §27 tests. Expand tamper set per ADR
+   *Fixture plan* follow-on row.
 
 9. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
-   [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md)
-   accepted 2026-04-24: adopt `trellis.certificate-of-completion.v1` canonical
-   event binding a human-readable signed PDF/HTML artifact (via ADR 0072
-   attachment path) + a chain-derived `ChainSummary` (signer_count,
-   signer_display, response_ref, workflow_status) the verifier cross-checks
-   against the chain. Closes the DocuSign-replacement pitch. Nine-step
-   implementation arc: Core §6.7 + §9 + §19 extension → Rust decode + chain
-   cross-check → first positive vector (`append/028-certificate-of-completion-minimal`)
-   → Python stranger mirror → remaining positives (`append/029..030`) →
-   tamper vectors (`tamper/020..022`) → export catalog (`export/010` +
-   `065-certificates-of-completion.cbor`) → `trellis-cli seal-completion`
-   → non-normative reference HTML template. Steps 1–3 are the minimum for
-   the claim to hold.
+   [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
+   `trellis.certificate-of-completion.v1` + ADR 0072 attachment binding +
+   `ChainSummary` / `covered_claims` verifier cross-checks. Vectors
+   `append/028..030`, `tamper/020..025`, export `010` + catalog, CLI,
+   reference HTML template.
 
 10. **Key-rotation grace-window semantics** — **XS**.
     *Land proactively or when the first production rotation plans.* Core
@@ -223,16 +205,6 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
     hooks stay reserved under ADR 0003 and `MUST NOT populate` in Phase
     1 until this lands.
 
-## Sustaining
-
-- **Keep Rust within hours of new vectors** — **XS** per vector.
-  Any new vector added by an open contract needs matching Rust conformance
-  coverage immediately.
-
-- **Commit declarative inputs under `_inputs/<op>/` when a new vector batch
-  makes the traceability payoff real** — **S–M**.
-  Useful for ADR-0004 traceability; not a priority stream by itself.
-
 ---
 
 ## Ratification close-out
@@ -274,6 +246,7 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 | Python cross-check (G-5 harness) | `trellis-py/` | `pip install -e trellis-py && python -m trellis_py.conformance` |
 | Lint + test green | — | `python3 scripts/check-specs.py && python3 -m pytest scripts/ && cargo test --workspace` |
 | Recent commits, who changed what | — | `git log --oneline` |
+| Archived Trellis ADRs (landing zone) | `thoughts/archive/adr/` | create when first ADR moves out of `thoughts/adr/` — today empty |
 
 When a TODO grows into a spec-sized effort, move the substance to
 [`thoughts/specs/`](thoughts/specs/) and replace the entry here with a

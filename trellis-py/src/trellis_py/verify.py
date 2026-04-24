@@ -383,12 +383,17 @@ def _recompute_canonical_event_hash(scope: bytes, canonical_event_bytes: bytes) 
 
 
 def _decode_transition_details(extensions: dict) -> Optional[TransitionDetails]:
-    ext = extensions.get("trellis.custody-model-transition.v1")
-    if ext is not None:
-        return _decode_custody_model_transition(ext)
-    ext = extensions.get("trellis.disclosure-profile-transition.v1")
-    if ext is not None:
-        return _decode_disclosure_profile_transition(ext)
+    ext_custody = extensions.get("trellis.custody-model-transition.v1")
+    ext_disclosure = extensions.get("trellis.disclosure-profile-transition.v1")
+    if ext_custody is not None and ext_disclosure is not None:
+        raise VerifyError(
+            "extensions MUST NOT contain both trellis.custody-model-transition.v1 and "
+            "trellis.disclosure-profile-transition.v1 on the same event"
+        )
+    if ext_custody is not None:
+        return _decode_custody_model_transition(ext_custody)
+    if ext_disclosure is not None:
+        return _decode_disclosure_profile_transition(ext_disclosure)
     return None
 
 

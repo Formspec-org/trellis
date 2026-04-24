@@ -16,7 +16,7 @@ Trellis generalizes Core §8's `SigningKeyEntry` into a tagged union `KeyEntry` 
 - `subject` — per-subject/per-data-principal keys protecting subject-scoped payload material
 - `recovery` — recovery authorities (no signing authority; activation-only)
 
-Phase-1 CDDL lands all five variants as envelope-reserved shapes in Core §8. Phase-1 lint requires any registry entry to carry `kind = "signing"` (the only class whose runtime semantics are live in Phase 1). Phase-2+ custody models (CM-D threshold, CM-F client-origin sovereign) and Phase-3+ case-ledger scoping activate the remaining variants without requiring a wire-format break.
+Phase-1 CDDL lands all five variants as envelope-reserved shapes in Core §8. Phase-1 lint requires any registry entry to carry `kind = "signing"` (the only class whose runtime semantics are live in Phase 1). Phase-2+ custody models (CM-D threshold, CM-F client-origin sovereign) and Phase-3+ case-ledger scoping activate the remaining variants. **Wire evolution:** introducing the `KeyEntry` discriminator (and any non-flat encoding) is **not** byte-identical to today's flat `SigningKeyEntry` CBOR rows — acceptable only while no production records exist; see *Wire preservation* below.
 
 The rejected alternative — parallel registries (one per class) in Core §8 — is declined because it multiplies registry surface, complicates cross-class queries (e.g., "every key that signed anything attributable to subject X"), and creates migration hazards when a Phase-2+ custody model needs to reference keys of more than one class. Single tagged-union with a stable discriminator is the standard Trellis extension pattern (compare `EventPayload.extensions` with registered identifiers, `trellis.custody-model-transition.v1` vs `trellis.disclosure-profile-transition.v1`, etc.).
 
@@ -46,6 +46,18 @@ The discriminator pattern carries three Trellis-native advantages:
 3. **Matches the `EventPayload.extensions` pattern.** Trellis already routes custody-model-transition vs disclosure-profile-transition events through a single `extensions` map keyed by a registered identifier (Core §6.7). Key classes applying the same discriminator pattern are idiomatic; siblings would be a different pattern for no gain.
 
 ## Wire shape
+
+### Wire preservation (correction 2026-04-24)
+
+An earlier draft claimed the signing class could nest legacy fields inside an `attributes` map and remain **byte-for-byte** identical to current `SigningKeyEntry` registry bytes. That is **false**: any extra map nesting or a new top-level `kind` key changes dCBOR map length and key ordering versus existing vectors.
+
+**Normative position for execution:**
+
+1. Treat migration from flat `SigningKeyEntry` to discriminated `KeyEntry` as an **explicit registry-snapshot wire evolution** (pre-release acceptable; retag vectors after migration).
+2. Prefer a **flat signing arm** if the CDDL group can express it: top-level keys for `kind`, `kid`, `suite_id`, and all current `SigningKeyEntry` fields, with **no** `attributes` wrapper for `kind = "signing"`. Non-signing classes use `attributes: KeyAttributes` as class-specific payload.
+3. `append/031-key-entry-signing-lifecycle` (and friends) prove **semantic** parity with today's signing lifecycle, not bitwise reuse of old registry CBOR without re-issuance.
+
+### CDDL
 
 Core §8 gains a generic `KeyEntry` type replacing the current hardcoded `SigningKeyEntry` as the registry element:
 
@@ -109,13 +121,15 @@ RecoveryKeyAttributes = {
 }
 ```
 
+**Execution tightening:** the all-in-one `attributes` wrapper above is illustrative for non-signing classes. For `kind = "signing"`, Core §8 execution SHOULD use a **flat** map: the `SigningKeyAttributes` fields appear as top-level keys next to `kind` (no nested `attributes` map), minimizing CBOR drift versus today's `SigningKeyEntry` aside from the new `kind` field itself. Non-`signing` kinds nest class-specific material under `attributes` as shown.
+
 ### Field semantics and rationale
 
 - **`kind` discriminator.** Closed taxonomy at the envelope layer; `tstr` escape for future registry extensions (Phase-4+ might introduce e.g. `"witness"` or `"federation-delegate"` classes). Registry extension uses the same append-only pattern as Core §6.7 event-type registration.
 - **`kid` construction.** Unchanged from Core §8.3 — `SHA-256(dCBOR_encode_uint(suite_id) || pubkey_raw)[0..16]`. The derivation is class-agnostic; any key regardless of class has a kid derivable from its suite + pubkey.
 - **`attributes` sub-map.** CDDL dispatches on `kind` to determine `KeyAttributes` variant. Each variant carries class-specific fields. Verifier MUST validate per-class field shape.
 - **`supersedes` chain.** Every class supports supersession. Acyclicity is a verifier obligation (per the ADR 0005 sibling concern surfaced there).
-- **Signing-class variant = current `SigningKeyEntry`** field-for-field. Zero wire change for the Phase-1 signing path. The existing `SigningKeyEntry` type in Core §8 becomes a type alias: `SigningKeyEntry = KeyEntry .kind "signing"`.
+- **Signing-class variant** — field set isomorphic to current `SigningKeyEntry` (same semantics), encoded per *Wire preservation* above. The legacy `SigningKeyEntry` CDDL name may remain as an alias for the flat `kind = "signing"` arm once Core prose is updated.
 
 ### Cross-class references
 
@@ -151,7 +165,7 @@ Phase-1 runtime restriction (complementary to lint):
 
 ## Companion §20 and §27 integration
 
-Companion §20 (lifecycle / retention) gains a paragraph noting that the key-class taxonomy applies to all operator-held key material, not just signing keys. OC-75 through OC-81 (crypto-shredding obligations from ADR 0005) apply class-agnostic; the cascade-scope enumeration in Appendix A.7 is class-agnostic.
+Companion §20 (lifecycle / retention) gains a paragraph noting that the key-class taxonomy applies to all operator-held key material, not just signing keys. OC-75 through OC-78 and ADR 0005's planned **OC-141..OC-143** erasure obligations apply class-agnostic at the policy layer; the cascade-scope enumeration in Appendix A.7 is class-agnostic. Verifier step-5 chain checks remain **Phase-1 signing-bounded** until ADR 0006 extends them (see ADR 0005 step 5 scope note).
 
 Companion §27 (conformance tests) extends:
 
@@ -188,7 +202,7 @@ Do not reserve CDDL shapes now; land when adopter presents a need. Declined: wir
 
 ## Phase alignment
 
-- **Phase 1 envelope compatible.** The `KeyEntry` type replaces `SigningKeyEntry` verbatim for the signing case; Core §8.1 registry-binding prose refers to `KeyEntry` instead of `SigningKeyEntry`. Non-breaking wire change from a signing-only consumer's perspective.
+- **Phase 1 envelope compatible (structural sense).** The manifest still carries one registry array; entries become `KeyEntry`. Signing-only consumers must accept the new discriminant / layout per *Wire preservation* — **not** a claim of bitwise preservation of pre-migration registry bytes.
 - **Phase 1 runtime discipline.** Only `signing` entries emitted; lint warns on other classes; reservation is valid but unused.
 - **Phase 2 evolution.** CM-D (threshold custody) activates `recovery` + custom quorum-discipline entries. CM-F (client-origin sovereign) activates `subject` entries authored by the adopter.
 - **Phase 3 case-ledger composition.** `scope` keys become load-bearing for per-case scope-material separation.
@@ -202,7 +216,7 @@ Minimum Phase-1 fixture set:
 
 | Vector | Purpose |
 |---|---|
-| `append/031-key-entry-signing-lifecycle` | Baseline: registry-entry lifecycle for the signing class (same byte shape as the current `append/002-rotation-signing-key`, re-emitted under the new `KeyEntry` wrapping). Byte-match guarantees the signing path didn't break. |
+| `append/031-key-entry-signing-lifecycle` | Baseline: registry-entry lifecycle for the signing class, **re-generated** under the executed `KeyEntry` CDDL (semantic parity with `append/002-rotation-signing-key`; canonical CBOR bytes are re-pinned, not assumed equal to the legacy flat map). |
 | `append/032-key-entry-subject-reservation` | Phase-1 reservation demonstration: a `kind = "subject"` entry exists in the registry; lint warns but verifier accepts. |
 | `append/033-key-entry-tenant-root-reservation` | Same for `tenant-root`. |
 | `append/034-key-entry-scope-reservation` | Same for `scope`. |
@@ -211,7 +225,7 @@ Minimum Phase-1 fixture set:
 | `tamper/024-key-entry-attributes-shape-mismatch` | `kind = "signing"` but `attributes` lacks a required signing field. Structure-failure. |
 | `tamper/025-subject-key-wrap-after-valid-to` | A `KeyBagEntry` wrap references a `subject` kid whose `valid_to` has passed. Detectable when the subject-kind classes activate. |
 
-Five positive + three tamper. `append/031` is load-bearing (signing-class byte preservation); others exercise reservation + negative paths.
+Five positive + three tamper. `append/031` is load-bearing (signing-class semantic parity + new byte pin). Follow-on tamper vectors SHOULD cover unknown `kind` escape, `tstr` class injection, and supersession-cycle violations mirroring Trellis tamper discipline.
 
 ## Open questions / follow-ons
 
@@ -234,7 +248,7 @@ Five positive + three tamper. `append/031` is load-bearing (signing-class byte p
 
 1. **Spec** — Core §8 CDDL rewrite: `KeyEntry` tagged union + five `KeyAttributes` variants. §8.1 registry-binding prose updated. §8.4 `SigningKeyStatus` prose moved inside `SigningKeyAttributes`. §8.3 derivation prose noted class-agnostic. Companion §20 class-agnostic note. Companion §27 lint extension.
 2. **Rust** — `trellis-types::KeyEntry` + `KeyAttributes` enum. Registry lookup in `trellis-verify` dispatches on `kind`. Phase-1 lint in `check-specs.py`: warn on non-signing entries.
-3. **First positive vector** — `append/031-key-entry-signing-lifecycle` byte-matches the existing signing-class behavior under the new wrapping.
+3. **First positive vector** — `append/031-key-entry-signing-lifecycle` pins the signing-class behavior under the executed `KeyEntry` encoding (new golden bytes after migration).
 4. **Python stranger mirror** — `trellis-py` verifier extended matchingly.
 5. **Reservation vectors** — `append/032..035` (one per non-signing class).
 6. **Tamper vectors** — `tamper/023..025`.

@@ -227,7 +227,7 @@ git mv thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md \
 
 ## Recommendations
 
-1. **Run the Group A archive block today.** Six docs, zero external-citation risk, all ratified. Frees 6 / 9 of the active `thoughts/specs/` set and matches the repo's archival convention (`thoughts/archive/specs/`). Total diff: 6 `git mv` commands.
+1. **Run the Group A archive block today (minus G-3 fixture-system-design).** Five remaining `git mv` commands — **do not** archive `2026-04-18-trellis-g3-fixture-system-design.md`; it governs live `check-specs.py` + ratification G-3 and must stay under `thoughts/specs/`. The checklist below already removes that line.
 
 2. **Run Group B in a second commit** after grep-confirming no broken links (the grep commands are inline in the checklist). Two docs, each cited by TODO.md; a one-line TODO update plus the `git mv` in the same commit keeps the trail navigable.
 

@@ -479,7 +479,7 @@ This design doc defines the template shape, file format, schema, and lint surfac
 
 ---
 
-## 9. `2026-04-18-trellis-o5-posture-transition-schemas.md` — MOSTLY RESOLVED
+## 9. `2026-04-18-trellis-o5-posture-transition-schemas.md` — FULLY RESOLVED (post-2026-04-23)
 
 ### Doc Summary
 
@@ -491,23 +491,22 @@ The design doc defines six decisions needed to close ratification gate O-5 (Post
 |---|---|---|
 | D1: Co-publish required rule | **IMPLEMENTED** | Companion A.5.3 step 3 + TR-OP-045. Rust verifier enforces digest match at `trellis-verify:1308-1318`. |
 | D2: Event-type strings | **IMPLEMENTED** | Both registered in Core §6.7. |
-| D3: CDDL: custody-model transition | **IMPLEMENTED** | Companion A.5.1. Rust decoder at `lib.rs:1509-1543`. Three fixtures. |
-| D4: CDDL: disclosure-profile transition | **PARTIALLY IMPLEMENTED** | Companion A.5.2 CDDL is in spec. Fixture `append/008` exists. **But Rust verifier does not decode or verify `trellis.disclosure-profile-transition.v1`**: `decode_transition_details` only handles custody-model. |
-| D5: Verification semantics | **PARTIALLY IMPLEMENTED** | Steps 1–3 for custody-model only. Disclosure-profile unverified. |
+| D3: CDDL: custody-model transition | **IMPLEMENTED** | Companion A.5.1. Rust decoder at `trellis-verify` `decode_custody_model_transition`. |
+| D4: CDDL: disclosure-profile transition | **IMPLEMENTED** | Companion A.5.2 in spec; `decode_disclosure_profile_transition` in `trellis-verify`; `append/008` + `tamper/016-disclosure-profile-from-mismatch`. |
+| D5: Verification semantics | **IMPLEMENTED** | Both axes verified in Rust + Python; see `ratification/ratification-checklist.md` O-5 re-close narrative. |
 | D6: Fixture plan (6 vectors) | **IMPLEMENTED** | All six landed plus extras. |
 | Appendix A.5 rewrite | **IMPLEMENTED** | A.5 structured as A.5/A.5.1/A.5.2/A.5.3. |
 | Matrix rows TR-OP-042..045 | **IMPLEMENTED** | All four present. |
 
-### Drift
+### Drift (historical — closed same session)
 
 1. **CDDL type changes.** Design doc used integer enums; ratified spec uses string enums and plain uint.
-2. **Disclosure-profile transitions unverified in Rust.** A tampered disclosure-profile transition with a `from_disclosure_profile` mismatch would NOT be caught by the verifier.
-3. **`PostureTransitionOutcome.kind` hardcoded** to `"custody-model"`. Disclosure-profile transitions never represented in the report.
-4. **Ratification checklist claims O-5 closed.** The disclosure-profile verifier gap means this gate was arguably closed prematurely.
+2. ~~**Disclosure-profile transitions unverified in Rust.**~~ Fixed 2026-04-23 (`086d844`, `5a6c9d5`); see global post-audit banner.
+3. **`PostureTransitionOutcome.kind` reporting** — disclosure-profile transitions now surface with `kind = disclosure-profile` in verifier outcomes (paired with custody-model outcomes).
 
 ### Verdict
 
-**MOSTLY RESOLVED.** Five of six decisions implemented, all fixtures landed, matrix rows in place. The one material gap: Rust verifier does not enforce disclosure-profile transition semantics.
+**FULLY RESOLVED.** All six decisions implemented; disclosure-profile verifier gap closed 2026-04-23; dual-extension mutual-exclusion guard added 2026-04-24 in `decode_transition_details` (Rust + Python).
 
 ---
 
@@ -615,6 +614,7 @@ This design doc captures seven principles and four ADRs (0001–0004) that locke
 #### ADR 0001 — DAG-capable event topology, single-parent Phase-1 runtime
 
 **INTENT IMPLEMENTED, MECHANISM CHANGED.** The ADR prescribed `priorEventHash: [Hash]` (list form). The ratified spec uses:
+
 - **Scalar `prev_hash: digest / null`** in `EventPayload` — NOT the list form.
 - **`causal_deps: [* digest] / null`** as a separate reserved field — this is the DAG-capable slot.
 - Phase-1 lint: `causal_deps` MUST be `null` or `[]`.
@@ -622,12 +622,14 @@ This design doc captures seven principles and four ADRs (0001–0004) that locke
 #### ADR 0002 — List-form anchors, single-anchor deployment default
 
 **INTENT IMPLEMENTED, MECHANISM CHANGED.** The ADR prescribed `anchor_refs: [AnchorRef]` (list form). The ratified spec uses:
+
 - **Scalar `anchor_ref: bstr / null`** in `CheckpointPayload`.
 - Multi-anchor capacity lives at manifest level (`external_anchors`).
 
 #### ADR 0003 — Federation extension points
 
 **INTENT IMPLEMENTED, MECHANISM CHANGED.** The ADR prescribed named optional fields. The ratified spec uses:
+
 - **`extensions: { * tstr => any } / null`** containers with a registered-identifier namespace.
 - This is a stronger, more general mechanism.
 

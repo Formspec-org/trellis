@@ -42,14 +42,16 @@ Skim `git log --oneline -20` first — commit messages carry 80% of the decision
 9. [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) — traceability (79 TR-CORE + 49 TR-OP rows; prose wins on conflict).
 10. [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) — open gates summary (see `TODO.md`).
 
-Active design docs under `thoughts/specs/` (archaeology under `thoughts/archive/specs/`):
+**Active ADRs** under `thoughts/adr/` (archaeology under `thoughts/archive/` when promoted):
+- `0001-0004-phase-1-mvp-principles-and-format-adrs.md` — Phase-1 principles + ADRs 0001–0004.
+- `0005-crypto-erasure-evidence.md` — ADR 0005 cryptographic-erasure evidence format.
+- `0006-key-class-taxonomy.md` — ADR 0006 key-class taxonomy (signing / tenant-root / scope / subject / recovery); Phase-1 envelope-reserves all five, runtime restricts to `signing`.
+- `0007-certificate-of-completion-composition.md` — ADR 0007 human-readable signed-artifact binding (COC).
+
+**Active design docs (spec-tier)** under `thoughts/specs/` (landed design + spikes; deeper archaeology under `thoughts/archive/specs/`):
 - `2026-04-18-trellis-g3-fixture-system-design.md` — fixture system scope, manifest, coverage lint, generator discipline.
-- `thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md` — Phase-1 principles + ADRs 0001–0004.
-- `thoughts/adr/0005-crypto-erasure-evidence.md` — ADR 0005 cryptographic-erasure evidence format.
-- `thoughts/adr/0006-key-class-taxonomy.md` — ADR 0006 key-class taxonomy (signing / tenant-root / scope / subject / recovery); Phase-1 envelope-reserves all five, runtime restricts to `signing`.
-- `thoughts/adr/0007-certificate-of-completion-composition.md` — ADR 0007 human-readable signed-artifact binding (COC).
-- `thoughts/specs/2026-04-24-hpke-crate-spike.md` — HPKE crate selection spike; picks `hpke` crate, pins interface for sequence item #6.
-- `thoughts/specs/2026-04-24-anchor-substrate-spike.md` — DI-first anchor-substrate stance; `AnchorAdapter` trait + OpenTimestamps / Rekor / Trillian as first-class candidates; adopters pick per-deployment.
+- `2026-04-24-hpke-crate-spike.md` — HPKE crate selection spike; picks `hpke` crate, pins interface for TODO item #6.
+- `2026-04-24-anchor-substrate-spike.md` — DI-first anchor-substrate stance; `AnchorAdapter` trait + OpenTimestamps / Rekor / Trillian as first-class candidates; adopters pick per-deployment.
 
 ## Operating Context — READ THESE BEFORE DECIDING
 
@@ -103,6 +105,8 @@ Retrospective-derived; keep ceremony proportional to risk.
 - **Parallel by default for independent work.** Use `run_in_background: true` freely for parallel subagents and follow-on vector batches.
 - **Trust the model; prompt less.** Give the subagent the goal, the constraints, and the escalation rules. Let it figure out the plumbing. Long step-by-step prompts imply distrust.
 - **Preserve unconditionally:** the escalation discipline (`NEEDS_CONTEXT` over fabrication rather than papering over with stubs); semi-formal review after meaningful chunks; commit-per-logical-unit for anything a reviewer will read.
+- **Vectors and Rust move together.** Any new `fixtures/vectors/` contract lands with matching `trellis-conformance` coverage in the same change train when feasible.
+- **Declarative `_inputs/` commits** when a vector batch's traceability payoff exceeds the commit cost — same hygiene as doc-updates-travel-with-the-thing.
 
 ## Three-spec layering — what Trellis owns vs. doesn't
 

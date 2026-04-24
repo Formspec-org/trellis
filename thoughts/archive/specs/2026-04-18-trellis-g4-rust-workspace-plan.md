@@ -222,7 +222,7 @@ No new sub-milestones; this is execution discipline. As each G-3 vector batch la
 - `_pending-invariants.toml` is empty (every byte-testable invariant has a green vector; the G-3 lint and the conformance runner agree).
 - `trellis-cli` scaffold compiles and emits the three façade outputs for a worked example.
 
-M2 is explicitly expected to surface Core amendments. Each amendment is tracked like any other G-3-surfaced gap (see `thoughts/specs/2026-04-18-trellis-core-gaps-surfaced-by-g3.md`).
+M2 is explicitly expected to surface Core amendments. Each amendment is tracked like any other G-3-surfaced gap (see [`2026-04-18-trellis-core-gaps-surfaced-by-g3.md`](2026-04-18-trellis-core-gaps-surfaced-by-g3.md)).
 
 ## Fixture runner
 
