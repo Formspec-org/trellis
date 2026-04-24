@@ -148,14 +148,20 @@ auditor, applicant, systems integrator, or adopter of a later custody model.
   the wrap/unwrap. Land the Rust path + one integration test that matches
   `append/004` byte-for-byte.
   **Gate:** none.
-- **Crypto-erasure evidence — decision, not CDDL** — **S**, Phase 1.
-  Companion §20 has purge-cascade operator obligations with no verifier-
-  visible artifact; DocuSign-replacement positioning depends on an auditor
-  proving "this record is cryptographically irrecoverable" offline. Two
-  defensible end-states: (a) absent key-bag entry + `content_hash` over
-  ciphertext IS the evidence (lighter, relies on absence), or (b) explicit
-  erasure-proof artifact (heavier, positive assertion). Decide, then execute.
-  **Gate:** none — decision.
+- **Crypto-erasure evidence — execute per ADR 0005** — **M–L**, Phase 1.
+  [ADR 0005](thoughts/specs/2026-04-23-trellis-crypto-erasure-evidence-adr.md)
+  accepted 2026-04-23: adopt explicit `trellis.erasure-evidence.v1` event
+  with CDDL under `EventPayload.extensions`, chain-cross-check verifier
+  obligation, Companion §20 rewrite (OC-78 promotion + new OC-79/80/81),
+  and optional export catalog mirroring `signature-affirmations`. Nine-
+  step implementation arc: Companion §20 rewrite + Core §6.7 + Core §19
+  extension → Rust decode + chain cross-check → first positive vector
+  (`append/023`) → Python stranger mirror → remaining positives
+  (`append/024..027`) → tamper vectors (`tamper/017..019`) → export
+  catalog (`export/009` + `064-erasure-evidence.cbor`) → `trellis-cli
+  erase-key` → Companion §27 conformance extension. Steps 1–3 are the
+  minimum for the claim to hold; later steps are breadth + ergonomics.
+  **Gate:** none — ADR accepted, execute.
 - **Key-class taxonomy ADR** — **M**, Phase-1 envelope + Phase-2 runtime.
   Core §8 defines only `SigningKeyEntry`; archived family separated
   Tenant-root / Scope / Subject / Signing / Recovery-only with distinct
