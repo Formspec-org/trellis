@@ -60,11 +60,13 @@ This file tracks only open center work.
   obligations; generators live under `fixtures/vectors/_generator/`
   (`gen_append_019.py`, `gen_signature_export_006.py`). Evidence:
   `cargo test -p trellis-verify -p trellis-conformance`, `python3 scripts/check-specs.py`.
-  **Still open:** Trellis-owned *human-facing* certificate-of-completion
-  composition spec and any requirement to re-seed vectors from the parent
-  Formspec signed-response fixture URL for a single cross-repo bundle;
-  shared fixture consumption across Formspec / WOS / Trellis remains a
-  parent-repo coordination item ([`../TODO.md`](../TODO.md) stack tracker).
+  **Still open:** the human-facing certificate-of-completion composition
+  spec is now tracked as its own first-class item under Stream 6 (promoted
+  2026-04-23 out of this subtext so it carries its own priority). Shared
+  fixture consumption across Formspec / WOS / Trellis remains a parent-
+  repo coordination item ([`../TODO.md`](../TODO.md) stack tracker), and
+  re-seeding vectors from the parent Formspec signed-response fixture
+  URL for one cross-repo bundle falls under that same parent-repo slice.
   **Gate:** none for the Trellis machine-verifiable slice; parent alignment is
   coordination-only.
 
@@ -323,9 +325,10 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 |---|---|---|
 | Gate status, evidence SHAs | [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) | open the file |
 | Principles + format ADRs | [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md) | open the file |
+| Trellis-local ADRs | [`thoughts/adr/`](thoughts/adr/) | `ls thoughts/adr/` — 0001-0004 (Phase-1 principles + format ADRs), 0005 (crypto-erasure evidence) |
 | Closed work (waves, sprints, streams) | [`COMPLETED.md`](COMPLETED.md) | open the file |
 | Strategy, product arc, invariants | [`thoughts/product-vision.md`](thoughts/product-vision.md) | open the file |
-| Implementation plans | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` |
+| In-flight design docs | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` — currently empty after 2026-04-23 audit; new design work lands here before promotion to `thoughts/adr/` or archive |
 | Fixture corpus (ground truth) | `fixtures/vectors/` | `ls fixtures/vectors/*/` |
 | Rust reference implementation | `crates/` | `cargo test --workspace` |
 | Python cross-check (G-5 harness) | `trellis-py/` | `pip install -e trellis-py && python -m trellis_py.conformance` |
