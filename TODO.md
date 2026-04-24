@@ -109,7 +109,72 @@ This file tracks only open center work.
   accepted.
   **Gate:** Formspec-side coordination.
 
-### 5. ADR 0066 — amendment / supersession / rescission / correction
+### 5. Ratification-integrity gaps
+
+Gates marked closed with incomplete evidence. Tracking in
+[`ratification/ratification-checklist.md`](ratification/ratification-checklist.md);
+fix closes the door on the existing claim.
+
+- **O-5 disclosure-profile transitions unverified in Rust** — **S**, Phase 1.
+  Companion A.5.2 CDDL and fixture `append/008` exist, but `trellis-verify`'s
+  `decode_transition_details` handles only custody-model transitions; a
+  tampered `from_disclosure_profile` value passes verification. G-O-5 is
+  retroactively reopened in the checklist. Add the decode/verify arm, a
+  negative tamper vector, and re-close G-O-5 once the Rust path covers both
+  transition kinds.
+  **Gate:** none.
+- **O-4 static lint rules 14 + 15** — **S**, Phase 1.
+  Rule 14 validates signing-key structure without running crypto verification;
+  Rule 15 (`supersedes` chain acyclicity) is unimplemented. Both are named in
+  [`thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md)
+  and both are pure `scripts/check-specs.py` additions.
+  **Gate:** none.
+
+### 6. Max-vision unlocks
+
+Load-bearing adopter claims. Derived from [STACK.md](../STACK.md) end-state
+commitments (#1 independent verification, #5 custody-honest privacy) and the
+DocuSign-replacement positioning. Each item has a direct user story —
+auditor, applicant, systems integrator, or adopter of a later custody model.
+
+- **HPKE wrap/unwrap in Rust** — **M**, Phase 1.
+  Core §9.4 amendment landed; `append/004-hpke-wrapped-inline` and the Python
+  stranger both exercise real HPKE; `trellis-core` has no Rust wrap/unwrap
+  path, so the Rust side only round-trips committed bytes for that fixture.
+  Q4 reproducibility-across-two-independent-implementations claim is latent
+  — G-5 passed because vectors match, not because both implementations did
+  the wrap/unwrap. Land the Rust path + one integration test that matches
+  `append/004` byte-for-byte.
+  **Gate:** none.
+- **Crypto-erasure evidence — decision, not CDDL** — **S**, Phase 1.
+  Companion §20 has purge-cascade operator obligations with no verifier-
+  visible artifact; DocuSign-replacement positioning depends on an auditor
+  proving "this record is cryptographically irrecoverable" offline. Two
+  defensible end-states: (a) absent key-bag entry + `content_hash` over
+  ciphertext IS the evidence (lighter, relies on absence), or (b) explicit
+  erasure-proof artifact (heavier, positive assertion). Decide, then execute.
+  **Gate:** none — decision.
+- **Key-class taxonomy ADR** — **M**, Phase-1 envelope + Phase-2 runtime.
+  Core §8 defines only `SigningKeyEntry`; archived family separated
+  Tenant-root / Scope / Subject / Signing / Recovery-only with distinct
+  lifecycles. Phase-2 custody models (CM-D threshold, CM-F client-origin
+  sovereign) and stack commitment #5 identity-separation need non-signing
+  keys expressible in the envelope. ADR decides tagged-union on
+  `SigningKeyEntry` vs sibling CDDL types; Phase-1 lands the wire
+  reservation, Phase-2 activates. Gap source:
+  [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md)
+  §8.
+  **Gate:** none — architectural-debt decision.
+- **Certificate-of-completion composition** — **M**, Phase 1.
+  Machine-verifiable signature-affirmation path shipped 2026-04-22;
+  human-readable signed artifact (PDF-equivalent) that an applicant hands
+  to counsel, a bank, or an appeals court is still open. Without it the
+  stack is engineering-facing only and the DocuSign-replacement pitch
+  doesn't close. Promoted from Stream 1 WOS-T4 subtext to first-class so
+  it carries its own priority.
+  **Gate:** none.
+
+### 7. ADR 0066 — amendment / supersession / rescission / correction
 
 - **ADR 0066 execution** — **L**, phased.
   [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
@@ -120,7 +185,7 @@ This file tracks only open center work.
   activate supersession runtime and land `supersession-graph.json`.
   **Gate:** ADR 0066 accepted.
 
-### 6. ADR 0067 — statutory clocks
+### 8. ADR 0067 — statutory clocks
 
 - **ADR 0067 execution** — **M**, Phase 1.
   [`../thoughts/adr/0067-stack-statutory-clocks.md`](../thoughts/adr/0067-stack-statutory-clocks.md).
@@ -130,15 +195,29 @@ This file tracks only open center work.
   `append/016-clock-elapsed`, `append/017-clock-paused-resumed`.
   **Gate:** ADR 0067 accepted.
 
-### 7. Deferred by phase, not forgotten
+### 9. Deferred by phase or trigger, not forgotten
 
 - **Case ledger + agency log semantic definitions** — **M**, Phase 4.
   Core §22 case ledger composes sealed response-ledger heads with WOS
   governance events; Core §24 agency log is the operator-maintained log of
   case-ledger heads. Envelope hooks stay reserved under ADR 0003 and
   `MUST NOT populate` in Phase 1. Substance waits for Phase-4 scoping.
+- **Key-rotation grace-window semantics** — **XS**.
+  Core §8.4 enumerates `Active / Rotating / Retired / Revoked` but does not
+  pin the overlap window where both pre- and post-rotation keys verify.
+  Companion §20 prose + one boundary-crossing vector + `trellis-verify`
+  dual-key acceptance during `Rotating`. **Trigger:** first production-
+  adjacent ledger rotation planned.
+- **`tamper_kind` normative enum in Core §17.5** — **XS**.
+  Values are de-facto consistent across the tamper corpus but not
+  normatively enumerated. **Trigger:** first external consumer of
+  verification reports.
+- **Cadence subtypes beyond height-based** — **M**.
+  `projection/003` and `projection/004` cover only height-based cadence;
+  time-driven / event-driven / hybrid untested. **Trigger:** first adopter
+  declares a non-height cadence kind in their deployment.
 
-### 8. Sustaining maintenance
+### 10. Sustaining maintenance
 
 - **Keep Rust within hours of new vectors** — **XS** per vector.
   Any new vector added by an open contract needs matching Rust conformance
