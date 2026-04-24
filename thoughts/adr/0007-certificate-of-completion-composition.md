@@ -79,8 +79,9 @@ ChainSummary = {
   workflow_status:    "completed" / "countersigned" /
                       "notarized" / "partially-completed" /
                       tstr,                            ; tstr permits registered status extensions
-  impact_level:       "low" / "moderate" / "high" / tstr,  ; echoes WOS Signature Profile impactLevel
-                                                           ; when present; null for signing-only flows
+  impact_level:       "low" / "moderate" / "high" / tstr / null,
+                                                       ; null = signing-only / no WOS Signature Profile;
+                                                       ; non-null echoes WOS impactLevel when applicable
   covered_claims:   [* tstr],                          ; optional machine-routable tags naming which
                                                        ; cross-checks the operator asserts the PDF covers
                                                        ; (e.g. "signer_count", "response_ref"); empty = default set
@@ -103,17 +104,17 @@ SignerDisplayEntry = {
 
 ### Field semantics
 
-- **`certificate_id`** — operator-minted stable identifier. Enables idempotent re-emission and cross-reference from export manifests.
+- **`certificate_id`** — operator-minted stable identifier within `ledger_scope`. Enables idempotent re-emission and cross-reference from export manifests. If the operator re-emits the same `certificate_id` with a different payload (different `content_hash`, `signing_events`, or `chain_summary`), that is a chain policy violation: the verifier treats the duplicate as `certificate_id_collision` and flips `integrity_verified = false` for the export (first-seen wins is non-normative; fail-closed is Phase-1 default).
 - **`case_ref`** — null for intake-record-scoped signing where a governed case doesn't yet exist (per STACK.md intake vs. governed-case distinction). Matches ADR 0073's handoff distinction.
 - **`presentation_artifact.content_hash`** — under a new domain tag `trellis-presentation-artifact-v1`, added to Core §9 alongside existing tags. Verifier recomputes against attachment bytes on verification.
 - **`template_id` / `template_hash`** — null for one-off/operator-bespoke renderings **when `media_type` is `application/pdf`**. When both are non-null, a verifier MAY re-render from the template + chain data to detect rendering divergence; this is an optional stronger check, not a Phase-1 requirement. **`text/html` presentations MUST carry `template_hash` non-null** (operator-chosen pin of the HTML template bytes) even when `template_id` is null — HTML is too fluid for hash-less binding.
-- **`workflow_status` / `impact_level` escapes** — `tstr` extensions MUST use append-only identifiers registered alongside WOS Signature Profile enums (Companion cross-reference); free-text vendor statuses are non-conformant.
+- **`workflow_status` / `impact_level` escapes** — Extension string values (not among this ADR's CDDL literals for that field) MUST use append-only identifiers registered alongside WOS Signature Profile enums (Companion cross-reference); free-text vendor statuses are non-conformant. **`impact_level` may be `null`** (signing-only Trellis deployments with no WOS impact semantics); when non-null, the same extension registration rule applies to non-literal strings.
 - **`covered_claims`** — when non-empty, the verifier MUST confirm it evaluated every listed cross-check tag or fail closed (`certificate_covered_claim_unknown`). Empty/absent means the default checks in §Verifier obligations apply.
 - **`signing_events`** — each digest MUST reference a `SignatureAffirmation` event in the chain (either inline via Core §6.7 registration or catalogued in `062-signature-affirmations.cbor` per the WOS-T4 export pattern).
-- **`workflow_ref`** — opaque to Trellis; set by the operator to a WOS workflow-execution URI when WOS drives the signing ceremony. Null for signing-only deployments that use Trellis without WOS (rare but contemplated).
+- **`workflow_ref`** — opaque to Trellis; set by the operator to a WOS workflow-execution URI when WOS drives the signing ceremony. Null for signing-only deployments that use Trellis without WOS (rare but contemplated). When WOS publishes a canonical workflow-execution URI pattern, Companion SHOULD recommend that form here so manifests stay uniform; Trellis verifiers do not dereference the URI in Phase 1.
 - **`chain_summary.signer_count == len(signing_events)`** — invariant. Verifier MUST flag mismatch.
 - **`chain_summary.signer_display[i].principal_ref`** — MUST equal the principal on `signing_events[i]`. Verifier MUST flag mismatch. The `display_name` field is operator-rendered and NOT strict-compared — it exists so a verifier can surface "PDF shows X, chain says principal Y" for human review, not to normatively gate acceptance.
-- **`chain_summary.response_ref`** — when non-null, MUST match the canonical-response-hash the signing workflow covered. For Formspec-sourced signing this comes from the `authoredSignatures` field. Null for workflows that don't sign a Formspec canonical response.
+- **`chain_summary.response_ref`** — when non-null, MUST equal the **single** canonical-response-hash (Formspec definition: hash over the canonical serialized response bytes) that the signing workflow attested to—the same digest bound by `SignatureAffirmation` / `authoredSignatures` for that ceremony. Verifiers compare `response_ref` only to that hash, not to unrelated authoring events. Null for workflows that don't sign a Formspec canonical response.
 - **`attestations`** — at least one attestation required (operator closing the workflow). Specific counter-signature requirements per `workflow_status` value are declared per deployment in the Posture Declaration (reuses OC-11 pattern).
 
 ## Event-type registration (Core §6.7)
@@ -135,15 +136,15 @@ Also add the new domain tag to Core §9 domain-separation discipline:
 A conforming verifier processing an export bundle containing `trellis.certificate-of-completion.v1` events MUST:
 
 1. **Decode** the payload against the CDDL above. Mismatch is a structure failure (Core §19 step 1).
-2. **Validate** the invariants: `signer_count == len(signing_events)`, `len(signer_display) == len(signing_events)`, and each `signer_display[i].principal_ref` equals the principal on `signing_events[i]`. Any mismatch flips `integrity_verified = false` with failure `certificate_chain_summary_mismatch`. If `covered_claims` is non-empty, every tag MUST be in the verifier's supported tag registry for this release; unknown tags flip `integrity_verified = false` with `certificate_covered_claim_unknown`.
+2. **Validate** the invariants: `signer_count == len(signing_events)`, `len(signer_display) == len(signing_events)`, and each `signer_display[i].principal_ref` equals the principal on `signing_events[i]`. Any mismatch flips `integrity_verified = false` with failure `certificate_chain_summary_mismatch`. If `covered_claims` is non-empty, every tag MUST be in the verifier's supported tag registry for this release; unknown tags flip `integrity_verified = false` with `certificate_covered_claim_unknown`. `chain_summary.impact_level` MAY be `null` (signing-only). For `workflow_status` and `impact_level`, any string value **not** among the CDDL-enumerated literals for that field MUST appear in the Companion/WOS append-only registry; otherwise flip `integrity_verified = false` with `certificate_enum_extension_unknown`. After decoding all certificate events in scope, if the same `certificate_id` labels two events whose canonical certificate payloads differ, flip `integrity_verified = false` with `certificate_id_collision`.
 3. **Verify** every `attestations[*].signature` under `trellis-transition-attestation-v1` domain separation (shared with A.5.3 and ADR 0005).
-4. **Resolve** `presentation_artifact.attachment_id` via the ADR 0072 attachment-binding lineage. If the attached artifact is present, recompute its content hash under `trellis-presentation-artifact-v1` and confirm it equals `presentation_artifact.content_hash`. Mismatch flips `integrity_verified = false` with failure `presentation_artifact_content_mismatch`.
+4. **Resolve** `presentation_artifact.attachment_id` via the ADR 0072 attachment-binding lineage. A conformant Phase-1 export that includes this certificate event MUST ship resolvable attachment bytes for that id; if resolution fails (bytes missing from the bundle though the binding requires them), set `attachment_resolved = false` and record failure `presentation_artifact_attachment_missing`—distinct from a successful resolve followed by hash mismatch (`presentation_artifact_content_mismatch`). After bytes are resolved, recompute content hash under `trellis-presentation-artifact-v1` and confirm it equals `presentation_artifact.content_hash`.
 5. **Resolve** every `signing_events[i]` digest against the chain. Each MUST be a chain-present `SignatureAffirmation` event (or WOS equivalent registered in Core §6.7). Missing or wrong-type events flag `signing_event_unresolved`.
 6. **Validate temporal consistency**: every `signer_display[i].signed_at` MUST exactly equal the resolved `SignatureAffirmation` header `authored_at` for `signing_events[i]`. Mismatch flags `signing_event_timestamp_mismatch`.
-7. **Validate** `chain_summary.response_ref` when non-null: MUST equal the canonical-response-hash on the referenced Formspec authoring events. Mismatch flags `response_ref_mismatch`.
+7. **Validate** `chain_summary.response_ref` when non-null: MUST equal the Formspec **canonical-response-hash** for the response this certificate's signing workflow covered—the digest carried on the linked `SignatureAffirmation` payload / `authoredSignatures` binding for that ceremony (one hash; not an unconstrained search across all authoring events). Mismatch flags `response_ref_mismatch`.
 8. **Accumulate** outcomes into a new `VerificationReport.certificates_of_completion` array, parallel to `posture_transitions` and `erasure_evidence`. Each entry carries: `certificate_id`, `completed_at`, `signer_count`, `attachment_resolved`, `all_signing_events_resolved`, `chain_summary_consistent`, `failures`.
 
-`integrity_verified = false` if any certificate entry has `chain_summary_consistent = false`, `attachment_resolved = false` with a present attachment, or any unresolved/mismatched signing event.
+**Global integrity (certificate slice).** `integrity_verified = false` if any certificate entry has `chain_summary_consistent = false`, `attachment_resolved = false`, any unresolved or wrong-type signing event, any attestation failure from step 3, or any step 6–7 failure. Attachment semantics: `attachment_resolved = false` means ADR 0072 could not supply bytes or lineage for this `attachment_id`; `presentation_artifact_content_mismatch` means bytes were present and lineage resolved but the hash did not match—do not conflate the two in report `failures`.
 
 Rendering-drift checks (re-rendering from `template_id` + chain data) are NOT required in Phase 1. Adopters that want stronger binding publish `template_id` + `template_hash` and rebuild at verification time as a stretch check.
 
@@ -234,7 +235,7 @@ Pin a LaTeX / pdftex / font-embedding pipeline so every PDF byte reproduces from
 
 Declined: makes the presentation format dual (HTML for proof, PDF for delivery). Counsel still wants a PDF; the chain now has to describe two artifacts; UX worsens.
 
-### Option D — opaque-attachment only, no chain summary (rejected)
+### Option C — opaque-attachment only, no chain summary (rejected)
 
 Attach the PDF via ADR 0072 binding with no `chain_summary`. Verifier confirms "some PDF was bound at time T" but cannot detect PDF-vs-chain divergence. Declined: gives up the key improvement over DocuSign (detectable signer-count / signer-identity mismatch).
 
@@ -242,7 +243,7 @@ Attach the PDF via ADR 0072 binding with no `chain_summary`. Verifier confirms "
 
 - **Phase 1 envelope compatible.** Rides `EventPayload.extensions` (Core §6.7). No envelope change; ADR 0003 preserved; invariant #10 preserved.
 - **Phase 1 runtime eligible.** Ships alongside WOS-T4 execution; depends on `SignatureAffirmation` (live) and ADR 0072 attachment binding (live).
-- **Phase 2+ evolution.** `workflow_status` and `impact_level` fields accept registry-appended values. Additional rendering-drift strictness can layer on via `template_hash` without wire change.
+- **Phase 2+ evolution.** `workflow_status` and non-null `impact_level` accept registry-appended `tstr` values; `impact_level = null` remains the valid omission for signing-only flows. Additional rendering-drift strictness can layer on via `template_hash` without wire change.
 - **Phase 3 case-ledger composition.** Certificates compose into case ledgers identically to other Trellis events. `case_ref` field is the composition point.
 
 ## Fixture plan
@@ -261,8 +262,9 @@ Minimum Phase-1 fixture set:
 | `tamper/023-cert-attestation-signature-invalid` | Valid structure, bad attestation COSE under `trellis-transition-attestation-v1`. |
 | `tamper/024-cert-response-ref-mismatch` | Non-null `response_ref` disagrees with Formspec canonical-response hash. |
 | `tamper/025-cert-html-missing-template-hash` | `media_type = text/html` with `template_hash = null` (structure failure). |
+| `tamper/026-cert-certificate-id-collision` | Two in-chain certificate events share `certificate_id` but differ in canonical payload (fail-closed). |
 
-Three positive + six tamper + one export catalog. Minimum set covers primary failures; expand with `covered_claims` mismatch and template re-render drift as implementation matures.
+Three positive + seven tamper + one export catalog. Minimum set covers primary failures; expand with `covered_claims` mismatch and template re-render drift as implementation matures.
 
 ## Open questions / follow-ons
 
@@ -290,7 +292,7 @@ Three positive + six tamper + one export catalog. Minimum set covers primary fai
 3. **First positive vector** — `append/028-certificate-of-completion-minimal` byte-matched end-to-end.
 4. **Python stranger mirror** — `trellis-py` fix.
 5. **Remaining positive vectors** — `append/029..030`.
-6. **Tamper vectors** — `tamper/020..025` (per §Fixture plan).
+6. **Tamper vectors** — `tamper/020..026` (per §Fixture plan).
 7. **Export catalog** — `export/010` + `065-certificates-of-completion.cbor`.
 8. **`trellis-cli seal-completion`** command.
 9. **Reference template** — non-normative HTML/CSS at `reference/certificate-of-completion/template-v1/`.

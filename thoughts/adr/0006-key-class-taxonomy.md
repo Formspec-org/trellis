@@ -59,81 +59,96 @@ An earlier draft claimed the signing class could nest legacy fields inside an `a
 
 ### CDDL
 
-Core §8 gains a generic `KeyEntry` type replacing the current hardcoded `SigningKeyEntry` as the registry element:
+Core §8 gains a generic `KeyEntry` type replacing the current hardcoded `SigningKeyEntry` as the registry element.
+
+#### Normative `kind`-to-shape binding
+
+A bare CDDL alternation of attribute maps (e.g. `KeyAttributes = A / B / …`) does **not** force a single CBOR map to satisfy exactly one arm: validators need a dispatch rule tied to `kind`. **Normative rule:** after decoding the registry entry map, the verifier reads `kind` and **then** applies exactly one of: (1) the flat signing field set (*Wire preservation*), or (2) the `attributes` map whose inner shape matches that `kind`, or (3) for a registered extension `kind` (a `tstr` outside the five reserved literals), the CDDL and prose registered for that identifier.
+
+**CDDL execution shape:** Core SHOULD express this as two top-level alternatives so tooling and the stranger test stay aligned, for example:
 
 ```cddl
-KeyEntry = {
-  kind:         "signing" / "tenant-root" / "scope" /
-                "subject" / "recovery" / tstr,        ; tstr permits registered extension classes
-  kid:          bstr .size 16,                        ; §8.3 derivation applies uniformly
-  suite_id:     uint,                                 ; Core §7.2 suite registry
-  attributes:   KeyAttributes,                        ; class-specific fields; CDDL shape varies by kind
-  extensions:   { * tstr => any } / null,
-}
+; Registry admits exactly one of these encodings (discriminated by kind + layout).
+KeyEntry = KeyEntrySigning / KeyEntryNonSigning
 
-KeyAttributes = SigningKeyAttributes /
-                TenantRootKeyAttributes /
-                ScopeKeyAttributes /
-                SubjectKeyAttributes /
-                RecoveryKeyAttributes
-
-SigningKeyAttributes = {
-  pubkey:       bstr .size 32,                        ; Ed25519 for Phase 1
+KeyEntrySigning = {
+  kind:         "signing",
+  kid:          bstr .size 16,
+  suite_id:     uint,
+  pubkey:       bstr .size 32,
   status:       "active" / "rotating" / "retired" / "revoked",
   valid_from:   uint,
   valid_to:     uint / null,
-  supersedes:   bstr / null,                          ; kid of prior key this one replaces
-  attestation:  bstr / null,                          ; detached attestation signature, Core §8.7
+  supersedes:   bstr .size 16 / null,                ; prior kid in this registry, if any
+  attestation:  bstr / null,
+  extensions:   { * tstr => any } / null,
 }
 
+KeyEntryNonSigning = {
+  kind:         "tenant-root" / "scope" / "subject" / "recovery" / tstr,
+  kid:          bstr .size 16,
+  suite_id:     uint,
+  attributes:   TenantRootKeyAttributes / ScopeKeyAttributes /
+                SubjectKeyAttributes / RecoveryKeyAttributes / { * tstr => any },
+  extensions:   { * tstr => any } / null,
+}
+```
+
+For reserved literals (`tenant-root` … `recovery`), `attributes` MUST decode as the corresponding structure below (pairing a literal `kind` with the wrong inner map is a structure failure). For extension `kind` strings, `attributes` MUST satisfy the CDDL pinned in that kind's registry row; the `{ * tstr => any }` arm is the CDDL escape hatch—normative tightness lives in the registry + verifier dispatch table.
+
+The fragment below documents the **inner** `attributes` shapes for the four reserved non-signing kinds (and remains the reference for their fields). Extension kinds reuse the same outer `KeyEntryNonSigning` map unless a future registration defines a different top-level layout.
+
+```cddl
 TenantRootKeyAttributes = {
-  pubkey:           bstr .size 32,                    ; X25519 default; tenant trust-anchor
-  tenant_ref:       tstr,                             ; principal URI of the tenant
+  pubkey:           bstr .size 32,                    ; algorithm pinned by suite_id + kind
+  tenant_ref:       tstr,
   effective_from:   uint,
-  supersedes:       bstr / null,
+  supersedes:       bstr .size 16 / null,
   ; NO status field: tenant-root keys are activation-scoped, not rotating. Supersession replaces them.
 }
 
 ScopeKeyAttributes = {
-  pubkey:              bstr .size 32,                 ; X25519
+  pubkey:              bstr .size 32,
   scope_ref:           bstr,                          ; ledger_scope byte-string (same as EventPayload.ledger_scope)
-  parent_tenant_ref:   tstr,                          ; principal URI of the owning tenant
+  parent_tenant_ref:   tstr,
   effective_from:      uint,
-  supersedes:          bstr / null,
+  supersedes:          bstr .size 16 / null,
 }
 
 SubjectKeyAttributes = {
-  pubkey:            bstr .size 32,                   ; X25519 recipient pubkey
-  subject_ref:       tstr,                            ; principal URI of the subject
-  authorized_for:    [+ bstr],                        ; ledger_scope byte-strings this subject-key protects
+  pubkey:            bstr .size 32,
+  subject_ref:       tstr,
+  authorized_for:    [+ bstr],
   effective_from:    uint,
-  valid_to:          uint / null,                     ; tombstone boundary; beyond this, wraps MUST NOT reference this kid
-  supersedes:        bstr / null,
+  valid_to:          uint / null,
+  supersedes:        bstr .size 16 / null,
 }
 
 RecoveryKeyAttributes = {
-  pubkey:                 bstr .size 32,              ; Ed25519; activation-only, not signing authority for normal events
-  authorizes_recovery_for: [+ bstr],                  ; kid values of keys this recovery authority can re-enable
-  activation_quorum:      uint,                       ; M in an M-of-N recovery scheme; 1 for single-authority recovery
-  activation_quorum_set:  [+ bstr] / null,            ; kid values of the N peers (quorum set); null for quorum=1
-  effective_from:         uint,
-  supersedes:             bstr / null,
+  pubkey:                  bstr .size 32,
+  authorizes_recovery_for: [+ bstr .size 16],         ; kids of signing keys only; see Field semantics
+  activation_quorum:       uint,
+  activation_quorum_set:   [+ bstr .size 16] / null,
+  effective_from:          uint,
+  supersedes:              bstr .size 16 / null,
 }
 ```
 
-**Execution tightening:** the all-in-one `attributes` wrapper above is illustrative for non-signing classes. For `kind = "signing"`, Core §8 execution SHOULD use a **flat** map: the `SigningKeyAttributes` fields appear as top-level keys next to `kind` (no nested `attributes` map), minimizing CBOR drift versus today's `SigningKeyEntry` aside from the new `kind` field itself. Non-`signing` kinds nest class-specific material under `attributes` as shown.
+**Execution tightening:** the flat `KeyEntrySigning` arm is the executed shape for `kind = "signing"` (no nested `attributes` map). Non-`signing` kinds use `KeyEntryNonSigning` with class-specific material under `attributes`.
 
 ### Field semantics and rationale
 
 - **`kind` discriminator.** Closed taxonomy at the envelope layer; `tstr` escape for future registry extensions (Phase-4+ might introduce e.g. `"witness"` or `"federation-delegate"` classes). Registry extension uses the same append-only pattern as Core §6.7 event-type registration.
 - **`kid` construction.** Unchanged from Core §8.3 — `SHA-256(dCBOR_encode_uint(suite_id) || pubkey_raw)[0..16]`. The derivation is class-agnostic; any key regardless of class has a kid derivable from its suite + pubkey.
-- **`attributes` sub-map.** CDDL dispatches on `kind` to determine `KeyAttributes` variant. Each variant carries class-specific fields. Verifier MUST validate per-class field shape.
-- **`supersedes` chain.** Every class supports supersession. Acyclicity is a verifier obligation (per the ADR 0005 sibling concern surfaced there).
+- **`suite_id` and algorithms.** Core §7.2 suite registry entries pin how `pubkey` bytes are interpreted for each `kind` (e.g., Ed25519 for signing and recovery versus X25519 for tenant-root / scope / subject material in the default registry). Verifier MUST reject entries whose `pubkey` length or algorithm does not match the resolved suite for that `kind`.
+- **`attributes` sub-map (non-signing only).** After reading `kind`, the verifier selects the matching inner CDDL group and validates `attributes`. Mismatch is a structure failure.
+- **`supersedes` chain.** When non-null, `supersedes` MUST equal the 16-byte `kid` of another registry entry this key replaces (same registry array). Acyclicity across supersession edges is a verifier obligation (per the ADR 0005 sibling concern surfaced there).
+- **`authorizes_recovery_for` / `activation_quorum_set`.** Each `bstr .size 16` MUST be a `kid` that resolves to a registry row with `kind = "signing"` (recovery re-enables signing authorities, not tenant-root/scope/subject rows). A future ADR MAY widen this set if CM-D requires recovery over other classes.
 - **Signing-class variant** — field set isomorphic to current `SigningKeyEntry` (same semantics), encoded per *Wire preservation* above. The legacy `SigningKeyEntry` CDDL name may remain as an alias for the flat `kind = "signing"` arm once Core prose is updated.
 
 ### Cross-class references
 
-ADR 0005 `ErasureEvidencePayload.key_class` field values align directly with this taxonomy: `"signing"` / `"wrap"` / `"recovery"` / `"scope"` / `"tenant-root"` becomes `"signing"` / `"subject"` (subject-kind keys ARE the wrap keys) / `"recovery"` / `"scope"` / `"tenant-root"`. The `"wrap"` placeholder in ADR 0005 was a deliberately-loose forward reference to this ADR's taxonomy — update ADR 0005's `key_class` enum to reference `"subject"` when the shape lands (non-breaking at the wire; only the semantic binding is tightened).
+ADR 0005 `ErasureEvidencePayload.key_class` uses the same literals as `KeyEntry.kind` for the five reserved classes. **Normative name for HPKE / subject-wrap material is `subject`** (ADR 0005 documents the legacy synonym `wrap` for pre-reconciliation artifacts). `kid_destroyed` resolves against the **single** export key registry (ADR 0005 prose updated accordingly).
 
 ### Extension injection point
 
@@ -145,7 +160,7 @@ A conforming verifier resolving a `kid` in the export bundle MUST:
 
 1. **Locate** the registry entry by `kid` in the export-manifest key-entry registry.
 2. **Validate** the `kind` field against the closed taxonomy (plus registered extensions).
-3. **Dispatch** on `kind` and validate the `attributes` sub-map against the matching CDDL variant. Mismatch is a structure failure.
+3. **Dispatch** on `kind` and validate the entry shape: for `"signing"`, validate the flat signing field set; for reserved non-signing kinds, validate `attributes` against the matching CDDL group; for extension `kind` strings, apply the CDDL registered for that identifier—if the verifier implements no row for that `kind`, accept outer-map decodability only and record `unknown_key_class` per *Unknown `kind` and `integrity_verified`* (do not invent inner-field requirements). Mismatch against the applicable rule set is a structure failure.
 4. **Enforce class-specific invariants:**
    - `signing`: `valid_from ≤ authored_at ≤ valid_to` (when `valid_to` is non-null) for events signed under this kid; existing §8.4 lifecycle rules.
    - `tenant-root` / `scope`: `effective_from ≤ authored_at` for events claiming this scope.
@@ -165,7 +180,7 @@ Phase-1 runtime restriction (complementary to lint):
 
 ## Companion §20 and §27 integration
 
-Companion §20 (lifecycle / retention) gains a paragraph noting that the key-class taxonomy applies to all operator-held key material, not just signing keys. OC-75 through OC-78 and ADR 0005's planned **OC-141..OC-143** erasure obligations apply class-agnostic at the policy layer; the cascade-scope enumeration in Appendix A.7 is class-agnostic. Verifier step-5 chain checks remain **Phase-1 signing-bounded** until ADR 0006 extends them (see ADR 0005 step 5 scope note).
+Companion §20 (lifecycle / retention) gains a paragraph noting that the key-class taxonomy applies to all operator-held key material, not just signing keys. OC-75 through OC-78 and ADR 0005’s **OC-141..OC-145** erasure obligations apply class-agnostic at the policy layer; the cascade-scope enumeration in Appendix A.7 is class-agnostic. Chain-consistency checks in **ADR 0005 §Verifier obligations step 7** remain **Phase-1 signing-bounded** until ADR 0006 extends them (see the Phase-1 scope note indented under ADR 0005 step 7).
 
 Companion §27 (conformance tests) extends:
 
@@ -208,7 +223,16 @@ Do not reserve CDDL shapes now; land when adopter presents a need. Declined: wir
 - **Phase 3 case-ledger composition.** `scope` keys become load-bearing for per-case scope-material separation.
 - **Phase 4 federation.** `tenant-root` keys become load-bearing for cross-tenant trust anchors.
 
-Strict-superset preservation (invariant #10): yes. A Phase-1 verifier encountering a Phase-3 export containing non-signing-class entries dispatches on `kind`, validates the structure (CDDL), and reports the class-specific outcomes without failing. A Phase-1 verifier that does NOT yet understand a class (e.g., a future `"federation-delegate"` extension) falls through the `tstr` escape and reports `unknown_key_class` as an informational-not-fatal condition per the existing unknown-event-type pattern.
+Strict-superset preservation (invariant #10): yes. A Phase-1 verifier encountering a Phase-3 export containing reserved non-signing-class entries (`tenant-root`, `scope`, `subject`, `recovery`) dispatches on `kind`, validates structure (CDDL), and applies any class-specific checks that implementation supports.
+
+### Unknown `kind` and `integrity_verified`
+
+When a verifier encounters a registry entry whose `kind` is an **unregistered extension** `tstr` (not one of the five reserved literals and not in the verifier's extension registry):
+
+1. It MUST record `unknown_key_class` (or equivalent) on the verification report.
+2. It MUST NOT coerce the entry into a reserved class.
+3. It MUST NOT set `integrity_verified = false` **solely** because the class is unknown—forward-compatible structural acceptance mirrors the "unknown extension event type" pattern: the bundle may still be structurally valid.
+4. If verification of a **downstream artifact** requires interpreting that `kid` under the unknown class (e.g., validating a signature, HPKE wrap, or erasure-evidence subtree that references it) and the verifier lacks normative rules or crypto for that class, it MUST fail closed for that obligation: set `integrity_verified = false` with an explicit **capability gap** / **unsupported key class** code (same family as "referenced suite not implemented"). Until such a reference appears, unknown `kind` remains informational.
 
 ## Fixture plan
 
@@ -222,7 +246,7 @@ Minimum Phase-1 fixture set:
 | `append/034-key-entry-scope-reservation` | Same for `scope`. |
 | `append/035-key-entry-recovery-reservation` | Same for `recovery`. |
 | `tamper/023-key-class-mismatch-signing-as-recovery` | A `recovery`-class kid signs an ordinary event. Verifier rejects per class-dispatch obligation. |
-| `tamper/024-key-entry-attributes-shape-mismatch` | `kind = "signing"` but `attributes` lacks a required signing field. Structure-failure. |
+| `tamper/024-key-entry-attributes-shape-mismatch` | Declared `kind` does not match the encoded shape (e.g., signing arm carries a nested `attributes` map, or non-signing arm omits required inner fields). Structure-failure. |
 | `tamper/025-subject-key-wrap-after-valid-to` | A `KeyBagEntry` wrap references a `subject` kid whose `valid_to` has passed. Detectable when the subject-kind classes activate. |
 
 Five positive + three tamper. `append/031` is load-bearing (signing-class semantic parity + new byte pin). Follow-on tamper vectors SHOULD cover unknown `kind` escape, `tstr` class injection, and supersession-cycle violations mirroring Trellis tamper discipline.
@@ -231,14 +255,14 @@ Five positive + three tamper. `append/031` is load-bearing (signing-class semant
 
 1. **Migration plan for the existing signing-key registry.** Deployments that already emit `SigningKeyEntry` need a migration: re-author current registry as `KeyEntry` entries with `kind = "signing"`. Phase-1 is greenfield so no migration pressure today; write the migration notes alongside the first real adopter.
 2. **Quorum-discipline CDDL for `recovery`.** The `activation_quorum_set` field is a simple N-of-M reference list. Phase-2+ threshold custody may need richer quorum discipline (e.g., weighted votes, time-staggered authorities). Separate follow-on ADR when CM-D activates.
-3. **Cross-class attestation signatures.** A `scope` key's existence might need an attestation from the `tenant-root` key that authorized its creation. Not in the Phase-1 CDDL shape above; Phase-2+ extension via the `attestation` sub-field on each variant.
+3. **Cross-class attestation signatures.** A `scope` key's existence might need an attestation from the `tenant-root` key that authorized its creation. Not in the Phase-1 CDDL above. Phase-2+ SHOULD use **top-level `KeyEntry.extensions`** (or `KeyEntrySigning.extensions`) for cross-class metadata and vendor-specific attestation bundles; reserve per-variant detached **signing-style `attestation` bytes** only when reusing the Core §8.7 signing-key attestation pattern literally—avoid a second open-ended extension map nested inside `attributes`.
 4. **Key-class query tooling in `trellis-cli`.** A `trellis-cli list-keys --kind subject` or similar would make day-to-day operator work readable. Non-blocking, adopter-driven.
 
 ## Cross-references
 
 - **Core §8** — wire-format rewrite. `SigningKeyEntry` becomes a named variant of `KeyEntry`; §8.3 derivation stays class-agnostic.
 - **Core §9.4** — HPKE wrap recipient-pubkey path will reference `subject` kids in Phase-2+; Phase-1 remains opaque bytes.
-- **ADR 0005 `ErasureEvidencePayload.key_class`** — enum values align with this taxonomy; ADR 0005 gets a cross-reference when this ADR lands.
+- **ADR 0005 `ErasureEvidencePayload`** — `key_class` literals + `kid_destroyed` registry lookup reconciled with this ADR (`subject` normative, `wrap` legacy synonym; **ADR 0005 §Verifier obligations step 2** normalizes `wrap`→`subject` and binds to `KeyEntry.kind` when the kid resolves).
 - **Companion §6.4 Operator role** — operator authors key entries across all classes.
 - **Companion §20 lifecycle obligations** — apply class-agnostic; Appendix A.7 cascade-scope enumeration is class-agnostic.
 - **STACK.md** commitment #5 custody-honest privacy — identity separation depends on having subject / scope / tenant-root classes expressible in the wire.
@@ -246,13 +270,13 @@ Five positive + three tamper. `append/031` is load-bearing (signing-class semant
 
 ## Implementation sequencing
 
-1. **Spec** — Core §8 CDDL rewrite: `KeyEntry` tagged union + five `KeyAttributes` variants. §8.1 registry-binding prose updated. §8.4 `SigningKeyStatus` prose moved inside `SigningKeyAttributes`. §8.3 derivation prose noted class-agnostic. Companion §20 class-agnostic note. Companion §27 lint extension.
+1. **Spec** — Core §8 CDDL: `KeyEntry = KeyEntrySigning / KeyEntryNonSigning` (per *Normative kind-to-shape binding*) + inner attribute structs. §8.1 registry-binding prose updated. §8.4 signing lifecycle prose lives on the flat signing arm. §8.3 derivation class-agnostic. Companion §20 class-agnostic note. Companion §27 lint extension.
 2. **Rust** — `trellis-types::KeyEntry` + `KeyAttributes` enum. Registry lookup in `trellis-verify` dispatches on `kind`. Phase-1 lint in `check-specs.py`: warn on non-signing entries.
 3. **First positive vector** — `append/031-key-entry-signing-lifecycle` pins the signing-class behavior under the executed `KeyEntry` encoding (new golden bytes after migration).
 4. **Python stranger mirror** — `trellis-py` verifier extended matchingly.
 5. **Reservation vectors** — `append/032..035` (one per non-signing class).
 6. **Tamper vectors** — `tamper/023..025`.
-7. **ADR 0005 `key_class` enum reconciliation** — update the ADR to reference this taxonomy; no wire change (the values already align).
+7. **ADR 0005 reconciliation** — done in ADR prose: `key_class` includes `subject` and legacy `wrap` (**ADR 0005 step 2** normalizes to `subject` before registry match); `kid_destroyed` + field semantics reference the unified registry.
 
 Steps 1–3 are the minimum for the ADR's claim to hold; steps 4–7 close the corpus.
 

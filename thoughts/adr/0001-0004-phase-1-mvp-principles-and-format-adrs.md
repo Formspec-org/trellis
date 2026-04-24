@@ -6,7 +6,7 @@
 > The ADR *intents* are in force and the envelope reservations exist; the field-name / shape prescriptions below diverge from [`specs/trellis-core.md`](../../specs/trellis-core.md) v1.0.0 in three places. Future readers should treat the ratified Core as authoritative for byte-level names and consult this doc for the decision rationale:
 >
 > - **ADR 0001 — DAG-capable topology.** ADR prescribes `priorEventHash: [Hash]` (list form). Ratified spec uses scalar `prev_hash: digest / null` in `EventPayload` for Phase-1 chain linkage, with `causal_deps: [* digest] / null` as the separate reserved DAG slot. Phase-1 lint requires `causal_deps` be `null` or `[]`. Architecturally equivalent; names differ.
-> - **ADR 0002 — List-form anchors.** ADR prescribes `anchor_refs: [AnchorRef]` in `CheckpointPayload`. Ratified spec uses scalar `anchor_ref: bstr / null` in `CheckpointPayload` plus an `external_anchors` list at the export-manifest layer. Single-anchor default preserved; multi-anchor capacity moved to the manifest.
+> - **ADR 0002 — List-form anchors.** ADR prescribes `anchor_refs: [AnchorRef]` in `CheckpointPayload` with Phase-1 lint `len(anchor_refs) ≥ 1` and “accept if any entry verifies.” Ratified spec uses scalar `anchor_ref: bstr / null` in `CheckpointPayload` where **Phase 1 MUST accept `null` and MUST NOT require a non-null anchor** (Core §11.5), plus an `external_anchors` list at the export-manifest layer for multi-anchor capacity. So the ADR and ratified Core agree on *reserving anchor capacity* and federation posture, but **differ on Phase-1 mandatory checkpoint anchoring**: historical ADR leaned operator-default “always one anchor”; ratified Core keeps the witness **optional until a deployment class elevates it**.
 > - **ADR 0003 — Federation extension points.** ADR prescribes named optional fields. Ratified spec uses generic `extensions: { * tstr => any } / null` containers with an event-type registry (Core §6.7). Stronger and more general mechanism.
 >
 > ADR 0004 (Rust byte authority) is an exact match; no divergence.
@@ -23,8 +23,14 @@ revising the ADRs; downstream decisions flow from them mechanically.
 
 **User posture (captured 2026-04-20):**
 
-- Zero records will be issued under Phase-1-shape before G-5 ratifies it.
-- PROD-MVP deployable as fast as possible; G-5 is soon-next.
+- **Issuance vs software:** No **production Trellis records** (canonical
+  append / export packages consumers would treat as authoritative) ship
+  under the ratified Phase-1 wire shape until **G-5** has commissioned the
+  stranger second implementation against that shape. That does **not**
+  block shipping **software** (verifiers, services, CI) toward PROD-MVP;
+  it blocks treating emitted records as “done” until G-5.
+- PROD-MVP deployable as fast as possible; G-5 is soon-next for **record**
+  issuance readiness, not for every engineering milestone.
 - **Maximalist envelope, restrictive Phase-1 runtime.** Reserve architectural
   capacity in the wire format; enforce Phase-1 scope via lint rules, not
   via absence-of-capacity.
@@ -32,8 +38,9 @@ revising the ADRs; downstream decisions flow from them mechanically.
   (Rust + Python) that must agree.
 
 Authority: this posture overrides the earlier Trellis placeholder in
-`vision-model.md` ("minimalism over reservation"). The vision model is
-updated in lockstep with this accepted document.
+[`.claude/vision-model.md`](../../../.claude/vision-model.md) (“minimalism
+over reservation”). The stack-wide vision model is maintained in lockstep
+with this accepted document (see **Implications for vision-model** below).
 
 ---
 
@@ -63,8 +70,12 @@ updated in lockstep with this accepted document.
 4. **Rust is the byte authority.** The reference architecture is G-4 Rust.
    For decisions spec prose can't pin (CBOR ordering, COSE headers, ZIP
    metadata, Merkle step composition), the Rust implementation is canonical.
-   The spec prose and Rust impl are co-authorities per vision-model:278;
-   when they disagree, spec wins and Rust is fixed.
+   The spec prose and Rust impl are co-authorities (see
+   [`.claude/vision-model.md`](../../../.claude/vision-model.md) stack Q2):
+   when normative spec text is **precise** and disagrees with bytes, **spec
+   wins** and Rust is fixed; when prose is **silent or ambiguous** on a
+   byte-level detail, **Rust wins** as reference oracle until prose is
+   tightened (ADR 0004).
 
 5. **Maximalist envelope, restrictive Phase-1 runtime.** Reserve envelope
    capacity for Phase 2/3/4 use cases now — fields, hash slots, extension
@@ -96,6 +107,12 @@ updated in lockstep with this accepted document.
 
 ## ADR 0001 — Event topology: multi-parent DAG envelope, single-parent Phase-1 runtime
 
+> **Ratified wire vs this section:** Byte-level names and shapes are defined
+> in [`specs/trellis-core.md`](../../specs/trellis-core.md) (`prev_hash`,
+> `causal_deps`). The subsections below preserve the **2026-04-20 decision
+> rationale** using historical field names; do not treat them as
+> normative over Core.
+
 **Decision.** Envelope: `priorEventHash: [Hash]` (list form, DAG-capable).
 Phase-1 runtime lint: `len(priorEventHash) MUST equal 1` for all events
 in Phase-1 scope.
@@ -121,9 +138,13 @@ and implement; list-of-one is visual noise for Phase-1 readers. Accepted
 trade-off: one extra bracket in fixtures in exchange for eliminating the
 Phase 3 format-break risk.
 
-**Phase-1 lint rule.** `TR-CORE-R{next}`: *Every event MUST have exactly
-one parent hash in `priorEventHash` (array length = 1). Phase-1 lint;
-relaxes at Phase 3 scoping.*
+**Phase-1 obligations (ratified Core).** Strict linear chain via scalar
+`prev_hash` (Core §10.2); `causal_deps` MUST be `null` or `[]` in Phase 1
+(Core §10.3). Requirements matrix traceability: **TR-CORE-020**, **TR-CORE-024**
+([`trellis-requirements-matrix.md`](../../specs/trellis-requirements-matrix.md)). *Historical ADR
+prescription:* length-1 `priorEventHash` list — naming superseded; intent
+(linear Phase 1 + reserved DAG slot) matches `prev_hash` + empty
+`causal_deps`.
 
 **Revisit when.**
 
@@ -135,6 +156,11 @@ relaxes at Phase 3 scoping.*
 
 ## ADR 0002 — Anchor cardinality: list-form envelope, single-anchor Phase-1 default
 
+> **Ratified wire vs this section:** Checkpoint anchoring is **scalar**
+> `anchor_ref` plus manifest `external_anchors` (Core §11.5, §16.3). Phase-1
+> checkpoint verification **must not** fail solely for a null `anchor_ref`.
+> Text below is the historical list-form rationale.
+
 **Decision.** Envelope: `anchor_refs: [AnchorRef]` (list form). Phase-1
 runtime lint: `len(anchor_refs) MUST be ≥ 1` (no upper bound);
 operators SHOULD populate with one substrate at Phase-1 deployment.
@@ -142,9 +168,11 @@ Multi-anchor is legal from day 1; threshold verification semantics defer
 to the Phase 4 Federation Profile.
 
 **Substrate choice for Phase-1 deployment.** Adapter-tier concrete choice
-per user_profile:89 and vision-model ε:306. Candidates: Bitcoin
-OpenTimestamps, Sigstore Rekor, agency-operated Trillian. Deferred to a
-bounded spike; not in scope for this ADR.
+per [`user_profile.md`](../../../.claude/user_profile.md) and **ε — Anchor substrate choice at deployment** in
+[`.claude/vision-model.md`](../../../.claude/vision-model.md) (Trellis
+Active uncertainties). Candidates: Bitcoin OpenTimestamps, Sigstore Rekor,
+agency-operated Trillian. Deferred to a bounded spike; not in scope for
+this ADR.
 
 **Principles applied.** #5, #3, #7 (architectural-capacity tie-break:
 list form beats scalar on capacity).
@@ -159,12 +187,18 @@ list form beats scalar on capacity).
 **Counter-argument considered.** Threshold-of-N verification semantics
 are not specified in Phase 1. True — but the envelope carries the anchors;
 verifiers can enforce Phase-1 "first-anchor-valid" semantics until the
-Profile lands.
+Profile lands. *Ratified caveat:* Core §11.5 does **not** require a
+checkpoint anchor in Phase 1; optional `anchor_ref` and manifest-level
+`external_anchors` carry the “more than zero witness material when the
+operator opts in” story without making anchoring a hard Phase-1 verifier
+failure.
 
-**Phase-1 lint rule.** `TR-CORE-R{next+1}`: *`anchor_refs` MUST have at
-least one entry. Verifiers MUST accept a checkpoint if any anchor in the
-list verifies. Multi-anchor threshold semantics defer to the Federation
-Profile.*
+**Phase-1 obligations (ratified Core).** Core §11.5 (`anchor_ref` optional);
+§16.3 (`external_anchors` on export manifest). Requirements matrix:
+**TR-OP-092** (external witnessing optional and subordinate to canonical
+append semantics). *Historical ADR prescription:* non-empty `anchor_refs`
+with “any entry verifies” — **stricter than ratified Phase-1**; treat as
+deployment guidance, not as a Core MUST.
 
 **Revisit when.**
 
@@ -176,6 +210,12 @@ Profile.*
 ---
 
 ## ADR 0003 — Federation extension points: envelope-reserved, Phase-1-locked
+
+> **Ratified wire vs this section:** Federation and case/agency composition
+> use registered keys inside `EventPayload.extensions`,
+> `CheckpointPayload.extensions`, and related containers (Core §6.7), not
+> the named top-level `case_ledger_ref` / `agency_log_head` fields sketched
+> below. Intent (“reserve growth without Phase-1 population”) matches Core.
 
 **Decision.** Reserve envelope fields for Core §22 case ledger and §24
 agency log as optional-but-validated fields. Phase-1 runtime lint:
@@ -205,18 +245,25 @@ records).
   record migration for cross-agency records.
 
 **Federation Profile co-defers.** Shape A (cooperative trust-anchor
-network, per vision-model:310) remains the inherited default for Phase 4.
-This ADR reserves the envelope surface but NOT the Profile design;
-Profile specification defers with Phase 4 scoping.
+network) remains the inherited default for Phase 4 (see **Federation
+Profile substance** under Trellis Active uncertainties in
+[`.claude/vision-model.md`](../../../.claude/vision-model.md)). This ADR
+reserves the envelope surface but NOT the Profile design; Profile
+specification defers with Phase 4 scoping.
 
 **Counter-argument considered.** "Reserved-unused is a few optional
 envelope fields, no runtime effect" — true of the wire, nonzero of the
 reader. Per Principle 5, the architectural-capacity gain dominates the
 cognitive cost.
 
-**Phase-1 lint rule.** `TR-CORE-R{next+2}`: *`case_ledger_ref` and
-`agency_log_head` MUST NOT be populated in Phase-1 records. Phase-1
-lint; relaxes at Phase 4 Federation Profile scoping.*
+**Phase-1 obligations (ratified Core).** Phase-1 producers emit
+`*.extensions` maps as `null` or empty except for **Phase-1-registered**
+identifiers (Core §6.7); case-ledger and agency-log heads land under
+registered extension keys in later phases, without new top-level
+payload fields. Requirements matrix (continuity / superset posture):
+**TR-CORE-080**, **TR-CORE-081**. *Historical ADR prescription:* absent
+top-level `case_ledger_ref` / `agency_log_head` — mechanism superseded by
+the `extensions` registry model, which is **stronger** (amendment above).
 
 **Revisit when.** Phase 4 federation enters scoping.
 
@@ -244,9 +291,10 @@ cross-check is secondary integrity surface, #5 applied to implementations
     different ways by two team members writing the two impls.
   - Both impls agreeing but being wrong — only G-5 catches this.
 - **Authority resolution.** When Rust and Python disagree on a
-  byte-level decision the spec prose does not pin: Rust wins (it's the
-  reference impl); Python updates to match; the disagreement becomes a
-  spec-prose clarification ticket.
+  byte-level decision **that normative spec prose does not pin**, Rust
+  wins (it's the reference impl); Python updates to match; the disagreement
+  becomes a spec-prose clarification ticket. When prose **does** pin the
+  bytes, Principle 4 applies: spec wins, Rust is fixed.
 
 **CI discipline.**
 
@@ -294,31 +342,26 @@ actively verified to be semantically identical. Not drift; cross-check.
   is not scheduled for retirement."
 - G-3's acceptance criterion stays as-is: "byte-exact vectors across
   Rust + Python generators." The allowlist-free coverage matrix stays.
-- New Phase-1 lint rules (R-series: DAG-length-1, anchor-length-≥1,
-  federation-fields-absent) land in `scripts/check-specs.py` as part of
-  the corresponding vector authoring.
+- Phase-1 lint and vector authoring follow **ratified** field names and
+  rules in Core (`prev_hash` / `causal_deps`, `anchor_ref` /
+  `external_anchors`, `extensions` per §6.7), implemented in
+  `scripts/check-specs.py` alongside the fixture corpus.
 
-## Implications for vision-model.md
+## Implications for `.claude/vision-model.md`
 
-- Line 279 (principle 5 in vision-model's Trellis section) needs
-  reversal: "minimalism over reservation" → "maximalist envelope,
-  restrictive Phase-1 runtime."
-- ADR 0001–0003 rewrites (lines 284–286) flip from minimalist to
-  maximalist-envelope decisions.
-- ADR 0004 rewrite (line 287) flips from "Python retires" to "Python
-  retained as cross-check."
-- Cross-references elsewhere (changelog, handoff) unchanged; these
-  describe the session, not the current decision.
-
-Offer: I can apply this vision-model.md update after this doc is
-validated.
+Synced **2026-04-24**: the Trellis section’s **Format ADRs** bullets now echo
+ratified Core field names while preserving ADR intent; the stack-wide doc
+is canonical for Q1–Q4 posture. Changelog entry records the sync. Older
+line-number notes in pre-2026-04-24 drafts are obsolete.
 
 ---
 
 ## Validation checklist
 
 Validated by owner signal on 2026-04-20 when dispatch moved from task
-construction to execution.
+construction to execution. Checklist rows below name **ADR acceptance
+intent**; ratified Core + the amendment at the top of this file govern
+**wire names** and **Phase-1 MUST** text.
 
 - [x] Principles 1–7 match intent under the maximalist directive.
 - [x] ADR 0001 (DAG envelope, length-1 runtime) is the correct synthesis
