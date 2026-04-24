@@ -265,10 +265,10 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 |---|---|---|
 | Gate status, evidence SHAs | [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) | open the file |
 | Principles + format ADRs | [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md) | open the file |
-| Trellis-local ADRs | [`thoughts/adr/`](thoughts/adr/) | `ls thoughts/adr/` — 0001-0004 (Phase-1 principles + format ADRs), 0005 (crypto-erasure evidence) |
+| Trellis-local ADRs | [`thoughts/adr/`](thoughts/adr/) | `ls thoughts/adr/` — 0001-0004 (Phase-1 principles + format ADRs), 0005 (crypto-erasure evidence), 0006 (key-class taxonomy), 0007 (certificate-of-completion composition) |
 | Closed work (waves, sprints, streams) | [`COMPLETED.md`](COMPLETED.md) | open the file |
 | Strategy, product arc, invariants | [`thoughts/product-vision.md`](thoughts/product-vision.md) | open the file |
-| In-flight design docs | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` — currently empty after 2026-04-23 audit; new design work lands here before promotion to `thoughts/adr/` or archive |
+| In-flight design docs | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` — G-3 fixture system design (active lint contract); 2026-04-24 HPKE + anchor-substrate spikes; new work lands here before promotion to `thoughts/adr/` or `thoughts/archive/specs/` |
 | Fixture corpus (ground truth) | `fixtures/vectors/` | `ls fixtures/vectors/*/` |
 | Rust reference implementation | `crates/` | `cargo test --workspace` |
 | Python cross-check (G-5 harness) | `trellis-py/` | `pip install -e trellis-py && python -m trellis_py.conformance` |

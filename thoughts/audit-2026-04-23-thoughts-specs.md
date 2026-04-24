@@ -190,8 +190,9 @@ git mv thoughts/specs/2026-04-19-trellis-hpke-freshness-decision.md \
 git mv thoughts/specs/2026-04-18-trellis-o3-projection-conformance.md \
        thoughts/archive/specs/2026-04-18-trellis-o3-projection-conformance.md
 
-git mv thoughts/specs/2026-04-18-trellis-g3-fixture-system-design.md \
-       thoughts/archive/specs/2026-04-18-trellis-g3-fixture-system-design.md
+# REMOVED 2026-04-24: Do not archive `2026-04-18-trellis-g3-fixture-system-design.md`.
+# It governs the live `check-specs.py` fixture contract and ratification G-3 evidence;
+# it lives under `thoughts/specs/` as active normative-adjacent design (unarchived after review).
 
 git mv thoughts/specs/2026-04-18-trellis-g3-first-batch-brainstorm.md \
        thoughts/archive/specs/2026-04-18-trellis-g3-first-batch-brainstorm.md

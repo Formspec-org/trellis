@@ -4,6 +4,8 @@ Comprehensive status of every `thoughts/specs/` document against current `specs/
 
 16 agents ran in parallel, one per design doc.
 
+**Post-audit reader note (2026-04-24):** Summary row 9 and Actionable item #1 below describe an **O-5 disclosure-profile verifier gap** that was **re-closed on 2026-04-23** later the same day (after this audit prose was finalized). Both Rust and Python `decode_transition_details` handle `trellis.disclosure-profile-transition.v1`, with `tamper/016-disclosure-profile-from-mismatch` as the negative oracle. Do not re-do that work from Finding #1 alone — confirm against current `main` and [`ratification/ratification-checklist.md`](../ratification/ratification-checklist.md) O-5.
+
 ---
 
 ## Summary Table
@@ -18,7 +20,7 @@ Comprehensive status of every `thoughts/specs/` document against current `specs/
 | 6 | `g4-rust-workspace-plan` | **MOSTLY RESOLVED** | All 10 crates built, G-4/G-5 closed. Drift: layout changed, API names diverged, `no_std` not attempted, HPKE not in Rust yet |
 | 7 | `o3-projection-conformance` | **MOSTLY RESOLVED** | All 4 test types implemented, O-3 gate closed. Cadence only covers height-based kind; non-deterministic rebuild fixture deferred |
 | 8 | `o4-declaration-doc-template` | **MOSTLY RESOLVED** | Reference doc + static lint landed, O-4 closed. Signature crypto verify (rule 14) and supersedes acyclicity (rule 15) not implemented; 9 ledger-replay rules have zero implementation |
-| 9 | `o5-posture-transition-schemas` | **MOSTLY RESOLVED** | Custody-model transitions fully verified. **Disclosure-profile transitions NOT verified in Rust** — `decode_transition_details` is custody-model-only; O-5 arguably closed prematurely on this axis |
+| 9 | `o5-posture-transition-schemas` | **FULLY RESOLVED (post-audit 2026-04-23)** | Disclosure-profile axis re-closed same session: `decode_transition_details` + `tamper/016` — see ratification O-5 narrative. Row above described state before that re-close. |
 | 10 | `wave1-consolidation-plan` | **FULLY RESOLVED** | Every spec edit, matrix row, lint rule, and fixture landed in sequence; all referenced gates closed |
 | 11 | `wave1-lint-extension-plan` | **FULLY RESOLVED** | All 11 rules (R1–R11) implemented. File at 1818 lines exceeds the plan's own ~800-line revisit trigger |
 | 12 | `hpke-freshness-decision` | **MOSTLY RESOLVED** | Core §9.4 amended, `append/004` fixture complete. No Rust HPKE implementation exists yet (spec-only); §8.6 wording weaker than §9.4 |
@@ -33,7 +35,7 @@ Comprehensive status of every `thoughts/specs/` document against current `specs/
 
 ### Real gaps (not by-design deferrals)
 
-1. **O-5 disclosure-profile verifier gap** — Rust `decode_transition_details` only handles custody-model; disclosure-profile transitions pass verification without semantic checks (`thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md`)
+1. ~~**O-5 disclosure-profile verifier gap**~~ — **Closed 2026-04-23 same session** (see banner above + `ratification-checklist.md` O-5). Original text retained for archaeology: Rust `decode_transition_details` only handled custody-model; disclosure-profile transitions passed verification without semantic checks (`thoughts/specs/2026-04-18-trellis-o5-posture-transition-schemas.md`).
 2. **O-4 rules 14–15** — signature crypto verification and supersedes-chain acyclicity lint not implemented (`thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md`)
 3. **`tamper_kind` enum** — never formally pinned in Core §17.5; values are de-facto consistent across corpus but not normatively enumerated (`thoughts/specs/2026-04-18-trellis-g3-first-batch-brainstorm.md`)
 4. **`check-specs.py` at 1818 lines** — exceeds its own revisit trigger at ~800 (`thoughts/specs/2026-04-18-trellis-wave1-lint-extension-plan.md`)
