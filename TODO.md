@@ -95,10 +95,12 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
 
 8. **Crypto-erasure evidence — execute per ADR 0005** — **M–L**.
    [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md): spec deltas
-   (Companion §20 + OC-141..143) → Core §6.7/§19 → Rust decode + Phase-1–scoped
-   step-5 chain checks → vectors `append/023..027` + `tamper/017..019` +
-   export `009` / catalog → CLI → §27 tests. Expand tamper set per ADR
-   *Fixture plan* follow-on row.
+   (Companion §20 + OC-141..143) → Core §6.7/§19 → Rust decode + the
+   full 10-step verifier checklist (ADR 0005 steps 1–10), with Phase-1
+   chain-walk (step 8) scoped to `signing` + `subject` kids per ADR step-8
+   Phase-1 bound; other classes co-land with item #5 → vectors
+   `append/023..027` + `tamper/017..019` + export `009` / catalog → CLI →
+   §27 tests. Expand tamper set per ADR *Fixture plan* follow-on row.
 
 9. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
    [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
