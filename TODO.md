@@ -220,6 +220,29 @@ auditor, applicant, systems integrator, or adopter of a later custody model.
   Values are de-facto consistent across the tamper corpus but not
   normatively enumerated. **Trigger:** first external consumer of
   verification reports.
+- **`ReasonCode` registry governance** — **XS**.
+  Both O-5 posture transitions (Companion A.5.1 / A.5.2) and ADR 0005
+  erasure evidence carry `reason_code` fields with ad-hoc enum values
+  pinned inline (1–5 + 255 for both). Cross-cutting open item:
+  register `ReasonCode` per-family under Core §6.7 as append-only,
+  codify `255 = Other` as the catch-all convention, and decide whether
+  shared codes across families should collide or be namespaced.
+  **Trigger:** second reason-code-bearing event family beyond the two
+  that exist now.
+- **ADR 0005 follow-ons (erasure evidence)** — **M–L**, phased.
+  Four open questions flagged in
+  [`thoughts/adr/0005-crypto-erasure-evidence.md`](thoughts/adr/0005-crypto-erasure-evidence.md)
+  §"Open questions / follow-ups":
+  (1) LAK rotation + erasure interaction — re-wrap cascade mode or
+  coupled recipe. **Trigger:** first live LAK rotation touching
+  erasure-cascade-bearing subjects.
+  (2) `hsm_receipt_kind` format registry — AWS KMS / PKCS#11 / GCP /
+  Azure / vendor entries. **Trigger:** second deployment adopter with
+  a different HSM vendor.
+  (3) Legal-hold-coupled erasure lint — detect OC-78 vs §20.6 conflict.
+  **Trigger:** Phase 2.
+  (4) Multi-operator quorum attestation shape. **Trigger:** Phase 4
+  federation scoping.
 - **Cadence subtypes beyond height-based** — **M**.
   `projection/003` and `projection/004` cover only height-based cadence;
   time-driven / event-driven / hybrid untested. **Trigger:** first adopter
