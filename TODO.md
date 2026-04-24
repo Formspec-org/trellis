@@ -115,20 +115,22 @@ Gates marked closed with incomplete evidence. Tracking in
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md);
 fix closes the door on the existing claim.
 
-- **O-5 disclosure-profile transitions unverified in Rust** — **S**, Phase 1.
-  Companion A.5.2 CDDL and fixture `append/008` exist, but `trellis-verify`'s
-  `decode_transition_details` handles only custody-model transitions; a
-  tampered `from_disclosure_profile` value passes verification. G-O-5 is
-  retroactively reopened in the checklist. Add the decode/verify arm, a
-  negative tamper vector, and re-close G-O-5 once the Rust path covers both
-  transition kinds.
-  **Gate:** none.
 - **O-4 static lint rules 14 + 15** — **S**, Phase 1.
   Rule 14 validates signing-key structure without running crypto verification;
   Rule 15 (`supersedes` chain acyclicity) is unimplemented. Both are named in
-  [`thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/specs/2026-04-18-trellis-o4-declaration-doc-template.md)
+  [`thoughts/archive/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/archive/specs/2026-04-18-trellis-o4-declaration-doc-template.md)
   and both are pure `scripts/check-specs.py` additions.
   **Gate:** none.
+
+**Resolved in this stream:**
+
+- **O-5 disclosure-profile transitions unverified in Rust** — closed 2026-04-23.
+  `trellis-verify::decode_transition_details` now handles
+  `trellis.disclosure-profile-transition.v1`; Python stranger mirrors;
+  `tamper/016-disclosure-profile-from-mismatch` is the negative oracle.
+  G-O-5 re-closed in the ratification checklist after a full retroactive
+  reopen — both implementations now exercise both transition axes
+  symmetrically.
 
 ### 6. Max-vision unlocks
 
