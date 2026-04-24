@@ -782,6 +782,10 @@ CaseLedgerHeadExtensions = {
 
 The extension container is load-bearing for invariant #12: agency-log adoption is not a wire-format break for any Phase 1 checkpoint already in the field.
 
+### 11.7 Interop sidecar derivation (non-normative)
+
+The `CheckpointPayload` fields — `scope`, `tree_size`, `tree_head_hash`, `timestamp`, and the RFC-6962-compatible Merkle construction of §11.3–§11.4 — are intentionally shape-equivalent to a SCITT-style signed-log-statement-plus-inclusion-proof. A conforming implementation MAY emit a SCITT-receipt interop sidecar as a deterministic derivation of a checkpoint plus a target event hash; the normative discipline, registry, and Phase-1 reservation-with-lockoff rules live in [ADR 0008 — Interop Sidecar Discipline](../thoughts/adr/0008-interop-sidecar-discipline.md). Phase-1 verification is unaffected: core checkpoint verification MUST NOT depend on any interop sidecar.
+
 ---
 
 ## 12. Header Policy

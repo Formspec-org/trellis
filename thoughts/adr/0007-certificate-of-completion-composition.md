@@ -4,7 +4,7 @@
 **Status:** Accepted (pending implementation)
 **Supersedes:** —
 **Superseded by:** —
-**Related:** ADR 0005 (crypto-erasure evidence — mirrors this doc's wire pattern); WOS-T4 `SignatureAffirmation` work (Core §6.7 `trellis.export.signature-affirmations.v1`); ADR 0072 (evidence integrity + attachment binding) at parent; WOS [ADR 0062](../../../wos-spec/thoughts/adr/0062-signature-profile-workflow-semantics.md) (Signature Profile workflow semantics); STACK.md end-state commitment #3 (one meaning of signing) + DocuSign-replacement positioning.
+**Related:** ADR 0005 (crypto-erasure evidence — mirrors this doc's wire pattern); ADR 0008 (interop sidecar discipline — the `c2pa-manifest` interop sidecar kind binds this ADR's `PresentationArtifact`); WOS-T4 `SignatureAffirmation` work (Core §6.7 `trellis.export.signature-affirmations.v1`); ADR 0072 (evidence integrity + attachment binding) at parent; WOS [ADR 0062](../../../wos-spec/thoughts/adr/0062-signature-profile-workflow-semantics.md) (Signature Profile workflow semantics); STACK.md end-state commitment #3 (one meaning of signing) + DocuSign-replacement positioning.
 
 ## Decision
 
@@ -148,6 +148,10 @@ A conforming verifier processing an export bundle containing `trellis.certificat
 
 Rendering-drift checks (re-rendering from `template_id` + chain data) are NOT required in Phase 1. Adopters that want stronger binding publish `template_id` + `template_hash` and rebuild at verification time as a stretch check.
 
+### C2PA interop-sidecar binding (Phase 2+)
+
+The registered interop-sidecar format for content-provenance attachment to the rendered presentation artifact is **C2PA 2.x** per [ADR 0008 — Interop Sidecar Discipline](./0008-interop-sidecar-discipline.md), `kind = "c2pa-manifest"`. A Phase-2+ deployment co-lands C2PA manifest emission with the reference-template work in *Implementation sequencing* step 9. The manifest carries a Trellis-owned assertion pinning `certificate_id`, the certificate event's `canonical_event_hash`, `presentation_artifact.content_hash`, the signer `kid`, and a digest of the canonical COSE_Sign1 bytes — giving the PDF dual attestation (C2PA tooling verifies the manifest; Trellis verifier verifies the underlying canonical event). The Phase-1 envelope is unaffected: core verification MUST NOT depend on the C2PA sidecar (ADR 0008 ISC-01).
+
 ## Export manifest catalog (optional)
 
 When an export contains one or more `trellis.certificate-of-completion.v1` events, the export manifest MAY include a catalog extension (mirrors `trellis.export.signature-affirmations.v1` and ADR 0005's planned erasure catalog):
@@ -284,6 +288,7 @@ Three positive + seven tamper + one export catalog. Minimum set covers primary f
 - **Core §6.7** Extension Registry (where the new event type registers).
 - **Core §9** Domain separation (new `trellis-presentation-artifact-v1` tag).
 - **Core §19** Verification Algorithm (new step 6 extension for certificate cross-checks).
+- **ADR 0008** Interop Sidecar Discipline — `c2pa-manifest` kind binds the `PresentationArtifact` with dual-attestation semantics (co-lands with this ADR's implementation sequencing step 9).
 
 ## Implementation sequencing
 

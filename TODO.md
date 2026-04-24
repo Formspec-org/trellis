@@ -207,6 +207,63 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
     hooks stay reserved under ADR 0003 and `MUST NOT populate` in Phase
     1 until this lands.
 
+23. **Interop sidecar reservation — execute per ADR 0008** — **S**, Phase 1.
+    [ADR 0008](thoughts/adr/0008-interop-sidecar-discipline.md) registers
+    four ecosystem-derivation sidecar kinds (`scitt-receipt`,
+    `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`) under
+    canonical-first, deterministic, additive discipline. Phase-1 scope is
+    **reservation only**: Core §18 export-manifest gains `interop_sidecars:
+    [* InteropSidecarEntry] / null`; Phase-1 producers emit null/empty;
+    Phase-1 verifiers reject any populated entry with
+    `interop_sidecar_phase_1_locked`. Vectors `export/011-012` +
+    `tamper/027-031` per ADR *Fixture plan*. Also scaffolds empty crates
+    `trellis-interop-{scitt,vc,c2pa,did}` + `cargo-deny` config forbidding
+    ecosystem libs from `trellis-core` / `trellis-verify` / `trellis-types`
+    (ADR 0008 ISC-05 hygiene contract).
+
+24. **`scitt-receipt` adapter — execute per ADR 0008** — **M**, Phase 2+.
+    *Lands when SCITT Architecture draft reaches WG Last Call OR a
+    concrete adopter requires SCITT-compatible checkpoint receipts,
+    whichever fires first.* Implements `trellis-interop-scitt` against
+    the ADR 0008 §"Registry" field-mapping table for `derivation_version
+    = 1` (semantic-alignment mode). Re-signs the SCITT signed statement
+    with a distinct SCITT-issuer key managed by the operator's SCITT
+    service (not the checkpoint COSE signer). Unlocks the `scitt-receipt`
+    kind in the Phase-1 verifier's registry; adds round-trip byte-exact
+    vectors per kind. Follow-up: `derivation_version = 2` when SCITT
+    adopts a byte-conformance profile.
+
+25. **`vc-jose-cose-event` adapter — execute per ADR 0008** — **M**, Phase 2+.
+    *Lands when an SSI-native adopter (deployment that standardizes on
+    W3C VC 2.0 event envelopes) shows up.* Implements
+    `trellis-interop-vc` per ADR 0008 §"Registry" illustrative VC shape.
+    Requires resolving the three open questions in ADR 0008: VC
+    `@context` hosting + content hash, issuer-resolution policy, and
+    the Posture-Declaration binding for ISC-08 payload-disclosure
+    honesty per event kind. Unlocks the `vc-jose-cose-event` kind.
+
+26. **`c2pa-manifest` adapter — execute with ADR 0007** — **M**, Phase 2+.
+    *Co-lands with ADR 0007 implementation sequencing step 9
+    (reference template).* Implements `trellis-interop-c2pa` per
+    ADR 0008 §"Registry"; layers C2PA manifest emission on the
+    reference HTML-to-PDF pipeline so the presentation artifact ships
+    with a `trellis.certificate-of-completion.v1` assertion pinning
+    `certificate_id`, `canonical_event_hash`,
+    `presentation_artifact.content_hash`, signer `kid`, and canonical
+    COSE_Sign1 digest. Requires C2PA assertion-label registration (may
+    need C2PA coalition membership step per ADR 0008 open question 3).
+    Unlocks the `c2pa-manifest` kind.
+
+27. **`did-key-view` adapter — execute with item #5 (ADR 0006)** — **XS**, Phase 2+.
+    *Co-lands with ADR 0006 `KeyEntry` migration (item #5 above).*
+    Implements `trellis-interop-did` per ADR 0008 §"Registry" — a
+    one-way labeling view mapping each signing-class `kid` to its
+    `did:key` rendering under the Ed25519 multicodec. No signing, no
+    network, no verification-behavior change (the `did:key` IS the
+    public key). Unlocks the `did-key-view` kind. Non-signing key
+    classes are explicitly out of scope; a future `did-tenant-root-view`
+    or similar requires a separate landing ADR.
+
 ---
 
 ## Ratification close-out
