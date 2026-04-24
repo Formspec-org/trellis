@@ -67,13 +67,19 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
    derivation cross-references and Rust conformance-test IDs; silent
    renumber corrupts both. Corpus-integrity protection.
 
-5. **Key-class taxonomy ADR** — **M**.
-   Before Phase-2 custody-model work (CM-D threshold, CM-F client-origin
-   sovereign) opens. Core §8 defines only `SigningKeyEntry`; archived
-   family separated Tenant-root / Scope / Subject / Signing / Recovery-
-   only with distinct lifecycles. ADR decides tagged-union on
-   `SigningKeyEntry` vs sibling CDDL types; envelope reservation lands
-   now, runtime activates in Phase 2. Prevents a wire break later.
+5. **Key-class taxonomy — execute per ADR 0006** — **M**.
+   [ADR 0006](thoughts/adr/0006-key-class-taxonomy.md) accepted 2026-04-24:
+   generalize Core §8 `SigningKeyEntry` to a tagged-union `KeyEntry` with
+   five variants (`signing`, `tenant-root`, `scope`, `subject`, `recovery`).
+   Phase-1 CDDL lands all five as envelope-reserved; Phase-1 lint warns
+   on non-`signing` entries (reservation is valid but unused). Phase-2+
+   custody models CM-D (threshold) and CM-F (client-origin sovereign)
+   activate the remaining variants without a wire break. Seven-step arc:
+   Core §8 CDDL rewrite → Rust `KeyEntry` + `KeyAttributes` enum + class-
+   dispatched lookup → Phase-1 lint warn → `append/031-key-entry-signing-
+   lifecycle` byte-match → Python stranger mirror → reservation vectors
+   (`append/032..035`) → tamper vectors (`tamper/023..025`). ADR 0005
+   `key_class` enum reconciliation is a reconciliation step at the end.
    Gap source: [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md)
    §8.
 
@@ -183,7 +189,14 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
 19. **`trellis.external_anchor.v1` priority interaction** — **S**, Phase 2.
     *Lands when external anchoring opens.* O-5 posture-transition events
     may want higher anchor priority in deployments with external-anchor
-    chains.
+    chains. Anchor substrate is adapter-tier per the DI-first
+    [anchor-substrate spike](thoughts/specs/2026-04-24-anchor-substrate-spike.md)
+    — center ships an `AnchorAdapter` trait + enumerates OpenTimestamps,
+    Sigstore Rekor, and Trillian as first-class candidates; adopters pick
+    per deployment. This item is the priority-policy decision per
+    deployment (which adapter's `anchored_at_or_before` drives posture
+    transition priority when multiple adapters attest), declared in the
+    Posture Declaration.
 
 20. **ADR 0005 follow-ons (erasure evidence)** — **M–L**, phased.
     Four open questions from

@@ -18,6 +18,91 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 14 (2026-04-24) — ADR 0006/0007, HPKE + anchor spikes, shared-bundle design
+
+Rounded out the decision-document set that the 2026-04-23 audit sweep
+surfaced as gaps, plus landed the DI-first anchor-substrate stance.
+
+- **ADR 0006 — Key-class taxonomy.** Core §8's `SigningKeyEntry` generalized
+  to a tagged-union `KeyEntry` with five variants: `signing`, `tenant-root`,
+  `scope`, `subject`, `recovery`. Phase-1 CDDL lands all five as envelope-
+  reserved; Phase-1 runtime restricts emission to `signing` only. Unblocks
+  ADR 0005 `key_class` enum alignment and Phase-2+ custody models CM-D /
+  CM-F. Lands at `thoughts/adr/0006-key-class-taxonomy.md`.
+- **ADR 0007 — Certificate-of-completion composition.** `trellis.certificate-
+  of-completion.v1` canonical event binds a human-readable PDF/HTML artifact
+  to a signing-workflow completion event via ADR 0072 attachment path +
+  chain-derived `ChainSummary` the verifier cross-checks. PDF rendering NOT
+  normatively pinned; gross PDF-vs-chain divergence is detectable. Nine-step
+  implementation arc; seven-vector fixture plan. Closes the DocuSign-
+  replacement pitch in engineering terms. Lands at
+  `thoughts/adr/0007-certificate-of-completion-composition.md`.
+- **HPKE crate selection spike.** Picks `hpke` (rozbb/rust-hpke) for the
+  Rust wrap/unwrap path. Pure Rust, single-shot API matches per-KeyBagEntry
+  usage, PQ-suite migration path via KEM-generic traits. Interface sketch
+  + verification approach pinned for sequence item #6. Lands at
+  `thoughts/specs/2026-04-24-hpke-crate-spike.md`.
+- **Anchor substrate spike — DI-first.** Does NOT pick OpenTimestamps vs
+  Rekor vs Trillian. Declares an `AnchorAdapter` trait + enumerates three
+  first-class candidate adapters. Adopters pick per-deployment; multi-
+  adapter deployments are native via ADR 0002's list-form `external_anchors`.
+  Keeps ε (vision-model anchor-substrate uncertainty) formally open at
+  the center while giving adopters a stable trait contract. Lands at
+  `thoughts/specs/2026-04-24-anchor-substrate-spike.md`.
+
+Parent-repo landing same session:
+
+- **Shared cross-seam fixture bundle design.** Parent monorepo hosts
+  `fixtures/stack-integration/` with per-scenario bundles combining
+  Formspec canonical response + WOS provenance events + Trellis export
+  bundle + pinned expected cross-layer verifier report. Full-stack
+  analogue of Trellis G-5. Three Phase-1 bundles planned (WOS-T4
+  signature-complete, ADR 0073 public-create, ADR 0073 workflow-attach).
+  Lands at `formspec/thoughts/specs/2026-04-24-shared-cross-seam-fixture-
+  bundle-design.md`.
+
+### Wave 13 (2026-04-24) — TODO structural flattening
+
+Collapsed Trellis TODO from ten numbered streams plus separate Deferred
+and Sustaining sections into one sequenced list of 22 open items, each
+carrying its prerequisite inline. Removed redundant `Phase 1` tags on
+open-work items (all Phase-1 by default); kept Phase-2/3/4 tags where
+they differentiate. Stripped landed-status narrative from the
+WOS-T4 and ADR-0073 Stream bodies — COMPLETED.md holds that history.
+Parent TODO + cross-refs updated. No content lost; structure flatter.
+
+### Wave 12 (2026-04-23) — audit sweep + ADR 0005 + G-O-5 re-close
+
+Closed out the 2026-04-23 design-doc audit sweep in three phases:
+
+- **O-5 disclosure-profile verifier gap closed.** Rust `trellis-verify`
+  and Python stranger both extended to decode
+  `trellis.disclosure-profile-transition.v1` in addition to the custody-
+  model axis. `tamper/016-disclosure-profile-from-mismatch` is the
+  negative oracle. G-O-5 was retroactively reopened in the ratification
+  checklist on 2026-04-23 after the audit surfaced the gap, then
+  re-closed the same day once the Rust + Python + vector arrived.
+  Verified by `cargo test -p trellis-conformance` +
+  `python3 -m trellis_py.conformance` (63 vectors, 0 failures).
+- **ADR 0005 — Crypto-erasure evidence.** Adopts explicit
+  `trellis.erasure-evidence.v1` event over the absence-is-evidence
+  alternative. Extension-slot wire shape, chain-cross-check verifier
+  obligation, Companion §20 rewrite (OC-78 promotion + new OC-79/80/81),
+  optional export catalog. Closes the DocuSign-replacement positioning
+  claim around provable crypto-shredding. Lands at
+  `thoughts/adr/0005-crypto-erasure-evidence.md`. Execution arc is
+  Trellis TODO sequence item #8.
+- **Audit execution.** Archived nine landed design briefs from
+  `thoughts/specs/` (six in Group A clean archive + two in Group B
+  needing citation migration + one cross-cutting doc); promoted the
+  Phase-1 ADR 0001-0004 set + the new ADR 0005 from `thoughts/specs/`
+  into a new Trellis-local `thoughts/adr/` tree; updated citations in
+  Trellis TODO / CLAUDE.md / product-vision.md and parent
+  vision-model.md; deleted the stale auto-memory file that duplicated
+  the ADR content. §8.6 HPKE wording tightened to match §9.4 semantics.
+  `thoughts/specs/` emptied; new design work lands there before
+  promotion or archive.
+
 ### Wave 11 (working tree) — ADR 0072 attachment export closure
 
 Closed the Trellis-side Phase-1 evidence-integrity export batch:

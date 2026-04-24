@@ -46,8 +46,10 @@ Active design docs under `thoughts/specs/` (archaeology under `thoughts/archive/
 - `2026-04-18-trellis-g3-fixture-system-design.md` — fixture system scope, manifest, coverage lint, generator discipline.
 - `thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md` — Phase-1 principles + ADRs 0001–0004.
 - `thoughts/adr/0005-crypto-erasure-evidence.md` — ADR 0005 cryptographic-erasure evidence format.
-- `thoughts/adr/0007-certificate-of-completion-composition.md` — ADR 0007 human-readable signed-artifact binding (COC). (0006 reserved for the pending key-class taxonomy ADR — sequence item #5 in TODO.)
+- `thoughts/adr/0006-key-class-taxonomy.md` — ADR 0006 key-class taxonomy (signing / tenant-root / scope / subject / recovery); Phase-1 envelope-reserves all five, runtime restricts to `signing`.
+- `thoughts/adr/0007-certificate-of-completion-composition.md` — ADR 0007 human-readable signed-artifact binding (COC).
 - `thoughts/specs/2026-04-24-hpke-crate-spike.md` — HPKE crate selection spike; picks `hpke` crate, pins interface for sequence item #6.
+- `thoughts/specs/2026-04-24-anchor-substrate-spike.md` — DI-first anchor-substrate stance; `AnchorAdapter` trait + OpenTimestamps / Rekor / Trillian as first-class candidates; adopters pick per-deployment.
 
 ## Operating Context — READ THESE BEFORE DECIDING
 
