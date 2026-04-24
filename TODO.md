@@ -12,7 +12,7 @@ Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (
 
 ## Gate — validated principles + ADRs
 
-[`thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md`](thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md)
+[`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md)
 holds 7 accepted principles and 4 decided ADRs: **DAG envelope with
 length-1 Phase-1 runtime** (ADR 0001), **list-form anchors with
 single-anchor deployment default** (ADR 0002), **§22/§24 reservations held
@@ -149,7 +149,7 @@ auditor, applicant, systems integrator, or adopter of a later custody model.
   `append/004` byte-for-byte.
   **Gate:** none.
 - **Crypto-erasure evidence — execute per ADR 0005** — **M–L**, Phase 1.
-  [ADR 0005](thoughts/specs/2026-04-23-trellis-crypto-erasure-evidence-adr.md)
+  [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md)
   accepted 2026-04-23: adopt explicit `trellis.erasure-evidence.v1` event
   with CDDL under `EventPayload.extensions`, chain-cross-check verifier
   obligation, Companion §20 rewrite (OC-78 promotion + new OC-79/80/81),
@@ -266,7 +266,7 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 | What | Where | How to read it |
 |---|---|---|
 | Gate status, evidence SHAs | [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) | open the file |
-| Principles + format ADRs | [`thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md`](thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md) | open the file |
+| Principles + format ADRs | [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md) | open the file |
 | Closed work (waves, sprints, streams) | [`COMPLETED.md`](COMPLETED.md) | open the file |
 | Strategy, product arc, invariants | [`thoughts/product-vision.md`](thoughts/product-vision.md) | open the file |
 | Implementation plans | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` |

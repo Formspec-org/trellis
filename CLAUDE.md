@@ -44,7 +44,8 @@ Skim `git log --oneline -20` first — commit messages carry 80% of the decision
 
 Active design docs under `thoughts/specs/` (archaeology under `thoughts/archive/specs/`):
 - `2026-04-18-trellis-g3-fixture-system-design.md` — fixture system scope, manifest, coverage lint, generator discipline.
-- `2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md` — Phase-1 principles + ADRs 0001–0004.
+- `thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md` — Phase-1 principles + ADRs 0001–0004.
+- `thoughts/adr/0005-crypto-erasure-evidence.md` — ADR 0005 cryptographic-erasure evidence format.
 
 ## Operating Context — READ THESE BEFORE DECIDING
 
@@ -134,7 +135,7 @@ Four-phase delivery arc from [`thoughts/product-vision.md`](thoughts/product-vis
 
 ## Phase-1 principles + format ADRs
 
-Gate: [`thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md`](thoughts/specs/2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md) — accepted and ratified into `v1.0.0`.
+Gate: [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md) — accepted and ratified into `v1.0.0`.
 
 - **ADR 0001 — DAG-capable event topology, Phase-1 single-parent runtime.** `priorEventHash: [Hash]` in the envelope; Phase-1 lint requires array length = 1. Revisit on Phase-3 consolidation or real Phase-1 consolidation use case.
 - **ADR 0002 — List-form anchors, single-anchor deployment default.** `anchor_refs: [AnchorRef]` in the envelope; Phase-1 requires ≥1 entry, operators normally populate one. Substrate choice is adapter-tier (see ε in vision model).
