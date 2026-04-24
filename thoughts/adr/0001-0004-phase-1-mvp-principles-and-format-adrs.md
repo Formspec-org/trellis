@@ -2,6 +2,17 @@
 
 **Status:** Accepted, 2026-04-20.
 
+> **AMENDED 2026-04-23 — mechanism names in ADRs 0001-0003 differ from ratified spec.**
+> The ADR *intents* are in force and the envelope reservations exist; the field-name / shape prescriptions below diverge from [`specs/trellis-core.md`](../../specs/trellis-core.md) v1.0.0 in three places. Future readers should treat the ratified Core as authoritative for byte-level names and consult this doc for the decision rationale:
+>
+> - **ADR 0001 — DAG-capable topology.** ADR prescribes `priorEventHash: [Hash]` (list form). Ratified spec uses scalar `prev_hash: digest / null` in `EventPayload` for Phase-1 chain linkage, with `causal_deps: [* digest] / null` as the separate reserved DAG slot. Phase-1 lint requires `causal_deps` be `null` or `[]`. Architecturally equivalent; names differ.
+> - **ADR 0002 — List-form anchors.** ADR prescribes `anchor_refs: [AnchorRef]` in `CheckpointPayload`. Ratified spec uses scalar `anchor_ref: bstr / null` in `CheckpointPayload` plus an `external_anchors` list at the export-manifest layer. Single-anchor default preserved; multi-anchor capacity moved to the manifest.
+> - **ADR 0003 — Federation extension points.** ADR prescribes named optional fields. Ratified spec uses generic `extensions: { * tstr => any } / null` containers with an event-type registry (Core §6.7). Stronger and more general mechanism.
+>
+> ADR 0004 (Rust byte authority) is an exact match; no divergence.
+>
+> Header stamp added 2026-04-23 per the design-doc audit at [`thoughts/audit-2026-04-23-design-docs-vs-specs-and-code.md`](../audit-2026-04-23-design-docs-vs-specs-and-code.md) §13.
+
 **Aligned narrative:** Phase 1 wire discipline supports the **Phase 3 unified case ledger** target in [ADR-0059 program summary](../../../wos-spec/thoughts/plans/0059-unified-ledger-as-canonical-event-store.md) and [`trellis/thoughts/product-vision.md`](../product-vision.md) (strict superset; no envelope break at Phase 3).
 
 Captures the vision model used to decide the three open format lock-ins

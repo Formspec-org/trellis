@@ -229,6 +229,39 @@ auditor, applicant, systems integrator, or adopter of a later custody model.
   shared codes across families should collide or be namespaced.
   **Trigger:** second reason-code-bearing event family beyond the two
   that exist now.
+- **O-4 ledger-replay lint rules 7-13** — **M**.
+  Seven declaration-vs-runtime checks named in the O-4 design doc:
+  `max_agents_per_case` ceiling, `max_invocations_per_day` ceiling, WOS
+  autonomy-cap superset, delegation-chain monotonicity, actor-discriminator
+  on emitted events, `agent_identity` attribution match, emitted types ⊆
+  `audit.event_types`. Phase-1-admissible deferral because static Rules
+  1-6 + 11 cover the declaration-internal surface; these are the
+  runtime-cross-check rules. **Trigger:** first external adopter publishes
+  a declaration they want machine-verified against actual ledger emission
+  history.
+- **Disclosure-profile scope granularity (per-case)** — **M**.
+  Companion A.5.2 reserves an `extensions` slot for Phase-3 refinement to
+  per-case granularity; current semantics are deployment-scope only.
+  **Trigger:** Phase-3 case-ledger composition opens.
+- **`trellis.external_anchor.v1` priority interaction** — **S**.
+  Phase-2 reservation in Core §6.7. O-5 posture-transition events may want
+  higher anchor priority in deployments with external-anchor chains. No
+  current adopter. **Trigger:** Phase 2 when external anchoring opens.
+- **HPKE duplicate-ephemeral detection lint** — **S**.
+  §9.4 requires X25519 ephemeral uniqueness across every wrap in a ledger
+  scope. No lint currently detects accidental reuse (weak-RNG / developer-
+  error class). Deferred by design in the HPKE-freshness ADR
+  ([`thoughts/archive/specs/2026-04-19-trellis-hpke-freshness-decision.md`](thoughts/archive/specs/2026-04-19-trellis-hpke-freshness-decision.md)).
+  **Trigger:** HPKE-in-Rust lands (Stream 6) OR first production HPKE
+  deployment.
+- **Fixture-renumbering pre-merge CI guard** — **S**.
+  Ground-truth grep of `scripts/check-specs.py` confirms
+  `check_vector_lifecycle_fields()` covers deprecation/status only; no
+  renumber / branch-diff logic exists. Corpus has 63 vectors with
+  derivation cross-references and Rust conformance-test IDs; silent
+  renumber corrupts both. Not tracked as first-class because no
+  renumbering is currently in flight. **Trigger:** first attempted
+  vector renumbering PR, OR proactive land when a script window opens.
 - **ADR 0005 follow-ons (erasure evidence)** — **M–L**, phased.
   Four open questions flagged in
   [`thoughts/adr/0005-crypto-erasure-evidence.md`](thoughts/adr/0005-crypto-erasure-evidence.md)

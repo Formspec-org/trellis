@@ -482,7 +482,7 @@ LedgerServiceWrapEntry = {
   ledger_id:          bstr,                ; scope identifier
   author_event_hash:  digest,              ; target event
   lak_version:        uint,                ; new LAK version
-  ephemeral_pubkey:   bstr .size 32,       ; fresh X25519 ephemeral public key
+  ephemeral_pubkey:   bstr .size 32,       ; X25519 ephemeral public key, unique per wrap (§9.4)
   wrapped_dek:        bstr,                ; HPKE-wrapped DEK, §9.4
   created_at:         uint,                ; Unix seconds UTC
   signature:          COSESign1Bytes,      ; service signature, same COSE suite as §7
@@ -490,6 +490,8 @@ LedgerServiceWrapEntry = {
 ```
 
 This is load-bearing for invariant #7 (key-bag immutability under rotation). Historical `author_event_hash` values MUST reproduce after any LAK rotation, because no field covered by `author_event_hash` ever changes; the new wrap is a separate canonical artifact.
+
+The `ephemeral_pubkey` freshness and `wrapped_dek` construction obligations for every `LedgerServiceWrapEntry` are normatively pinned in §9.4: each wrap MUST use an X25519 ephemeral keypair unique across every wrap in the containing ledger scope, and the ephemeral private key MUST be destroyed after wrap. The §9.4 obligations apply to rotation-wrap entries identically to initial-wrap entries; this section does not introduce separate semantics.
 
 ---
 
