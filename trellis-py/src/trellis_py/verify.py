@@ -148,11 +148,18 @@ class EventDetails:
 
 @dataclass
 class TransitionDetails:
+    # "custody-model" or "disclosure-profile" — routes shadow-state lookup
+    # and attestation rule per Companion Appendix A.5.3. Mirrors the Rust
+    # TransitionKind enum in trellis-verify/src/lib.rs.
+    kind: str
     transition_id: str
     from_state: str
     to_state: str
     declaration_digest: bytes
     attestation_classes: list[str]
+    # Only populated for disclosure-profile transitions. Drives the
+    # Narrowing / Widening / Orthogonal attestation rule (A.5.3 step 4).
+    scope_change: Optional[str] = None
 
 
 def _sha256(b: bytes) -> bytes:
@@ -377,15 +384,56 @@ def _recompute_canonical_event_hash(scope: bytes, canonical_event_bytes: bytes) 
 
 def _decode_transition_details(extensions: dict) -> Optional[TransitionDetails]:
     ext = extensions.get("trellis.custody-model-transition.v1")
-    if ext is None:
-        return None
+    if ext is not None:
+        return _decode_custody_model_transition(ext)
+    ext = extensions.get("trellis.disclosure-profile-transition.v1")
+    if ext is not None:
+        return _decode_disclosure_profile_transition(ext)
+    return None
+
+
+def _decode_custody_model_transition(ext: object) -> TransitionDetails:
     if not isinstance(ext, dict):
-        raise VerifyError("transition extension is not a map")
+        raise VerifyError("custody-model transition extension is not a map")
     tid = str(_map_lookup_str(ext, "transition_id"))
     fs = str(_map_lookup_str(ext, "from_custody_model"))
     ts = str(_map_lookup_str(ext, "to_custody_model"))
     _ = _map_lookup_u64(ext, "effective_at")
     dd = _map_lookup_fixed_bytes(ext, "declaration_doc_digest", 32)
+    classes = _decode_attestation_classes(ext)
+    return TransitionDetails(
+        kind="custody-model",
+        transition_id=tid,
+        from_state=fs,
+        to_state=ts,
+        declaration_digest=dd,
+        attestation_classes=classes,
+        scope_change=None,
+    )
+
+
+def _decode_disclosure_profile_transition(ext: object) -> TransitionDetails:
+    if not isinstance(ext, dict):
+        raise VerifyError("disclosure-profile transition extension is not a map")
+    tid = str(_map_lookup_str(ext, "transition_id"))
+    fs = str(_map_lookup_str(ext, "from_disclosure_profile"))
+    ts = str(_map_lookup_str(ext, "to_disclosure_profile"))
+    _ = _map_lookup_u64(ext, "effective_at")
+    dd = _map_lookup_fixed_bytes(ext, "declaration_doc_digest", 32)
+    sc = str(_map_lookup_str(ext, "scope_change"))
+    classes = _decode_attestation_classes(ext)
+    return TransitionDetails(
+        kind="disclosure-profile",
+        transition_id=tid,
+        from_state=fs,
+        to_state=ts,
+        declaration_digest=dd,
+        attestation_classes=classes,
+        scope_change=sc,
+    )
+
+
+def _decode_attestation_classes(ext: dict) -> list[str]:
     atts = _map_lookup_str(ext, "attestations")
     if not isinstance(atts, list):
         raise VerifyError("attestations not array")
@@ -396,13 +444,7 @@ def _decode_transition_details(extensions: dict) -> Optional[TransitionDetails]:
         ac = item.get("authority_class")
         if isinstance(ac, str):
             classes.append(ac)
-    return TransitionDetails(
-        transition_id=tid,
-        from_state=fs,
-        to_state=ts,
-        declaration_digest=dd,
-        attestation_classes=classes,
-    )
+    return classes
 
 
 def _decode_attachment_binding_details(exts: dict) -> Optional[AttachmentBindingDetails]:
@@ -581,6 +623,13 @@ def _parse_custody_model(data: bytes) -> str:
     return str(_map_lookup_str(cm, "custody_model_id"))
 
 
+def _parse_disclosure_profile(data: bytes) -> str:
+    v = _decode_value(data)
+    if not isinstance(v, dict):
+        raise VerifyError("posture declaration root is not a map")
+    return str(_map_lookup_str(v, "disclosure_profile"))
+
+
 def _custody_rank(value: str) -> int:
     return {"CM-A": 3, "CM-B": 2, "CM-C": 1}.get(value, 0)
 
@@ -602,12 +651,17 @@ def _verify_event_set(
     posture_transitions: list[PostureTransitionOutcome] = []
     previous_hash: Optional[bytes] = None
     skip_prev = initial_posture_declaration is not None and len(events) == 1
-    shadow: Optional[str] = None
+    shadow_custody_model: Optional[str] = None
+    shadow_disclosure_profile: Optional[str] = None
     if initial_posture_declaration is not None:
         try:
-            shadow = _parse_custody_model(initial_posture_declaration)
+            shadow_custody_model = _parse_custody_model(initial_posture_declaration)
         except VerifyError:
-            shadow = None
+            shadow_custody_model = None
+        try:
+            shadow_disclosure_profile = _parse_disclosure_profile(initial_posture_declaration)
+        except VerifyError:
+            shadow_disclosure_profile = None
 
     suite_i = SUITE_ID_PHASE_1
 
@@ -708,7 +762,7 @@ def _verify_event_set(
             tr = details.transition
             outcome = PostureTransitionOutcome(
                 transition_id=tr.transition_id,
-                kind="custody-model",
+                kind=tr.kind,
                 event_index=index,
                 from_state=tr.from_state,
                 to_state=tr.to_state,
@@ -717,7 +771,12 @@ def _verify_event_set(
                 attestations_verified=True,
                 failures=[],
             )
-            if shadow is not None and tr.from_state != shadow:
+            shadow_state = (
+                shadow_custody_model
+                if tr.kind == "custody-model"
+                else shadow_disclosure_profile
+            )
+            if shadow_state is not None and tr.from_state != shadow_state:
                 outcome.continuity_verified = False
                 outcome.failures.append("state_continuity_mismatch")
             if posture_declaration is not None:
@@ -726,7 +785,14 @@ def _verify_event_set(
                     outcome.continuity_verified = False
                     outcome.declaration_resolved = False
                     outcome.failures.append("posture_declaration_digest_mismatch")
-            if _requires_dual_attestation(tr.from_state, tr.to_state) and not (
+            if tr.kind == "custody-model":
+                dual_required = _requires_dual_attestation(tr.from_state, tr.to_state)
+            else:
+                # Appendix A.5.3 step 4: Narrowing MAY be attested alone;
+                # Widening and Orthogonal MUST be dually attested. Unknown
+                # values fall through to dual as the conservative default.
+                dual_required = tr.scope_change != "Narrowing"
+            if dual_required and not (
                 any(x == "prior" for x in tr.attestation_classes)
                 and any(x == "new" for x in tr.attestation_classes)
             ):
@@ -738,7 +804,10 @@ def _verify_event_set(
                         outcome.failures[0], _hex(details.canonical_event_hash)
                     )
                 )
-            shadow = tr.to_state
+            if tr.kind == "custody-model":
+                shadow_custody_model = tr.to_state
+            else:
+                shadow_disclosure_profile = tr.to_state
             posture_transitions.append(outcome)
 
     posture_ok = all(

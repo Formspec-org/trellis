@@ -1,0 +1,57 @@
+id          = "tamper/016-disclosure-profile-from-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Disclosure-profile axis sibling of tamper/002-transition-from-mismatch, \
+landed to close the G-O-5 retroactive reopen from the 2026-04-23 design-doc \
+audit. The tampered event is a `trellis.disclosure-profile-transition.v1` \
+event whose `from_disclosure_profile = "rl-profile-C"` contradicts the \
+deployment's initial posture declaration, which pins \
+`disclosure_profile = "rl-profile-A"`. Core §19 step 6.b's state-continuity \
+check is the failure site: the verifier tracks a shadow state from the \
+initial declaration and observes `from_*` does NOT equal that state. \
+Per §19 step 6.b this is a *localizable* failure: the transition-outcome \
+record for the event records `continuity_verified = false` and \
+`failures = [\"state_continuity_mismatch\"]`, and §19 step 9's \
+`integrity_verified` conjunction drops to false. The signature is valid — \
+the tamper is semantic, not cryptographic. scope_change = \"Orthogonal\" \
+exercises Appendix A.5.3 step 4's dual-attestation rule positively (both \
+`prior` and `new` authorities attest) so the attestation step passes while \
+continuity fails."""
+
+[coverage]
+tr_op = [
+    "TR-OP-044",  # verifier state-continuity + attestation + declaration-digest rule (Companion §19.9 → Core §19 step 6)
+]
+
+[inputs]
+ledger                         = "input-tampered-ledger.cbor"
+tampered_event                 = "input-tampered-event.cbor"
+signing_key_registry           = "input-signing-key-registry.cbor"
+initial_posture_declaration    = "input-initial-posture-declaration.bin"
+posture_declaration            = "input-posture-declaration.bin"
+
+# Expected VerificationReport field values. Runner pass criteria:
+#   (a) structure_verified == true — the tampered event decodes and signs
+#       cleanly; step 6.b is a *localizable* failure per Core §19.
+#   (b) integrity_verified == false — set by the step-9 AND conjunction
+#       that includes "no entry in report.posture_transitions has
+#       continuity_verified = false".
+#   (c) readability_verified == true — no payload decryption attempted;
+#       the PayloadInline marker bytes are opaque structural test data.
+#   (d) tamper_kind == "state_continuity_mismatch" — matches the custody
+#       sibling at tamper/002; verifier output contract is stable across
+#       both transition axes.
+#   (e) failing_event_id is the canonical_event_hash of the tampered
+#       event (payload IS the mutation site, so the canonical_event_hash
+#       is of the tampered content — same discipline as tamper/002).
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "state_continuity_mismatch"
+failing_event_id     = "fe79a51c60b9538a4157df34d7a15baa356c2c1ad9dd48a65ab87320ea480f6f"
+
+idempotency_key = "tamper-transition-016"
+
+[derivation]
+document = "derivation.md"

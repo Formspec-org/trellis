@@ -957,11 +957,31 @@ enum PayloadRef {
 
 #[derive(Clone, Debug)]
 struct TransitionDetails {
+    kind: TransitionKind,
     transition_id: String,
     from_state: String,
     to_state: String,
     declaration_digest: [u8; 32],
     attestation_classes: Vec<String>,
+    /// Only populated for disclosure-profile transitions (Appendix A.5.2).
+    /// Custody-model transitions derive their attestation rule from
+    /// from_state→to_state custody-rank ordering instead (A.5.3 step 4).
+    scope_change: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TransitionKind {
+    CustodyModel,
+    DisclosureProfile,
+}
+
+impl TransitionKind {
+    fn as_report_str(&self) -> &'static str {
+        match self {
+            TransitionKind::CustodyModel => "custody-model",
+            TransitionKind::DisclosureProfile => "disclosure-profile",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1137,6 +1157,8 @@ fn verify_event_set(
     let skip_prev_hash_check = initial_posture_declaration.is_some() && events.len() == 1;
     let mut shadow_custody_model =
         initial_posture_declaration.and_then(|bytes| parse_custody_model(bytes).ok());
+    let mut shadow_disclosure_profile =
+        initial_posture_declaration.and_then(|bytes| parse_disclosure_profile(bytes).ok());
 
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
@@ -1288,7 +1310,7 @@ fn verify_event_set(
         if let Some(transition) = details.transition {
             let mut outcome = PostureTransitionOutcome {
                 transition_id: transition.transition_id.clone(),
-                kind: "custody-model".into(),
+                kind: transition.kind.as_report_str().to_string(),
                 event_index: index as u64,
                 from_state: transition.from_state.clone(),
                 to_state: transition.to_state.clone(),
@@ -1298,7 +1320,11 @@ fn verify_event_set(
                 failures: Vec::new(),
             };
 
-            if let Some(initial_state) = shadow_custody_model.clone() {
+            let shadow_state = match transition.kind {
+                TransitionKind::CustodyModel => shadow_custody_model.clone(),
+                TransitionKind::DisclosureProfile => shadow_disclosure_profile.clone(),
+            };
+            if let Some(initial_state) = shadow_state {
                 if transition.from_state != initial_state {
                     outcome.continuity_verified = false;
                     outcome.failures.push("state_continuity_mismatch".into());
@@ -1317,7 +1343,23 @@ fn verify_event_set(
                 }
             }
 
-            if requires_dual_attestation(&transition.from_state, &transition.to_state)
+            let dual_required = match transition.kind {
+                TransitionKind::CustodyModel => {
+                    requires_dual_attestation(&transition.from_state, &transition.to_state)
+                }
+                TransitionKind::DisclosureProfile => {
+                    // Appendix A.5.3 step 4: Narrowing MAY be attested by the
+                    // new authority alone; Widening and Orthogonal MUST be
+                    // dually attested. Unknown values fall through to dual
+                    // as the conservative default.
+                    match transition.scope_change.as_deref() {
+                        Some("Narrowing") => false,
+                        Some("Widening") | Some("Orthogonal") => true,
+                        _ => true,
+                    }
+                }
+            };
+            if dual_required
                 && !(transition
                     .attestation_classes
                     .iter()
@@ -1337,7 +1379,14 @@ fn verify_event_set(
                     hex_string(&details.canonical_event_hash),
                 ));
             }
-            shadow_custody_model = Some(transition.to_state.clone());
+            match transition.kind {
+                TransitionKind::CustodyModel => {
+                    shadow_custody_model = Some(transition.to_state.clone());
+                }
+                TransitionKind::DisclosureProfile => {
+                    shadow_disclosure_profile = Some(transition.to_state.clone());
+                }
+            }
             posture_transitions.push(outcome);
         }
     }
@@ -1509,14 +1558,25 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
 fn decode_transition_details(
     extensions: &[(Value, Value)],
 ) -> Result<Option<TransitionDetails>, VerifyError> {
-    let Some(extension_value) =
+    if let Some(extension_value) =
         map_lookup_optional_value(extensions, "trellis.custody-model-transition.v1")
-    else {
-        return Ok(None);
-    };
+    {
+        return Ok(Some(decode_custody_model_transition(extension_value)?));
+    }
+    if let Some(extension_value) =
+        map_lookup_optional_value(extensions, "trellis.disclosure-profile-transition.v1")
+    {
+        return Ok(Some(decode_disclosure_profile_transition(extension_value)?));
+    }
+    Ok(None)
+}
+
+fn decode_custody_model_transition(
+    extension_value: &Value,
+) -> Result<TransitionDetails, VerifyError> {
     let extension_map = extension_value
         .as_map()
-        .ok_or_else(|| VerifyError::new("transition extension is not a map"))?;
+        .ok_or_else(|| VerifyError::new("custody-model transition extension is not a map"))?;
     let transition_id = map_lookup_text(extension_map, "transition_id")?;
     let from_state = map_lookup_text(extension_map, "from_custody_model")?;
     let to_state = map_lookup_text(extension_map, "to_custody_model")?;
@@ -1526,20 +1586,57 @@ fn decode_transition_details(
         "declaration_doc_digest",
         32,
     )?);
-    let attestations = map_lookup_array(extension_map, "attestations")?;
-    let attestation_classes = attestations
-        .iter()
-        .filter_map(|item| item.as_map())
-        .filter_map(|map| map_lookup_text(map, "authority_class").ok())
-        .collect::<Vec<_>>();
+    let attestation_classes = decode_attestation_classes(extension_map)?;
 
-    Ok(Some(TransitionDetails {
+    Ok(TransitionDetails {
+        kind: TransitionKind::CustodyModel,
         transition_id,
         from_state,
         to_state,
         declaration_digest,
         attestation_classes,
-    }))
+        scope_change: None,
+    })
+}
+
+fn decode_disclosure_profile_transition(
+    extension_value: &Value,
+) -> Result<TransitionDetails, VerifyError> {
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("disclosure-profile transition extension is not a map"))?;
+    let transition_id = map_lookup_text(extension_map, "transition_id")?;
+    let from_state = map_lookup_text(extension_map, "from_disclosure_profile")?;
+    let to_state = map_lookup_text(extension_map, "to_disclosure_profile")?;
+    let _effective_at = map_lookup_u64(extension_map, "effective_at")?;
+    let declaration_digest = bytes_array(&map_lookup_fixed_bytes(
+        extension_map,
+        "declaration_doc_digest",
+        32,
+    )?);
+    let scope_change = map_lookup_text(extension_map, "scope_change")?;
+    let attestation_classes = decode_attestation_classes(extension_map)?;
+
+    Ok(TransitionDetails {
+        kind: TransitionKind::DisclosureProfile,
+        transition_id,
+        from_state,
+        to_state,
+        declaration_digest,
+        attestation_classes,
+        scope_change: Some(scope_change),
+    })
+}
+
+fn decode_attestation_classes(
+    extension_map: &[(Value, Value)],
+) -> Result<Vec<String>, VerifyError> {
+    let attestations = map_lookup_array(extension_map, "attestations")?;
+    Ok(attestations
+        .iter()
+        .filter_map(|item| item.as_map())
+        .filter_map(|map| map_lookup_text(map, "authority_class").ok())
+        .collect())
 }
 
 fn decode_attachment_binding_details(
@@ -2598,6 +2695,14 @@ fn parse_custody_model(bytes: &[u8]) -> Result<String, VerifyError> {
         .ok_or_else(|| VerifyError::new("posture declaration root is not a map"))?;
     let custody_model = map_lookup_map(map, "custody_model")?;
     map_lookup_text(custody_model, "custody_model_id")
+}
+
+fn parse_disclosure_profile(bytes: &[u8]) -> Result<String, VerifyError> {
+    let value = decode_value(bytes)?;
+    let map = value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("posture declaration root is not a map"))?;
+    map_lookup_text(map, "disclosure_profile")
 }
 
 fn event_identity(event: &ParsedSign1) -> Result<(Vec<u8>, [u8; 32]), VerifyError> {
