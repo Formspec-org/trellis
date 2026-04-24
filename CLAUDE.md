@@ -27,6 +27,25 @@ Trellis has two current normative specs, tagged `v1.0.0` to mark a coherent stat
 
 **Nothing in this repo is released.** There are zero production deployments, zero users, zero backwards-compatibility obligations. "Ratified," "v1.0," and "tagged" mean *this is our current best understanding* — they never justify refusing to change the wire shape, the CDDL, the signature profile, the chain topology, or anything else if a better design prevents future architectural debt. Coding is cheap, time is cheap, processing is cheap; architectural debt that blocks future changes is the only expensive debt. If changing a tagged surface prevents that debt, change it.
 
+## Cold-start orientation
+
+Skim `git log --oneline -20` first — commit messages carry 80% of the decision trail. Then read in this order:
+
+1. [`../.claude/user_profile.md`](../.claude/user_profile.md) — Owner's operating preferences and maximalist one-shot delivery rule. Read first; shapes every decision.
+2. [`../STACK.md`](../STACK.md) — Three-spec stack framing (Formspec + WOS + Trellis) and the five cross-layer contracts. Essential context before any cross-spec decision.
+3. [`README.md`](README.md) — one-page framing, pointers to everything else.
+4. [`TODO.md`](TODO.md) — current tactical state + next-work list. Read before starting anything; supersedes any ad-hoc "what should I do next."
+5. [`thoughts/product-vision.md`](thoughts/product-vision.md) — authoritative roadmap. Phase 1 invariants #1–#15, Tracks A–E, "ledger vs log" terminology. Source of truth for what's being built and why.
+6. [`specs/trellis-agreement.md`](specs/trellis-agreement.md) — non-normative decision gate.
+7. [`specs/trellis-core.md`](specs/trellis-core.md) — normative Phase 1 byte protocol (~16k words).
+8. [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) — normative Phase 2+ operator obligations (~14k words).
+9. [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) — traceability (79 TR-CORE + 49 TR-OP rows; prose wins on conflict).
+10. [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) — open gates summary (see `TODO.md`).
+
+Active design docs under `thoughts/specs/` (archaeology under `thoughts/archive/specs/`):
+- `2026-04-18-trellis-g3-fixture-system-design.md` — fixture system scope, manifest, coverage lint, generator discipline.
+- `2026-04-20-trellis-phase-1-mvp-principles-and-format-adrs.md` — Phase-1 principles + ADRs 0001–0004.
+
 ## Operating Context — READ THESE BEFORE DECIDING
 
 Trellis is one spec in a three-spec stack. Architectural decisions frequently cross spec boundaries. Consult in this order before any non-trivial decision:
@@ -66,6 +85,19 @@ From the vision model, refined for Trellis:
 - **The spec is the source of truth** — every normative MUST has a traceable row in [`specs/trellis-requirements-matrix.md`](specs/trellis-requirements-matrix.md) and (where testable) a byte-exact fixture in [`fixtures/vectors/`](fixtures/vectors/). Prose in Core and the Companion wins on matrix conflict.
 - **No "defer" on greenfield** — audit finds something wrong, fix it. All phases are greenfield; the `v1.0.0` tag is a snapshot, not a lock.
 - **Maximalist one-shot delivery** — ship complete. Stubs / `unimplemented!()` / `todo!()` / `NotImplementedError` are forbidden unless the blocker is an unresolved architectural decision (e.g., anchor substrate choice), in which case STOP and surface it.
+
+## Working norms
+
+Retrospective-derived; keep ceremony proportional to risk.
+
+- **Inline by default for work under ~30 minutes.** Subagents earn their keep via isolation, parallelism, or genuinely large scope. A 400-line subagent prompt for a 50-line job is waste.
+- **Plans: 3–5 tasks max.** If a plan wants 12 tasks, it's probably two plans or the tasks are too small. Each task should be a meaningful chunk, not a bite-sized step.
+- **Doc updates travel with the thing they document.** A commit adding a new Core §N also adds the corresponding `TR-CORE-NNN` row; closing a gate updates the checklist in the same commit; renaming a concept propagates. Separate reconciliation passes accumulate drift.
+- **Skill ceremony is optional when design is settled.** Invoke `superpowers:brainstorming` only when design space is genuinely open. If the user already signaled the design, write the plan and go.
+- **Single-reviewer sweep after meaningful chunks, not per-task.** Two-stage (spec + code) review is worth it for large scope. For small diffs, one post-hoc review finds the same issues at a third the cost. Always keep semi-formal review after anything that'll be read by outside implementors.
+- **Parallel by default for independent work.** Use `run_in_background: true` freely for parallel subagents and follow-on vector batches.
+- **Trust the model; prompt less.** Give the subagent the goal, the constraints, and the escalation rules. Let it figure out the plumbing. Long step-by-step prompts imply distrust.
+- **Preserve unconditionally:** the escalation discipline (`NEEDS_CONTEXT` over fabrication rather than papering over with stubs); semi-formal review after meaningful chunks; commit-per-logical-unit for anything a reviewer will read.
 
 ## Three-spec layering — what Trellis owns vs. doesn't
 
