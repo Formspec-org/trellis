@@ -1,10 +1,10 @@
 # Trellis — TODO
 
 Forward-looking tactical work only. Priority = `Imp × Debt`; size tags are
-scheduling hints, never priority inputs. Categories run concurrently under
-the accepted Phase-1 principles/ADR posture and the ratified `v1.0.0` Core +
-Operational Companion surface. State, history, and gate tracking live
-elsewhere (see bottom).
+scheduling hints, never priority inputs. Work runs concurrently where
+prerequisites allow, under the accepted Phase-1 principles/ADR posture
+and the ratified `v1.0.0` Core + Operational Companion surface. State,
+history, and gate tracking live elsewhere (see bottom).
 
 Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (multi-session).
 
@@ -39,202 +39,164 @@ none yet.
 
 ## Open
 
-Closed ratification work is out of this file. G-3/G-4/G-5 breadth, ADR-0061
-wire closure, ADR-0072 Phase-1 execution, and O-3/O-4/O-5 evidence live in
-[`COMPLETED.md`](COMPLETED.md) and
+One sequence, from smallest unblocked closer to longest-prerequisite. Each
+item lists its prerequisite inline where it has one. Closed work is out of
+this file — see [`COMPLETED.md`](COMPLETED.md) and
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
 
-Unless flagged otherwise, every item below is Phase-1 scope. Phase-2/3/4
-tags appear only in the Deferred section below where they differentiate.
+1. **`tamper_kind` normative enum in Core §17.5** — **XS**.
+   Values are de-facto consistent across the tamper corpus but not
+   normatively enumerated. Closes a de-facto contract with spec prose.
 
-**Blocking / in-flight center work (gate-held or coordination-dependent):**
+2. **`ReasonCode` registry governance** — **XS**.
+   Cross-cutting: both O-5 posture transitions (Companion A.5.1 / A.5.2)
+   and ADR 0005 erasure evidence carry `reason_code` with ad-hoc enum
+   values pinned inline (1–5 + 255 for both). Register `ReasonCode` per-
+   family under Core §6.7 as append-only, codify `255 = Other`, decide
+   namespacing across families.
 
-- **WOS-T4 residue — shared cross-repo fixture bundle re-seeding** — **S**.
-  The Trellis-side byte proof for `SignatureAffirmation` landed 2026-04-22
-  (see [`COMPLETED.md`](COMPLETED.md) for the full landed set). What's left:
-  if the parent repo standardizes a single shared cross-stack fixture
-  bundle, Trellis should consume those declarative inputs rather than
-  seeding a parallel corpus. Coordination work, not a Trellis-center gap.
-  **Gate:** parent-repo coordination (`../TODO.md` stack tracker).
-- **ADR 0073 handoff residue — shared fixture alignment** — **S**.
-  Trellis-side append/export/verify/tamper vectors for workflow-initiated
-  attach and public-intake create landed 2026-04-23. Same residual shape
-  as WOS-T4: if the parent repo standardizes one shared cross-stack
-  fixture bundle, consume from there. Coordination, not a center gap.
-  **Gate:** parent-repo coordination.
-- **Identity attestation bundle shape** — **S**.
-  Declare how a provider-neutral identity-proofing attestation lands as a
-  canonical event kind and travels in the export bundle. Cheap center work
-  once WOS lifts `SignatureAffirmation.identityBinding` into a reusable shape.
-  **Gate:** WOS identity-attestation shape settled.
-- **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
-  Promote Formspec Respondent Ledger §6.2 `eventHash` / `priorEventHash`
-  from SHOULD → MUST when wrapped by a Trellis envelope. Land the Trellis-
-  side spec amendment and conformance/lint checks once the Formspec-side
-  promotion is accepted.
-  **Gate:** Formspec-side coordination.
+3. **O-4 static lint rules 14 + 15** — **S**.
+   Rule 14 validates signing-key structure without running crypto
+   verification; Rule 15 (`supersedes` chain acyclicity) is unimplemented.
+   Pure `scripts/check-specs.py` additions. Closes the O-4 ratification
+   claim in full.
 
-**Ratification-integrity gaps:**
+4. **Fixture-renumbering pre-merge CI guard** — **S**.
+   `check_vector_lifecycle_fields()` covers deprecation/status only; no
+   renumber / branch-diff logic exists. Corpus has 63 vectors with
+   derivation cross-references and Rust conformance-test IDs; silent
+   renumber corrupts both. Corpus-integrity protection.
 
-- **O-4 static lint rules 14 + 15** — **S**.
-  Rule 14 validates signing-key structure without running crypto
-  verification; Rule 15 (`supersedes` chain acyclicity) is unimplemented.
-  Both are named in the archived O-4 template brief
-  ([`thoughts/archive/specs/2026-04-18-trellis-o4-declaration-doc-template.md`](thoughts/archive/specs/2026-04-18-trellis-o4-declaration-doc-template.md))
-  and both are pure `scripts/check-specs.py` additions.
-  **Gate:** none.
+5. **Key-class taxonomy ADR** — **M**.
+   Before Phase-2 custody-model work (CM-D threshold, CM-F client-origin
+   sovereign) opens. Core §8 defines only `SigningKeyEntry`; archived
+   family separated Tenant-root / Scope / Subject / Signing / Recovery-
+   only with distinct lifecycles. ADR decides tagged-union on
+   `SigningKeyEntry` vs sibling CDDL types; envelope reservation lands
+   now, runtime activates in Phase 2. Prevents a wire break later.
+   Gap source: [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md)
+   §8.
 
-*Resolved in this class:* O-5 disclosure-profile verifier gap (closed
-2026-04-23 after retroactive reopen; `trellis-verify::decode_transition_details`
-now handles both transition kinds; `tamper/016-disclosure-profile-from-mismatch`
-is the negative oracle).
+6. **HPKE wrap/unwrap in Rust** — **M**.
+   Core §9.4 amendment landed; `append/004-hpke-wrapped-inline` and the
+   Python stranger both exercise real HPKE; `trellis-core` has no Rust
+   wrap/unwrap path, so Rust only round-trips committed bytes. Strengthens
+   the G-5 reproducibility-across-two-independent-implementations claim
+   from "vectors match" to "both implementations do the crypto work."
+   Land the Rust path + one integration test matching `append/004` byte-
+   for-byte.
 
-**Max-vision unlocks:**
+7. **HPKE duplicate-ephemeral detection lint** — **S**.
+   *After #6.* §9.4 requires X25519 ephemeral uniqueness across every
+   wrap in a ledger scope; no lint currently detects accidental reuse
+   (weak-RNG / developer-error class). Deferred by design in the HPKE-
+   freshness ADR until Rust-side infrastructure exists to hang the lint on.
 
-Load-bearing adopter claims. Derived from [STACK.md](../STACK.md) end-state
-commitments (#1 independent verification, #5 custody-honest privacy) and the
-DocuSign-replacement positioning. Each item has a direct adopter user story —
-auditor, applicant, systems integrator, or Phase-2+ custody-model adopter.
+8. **Crypto-erasure evidence — execute per ADR 0005** — **M–L**.
+   [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md) nine-step arc:
+   Companion §20 rewrite + Core §6.7 + Core §19 extension → Rust decode +
+   chain cross-check → first positive vector (`append/023`) → Python
+   stranger mirror → remaining positives (`append/024..027`) → tamper
+   vectors (`tamper/017..019`) → export catalog (`export/009` +
+   `064-erasure-evidence.cbor`) → `trellis-cli erase-key` → Companion §27
+   conformance extension. Steps 1–3 are the minimum for the claim to
+   hold; later steps are breadth + ergonomics.
 
-- **HPKE wrap/unwrap in Rust** — **M**.
-  Core §9.4 amendment landed; `append/004-hpke-wrapped-inline` and the
-  Python stranger both exercise real HPKE; `trellis-core` has no Rust
-  wrap/unwrap path, so the Rust side only round-trips committed bytes for
-  that fixture. Q4 reproducibility-across-two-independent-implementations
-  claim is latent — G-5 passed because vectors match, not because both
-  implementations did the wrap/unwrap. Land the Rust path + one integration
-  test that matches `append/004` byte-for-byte.
-  **Gate:** none.
-- **Crypto-erasure evidence — execute per ADR 0005** — **M–L**.
-  [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md) accepted 2026-04-23:
-  adopt explicit `trellis.erasure-evidence.v1` event with CDDL under
-  `EventPayload.extensions`, chain-cross-check verifier obligation, Companion
-  §20 rewrite (OC-78 promotion + new OC-79/80/81), and optional export
-  catalog mirroring `signature-affirmations`. Nine-step implementation arc:
-  Companion §20 rewrite + Core §6.7 + Core §19 extension → Rust decode +
-  chain cross-check → first positive vector (`append/023`) → Python stranger
-  mirror → remaining positives (`append/024..027`) → tamper vectors
-  (`tamper/017..019`) → export catalog (`export/009` +
-  `064-erasure-evidence.cbor`) → `trellis-cli erase-key` → Companion §27
-  conformance extension. Steps 1–3 are the minimum for the claim to hold;
-  later steps are breadth + ergonomics.
-  **Gate:** none — ADR accepted, execute.
-- **Key-class taxonomy ADR** — **M**, envelope reservation now, runtime in
-  Phase 2.
-  Core §8 defines only `SigningKeyEntry`; archived family separated
-  Tenant-root / Scope / Subject / Signing / Recovery-only with distinct
-  lifecycles. Phase-2 custody models (CM-D threshold, CM-F client-origin
-  sovereign) and stack commitment #5 identity-separation need non-signing
-  keys expressible in the envelope. ADR decides tagged-union on
-  `SigningKeyEntry` vs sibling CDDL types; envelope reservation lands now,
-  runtime activates in Phase 2. Gap source:
-  [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md)
-  §8.
-  **Gate:** none — architectural-debt decision.
-- **Certificate-of-completion composition** — **M**.
-  Machine-verifiable signature-affirmation path shipped 2026-04-22;
-  human-readable signed artifact (PDF-equivalent) that an applicant hands
-  to counsel, a bank, or an appeals court is still open. Without it the
-  stack is engineering-facing only and the DocuSign-replacement pitch
-  doesn't close.
-  **Gate:** none.
+9. **Certificate-of-completion composition** — **M**.
+   Human-readable signed artifact (PDF-equivalent) that an applicant
+   hands to counsel, a bank, or an appeals court. Closes the DocuSign-
+   replacement pitch; without it the stack is engineering-facing only.
 
-**Stack ADR execution (awaiting parent acceptance):**
+10. **Key-rotation grace-window semantics** — **XS**.
+    *Land proactively or when the first production rotation plans.* Core
+    §8.4 enumerates `Active / Rotating / Retired / Revoked` but does not
+    pin the overlap window where both pre- and post-rotation keys verify.
+    Companion §20 prose + one boundary-crossing vector + `trellis-verify`
+    dual-key acceptance during `Rotating`.
 
-- **ADR 0066 execution — amendment / supersession / rescission / correction**
-  — **L**, phased across Phase 1 + Phase 4.
-  [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
-  Phase 1: reserve `supersedes_chain_id` in the envelope header under
-  ADR 0003 MUST-NOT-populate discipline; land `append/011-correction`,
-  `append/012-amendment`, `append/013-rescission`; extend the verifier
-  with D-3 correction-preservation and rescission-terminality checks.
-  Phase 4: activate supersession runtime and land `supersession-graph.json`.
-  **Gate:** ADR 0066 accepted.
-- **ADR 0067 execution — statutory clocks** — **M**.
-  [`../thoughts/adr/0067-stack-statutory-clocks.md`](../thoughts/adr/0067-stack-statutory-clocks.md).
-  Add `open-clocks.json` to the export-bundle spec; extend the verifier
-  with a D-3 advisory diagnostic for expired-unresolved clocks; land
-  `append/014-clock-started`, `append/015-clock-satisfied`,
-  `append/016-clock-elapsed`, `append/017-clock-paused-resumed`.
-  **Gate:** ADR 0067 accepted.
+11. **Cadence subtypes beyond height-based** — **M**.
+    *Land when a non-height adopter surfaces, or proactively under the
+    same impulse as the fixture corpus breadth work.* `projection/003`
+    and `projection/004` cover only height-based cadence; time-driven /
+    event-driven / hybrid untested.
 
-## Deferred by phase or trigger, not forgotten
+12. **O-4 ledger-replay lint rules 7–13** — **M**.
+    *Land when the first external adopter publishes a declaration they
+    want machine-verified against actual ledger emission history.* Seven
+    declaration-vs-runtime checks: `max_agents_per_case` ceiling,
+    `max_invocations_per_day` ceiling, WOS autonomy-cap superset,
+    delegation-chain monotonicity, actor-discriminator on emitted events,
+    `agent_identity` attribution match, emitted types ⊆ `audit.event_types`.
+    Static Rules 1–6 + 11 already cover the declaration-internal surface;
+    these are the runtime-cross-check rules.
 
-- **Case ledger + agency log semantic definitions** — **M**, Phase 4.
-  Core §22 case ledger composes sealed response-ledger heads with WOS
-  governance events; Core §24 agency log is the operator-maintained log of
-  case-ledger heads. Envelope hooks stay reserved under ADR 0003 and
-  `MUST NOT populate` in Phase 1. Substance waits for Phase-4 scoping.
-- **Key-rotation grace-window semantics** — **XS**.
-  Core §8.4 enumerates `Active / Rotating / Retired / Revoked` but does not
-  pin the overlap window where both pre- and post-rotation keys verify.
-  Companion §20 prose + one boundary-crossing vector + `trellis-verify`
-  dual-key acceptance during `Rotating`. **Trigger:** first production-
-  adjacent ledger rotation planned.
-- **`tamper_kind` normative enum in Core §17.5** — **XS**.
-  Values are de-facto consistent across the tamper corpus but not
-  normatively enumerated. **Trigger:** first external consumer of
-  verification reports.
-- **`ReasonCode` registry governance** — **XS**.
-  Both O-5 posture transitions (Companion A.5.1 / A.5.2) and ADR 0005
-  erasure evidence carry `reason_code` fields with ad-hoc enum values
-  pinned inline (1–5 + 255 for both). Cross-cutting open item:
-  register `ReasonCode` per-family under Core §6.7 as append-only,
-  codify `255 = Other` as the catch-all convention, and decide whether
-  shared codes across families should collide or be namespaced.
-  **Trigger:** second reason-code-bearing event family beyond the two
-  that exist now.
-- **O-4 ledger-replay lint rules 7-13** — **M**.
-  Seven declaration-vs-runtime checks named in the O-4 design doc:
-  `max_agents_per_case` ceiling, `max_invocations_per_day` ceiling, WOS
-  autonomy-cap superset, delegation-chain monotonicity, actor-discriminator
-  on emitted events, `agent_identity` attribution match, emitted types ⊆
-  `audit.event_types`. Phase-1-admissible deferral because static Rules
-  1-6 + 11 cover the declaration-internal surface; these are the
-  runtime-cross-check rules. **Trigger:** first external adopter publishes
-  a declaration they want machine-verified against actual ledger emission
-  history.
-- **Disclosure-profile scope granularity (per-case)** — **M**.
-  Companion A.5.2 reserves an `extensions` slot for Phase-3 refinement to
-  per-case granularity; current semantics are deployment-scope only.
-  **Trigger:** Phase-3 case-ledger composition opens.
-- **`trellis.external_anchor.v1` priority interaction** — **S**.
-  Phase-2 reservation in Core §6.7. O-5 posture-transition events may want
-  higher anchor priority in deployments with external-anchor chains. No
-  current adopter. **Trigger:** Phase 2 when external anchoring opens.
-- **HPKE duplicate-ephemeral detection lint** — **S**.
-  §9.4 requires X25519 ephemeral uniqueness across every wrap in a ledger
-  scope. No lint currently detects accidental reuse (weak-RNG / developer-
-  error class). Deferred by design in the HPKE-freshness ADR
-  ([`thoughts/archive/specs/2026-04-19-trellis-hpke-freshness-decision.md`](thoughts/archive/specs/2026-04-19-trellis-hpke-freshness-decision.md)).
-  **Trigger:** HPKE-in-Rust lands (Max-vision unlocks) OR first production
-  HPKE deployment.
-- **Fixture-renumbering pre-merge CI guard** — **S**.
-  Ground-truth grep of `scripts/check-specs.py` confirms
-  `check_vector_lifecycle_fields()` covers deprecation/status only; no
-  renumber / branch-diff logic exists. Corpus has 63 vectors with
-  derivation cross-references and Rust conformance-test IDs; silent
-  renumber corrupts both. Not tracked as first-class because no
-  renumbering is currently in flight. **Trigger:** first attempted
-  vector renumbering PR, OR proactive land when a script window opens.
-- **ADR 0005 follow-ons (erasure evidence)** — **M–L**, phased.
-  Four open questions flagged in
-  [`thoughts/adr/0005-crypto-erasure-evidence.md`](thoughts/adr/0005-crypto-erasure-evidence.md)
-  §"Open questions / follow-ups":
-  (1) LAK rotation + erasure interaction — re-wrap cascade mode or
-  coupled recipe. **Trigger:** first live LAK rotation touching
-  erasure-cascade-bearing subjects.
-  (2) `hsm_receipt_kind` format registry — AWS KMS / PKCS#11 / GCP /
-  Azure / vendor entries. **Trigger:** second deployment adopter with
-  a different HSM vendor.
-  (3) Legal-hold-coupled erasure lint — detect OC-78 vs §20.6 conflict.
-  **Trigger:** Phase 2.
-  (4) Multi-operator quorum attestation shape. **Trigger:** Phase 4
-  federation scoping.
-- **Cadence subtypes beyond height-based** — **M**.
-  `projection/003` and `projection/004` cover only height-based cadence;
-  time-driven / event-driven / hybrid untested. **Trigger:** first adopter
-  declares a non-height cadence kind in their deployment.
+13. **WOS-T4 residue — shared cross-repo fixture bundle re-seeding** — **S**.
+    *Lands when the parent repo standardizes a single shared cross-stack
+    fixture bundle.* Trellis consumes those declarative inputs rather than
+    seeding a parallel corpus. Coordination, not a Trellis-center gap.
+
+14. **ADR 0073 handoff residue — shared fixture alignment** — **S**.
+    *Same prerequisite as #13.* Workflow-initiated attach and public-
+    intake create vectors are live; the residue is consuming from one
+    shared bundle rather than parallel corpora.
+
+15. **Identity attestation bundle shape** — **S**.
+    *Lands once WOS lifts `SignatureAffirmation.identityBinding` into a
+    reusable shape.* Declare how a provider-neutral identity-proofing
+    attestation lands as a canonical event kind and travels in the
+    export bundle.
+
+16. **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
+    *Lands after Formspec-side promotes §6.2 `eventHash` / `priorEventHash`
+    from SHOULD → MUST.* Trellis-side spec amendment + conformance/lint
+    checks follow the Formspec promotion.
+
+17. **ADR 0066 execution — amendment / supersession / rescission / correction**
+    — **L**, phased across Phase 1 + Phase 4.
+    *Lands after parent accepts ADR 0066.* Phase 1: reserve
+    `supersedes_chain_id` in the envelope header under ADR 0003
+    MUST-NOT-populate discipline; land `append/011-correction`,
+    `append/012-amendment`, `append/013-rescission`; extend the verifier
+    with D-3 correction-preservation and rescission-terminality checks.
+    Phase 4: activate supersession runtime and land
+    `supersession-graph.json`.
+
+18. **ADR 0067 execution — statutory clocks** — **M**.
+    *Lands after parent accepts ADR 0067.* Add `open-clocks.json` to the
+    export-bundle spec; extend the verifier with a D-3 advisory
+    diagnostic for expired-unresolved clocks; land `append/014-clock-started`,
+    `append/015-clock-satisfied`, `append/016-clock-elapsed`,
+    `append/017-clock-paused-resumed`.
+
+19. **`trellis.external_anchor.v1` priority interaction** — **S**, Phase 2.
+    *Lands when external anchoring opens.* O-5 posture-transition events
+    may want higher anchor priority in deployments with external-anchor
+    chains.
+
+20. **ADR 0005 follow-ons (erasure evidence)** — **M–L**, phased.
+    Four open questions from
+    [`thoughts/adr/0005-crypto-erasure-evidence.md`](thoughts/adr/0005-crypto-erasure-evidence.md)
+    §"Open questions / follow-ups":
+    (1) LAK rotation + erasure interaction — re-wrap cascade mode or
+    coupled recipe; lands with the first live LAK rotation touching
+    erasure-cascade-bearing subjects.
+    (2) `hsm_receipt_kind` format registry; lands with the second
+    deployment adopter on a different HSM vendor.
+    (3) Legal-hold-coupled erasure lint (OC-78 vs §20.6 conflict
+    detection); Phase 2.
+    (4) Multi-operator quorum attestation shape; Phase 4 federation.
+
+21. **Disclosure-profile scope granularity (per-case)** — **M**, Phase 3.
+    *Lands when Phase-3 case-ledger composition opens.* Companion A.5.2
+    reserves an `extensions` slot for per-case refinement; current
+    semantics are deployment-scope only.
+
+22. **Case ledger + agency log semantic definitions** — **M**, Phase 4.
+    *Lands with Phase-4 scoping.* Core §22 case ledger composes sealed
+    response-ledger heads with WOS governance events; Core §24 agency
+    log is the operator-maintained log of case-ledger heads. Envelope
+    hooks stay reserved under ADR 0003 and `MUST NOT populate` in Phase
+    1 until this lands.
 
 ## Sustaining
 
