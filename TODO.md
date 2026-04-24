@@ -83,8 +83,10 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
    wrap/unwrap path, so Rust only round-trips committed bytes. Strengthens
    the G-5 reproducibility-across-two-independent-implementations claim
    from "vectors match" to "both implementations do the crypto work."
-   Land the Rust path + one integration test matching `append/004` byte-
-   for-byte.
+   Crate selection + interface sketch + verification approach pinned in
+   [`thoughts/specs/2026-04-24-hpke-crate-spike.md`](thoughts/specs/2026-04-24-hpke-crate-spike.md)
+   (decision: `hpke` crate, version-pinned). Land the Rust path + one
+   integration test matching `append/004` byte-for-byte.
 
 7. **HPKE duplicate-ephemeral detection lint** — **S**.
    *After #6.* §9.4 requires X25519 ephemeral uniqueness across every
@@ -102,10 +104,20 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
    conformance extension. Steps 1–3 are the minimum for the claim to
    hold; later steps are breadth + ergonomics.
 
-9. **Certificate-of-completion composition** — **M**.
-   Human-readable signed artifact (PDF-equivalent) that an applicant
-   hands to counsel, a bank, or an appeals court. Closes the DocuSign-
-   replacement pitch; without it the stack is engineering-facing only.
+9. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
+   [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md)
+   accepted 2026-04-24: adopt `trellis.certificate-of-completion.v1` canonical
+   event binding a human-readable signed PDF/HTML artifact (via ADR 0072
+   attachment path) + a chain-derived `ChainSummary` (signer_count,
+   signer_display, response_ref, workflow_status) the verifier cross-checks
+   against the chain. Closes the DocuSign-replacement pitch. Nine-step
+   implementation arc: Core §6.7 + §9 + §19 extension → Rust decode + chain
+   cross-check → first positive vector (`append/028-certificate-of-completion-minimal`)
+   → Python stranger mirror → remaining positives (`append/029..030`) →
+   tamper vectors (`tamper/020..022`) → export catalog (`export/010` +
+   `065-certificates-of-completion.cbor`) → `trellis-cli seal-completion`
+   → non-normative reference HTML template. Steps 1–3 are the minimum for
+   the claim to hold.
 
 10. **Key-rotation grace-window semantics** — **XS**.
     *Land proactively or when the first production rotation plans.* Core
