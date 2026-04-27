@@ -18,6 +18,80 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 17 (2026-04-27) — HPKE duplicate-ephemeral detection lint
+
+Closes the §9.4 producer-side ephemeral-uniqueness MUST that was deferred
+by design until Rust HPKE existed (Wave 16). Targets item #2 from the
+post-Wave-16 TODO (renumber from #3 → #2 already landed in
+`bfedfad`).
+
+- **Item #2 — HPKE duplicate-ephemeral detection lint.** New
+  `scripts/check-specs.py` rule **R17 — `check_hpke_ephemeral_uniqueness`** —
+  walks `vector_event_payloads()`, groups artifacts by vector dir
+  (collapsing the multiple-CBOR-view duplicates that
+  `vector_event_payloads()` yields), and rejects (a) duplicate
+  `ephemeral_pubkey` inside a single `KeyBag.entries` (Core §9.4 "N
+  recipients require N distinct values") and (b) any `ephemeral_pubkey`
+  byte-equality across distinct vector dirs (Core §9.4 reuse "across
+  events in the same ledger scope, or across ledger scopes" — the
+  persisted `ephemeral_pubkey` IS the encapsulated key derived from the
+  single-shot private scalar, so byte equality across wraps proves
+  scalar reuse). Within-event vs cross-vector failures emit distinct
+  diagnostics so the §9.4 clause being violated is unambiguous.
+
+- **Placement decision: corpus-time lint, not runtime enforcement.**
+  Core §9.4 phrases the obligation as a producer-side MUST ("Every
+  `KeyBagEntry` ... MUST use a fresh X25519 ephemeral keypair"; reuse
+  "is a non-conformance"), not a verifier obligation. Corroboration:
+  §19.1's `tamper_kind` enum has no `ephemeral_reuse` category and §16
+  pins verifier statelessness across events ("Verifiers MUST NOT depend
+  on derived artifacts, workflow runtime, or mutable DBs"). A verifier
+  holding only one event has no prior-state to compare against; runtime
+  detection in `trellis-verify` would require violating §16. Production
+  freshness rests on `OsRng` in `trellis-hpke::wrap_dek` (Wave 16
+  byte-oracle); the §9.4 test-vector carve-out is the gap this lint
+  closes — fixture-pinned ephemerals committed under
+  `fixtures/vectors/_keys/` give a copy-paste path that would otherwise
+  silently reuse an ephemeral across vectors. Lives in
+  `scripts/check-specs.py` (alongside R13/R14/R15 and other corpus
+  contracts), not in `trellis-hpke` (the `setup_sender` path already
+  uses fresh randomness; the lint is for the
+  `wrap_dek_with_pinned_ephemeral` carve-out plus any hand-rolled
+  fixture that did not flow through `wrap_dek` at all) and not in
+  `trellis-verify` (Core §16 verification independence).
+
+- **TDD-RED → GREEN.** 8 unit tests in
+  `scripts/test_check_specs.py::TestHpkeEphemeralUniqueness` covering:
+  distinct ephemerals across vectors pass; same-vector multiple
+  CBOR-view duplicates collapse (not reuse); cross-vector reuse in
+  same scope fails with diagnostic citing both vector dirs; cross-scope
+  reuse fails (the encapsulated key value alone is the reuse witness);
+  within-event recipient-list duplicates fail with §9.4 N-recipients
+  clause cited; `key_bag` absent / empty-entries skipped; real corpus
+  is clean. RED state confirmed before lint landed (8 failures with
+  `AttributeError: module 'check_specs' has no attribute
+  'check_hpke_ephemeral_uniqueness'`).
+
+- **Spec + matrix + fixture in same change train.** New row
+  **TR-CORE-033** anchored in Core §9.4 carve-out paragraph + §30
+  traceability list; `append/004-hpke-wrapped-inline` claims
+  TR-CORE-033 in `coverage.tr_core`. (The TR-CORE-033 anchor + §30
+  list edits + matrix row landed in commit `3327cbe` alongside the
+  sibling key-class scout's pre-commit sweep; the lint code + tests +
+  manifest claim land here in the Wave 17 commit train.)
+
+Verification: `python3 scripts/check-specs.py` clean, 137 lint tests
+green (was 129; +8 new R17 tests), `cargo test --workspace` clean,
+`cd trellis-py && python3 -m pytest -q` clean (G-5 cross-check, 4
+vectors).
+
+NEEDS_CONTEXT note: the existing corpus has only one HPKE-wrapped
+vector (`append/004`), so the cross-vector branch of the lint is
+exercised only by synthetic-injection unit tests today. When item #1
+(key-class taxonomy) lands `append/031..035` and ADR 0005 lands
+`append/023..027`, additional HPKE-wrapped vectors will exercise the
+cross-vector path against the real corpus.
+
 ### Wave 16 (2026-04-27) — Rust HPKE wrap/unwrap; `trellis-store-postgres` production hardening
 
 Foundational crypto execution begins. Targets items #2 (HPKE wrap/unwrap

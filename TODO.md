@@ -71,11 +71,13 @@ consume amended responses once those stacks land.
    `tamper/023..025`; reconcile ADR 0005 `key_class`. Gap source:
    [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md) §8.
 
-2. **HPKE duplicate-ephemeral detection lint** — **S**.
-   *Now unblocked — Rust HPKE landed Wave 16.* §9.4 requires X25519 ephemeral uniqueness across every
-   wrap in a ledger scope; no lint currently detects accidental reuse
-   (weak-RNG / developer-error class). Deferred by design in the HPKE-
-   freshness ADR until Rust-side infrastructure exists to hang the lint on.
+2. ~~**HPKE duplicate-ephemeral detection lint**~~ — **CLOSED Wave 17, 2026-04-27.**
+   `scripts/check-specs.py` rule R17 walks every event payload in the
+   corpus and rejects any `(ledger_scope, ephemeral_pubkey)` recurrence
+   across distinct vector dirs plus any duplicate `ephemeral_pubkey`
+   inside a single `key_bag.entries`. Anchored at TR-CORE-033 and
+   Core §9.4. See [`COMPLETED.md`](COMPLETED.md) Wave 17 entry. Renumbering
+   of items #3..#29 deferred to the wave's final landing pass.
 
 3. **Crypto-erasure evidence — execute per ADR 0005** — **M–L**.
    [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md): spec deltas
