@@ -106,6 +106,23 @@ class SigningKeyEntry:
 
 
 @dataclass
+class NonSigningKeyEntry:
+    """A reserved non-signing `KeyEntry` (Core §8.7 / ADR 0006).
+
+    Phase-1 verifiers track these so a signature attempt under a kid registered
+    as `tenant-root`, `scope`, `subject`, or `recovery` can be flagged with
+    `key_class_mismatch` (Core §8.7.3 step 4) rather than the generic
+    `unresolvable_manifest_kid` failure.
+    """
+
+    class_: str  # `class` is a Python keyword; trailing underscore by convention.
+
+
+# Reserved non-signing class literals (Core §8.7).
+_RESERVED_NON_SIGNING_KIND = frozenset({"tenant-root", "scope", "subject", "recovery"})
+
+
+@dataclass
 class RegistryBindingInfo:
     digest_hex: str
     bound_at_sequence: int
@@ -576,26 +593,84 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
 
 
 def _parse_signing_key_registry(data: bytes) -> dict[bytes, SigningKeyEntry]:
+    """Backwards-compat wrapper that drops the non-signing map.
+
+    Call sites that need to detect class-confusion attacks per Core §8.7.3
+    step 4 should use ``_parse_key_registry`` directly.
+    """
+
+    signing, _non_signing = _parse_key_registry(data)
+    return signing
+
+
+def _parse_key_registry(
+    data: bytes,
+) -> tuple[dict[bytes, SigningKeyEntry], dict[bytes, NonSigningKeyEntry]]:
+    """Parses the unified key registry per Core §8 (ADR 0006).
+
+    Verifier dispatch follows Core §8.7.3 step 1: an entry whose top-level map
+    carries a `kind` field is `KeyEntry` (§8.7.1); an entry without `kind` is
+    the legacy `SigningKeyEntry` flat shape (§8.2). Both paths populate the
+    signing-key map identically for `kind = "signing"` and the legacy shape.
+
+    Reserved non-signing classes (`tenant-root`, `scope`, `subject`,
+    `recovery`) and unknown extension `tstr` kinds are NOT inserted into the
+    signing-key map — they cannot resolve a COSE_Sign1 protected-header `kid`.
+    They are returned in the second map so the caller can emit
+    `key_class_mismatch` (Core §8.7.3 step 4) when an event tries to sign
+    under such a kid.
+
+    Per Core §8.7.6 the wire string `"wrap"` is a deprecated synonym for
+    `"subject"`; this parser normalizes the stored class label.
+    """
+
     v = _decode_value(data)
     if not isinstance(v, list):
         raise VerifyError("signing-key registry root is not an array")
+
     reg: dict[bytes, SigningKeyEntry] = {}
+    non_signing: dict[bytes, NonSigningKeyEntry] = {}
+
     for entry in v:
         if not isinstance(entry, dict):
             raise VerifyError("registry entry not map")
+
+        # Core §8.7.3 step 1: dispatch on presence of `kind`.
+        kind_raw = entry.get("kind")
+        if kind_raw is not None and not isinstance(kind_raw, str):
+            raise VerifyError("registry entry `kind` is not a text string")
+        # Core §8.7.6: normalize legacy `"wrap"` → `"subject"`.
+        kind_norm: Optional[str] = (
+            "subject" if kind_raw == "wrap" else kind_raw
+        )
+
         kid = _map_lookup_bytes(entry, "kid")
-        pubkey = _map_lookup_fixed_bytes(entry, "pubkey", 32)
-        status = _map_lookup_u64(entry, "status")
-        vt_raw = _map_lookup_optional_str(entry, "valid_to")
-        valid_to: Optional[int]
-        if vt_raw is None:
-            valid_to = None
-        elif isinstance(vt_raw, int):
-            valid_to = vt_raw
+
+        if kind_norm is None or kind_norm == "signing":
+            # Legacy `SigningKeyEntry` (no `kind`) OR new `KeyEntrySigning`.
+            pubkey = _map_lookup_fixed_bytes(entry, "pubkey", 32)
+            status = _map_lookup_u64(entry, "status")
+            vt_raw = _map_lookup_optional_str(entry, "valid_to")
+            valid_to: Optional[int]
+            if vt_raw is None:
+                valid_to = None
+            elif isinstance(vt_raw, int):
+                valid_to = vt_raw
+            else:
+                raise VerifyError("valid_to invalid")
+            reg[kid] = SigningKeyEntry(
+                public_key=pubkey, status=status, valid_to=valid_to
+            )
+        elif kind_norm in _RESERVED_NON_SIGNING_KIND:
+            # Core §8.7.3 step 3: reserved non-signing class. Phase-1
+            # verifier does not parse class-specific attributes; recording
+            # the kid is enough to diagnose `key_class_mismatch`.
+            non_signing[kid] = NonSigningKeyEntry(class_=kind_norm)
         else:
-            raise VerifyError("valid_to invalid")
-        reg[kid] = SigningKeyEntry(public_key=pubkey, status=status, valid_to=valid_to)
-    return reg
+            # Core §8.7.3 step 4 *Unknown `kind`*: forward-compatibility floor.
+            non_signing[kid] = NonSigningKeyEntry(class_=kind_norm)
+
+    return reg, non_signing
 
 
 def _parse_bound_registry(data: bytes) -> BoundRegistry:
@@ -651,6 +726,7 @@ def _verify_event_set(
     classify_tamper: bool,
     expected_ledger_scope: Optional[bytes],
     payload_blobs: Optional[dict[bytes, bytes]],
+    non_signing_registry: Optional[dict[bytes, NonSigningKeyEntry]] = None,
 ) -> VerificationReport:
     event_failures: list[VerificationFailure] = []
     posture_transitions: list[PostureTransitionOutcome] = []
@@ -673,6 +749,22 @@ def _verify_event_set(
     for index, event in enumerate(events):
         key_entry = registry.get(event.kid)
         if key_entry is None:
+            # Core §8.7.3 step 4: a kid resolving to a reserved non-signing
+            # class fails with `key_class_mismatch` rather than the generic
+            # unresolvable-kid path. Recovery-only / tenant-root / scope /
+            # subject kids signing canonical events is the canonical
+            # class-confusion attack.
+            if non_signing_registry is not None:
+                ns_entry = non_signing_registry.get(event.kid)
+                if ns_entry is not None:
+                    return VerificationReport.fatal(
+                        "key_class_mismatch",
+                        (
+                            f"event signed under a `{ns_entry.class_}`-class "
+                            "kid; only `signing` keys may sign canonical events "
+                            "(Core §8.7.3 step 4)"
+                        ),
+                    )
             return VerificationReport.fatal(
                 "unresolvable_manifest_kid",
                 "event kid is not resolvable via the provided signing-key registry",
@@ -1767,7 +1859,7 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
             "missing_signing_key_registry", "export is missing 030-signing-key-registry.cbor"
         )
     try:
-        registry = _parse_signing_key_registry(reg_bytes)
+        registry, non_signing_registry = _parse_key_registry(reg_bytes)
     except VerifyError as exc:
         return VerificationReport.fatal(
             "signing_key_registry_invalid", f"failed to decode signing-key registry: {exc}"
@@ -1903,7 +1995,16 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         if len(d) == 32:
             payload_blobs[d] = blob
 
-    report = _verify_event_set(events, registry, None, None, False, scope, payload_blobs)
+    report = _verify_event_set(
+        events,
+        registry,
+        None,
+        None,
+        False,
+        scope,
+        payload_blobs,
+        non_signing_registry=non_signing_registry,
+    )
     try:
         attachment_export = _parse_attachment_export_extension(manifest_map)
     except VerifyError as exc:
@@ -2167,7 +2268,7 @@ def verify_tampered_ledger(
     posture_declaration: Optional[bytes] = None,
 ) -> VerificationReport:
     try:
-        registry = _parse_signing_key_registry(signing_key_registry)
+        registry, non_signing_registry = _parse_key_registry(signing_key_registry)
     except VerifyError as exc:
         return VerificationReport.fatal(
             "signing_key_registry_invalid", f"failed to decode signing-key registry: {exc}"
@@ -2188,6 +2289,7 @@ def verify_tampered_ledger(
         True,
         None,
         None,
+        non_signing_registry=non_signing_registry,
     )
 
 
