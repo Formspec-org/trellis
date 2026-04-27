@@ -12,7 +12,7 @@ TRELLIS_PY_DIR = trellis-py
 SCRIPTS_DIR = scripts
 VECTORS_DIR = fixtures/vectors
 
-.PHONY: all help build test test-rust test-python test-scripts check-specs check-specs-strict lint fmt clean
+.PHONY: all help build test test-rust test-python test-scripts test-postgres check-specs check-specs-strict lint fmt clean
 
 all: build test
 
@@ -25,6 +25,7 @@ help:
 	@echo "  make test-rust      Run all Rust tests"
 	@echo "  make test-python    Run Python conformance tests"
 	@echo "  make test-scripts   Run tests for helper scripts"
+	@echo "  make test-postgres  Run trellis-store-postgres + parity integration tests (needs initdb/pg_ctl on PATH)"
 	@echo "  make check-specs    Run spec discipline and coverage lint"
 	@echo "  make check-specs-strict  Run check-specs + vector-renumbering guard (CI variant)"
 	@echo "  make lint           Run Rust clippy"
@@ -52,6 +53,16 @@ test-scripts:
 	@echo "Running script tests..."
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_specs.py
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_vector_renumbering.py
+
+# Targeted run of the Postgres-side integration suite. `cargo test --workspace`
+# already exercises these — this target exists for fast iteration on the
+# canonical-side of the wos-server EventStore composition (per VISION.md §V).
+# Requires `initdb` and `pg_ctl` discoverable on PATH (Postgres 14+; tested
+# against Postgres 16 via `/opt/homebrew/opt/postgresql@16/bin`).
+test-postgres:
+	@echo "Running trellis-store-postgres + parity integration tests..."
+	$(CARGO) test -p trellis-store-postgres
+	$(CARGO) test -p trellis-conformance --test store_parity
 
 check-specs:
 	@echo "Running spec checks..."
