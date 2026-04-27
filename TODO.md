@@ -1,6 +1,6 @@
 # Trellis — TODO
 
-Forward-looking tactical work only. Priority = `Imp × Debt`; size tags are
+Forward-looking tactical work only. Priority = `Importance × Debt`; size tags are
 scheduling hints, never priority inputs. Work runs concurrently where
 prerequisites allow, under the accepted Phase-1 principles/ADR posture
 and the ratified `v1.0.0` Core + Operational Companion surface. State,
@@ -43,6 +43,14 @@ One sequence, from smallest unblocked closer to longest-prerequisite. Each
 item lists its prerequisite inline where it has one. Closed work is out of
 this file — see [`COMPLETED.md`](COMPLETED.md) and
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
+
+**Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
+center tasks for the core handoff (validation, mapping, draft/submit/dismiss).
+Processor and HTTP parity work lives in parent [`wos-spec/TODO.md`](../../wos-spec/TODO.md)
+**#66** and [`wos-spec/crates/wos-server/TODO.md`](../../wos-spec/crates/wos-server/TODO.md)
+**WS-011**, **WS-074–WS-075** (plus **WS-072** for ADR 0066 server surfaces once
+ratified). Trellis items **17** (ADR 0066) and **22** (case ledger) may later
+consume amended responses once those stacks land.
 
 1. **`tamper_kind` normative enum in Core §17.5** — **XS**.
    Prerequisite: add or extend a tamper vector (or conformance assertion)
@@ -155,20 +163,46 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
 
 17. **ADR 0066 execution — amendment / supersession / rescission / correction**
     — **L**, phased across Phase 1 + Phase 4.
-    *Lands after parent accepts ADR 0066.* Phase 1: reserve
-    `supersedes_chain_id` in the envelope header under ADR 0003
-    MUST-NOT-populate discipline; land `append/011-correction`,
-    `append/012-amendment`, `append/013-rescission`; extend the verifier
-    with D-3 correction-preservation and rescission-terminality checks.
-    Phase 4: activate supersession runtime and land
-    `supersession-graph.json`.
+    *Lands after parent accepts ADR 0066.* Canonical ADR:
+    [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
+    WOS checklist: [`../wos-spec/TODO.md#adr-0066-exec-checklist`](../wos-spec/TODO.md#adr-0066-exec-checklist).
+    **Phase 1 (correction, amendment, rescission on one chain):**
+    + [ ] Reserve `supersedes_chain_id` in the envelope header (Core + CDDL)
+      under ADR 0003 **MUST NOT populate** lint discipline.
+    + [ ] Vectors: `append/011-correction`, `append/012-amendment`,
+      `append/013-rescission` under `fixtures/vectors/append/`.
+    + [ ] Verifier **D-3:** correction-preservation (original + corrected
+      field values in report output when a correction-shaped event is in
+      scope); rescission-terminality (any determination after
+      `DeterminationRescinded` on the same chain → integrity violation).
+    + [ ] Core §17 / §19 prose + any export-manifest hooks needed for Phase-1
+      verifier inputs (coordinate with Formspec `ResponseCorrection` and WOS
+      payload shapes as they land).
+    **Phase 4 (supersession runtime + cross-chain bundle):**
+    + [ ] Activate `supersedes_chain_id` population when the phase gate opens.
+    + [ ] Verifier **D-3 chain-linkage:** superseding header cites predecessor
+      checkpoint hash with byte equality.
+    + [ ] Normative **`supersession-graph.json`** at bundle root; verifier BFS
+      over `head_chain_id` / `predecessors`; **cycles = integrity failure**
+      (ADR default — note open Q2 alternative: linear-only Phase 1).
+    + [ ] Optional predecessor chain members in export bundle (ADR D-4).
 
 18. **ADR 0067 execution — statutory clocks** — **M**.
-    *Lands after parent accepts ADR 0067.* Add `open-clocks.json` to the
-    export-bundle spec; extend the verifier with a D-3 advisory
-    diagnostic for expired-unresolved clocks; land `append/014-clock-started`,
-    `append/015-clock-satisfied`, `append/016-clock-elapsed`,
-    `append/017-clock-paused-resumed`.
+    *Lands after parent accepts ADR 0067.* Coordinate payload hashes with WOS
+    `clockStarted` / `clockResolved` (parent [`wos-spec/TODO.md`](../wos-spec/TODO.md#adr-0067-exec-checklist)).
+    + [ ] **Export bundle:** normative **`open-clocks.json`** at bundle root
+      (D-3): enumerate open clocks `{ clock_id, clock_kind, computed_deadline,
+      origin_event_hash }` for every `clockStarted` lacking a matching
+      `clockResolved` at export time.
+    + [ ] **Verifier — D-3 advisory:** for each open clock with
+      `computed_deadline < bundle.sealed_at` and no `clockResolved`, emit an
+      **advisory** diagnostic (not an integrity failure).
+    + [ ] **Verifier — D-4 composition:** walk the chain to compose pause
+      segments (`clockResolved` paused → subsequent `clockStarted` residual)
+      into cumulative duration / segment accounting for audit tooling.
+    + [ ] **Vectors:** `append/014-clock-started`, `015-clock-satisfied`,
+      `016-clock-elapsed`, `017-clock-paused-resumed` (+ matching export/verify
+      corpus hooks as needed for byte-identity CI).
 
 19. **`trellis.external_anchor.v1` priority interaction** — **S**, Phase 2.
     *Lands when external anchoring opens.* O-5 posture-transition events

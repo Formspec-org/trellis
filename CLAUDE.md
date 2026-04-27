@@ -54,6 +54,8 @@ Apply after stack-wide heuristics (in vision-model.md):
 
 **Verification independence contract** (Core §16) is load-bearing: verifiers MUST NOT depend on derived artifacts, workflow runtime, or mutable DBs. Keep `trellis-verify` free of non-essential dependencies.
 
+**Downstream consumers.** Trellis is on our build track, co-engineered with consumers — not an external dependency they wait on. The primary downstream consumer today is the `wos-server` reference implementation, whose `EventStore` port composes `trellis-store-postgres` (canonical events table) plus an in-database projections schema. End-state architectural framing for that consumer: [`../wos-spec/crates/wos-server/VISION.md`](../wos-spec/crates/wos-server/VISION.md). The Phase-1 envelope invariants (`specs/trellis-core.md`) are the byte commitments wos-server's EventStore depends on; per-class DEK key-bag wrapping per [ADR-0074](../thoughts/adr/0074-formspec-native-field-level-transparency.md) inherits the same envelope discipline. "Case ledger" (Core §1.2) is the canonical scope name; "Respondent Ledger" / "Subject Ledger" naming is retired downstream when WOS-bound.
+
 ## Spec authoring contract
 
 - CDDL inside `trellis-core.md` is structural authority. Rust type definitions MUST match. When they disagree, Rust wins per ADR 0004; update the CDDL.
