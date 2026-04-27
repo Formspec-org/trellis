@@ -1,0 +1,33 @@
+id          = "append/034-key-entry-scope-reservation"
+op          = "append"
+status      = "active"
+description = """Phase-1 reservation positive for `kind = "scope"` per ADR 0006 / Core §8.7. \
+The two-entry signing-key registry carries `issuer-001` (legacy \
+`SigningKeyEntry` shape, no `kind` field — verifier dispatch on \
+absence of `kind` per §8.7.3 step 1 lands on the §8.2 path) plus a \
+`KeyEntryNonSigning` row of kind `scope` with the minimal `ScopeKeyAttributes` per Core §8.7.2: `pubkey`, `scope_ref`, `parent_tenant_ref`, `effective_from`, `supersedes`. The `scope_ref` value is the bstr ledger-scope identifier the scope key would be domain-separating in Phase-2+. \
+The genesis event in `test-key-entry-scope-ledger` is signed by `issuer-001` and verifies \
+end-to-end; the Phase-1 verifier admits the non-signing reservation \
+without integrity failure (TR-CORE-047), and the Phase-1 lint emits \
+a warning per Core §8.7.4 / TR-CORE-047."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-039",  # ADR 0006 — unified KeyEntry taxonomy + verifier dispatch on `kind`.
+    "TR-CORE-047",  # Phase-1 reservation acceptance + non-signing lint warning.
+]
+
+[inputs]
+signing_key            = "../../_keys/issuer-001.cose_key"
+payload                = "../../_inputs/sample-payload-001.bin"
+signing_key_registry   = "input-signing-key-registry.cbor"
+authored_event         = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
