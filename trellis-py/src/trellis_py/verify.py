@@ -85,7 +85,19 @@ class VerificationReport:
 
 
 class VerifyError(Exception):
-    pass
+    """Exception raised when verifier inputs cannot be decoded.
+
+    The optional ``kind`` attribute tags the structural-failure code (e.g.
+    ``"key_entry_attributes_shape_mismatch"`` for ADR 0006 §8.7.1
+    violations) so call sites such as ``verify_tampered_ledger`` and
+    ``verify_export_zip`` can map the exception to a
+    :class:`VerificationReport` with the matching ``tamper_kind``
+    instead of bubbling the generic ``signing_key_registry_invalid``.
+    """
+
+    def __init__(self, message: str, kind: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.kind: Optional[str] = kind
 
 
 @dataclass
@@ -113,9 +125,17 @@ class NonSigningKeyEntry:
     as `tenant-root`, `scope`, `subject`, or `recovery` can be flagged with
     `key_class_mismatch` (Core §8.7.3 step 4) rather than the generic
     `unresolvable_manifest_kid` failure.
+
+    ``subject_valid_to`` is captured for ``subject``-class entries so a future
+    Phase-1 ``KeyBagEntry``-mediated ``subject_wrap_after_valid_to`` enforcement
+    can run without re-decoding the registry. Phase-1 ``KeyBagEntry.recipient``
+    is opaque bytes (Core §9.4); ADR 0006 *Phase-1 runtime discipline* defers
+    recipient-to-``subject`` kid binding to Phase-2+. The field is therefore
+    captured-but-unused at runtime today; see ``tamper/025`` for the wire shape.
     """
 
     class_: str  # `class` is a Python keyword; trailing underscore by convention.
+    subject_valid_to: Optional[int] = None
 
 
 # Reserved non-signing class literals (Core §8.7).
@@ -667,15 +687,37 @@ def _parse_key_registry(
             # deep validation rides Phase-2+ activation per ADR 0006), but
             # it DOES enforce the structural-shape gate of §8.7.1: the entry
             # MUST carry an `attributes` map. Absent or wrong-typed →
-            # `key_entry_attributes_shape_mismatch` (TR-CORE-048).
+            # `key_entry_attributes_shape_mismatch` (TR-CORE-048). The kind
+            # tag on the resulting VerifyError is consumed by
+            # verify_tampered_ledger / verify_export_zip so the report's
+            # tamper_kind carries the structural-failure code.
             attrs = entry.get("attributes")
             if not isinstance(attrs, dict):
                 raise VerifyError(
                     "key_entry_attributes_shape_mismatch: KeyEntry of "
                     f"kind=\"{kind_norm}\" missing required `attributes` map "
-                    "(Core §8.7.1)"
+                    "(Core §8.7.1)",
+                    kind="key_entry_attributes_shape_mismatch",
                 )
-            non_signing[kid] = NonSigningKeyEntry(class_=kind_norm)
+            # Subject-class capture: read `valid_to` from `attributes` for
+            # forward-compatible Phase-2+ enforcement (ADR 0006 *Phase-1
+            # runtime discipline*). Other classes don't carry valid_to.
+            subject_valid_to: Optional[int] = None
+            if kind_norm == "subject":
+                vt = attrs.get("valid_to")
+                if vt is None:
+                    subject_valid_to = None
+                elif isinstance(vt, int):
+                    subject_valid_to = vt
+                else:
+                    raise VerifyError(
+                        "key_entry_attributes_shape_mismatch: subject "
+                        "`valid_to` is neither uint nor null (Core §8.7.2)",
+                        kind="key_entry_attributes_shape_mismatch",
+                    )
+            non_signing[kid] = NonSigningKeyEntry(
+                class_=kind_norm, subject_valid_to=subject_valid_to,
+            )
         else:
             # Core §8.7.3 step 4 *Unknown `kind`*: forward-compatibility floor.
             non_signing[kid] = NonSigningKeyEntry(class_=kind_norm)
@@ -1871,8 +1913,12 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
     try:
         registry, non_signing_registry = _parse_key_registry(reg_bytes)
     except VerifyError as exc:
+        # Core §8.7.3 step 3 / TR-CORE-048: structural shape failures surface
+        # under the typed kind tag (e.g. ``key_entry_attributes_shape_mismatch``)
+        # rather than the generic ``signing_key_registry_invalid``.
+        kind = exc.kind or "signing_key_registry_invalid"
         return VerificationReport.fatal(
-            "signing_key_registry_invalid", f"failed to decode signing-key registry: {exc}"
+            kind, f"failed to decode signing-key registry: {exc}"
         )
 
     manifest_bytes = archive.get("000-manifest.cbor")
@@ -2280,8 +2326,10 @@ def verify_tampered_ledger(
     try:
         registry, non_signing_registry = _parse_key_registry(signing_key_registry)
     except VerifyError as exc:
+        # See verify_export_zip for rationale on the typed kind tag.
+        kind = exc.kind or "signing_key_registry_invalid"
         return VerificationReport.fatal(
-            "signing_key_registry_invalid", f"failed to decode signing-key registry: {exc}"
+            kind, f"failed to decode signing-key registry: {exc}"
         )
     try:
         events = _parse_sign1_array(ledger)

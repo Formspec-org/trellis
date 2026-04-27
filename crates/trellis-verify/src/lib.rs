@@ -128,6 +128,12 @@ impl VerificationReport {
 #[derive(Debug)]
 pub struct VerifyError {
     message: String,
+    /// Optional structural-failure kind tag, used by registry / decode
+    /// paths so callers can map the error to a [`VerificationReport`] with
+    /// the correct `tamper_kind` (e.g., `key_entry_attributes_shape_mismatch`
+    /// for ADR 0006 §8.7.1 violations) instead of the generic
+    /// `signing_key_registry_invalid`.
+    kind: Option<&'static str>,
     backtrace: Backtrace,
 }
 
@@ -135,8 +141,22 @@ impl VerifyError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            kind: None,
             backtrace: Backtrace::capture(),
         }
+    }
+
+    fn with_kind(message: impl Into<String>, kind: &'static str) -> Self {
+        Self {
+            message: message.into(),
+            kind: Some(kind),
+            backtrace: Backtrace::capture(),
+        }
+    }
+
+    /// Returns the structural-failure kind tag, if one was set.
+    pub fn kind(&self) -> Option<&'static str> {
+        self.kind
     }
 
     /// Returns the captured backtrace for this verify failure.
@@ -192,7 +212,23 @@ pub fn verify_tampered_ledger(
     initial_posture_declaration: Option<&[u8]>,
     posture_declaration: Option<&[u8]>,
 ) -> Result<VerificationReport, VerifyError> {
-    let (registry, non_signing) = parse_key_registry(signing_key_registry)?;
+    // Surface typed structural shape failures (e.g.
+    // `key_entry_attributes_shape_mismatch`, TR-CORE-048) as a
+    // `VerificationReport` with the matching `tamper_kind` rather than
+    // an `Err(VerifyError)` that would panic the conformance harness.
+    // Untyped decode errors continue to bubble as `Err` so callers
+    // distinguish "registry was structurally invalid in a known
+    // tamper-detectable way" from "we could not parse the bytes at all".
+    let (registry, non_signing) = match parse_key_registry(signing_key_registry) {
+        Ok(maps) => maps,
+        Err(error) if error.kind().is_some() => {
+            return Ok(VerificationReport::fatal(
+                error.kind().unwrap(),
+                format!("failed to decode signing-key registry: {error}"),
+            ));
+        }
+        Err(error) => return Err(error),
+    };
     let events = parse_sign1_array(ledger).unwrap_or_else(|_| Vec::new());
     if events.is_empty() {
         return Ok(VerificationReport::fatal(
@@ -237,8 +273,17 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     let (registry, non_signing_registry) = match parse_key_registry(signing_key_registry_bytes) {
         Ok(maps) => maps,
         Err(error) => {
+            // Core §8.7.3 step 3 / TR-CORE-048: structural shape failures
+            // surface as their typed `tamper_kind` (e.g.
+            // `key_entry_attributes_shape_mismatch`) rather than the
+            // generic `signing_key_registry_invalid` so tamper vectors can
+            // pin them. Decode failures with no typed kind keep the
+            // generic kind for back-compat with existing fixtures.
+            let kind = error
+                .kind()
+                .unwrap_or("signing_key_registry_invalid");
             return VerificationReport::fatal(
-                "signing_key_registry_invalid",
+                kind,
                 format!("failed to decode signing-key registry: {error}"),
             );
         }
@@ -945,11 +990,24 @@ struct SigningKeyEntry {
 /// as `tenant-root`, `scope`, `subject`, or `recovery` can be flagged with
 /// `key_class_mismatch` (Core §8.7.3 step 4) rather than the generic
 /// `unresolvable_manifest_kid` failure.
+///
+/// `valid_to` is captured for `subject`-class entries so a future Phase-1
+/// `KeyBagEntry`-mediated `subject_wrap_after_valid_to` enforcement can run
+/// without re-decoding the registry. Phase-1 `KeyBagEntry.recipient` is
+/// opaque bytes (Core §9.4); ADR 0006 *Phase-1 runtime discipline* defers
+/// recipient-to-`subject` kid binding to Phase-2+. The field is therefore
+/// captured-but-unused at runtime today; see `tamper/025` for the wire
+/// shape that tests this path.
 #[derive(Clone, Debug)]
 struct NonSigningKeyEntry {
     /// Class string from the registry entry's `kind` field, normalized so the
     /// legacy synonym `"wrap"` is mapped to `"subject"` per Core §8.7.6.
     class: String,
+    /// Subject-class `valid_to` (per `SubjectKeyAttributes` in Core §8.7.2),
+    /// captured for forward-compatible enforcement (see field-level doc above).
+    /// `None` for non-`subject` classes and for `subject` rows with `valid_to = null`.
+    #[allow(dead_code)]
+    subject_valid_to: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -2772,20 +2830,70 @@ fn parse_key_registry(
             // structural-shape gate of §8.7.1: the entry MUST carry an
             // `attributes` map. Absent or wrong-typed `attributes` → fail
             // with `key_entry_attributes_shape_mismatch` (TR-CORE-048).
+            //
+            // The kind tag on the resulting `VerifyError` is consumed by
+            // `verify_export_zip` / `verify_tampered_ledger` so the report's
+            // `tamper_kind` field carries the structural-failure code rather
+            // than the generic `signing_key_registry_invalid`.
             Some(class) if RESERVED_NON_SIGNING_KIND.contains(&class) => {
                 let attributes = map_lookup_optional_value(map, "attributes");
-                match attributes {
-                    Some(Value::Map(_)) => {}
-                    _ => {
-                        return Err(VerifyError::new(format!(
-                            "key_entry_attributes_shape_mismatch: KeyEntry of                              kind=\"{class}\" missing required `attributes` map (Core §8.7.1)"
-                        )));
+                let attributes_map: Option<&[(Value, Value)]> = match attributes {
+                    Some(Value::Map(map)) => Some(map.as_slice()),
+                    None => {
+                        return Err(VerifyError::with_kind(
+                            format!(
+                                "key_entry_attributes_shape_mismatch: KeyEntry of \
+                                 kind=\"{class}\" missing required `attributes` map (Core §8.7.1)"
+                            ),
+                            "key_entry_attributes_shape_mismatch",
+                        ));
                     }
-                }
+                    Some(_) => {
+                        return Err(VerifyError::with_kind(
+                            format!(
+                                "key_entry_attributes_shape_mismatch: KeyEntry of \
+                                 kind=\"{class}\" `attributes` is not a map (Core §8.7.1)"
+                            ),
+                            "key_entry_attributes_shape_mismatch",
+                        ));
+                    }
+                };
+
+                // Subject-class capture: read `valid_to` from `attributes`
+                // for forward-compatible Phase-2+ enforcement; absent or
+                // null is the dominant Phase-1 case. Other classes don't
+                // carry a `valid_to` field per §8.7.2.
+                let subject_valid_to = if class == "subject" {
+                    let valid_to_field = attributes_map
+                        .and_then(|m| m.iter().find(|(k, _)| k.as_text() == Some("valid_to")));
+                    match valid_to_field {
+                        Some((_, Value::Integer(integer))) => Some(
+                            u64::try_from(*integer).map_err(|_| {
+                                VerifyError::with_kind(
+                                    "key_entry_attributes_shape_mismatch: \
+                                     subject `valid_to` is out of u64 range (Core §8.7.2)",
+                                    "key_entry_attributes_shape_mismatch",
+                                )
+                            })?,
+                        ),
+                        Some((_, Value::Null)) | None => None,
+                        Some(_) => {
+                            return Err(VerifyError::with_kind(
+                                "key_entry_attributes_shape_mismatch: subject \
+                                 `valid_to` is neither uint nor null (Core §8.7.2)",
+                                "key_entry_attributes_shape_mismatch",
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 non_signing.insert(
                     kid,
                     NonSigningKeyEntry {
                         class: class.to_string(),
+                        subject_valid_to,
                     },
                 );
             }
@@ -2798,6 +2906,7 @@ fn parse_key_registry(
                     kid,
                     NonSigningKeyEntry {
                         class: other.to_string(),
+                        subject_valid_to: None,
                     },
                 );
             }
