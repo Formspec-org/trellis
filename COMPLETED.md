@@ -18,7 +18,7 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
-### Wave 16 (2026-04-27) — Rust HPKE wrap/unwrap; production-hardening (in progress)
+### Wave 16 (2026-04-27) — Rust HPKE wrap/unwrap; `trellis-store-postgres` production hardening
 
 Foundational crypto execution begins. Targets items #2 (HPKE wrap/unwrap
 in Rust) and #31 (`trellis-store-postgres` production hardening) from
@@ -47,6 +47,77 @@ the post-Wave-15 TODO. Run in parallel — no file overlap (HPKE in
   the committed `expected-event-payload.cbor`. Spike doc
   (`thoughts/specs/2026-04-24-hpke-crate-spike.md`) updated to
   Status = Executed with implementation notes.
+
+- **Item #31 — `trellis-store-postgres` production hardening — canonical-side of composed `EventStore`.**
+  Six sub-bullets landed (TLS / transaction-composition / idempotency-key uniqueness /
+  versioned migrations / parity tests / connection pool); supersedes the canonical-side
+  scope of parent `wos-spec/crates/wos-server/TODO.md` **WS-020** + **WS-090** (two-port
+  `Storage` + `AuditSink` split that VISION.md §VIII rejects) — wos-server-side reconciliation
+  is a follow-up handle for the wos-server-spec owner.
+  + **TLS wiring.** `connect` now refuses non-loopback DSNs (`UnsafeDsn` error class);
+    `connect_with_tls(dsn, native_tls::TlsConnector)` accepts any DSN. Loopback gating
+    parses both libpq KV and `postgres://` URI forms; recognizes IPv4/IPv6 loopback,
+    `localhost`, Unix-socket directories. `postgres-native-tls = "0.5"` chosen over
+    `postgres-rustls` for native-platform-trust integration; pinned via lockfile.
+  + **Transaction-composition surface.** New `append_event_in_tx(&mut Transaction, &StoredEvent, Option<&[u8]>) -> Result<(), PostgresStoreError>`
+    free function — wos-server's `EventStore` opens its own transaction on its own
+    `postgres::Client`, calls this for the canonical row, writes its `projections`
+    rows on the same `tx`, and commits. The load-bearing single-transaction-per-write
+    invariant the rejection of dual-write rests on (VISION.md §VIII). `LedgerStore::append_event`
+    keeps its existing seam, now implemented as a one-shot tx wrapper. Memory-store parity
+    via `MemoryStore::begin` + `MemoryTransaction` + `trellis_store_memory::append_event_in_tx`
+    (buffer-on-commit, drop-on-rollback) — same shape so cross-store parity tests share a
+    single body.
+  + **Idempotency-key uniqueness.** Schema-level only per scope note in TODO #31:
+    column `idempotency_key BYTEA NULL`, partial unique index
+    `trellis_events_scope_idempotency_uidx ON (scope, idempotency_key) WHERE idempotency_key IS NOT NULL`,
+    plus a `CHECK (octet_length BETWEEN 1 AND 64)` matching Core §6.1 / §17.2.
+    `append_event_in_tx` rejects collisions with `IdempotencyKeyPayloadMismatch` —
+    Postgres surface for Core §17.5. Phase-1 callers pass `None` until item #24
+    threads the field through `trellis-cddl` / `trellis-types` / `trellis-core` /
+    `trellis-verify` / conformance / cli / py.
+  + **Versioned migrations.** New `trellis-store-postgres::migrations` module —
+    `trellis_schema_migrations(version, applied_at)` ledger, advisory-lock-bracketed
+    apply (`pg_advisory_xact_lock(0x7472656c6c697300)` = "trellis\0" so two
+    replicas connecting at startup don't race), append-only migration list. v1 = initial
+    table; v2 = idempotency-key column + partial unique index + length CHECK. Hand-rolled
+    over `refinery` to keep deps lean and the migration list readable inline.
+    `migrations_apply_idempotently_across_reconnects` test verifies re-apply is a no-op.
+  + **Parity tests + Postgres CI.** New `crates/trellis-conformance/tests/store_parity.rs`
+    runs every fixture under `fixtures/vectors/append/` against both `MemoryStore` AND
+    `PostgresStore` and asserts byte-identical canonical + signed bytes round-trip out
+    of Postgres (`TRUNCATE` between fixtures because the corpus reuses scopes). Second
+    integration test `transaction_composition_atomic_with_caller_projections` exercises
+    the load-bearing rollback-with-projection-write semantic. `make test-postgres`
+    target documents the dependency surface (Postgres `initdb`/`pg_ctl` on PATH);
+    `cargo test --workspace` already runs both. Test cluster harness (initdb +
+    pg_ctl + ephemeral port + temp dir) duplicated into `tests/common/mod.rs` rather
+    than promoting to public API in `trellis-store-postgres`.
+  + **Connection pool.** `PostgresStorePool::builder` / `builder_with_tls` →
+    `PoolBuilder::{max_size, connection_timeout}.build() -> PostgresStorePool` with
+    `r2d2 = "0.8"` + `r2d2_postgres = "0.18"`; `checkout()` returns a `PooledClient`
+    enum that derefs to `postgres::Client`. `deadpool-postgres` rejected as the brief's
+    "lean" guidance — `deadpool-postgres` is async-only and would force a tokio runtime
+    into Trellis (load-bearing architectural shift Trellis has not adopted); `r2d2_postgres`
+    is the sync-native equivalent and matches `postgres = "0.19"`. Inner pool is a runtime
+    enum (`InnerPool::{NoTls, NativeTls}`) — `r2d2_postgres::PostgresConnectionManager<T>`
+    is generic over a single TLS type per pool, and a custom-enum `MakeTlsConnect` impl
+    hits a `tokio::io` sealed-trait wall. Sizing guidance pinned in the crate doc-comment.
+
+Cross-cutting: 16 unit + integration tests in `trellis-store-postgres` (was 1); 4 in
+`trellis-store-memory` (was 0); 2 in `trellis-conformance/tests/store_parity.rs` (new).
+`PostgresStoreError` gained a stable `kind: PostgresStoreErrorKind` taxonomy (callers
+match on enum, not message strings) covering `ConnectionFailed` / `UnsafeDsn` /
+`MigrationFailed` / `QueryFailed` / `IdempotencyKeyPayloadMismatch` / `DomainViolation` /
+`IdempotencyKeyTooLong` / `PoolFailed`. Verification-independence contract preserved —
+`trellis-verify` deps unchanged; `cargo tree -p trellis-verify` shows no `postgres`,
+no `r2d2`, no `native-tls`.
+
+NEEDS_CONTEXT note: wos-server-side reconciliation of WS-020 + WS-090 (the two-port
+`Storage` + `AuditSink` split that VISION.md §VIII rejects) is the wos-server-spec
+owner's call. This item lands the canonical-side; the wos-server-side `EventStore`
+that composes `trellis-store-postgres + projections schema + single tx` per VISION.md
+§III + §V is wos-server-spec follow-up.
 
 ### Wave 15 (2026-04-27) — small-stuff sweep before HPKE / Postgres
 

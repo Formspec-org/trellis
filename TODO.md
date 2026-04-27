@@ -427,52 +427,6 @@ consume amended responses once those stacks land.
     contribute Trellis-specific scope notes (which crates and surfaces
     are in-scope, which are out-of-scope archive material).
 
-31. **`trellis-store-postgres` production hardening — canonical-side of
-    composed `EventStore`** — **M–L**.
-    *Architectural correction. The canonical event chain (hash-chained,
-    signed COSE_Sign1, dCBOR) is Trellis's; the wos-server `EventStore`
-    composes `trellis-store-postgres` for it plus an in-database
-    `projections` schema for mutable metadata — one Postgres database,
-    two schemas, single transaction per write per VISION.md §III + §V.
-    The drift in [`../wos-spec/crates/wos-server/TODO.md`](../wos-spec/crates/wos-server/TODO.md)
-    **WS-020** + **WS-090** (two-port `Storage` + `AuditSink` split) is
-    rejected by VISION.md §VIII and to be reconciled wos-server-side.
-    Today the crate is a Phase-1 scaffold (`LedgerStore` impl,
-    `trellis_events` table, `NoTls`); production hardening is Trellis-
-    side work.* Parent backlog: **PLN-0332** (wos-server execution row).
-    Coordinates with item #24 (`idempotency_key` Postgres uniqueness)
-    and item #25 (tenant column on the canonical table once ADR 0068
-    ratifies).
-    + [ ] **TLS wiring.** The crate doc-comment flags `NoTls` as a
-      Phase-1 local-only scaffold. Add explicit TLS support (`postgres-
-      native-tls` or `postgres-rustls`); refuse non-loopback DSNs unless
-      TLS is configured. Pre-condition for any non-localhost deployment.
-    + [ ] **Transaction-composition surface.** Extend `LedgerStore` (or
-      add a sibling trait) so `append_event` accepts an externally-
-      supplied `&mut Transaction`. Lets the wos-server `EventStore`
-      write the canonical event + projection updates in **one**
-      transaction — single-transaction-per-write is the load-bearing
-      invariant the rejection of dual-write rests on (VISION.md §VIII).
-      Memory-store parity required.
-    + [ ] **Idempotency-key uniqueness.** `(ledger_scope, idempotency_key)`
-      unique constraint on `trellis_events`; reject duplicate appends
-      per Core §17.3. Co-lands with item #24; the constraint is the
-      Postgres half of that item's "stores enforce §17.3" bullet.
-    + [ ] **Versioned migrations.** Replace the ad-hoc `CREATE TABLE IF
-      NOT EXISTS` with a versioned migration runner (`refinery` or
-      hand-rolled `schema_migrations`); migration covers initial table +
-      idempotency-key column + envelope reservations from items 13 / 25 /
-      26 as they land. Migration test asserts schema parity with Rust
-      types.
-    + [ ] **Parity tests + Postgres CI.** Conformance-suite parity vs
-      `trellis-store-memory` against the full append + verify corpus;
-      integration test against a containerized Postgres in CI
-      (`docker compose` or `testcontainers`).
-    + [ ] **Connection pool.** Production deployments need a pool;
-      add `PostgresStore::connect_pooled` (`deadpool-postgres` lean) as
-      a sibling to the existing single-connection `connect`. Document
-      pool sizing guidance.
-
 ---
 
 ## Ratification close-out
