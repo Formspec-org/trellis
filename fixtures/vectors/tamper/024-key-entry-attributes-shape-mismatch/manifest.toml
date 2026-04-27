@@ -1,0 +1,48 @@
+id          = "tamper/024-key-entry-attributes-shape-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Structural-shape tamper for the unified `KeyEntry` taxonomy \
+(ADR 0006 / Core §8.7). The signing-key registry contains a `subject`-kind \
+entry that omits the required `attributes` map. Per Core §8.7.1, a non-signing \
+`KeyEntry` MUST carry an `attributes` sub-map whose inner CDDL group matches \
+its `kind`; absent or wrong-typed `attributes` is a structure failure. The \
+verifier's `parse_key_registry` returns `key_entry_attributes_shape_mismatch` \
+(TR-CORE-048); the report surfaces it as the `tamper_kind` field via the \
+typed-error tag plumbed through `verify_export_zip` / \
+`verify_tampered_ledger`. \
+\
+The tampered event itself is a clean issuer-001-signed envelope; the only \
+delta vs an `append/032`-shape positive is the registry's missing `attributes` \
+field on the `subject` row. `structure_verified = false` because the \
+registry — a verification input — could not be decoded against §8.7.1's \
+shape gate. Distinct from `tamper/008-malformed-cose` (CBOR tag mismatch on \
+the event itself) and `tamper/012-registry-snapshot-swap` (digest binding \
+intact but registry's content drifted) because the structure failure here \
+is the registry entry's own CDDL shape — caught at decode time before any \
+event in the ledger is consulted."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-039",  # ADR 0006 — unified KeyEntry taxonomy + verifier dispatch on `kind`.
+    "TR-CORE-048",  # Class-dispatch failure: `key_entry_attributes_shape_mismatch` for missing attrs map.
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+# Expected verifier behavior. The registry parse fails the §8.7.1 shape gate;
+# verifier returns a fatal report with `tamper_kind = "key_entry_attributes_
+# shape_mismatch"` and location = "structure". No per-event verification runs.
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "key_entry_attributes_shape_mismatch"
+failing_event_id     = "structure"
+
+idempotency_key = "tamper-key-entry-shape-024"
+
+[derivation]
+document = "derivation.md"
