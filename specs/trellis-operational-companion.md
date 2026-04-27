@@ -817,6 +817,10 @@ Traceability: TR-OP-004.
 3. what evidence of destruction is preserved,
 4. what metadata remains visible after destruction.
 
+#### 20.6.1 Erasure-Evidence ReasonCode Reservation
+
+The `trellis.erasure-evidence.v1` event family carries a `reason_code: uint` field. The registered values for this family live with the event-shape definition — Phase-1 normative location is **ADR 0005 §"Reason codes"** (`thoughts/adr/0005-crypto-erasure-evidence.md`); these promote into Companion §20 as Trellis sequence item #8 (TODO row) executes. The table is append-only under the Core §6 (Event Format) §6.9 ReasonCode Registry discipline. The numeric values 1–5 in this family (`retention-expired`, `subject-requested-erasure`, `legal-order-compelling-erasure`, `operator-initiated-policy-change`, `key-compromise-mitigation`) are **not interchangeable** with the same numeric values in the custody-model Posture-transition family (§A.5.1) or the disclosure-profile Posture-transition family (§A.5.2); reinterpretation across families is forbidden. Code `255 = Other` is the only cross-family invariant. Traceability: **TR-OP-104**.
+
 ### 20.7 Legal Sufficiency
 
 **OC-79 (MUST NOT).** An Operator MUST NOT imply that cryptographic controls alone guarantee admissibility or legal sufficiency in all jurisdictions.
@@ -1541,6 +1545,8 @@ Reason codes (registered, extensible via registry append-only):
 | 5 | `legal-order-compelling-transition` |
 | 255 | `Other` (append-only catch-all; free-text rationale in Posture Declaration) |
 
+This table is the Custody-Model Transition family's entry under the Core §6 (Event Format) §6.9 ReasonCode Registry — append-only, family-local. Code values 1–5 here are not interchangeable with the same numeric values in the disclosure-profile Posture-transition family (§A.5.2) or in the erasure-evidence family (Companion §20.6.1, ADR 0005); reinterpretation across families is forbidden. Code `255 = Other` is the only cross-family invariant per Core §6 (Event Format) §6.9. Traceability: **TR-OP-046**.
+
 ### A.5.2 Disclosure-Profile Posture-Transition
 
 Posture-transition on the Respondent Ledger Profile A/B/C axis. Traceability: **TR-OP-043** (schema conformance). The concrete CDDL form emitted in Posture-transition code `trellis.disclosure-profile-transition.v1` under `EventPayload.extensions`:
@@ -1564,6 +1570,19 @@ DisclosureProfileTransitionPayload = {
 ```
 
 Phase 1 Posture-transitions on the disclosure-profile axis are **deployment-scope only**. Per-case granularity is a Phase 3 concern (the case ledger exists only in Phase 3); the `scope_change` field's meaning is deployment-level narrowing/widening/reclassification. A reserved extension slot is available in `extensions` for Phase 3 refinement to per-case granularity.
+
+Reason codes (registered, extensible via registry append-only):
+
+| code | meaning |
+|---|---|
+| 1 | `initial-deployment-correction` |
+| 2 | `governance-policy-change` |
+| 3 | `legal-order-compelling-transition` |
+| 4 | `audience-scope-change` (e.g., adding or removing a downstream consumer class that changes disclosure-profile applicability) |
+| 5 | `disclosure-policy-realignment` (operator-initiated reclassification not driven by a governance order) |
+| 255 | `Other` (append-only catch-all; free-text rationale in Posture Declaration) |
+
+This table is the Disclosure-Profile Posture-Transition family's entry under the Core §6 (Event Format) §6.9 ReasonCode Registry — append-only, family-local. The Phase-1 codes are seeded from the disclosure-side analogues of A.5.1's custody-model codes; deployments needing a disclosure-specific reason not covered here MUST use code `255 = Other` until a successor row is registered. Code values 1–5 here are not interchangeable with the same numeric values in the custody-model Posture-transition family (§A.5.1) or in the erasure-evidence family (Companion §20.6.1, ADR 0005). Traceability: **TR-OP-046**.
 
 ### A.5.3 Verification semantics
 

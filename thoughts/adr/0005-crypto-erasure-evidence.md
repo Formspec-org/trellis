@@ -110,6 +110,9 @@ SubjectScope = {
 | 5 | `key-compromise-mitigation` (destruction as part of incident response) |
 | 255 | `Other` — rationale documented in Posture Declaration narrative |
 
+This table is the Erasure-Evidence family's entry under the **Core §6.9 ReasonCode Registry** — append-only, family-local. The numeric values 1–5 here are not interchangeable with the same numeric values in the Custody-Model Transition family (Companion §A.5.1) or the Disclosure-Profile Posture-Transition family (Companion §A.5.2); cross-family reinterpretation is forbidden. Code `255 = Other` is the only cross-family invariant per Core §6.9. When this ADR's behavior promotes into Companion §20 (TODO sequence item #8), the table moves with it; the Core §6.9 anchor stays unchanged. Traceability: **TR-OP-104**, with Companion §20.6.1 as the Phase-1 Companion-side reservation.
+
+
 ## Event-type registration (Core §6.7)
 
 Add to the Core §6.7 Extension Registry:

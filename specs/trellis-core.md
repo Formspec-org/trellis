@@ -336,6 +336,26 @@ An event exists as three distinct CDDL-level surfaces during its production life
 
 The three forms have different bytes, different CDDL types, and different roles. An implementor producing test vectors MUST emit each form separately when requested; a verifier decoding a wire event reconstructs the canonical form by extracting the COSE payload, and reconstructs the authored form by projecting the canonical form onto the `AuthorEventHashPreimage` shape (dropping `author_event_hash`). The Phase 1 CDDL grammar does not introduce new type names for these surfaces beyond the three already defined; the names "authored form", "canonical form", and "signed form" are spec-level vocabulary for referring to the existing CDDL types.
 
+### 6.9 ReasonCode Registry
+
+Several Trellis event families carry a `reason_code: uint` field in their payload — Custody-Model Transition (Companion §A.5.1), disclosure-profile transition (Companion §A.5.2), and Erasure Evidence (ADR 0005). The codes are **registered per family**, not shared across families: code `3` means a different thing in a custody-model transition than it does in an erasure-evidence record, and merging the namespaces would either silently reinterpret existing values or force a renumber that breaks the wire. Each family's table is **append-only** under the same discipline as §6.7 — meaning does not change after registration; new codes append; deprecated codes retain their integer value with a `deprecated` annotation.
+
+**Cross-family floor.** The integer value `255` is reserved across every family as `Other` — an append-only catch-all whose human-readable rationale lives in the deployment's Posture Declaration narrative. A code value of `255` MUST NOT be used by any family for a more specific meaning. This is the only cross-family invariant; codes `1..254` are family-local.
+
+**Registered families:**
+
+| Family | Payload | Table |
+|---|---|---|
+| Custody-Model Transition | `CustodyModelTransitionPayload.reason_code` | Companion §A.5.1 |
+| disclosure-profile Posture-transition | `DisclosureProfileTransitionPayload.reason_code` | Companion §A.5.2 |
+| Erasure Evidence | `ErasureEvidencePayload.reason_code` | ADR 0005 §"Reason codes" (Companion §20 once promoted) |
+
+**Authoring discipline.** A new `reason_code` value MUST land in the family's table first, paired with a matrix-row update where the requirement is normative (Phase-1 reason-code values are matrix-tracked under their owning family's TR-OP rows). Operators MUST NOT emit unregistered codes; verifiers receiving an unregistered code report it as a structure failure with `unregistered_reason_code` in the relevant `*_failures[].code` namespace.
+
+**Phase-1 verifier obligation.** Phase-1 verifiers MUST validate that decoded `reason_code` values belong to the registered set for the carrying family (or equal `255`). Out-of-range values fail `structure_verified` per Core §19 step 1.
+
+Traceability: **TR-CORE-069** (registry rule), **TR-OP-046** (custody-model + disclosure-profile Posture-transition codes), **TR-OP-104** (erasure-evidence codes; reserved against the ADR 0005 promotion path).
+
 ---
 
 ## 7. Signature Profile
