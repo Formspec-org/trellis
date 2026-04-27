@@ -2765,11 +2765,23 @@ fn parse_key_registry(
                     },
                 );
             }
-            // Core §8.7.3 step 3: reserved non-signing class. Phase-1 verifier
-            // does not attempt to read class-specific attributes (those slots
-            // are envelope reservations); recording the kid is enough to
-            // diagnose `key_class_mismatch` if a signature later targets it.
+            // Core §8.7.3 step 3: reserved non-signing class. Phase-1
+            // verifier does not validate class-specific inner fields (those
+            // slots are envelope reservations and the deep validation rides
+            // Phase-2+ activation per ADR 0006), but it DOES enforce the
+            // structural-shape gate of §8.7.1: the entry MUST carry an
+            // `attributes` map. Absent or wrong-typed `attributes` → fail
+            // with `key_entry_attributes_shape_mismatch` (TR-CORE-048).
             Some(class) if RESERVED_NON_SIGNING_KIND.contains(&class) => {
+                let attributes = map_lookup_optional_value(map, "attributes");
+                match attributes {
+                    Some(Value::Map(_)) => {}
+                    _ => {
+                        return Err(VerifyError::new(format!(
+                            "key_entry_attributes_shape_mismatch: KeyEntry of                              kind=\"{class}\" missing required `attributes` map (Core §8.7.1)"
+                        )));
+                    }
+                }
                 non_signing.insert(
                     kid,
                     NonSigningKeyEntry {

@@ -76,6 +76,8 @@ TAMPER_KIND_ENUM = frozenset({
     "attachment_manifest_digest_mismatch",
     "signature_catalog_digest_mismatch",
     "intake_handoff_catalog_digest_mismatch",
+    "key_class_mismatch",                # Core §8.7.3 step 4 (ADR 0006).
+    "key_entry_attributes_shape_mismatch",   # Core §8.7.2 (ADR 0006).
 })
 
 
@@ -1951,6 +1953,157 @@ def check_tamper_kind_enum(
             )
 
 
+def check_hpke_ephemeral_uniqueness(
+    errors: list[str],
+    *,
+    payloads: list[tuple[Path, dict]] | None = None,
+) -> None:
+    """R17 — every HPKE wrap MUST use a unique X25519 `ephemeral_pubkey`
+    (Core §9.4).
+
+    Core §9.4 pins ephemeral-key freshness on the producer side:
+
+      "Every `KeyBagEntry` (hereafter 'wrap') MUST use a fresh X25519
+       ephemeral keypair, unique across every wrap in the containing
+       ledger scope. ... Reusing an ephemeral private key across wraps,
+       within the same event, across events in the same ledger scope, or
+       across ledger scopes, is a non-conformance."
+
+    Because the persisted `ephemeral_pubkey` is the single-shot HPKE
+    encapsulated key derived from the ephemeral private scalar, two
+    identical `ephemeral_pubkey` values across distinct wraps imply the
+    private scalar was reused — collapsing the three sub-cases above
+    into one detectable byte equality. The Phase-1 HPKE suite (Base
+    mode, DHKEM(X25519, HKDF-SHA256), Core §9.4) and the §9.4 carve-out
+    for fixture-pinned ephemerals make this a corpus-authoring concern
+    rather than a verifier obligation: §19.1 has no `ephemeral_reuse`
+    `tamper_kind`, and a verifier seeing only one event has no
+    prior-state to compare against. Production-side uniqueness rests on
+    `OsRng` in `trellis-hpke::wrap_dek`; this lint closes the
+    fixture-side authoring gap (a copy-paste mistake or a buggy
+    generator script silently reusing a pinned ephemeral across
+    vectors).
+
+    Placement is `check-specs.py` rather than `trellis-verify` (Core
+    §16 verification independence — verifiers are stateless across
+    events) and rather than `trellis-hpke` (the production wrap path
+    already uses fresh randomness via `setup_sender`; the gap is the
+    `wrap_dek_with_pinned_ephemeral` carve-out path and any hand-rolled
+    fixture that did not flow through `wrap_dek` at all).
+
+    Within-event check (§9.4 second clause — "in an event with N
+    recipients the `key_bag` contains N `KeyBagEntry` rows with N
+    distinct `ephemeral_pubkey` values"): a `key_bag.entries` list with
+    a duplicate `ephemeral_pubkey` is reported as a within-event
+    violation, distinct from cross-event reuse so the diagnostic message
+    points to the right §9.4 clause.
+
+    Algorithm:
+      1. Group payload artifacts by their containing vector directory.
+         The shared `vector_event_payloads()` walker yields the same
+         logical event multiple times (one per CBOR view —
+         `input-author-event-hash-preimage.cbor`,
+         `expected-event-payload.cbor`, `expected-event.cbor`); these
+         are byte-identical re-encodings of the same wrap, NOT reuse.
+      2. For each vector, collect the set of `ephemeral_pubkey` values
+         emitted by its wraps (collapsing the multiple-CBOR-view
+         duplicates).
+      3. Within-event: any `ephemeral_pubkey` appearing more than once
+         inside a single `key_bag.entries` list is reported.
+      4. Cross-vector: any `ephemeral_pubkey` appearing in two distinct
+         vector dirs is reported.
+
+    Test hook: `payloads` is a list of `(artifact_path, EventPayload)`
+    tuples parallel to `vector_event_payloads()`. Vector grouping is
+    `artifact_path.parent`, which matches every committed
+    `fixtures/vectors/append/*` layout today (the only artifacts under
+    `_inputs/` and `_keys/` are non-event payloads / COSE keys, not
+    EventPayload-shaped CBOR).
+    """
+    iter_payloads = (
+        payloads if payloads is not None else vector_event_payloads(errors)
+    )
+
+    # Group artifacts by vector dir.
+    by_vector: dict[Path, list[dict]] = {}
+    for artifact_path, payload in iter_payloads:
+        if not isinstance(payload, dict):
+            continue
+        vector_dir = artifact_path.parent
+        by_vector.setdefault(vector_dir, []).append(payload)
+
+    # ephemeral_pubkey_bytes → (first vector dir, scope_bytes seen there).
+    seen: dict[bytes, tuple[Path, bytes]] = {}
+
+    for vector_dir, vector_payloads in sorted(by_vector.items()):
+        # Pairs canonicalized within this vector: collapses the multiple-
+        # CBOR-view duplicates so byte-identical re-encodings of a single
+        # wrap do not look like reuse.
+        canonical_pairs: set[tuple[bytes, bytes]] = set()
+        # Within-event duplicates: same ephemeral_pubkey in one entries[]
+        # list. Tracked separately to surface §9.4 clause (a) distinctly.
+        within_event_dupes: set[tuple[bytes, bytes]] = set()
+
+        for payload in vector_payloads:
+            scope = payload.get("ledger_scope")
+            scope_bytes = (
+                bytes(scope) if isinstance(scope, (bytes, bytearray)) else b""
+            )
+            kb = payload.get("key_bag")
+            if not isinstance(kb, dict):
+                continue
+            entries = kb.get("entries")
+            if not isinstance(entries, list):
+                continue
+
+            seen_in_event: set[bytes] = set()
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                ep = entry.get("ephemeral_pubkey")
+                if not isinstance(ep, (bytes, bytearray)):
+                    continue
+                ep_bytes = bytes(ep)
+                if ep_bytes in seen_in_event:
+                    within_event_dupes.add((scope_bytes, ep_bytes))
+                seen_in_event.add(ep_bytes)
+                canonical_pairs.add((scope_bytes, ep_bytes))
+
+        # Within-event diagnostic — §9.4 "N recipients require N distinct
+        # ephemeral_pubkey values".
+        for scope_bytes, ep_bytes in sorted(within_event_dupes):
+            errors.append(
+                f"{relpath(vector_dir)}: ephemeral_pubkey "
+                f"{ep_bytes.hex()[:16]}... duplicated within a single key_bag "
+                f"(Core §9.4 — N recipients MUST have N distinct "
+                f"ephemeral_pubkey values)"
+            )
+
+        # Cross-vector diagnostic — §9.4 reuse "across events in the same
+        # ledger scope, or across ledger scopes". One message per
+        # collision; same-scope vs cross-scope is shown inline.
+        for scope_bytes, ep_bytes in sorted(canonical_pairs):
+            prior = seen.get(ep_bytes)
+            if prior is None:
+                seen[ep_bytes] = (vector_dir, scope_bytes)
+                continue
+            prior_vector, prior_scope = prior
+            if prior_vector == vector_dir:
+                continue  # Same vector dir; collapsed canonical re-encoding.
+            scope_clause = (
+                f"in ledger_scope {scope_bytes!r}"
+                if scope_bytes == prior_scope
+                else f"across ledger scopes ({prior_scope!r} and {scope_bytes!r})"
+            )
+            errors.append(
+                f"{relpath(vector_dir)}: ephemeral_pubkey "
+                f"{ep_bytes.hex()[:16]}... reused {scope_clause} (also "
+                f"appears in {relpath(prior_vector)}); Core §9.4 requires "
+                f"every wrap to use a fresh X25519 ephemeral keypair, "
+                f"unique across every wrap"
+            )
+
+
 def check_verify_report_consistency(
     errors: list[str],
     *,
@@ -2037,6 +2190,82 @@ def check_verify_report_consistency(
                 )
 
 
+def check_key_entry_phase_1_class_lint(warnings: list[str]) -> None:
+    """R18 — Core §8.7.4 Phase-1 lint discipline.
+
+    Per ADR 0006 §"Phase-1 lint discipline" + Core §8.7.4: a `KeyEntry` whose
+    `kind` is one of the four reserved non-signing classes (`tenant-root`,
+    `scope`, `subject`, `recovery`) MUST emit a Phase-1 lint warning. The
+    entry remains wire-valid (envelope reservation per Core §8.7); the
+    warning surfaces premature use of a Phase-2+ surface so an operator
+    notices when their fixture corpus drifts off Phase-1 scope.
+
+    Algorithm:
+      1. Walk every committed key-registry artifact under `fixtures/vectors/`.
+         Pattern matches both the export-bound name `030-signing-key-registry.cbor`
+         and per-vector inputs like `input-signing-key-registry-after.cbor` /
+         `input-signing-key-registry-before.cbor`.
+      2. Decode each as a dCBOR array of registry entry maps.
+      3. For each entry: if a top-level `kind` text-string field is present and
+         its value is one of the four reserved non-signing literals, append a
+         warning that names the vector + entry index + class.
+      4. Unknown extension `tstr` kinds are NOT warned at this level; ADR 0006
+         §"Phase-1 lint discipline" scopes the warning to the four reserved
+         non-signing classes (the reservation-vs-extension distinction).
+
+    Placement is `check-specs.py` rather than `trellis-verify` because verifier
+    failure here is forbidden by ADR 0006: the wire admits these entries, the
+    verifier accepts them, and only the operator-side authoring tool warns.
+    Phase-2+ activation lifts this warning per ADR 0006 §"Phase 2 evolution".
+    """
+
+    try:
+        import cbor2  # type: ignore[import-not-found]
+    except ImportError:
+        # cbor2 is the standard generator dep (also listed in
+        # GENERATOR_ALLOWED_IMPORTS); if it isn't installed locally the rest
+        # of the lint suite still runs and this check is silently skipped.
+        return
+
+    reserved_non_signing = {"tenant-root", "scope", "subject", "recovery"}
+
+    candidate_globs = (
+        "030-signing-key-registry.cbor",
+        "input-signing-key-registry*.cbor",
+    )
+
+    for vector_dir in sorted(FIXTURES.rglob("manifest.toml")):
+        # vector_dir.parent is the vector directory.
+        vec_root = vector_dir.parent
+        for pattern in candidate_globs:
+            for registry_path in vec_root.glob(pattern):
+                try:
+                    raw = registry_path.read_bytes()
+                    decoded = cbor2.loads(raw)
+                except Exception:  # noqa: BLE001
+                    # Decode failures are diagnosed by other checks; skip silently here.
+                    continue
+                if not isinstance(decoded, list):
+                    continue
+                for index, entry in enumerate(decoded):
+                    if not isinstance(entry, dict):
+                        continue
+                    kind = entry.get("kind")
+                    if not isinstance(kind, str):
+                        continue
+                    # Core §8.7.6: normalize the legacy `"wrap"` synonym so the
+                    # diagnostic carries the canonical class name.
+                    norm = "subject" if kind == "wrap" else kind
+                    if norm in reserved_non_signing:
+                        rel = registry_path.relative_to(ROOT)
+                        warnings.append(
+                            f"{rel}: KeyEntry[{index}] declares kind=\"{norm}\" "
+                            f"(non-signing); Phase-1 runtime is signing-only per "
+                            f"Core §8.7.4 + ADR 0006 — wire is admitted, runtime "
+                            f"warns until Phase-2+ activates the class."
+                        )
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -2069,6 +2298,8 @@ def main() -> int:
     check_generator_imports(errors)
     check_vector_renumbering(errors)
     check_tamper_kind_enum(errors)
+    check_hpke_ephemeral_uniqueness(errors)
+    check_key_entry_phase_1_class_lint(warnings)
     check_verify_report_consistency(errors)
 
     for warning in warnings:

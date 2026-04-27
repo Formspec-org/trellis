@@ -1497,6 +1497,8 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `attachment_manifest_digest_mismatch` | 3.f / extensions check | `061-attachments.cbor` digest does not match the manifest's `trellis.export.attachments.v1` binding (ADR 0072). |
 | `signature_catalog_digest_mismatch` | 3.f / extensions check | `062-signature-affirmations.cbor` digest does not match the manifest's `trellis.export.signature-affirmations.v1` binding. |
 | `intake_handoff_catalog_digest_mismatch` | 3.f / extensions check | `063-intake-handoffs.cbor` digest does not match the manifest's `trellis.export.intake-handoffs.v1` binding. |
+| `key_class_mismatch` | 4.a (key-class dispatch) | A COSE_Sign1 protected-header `kid` resolves to a `KeyEntry` whose `kind` is a reserved non-signing class (`tenant-root`, `scope`, `subject`, `recovery`); only `signing`-class kids may sign canonical events (Core §8.7.3 step 4 / ADR 0006). |
+| `key_entry_attributes_shape_mismatch` | 3 (registry decode) | A `KeyEntry` whose `kind` is a reserved non-signing class is missing its `attributes` map or carries an `attributes` value whose shape does not match the per-class CDDL group in Core §8.7.2. |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
 

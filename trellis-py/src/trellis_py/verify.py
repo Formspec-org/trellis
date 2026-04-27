@@ -663,8 +663,18 @@ def _parse_key_registry(
             )
         elif kind_norm in _RESERVED_NON_SIGNING_KIND:
             # Core §8.7.3 step 3: reserved non-signing class. Phase-1
-            # verifier does not parse class-specific attributes; recording
-            # the kid is enough to diagnose `key_class_mismatch`.
+            # verifier does not validate class-specific inner fields (the
+            # deep validation rides Phase-2+ activation per ADR 0006), but
+            # it DOES enforce the structural-shape gate of §8.7.1: the entry
+            # MUST carry an `attributes` map. Absent or wrong-typed →
+            # `key_entry_attributes_shape_mismatch` (TR-CORE-048).
+            attrs = entry.get("attributes")
+            if not isinstance(attrs, dict):
+                raise VerifyError(
+                    "key_entry_attributes_shape_mismatch: KeyEntry of "
+                    f"kind=\"{kind_norm}\" missing required `attributes` map "
+                    "(Core §8.7.1)"
+                )
             non_signing[kid] = NonSigningKeyEntry(class_=kind_norm)
         else:
             # Core §8.7.3 step 4 *Unknown `kind`*: forward-compatibility floor.
