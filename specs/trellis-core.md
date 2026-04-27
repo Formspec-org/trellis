@@ -427,15 +427,17 @@ A verifier uses the protected-header `kid` to resolve the public key via the sig
 
 ---
 
-## 8. Signing-Key Registry
+## 8. Key Registry
 
 **Requirement class:** Canonical Append Service (maintains), Export Generator (snapshots), Verifier (resolves).
 
 ### 8.1 Why this exists
 
-A COSE signature without a resolvable key is unverifiable after rotation. Phase 1 exports MUST include a signing-key registry snapshot so that verification is self-contained at any future date, including dates after every key the registry references has been rotated out of operational use.
+A COSE signature without a resolvable key is unverifiable after rotation. Phase 1 exports MUST include a key registry snapshot so that verification is self-contained at any future date, including dates after every key the registry references has been rotated out of operational use.
 
-### 8.2 `SigningKeyEntry`
+The key registry is a single dCBOR array embedded in every export at `030-signing-key-registry.cbor` (filename retained for wire-shape stability across the Phase-1 v1.0.0 corpus). It carries one row per key the export references, regardless of class. Phase 1 populates only signing-class entries; the envelope reserves capacity for tenant-root, scope, subject, and recovery classes per ADR 0006 (§8.7).
+
+### 8.2 `SigningKeyEntry` (signing-class wire shape)
 
 ```cddl
 SigningKeyEntry = {
@@ -457,9 +459,11 @@ SigningKeyStatus = &(
 )
 ```
 
+`SigningKeyEntry` is the **legacy flat shape** retained for byte-for-byte preservation of the Phase-1 v1.0.0 corpus. Implementations that emit the unified `KeyEntry` taxonomy (§8.7) carry the same eight fields plus a leading `kind: "signing"` discriminator on the flat signing arm; the structural and semantic content is identical. Verifiers MUST accept both shapes per the dispatch rule in §8.7.
+
 ### 8.3 `kid` format
 
-`kid` is a 16-byte opaque identifier. An implementation MAY derive it, or MAY assign it by administrative policy; either MUST produce a `kid` unique within the registry.
+`kid` is a 16-byte opaque identifier. An implementation MAY derive it, or MAY assign it by administrative policy; either MUST produce a `kid` unique within the registry. The derivation is class-agnostic per §8.7: any registered key — signing or otherwise — has a `kid` derivable from its `suite_id` and raw public-key bytes by the construction below.
 
 **Derived `kid` construction (pinned).** When a `kid` is derived, it MUST be the first 16 bytes of:
 
@@ -489,6 +493,8 @@ Legal `status` transitions:
 
 `Revoked` is terminal. `Retired` is terminal for signature issuance but not for verification of historical records. `Destroyed` is out of scope for Phase 1 signing keys (signing-key destruction is an operational action represented in the agency log, §24); the private key material MAY be destroyed, but the `SigningKeyEntry` MUST remain in the registry to preserve historical verifiability.
 
+The lifecycle above applies to `kind = "signing"` entries (§8.7). Non-signing classes carry their own activation/supersession discipline declared in §8.7.2; they do not use the `SigningKeyStatus` enum.
+
 ### 8.5 Registry snapshot in every export
 
 Every export package (§18) MUST include a complete registry snapshot resolvable for every `kid` referenced by any event, checkpoint, or `LedgerServiceWrapEntry` in the export. "Complete" means: for any `kid` cited, the entry for that `kid`, every entry that `supersedes` points to transitively, and every entry that is a supersession ancestor of the cited `kid`. A verifier encountering a `kid` that cannot be resolved against the embedded registry MUST reject the export.
@@ -512,6 +518,116 @@ LedgerServiceWrapEntry = {
 This is load-bearing for invariant #7 (key-bag immutability under rotation). Historical `author_event_hash` values MUST reproduce after any LAK rotation, because no field covered by `author_event_hash` ever changes; the new wrap is a separate canonical artifact.
 
 The `ephemeral_pubkey` freshness and `wrapped_dek` construction obligations for every `LedgerServiceWrapEntry` are normatively pinned in §9.4: each wrap MUST use an X25519 ephemeral keypair unique across every wrap in the containing ledger scope, and the ephemeral private key MUST be destroyed after wrap. The §9.4 obligations apply to rotation-wrap entries identically to initial-wrap entries; this section does not introduce separate semantics.
+
+### 8.7 `KeyEntry` taxonomy (ADR 0006)
+
+The unified key registry admits a tagged-union `KeyEntry` discriminated by a top-level `kind` field. Five reserved classes cover Phase-1 through Phase-4 key material; an extension `tstr` escape on `kind` follows the Core §6.7 append-only registry pattern for future classes. **Phase-1 runtime restriction:** only `kind = "signing"` is populated in practice; `tenant-root`, `scope`, `subject`, and `recovery` are envelope reservations (the wire admits them; the runtime warns on emit per Companion §27 lint and the Phase-1 lint addition below).
+
+**Wire-shape backward compatibility.** A registry row MAY use either of two encodings, and verifiers MUST accept both:
+
+1. The legacy `SigningKeyEntry` flat map (§8.2) — eight fields, no `kind` discriminator. Resolution semantics: `kind` is implicitly `"signing"`. Phase-1 v1.0.0 corpus fixtures use this shape.
+2. The unified `KeyEntry` shape — `kind` is the top-level discriminator. The signing arm carries the same eight fields as `SigningKeyEntry` plus the leading `kind: "signing"` field; non-signing arms carry a per-class `attributes` sub-map per §8.7.2.
+
+A verifier dispatches on the **presence** of a `kind` field at the top level of the entry map: present → `KeyEntry` dispatch (§8.7.1); absent → legacy `SigningKeyEntry` (§8.2). Both paths converge on identical signature-verification, lifecycle, and supersession rules for the signing class; the only on-wire difference is the `kind` field itself.
+
+#### 8.7.1 CDDL — `KeyEntry` discriminator
+
+```cddl
+; Registry admits exactly one of these encodings, plus the legacy
+; SigningKeyEntry shape (§8.2) for byte-shape preservation across the
+; Phase-1 v1.0.0 corpus. Verifiers dispatch on the presence of `kind`.
+KeyEntry = KeyEntrySigning / KeyEntryNonSigning
+
+KeyEntrySigning = {
+  kind:          "signing",
+  kid:           bstr .size 16,
+  pubkey:        bstr,                    ; algorithm pinned by suite_id
+  suite_id:      uint,
+  status:        SigningKeyStatus,        ; §8.4
+  valid_from:    uint,
+  valid_to:      uint / null,
+  supersedes:    bstr / null,
+  attestation:   bstr / null,
+}
+
+KeyEntryNonSigning = {
+  kind:          "tenant-root" / "scope" / "subject" / "recovery" / tstr,
+  kid:           bstr .size 16,
+  suite_id:      uint,
+  attributes:    TenantRootKeyAttributes / ScopeKeyAttributes /
+                 SubjectKeyAttributes / RecoveryKeyAttributes /
+                 { * tstr => any },
+  extensions:    { * tstr => any } / null,
+}
+```
+
+For reserved literals (`tenant-root`, `scope`, `subject`, `recovery`), `attributes` MUST decode as the corresponding structure in §8.7.2 — pairing a literal `kind` with the wrong inner map shape is a structure failure (`key_entry_attributes_shape_mismatch`). For an extension `kind` `tstr` that the verifier does not recognize, see §8.7.3 *Unknown `kind`*.
+
+#### 8.7.2 Reserved non-signing class shapes
+
+```cddl
+TenantRootKeyAttributes = {
+  pubkey:           bstr .size 32,
+  tenant_ref:       tstr,
+  effective_from:   uint,
+  supersedes:       bstr .size 16 / null,
+  ; NO status field: tenant-root keys are activation-scoped, not rotating.
+}
+
+ScopeKeyAttributes = {
+  pubkey:              bstr .size 32,
+  scope_ref:           bstr,                  ; ledger_scope byte-string
+  parent_tenant_ref:   tstr,
+  effective_from:      uint,
+  supersedes:          bstr .size 16 / null,
+}
+
+SubjectKeyAttributes = {
+  pubkey:            bstr .size 32,
+  subject_ref:       tstr,
+  authorized_for:    [+ bstr],
+  effective_from:    uint,
+  valid_to:          uint / null,
+  supersedes:        bstr .size 16 / null,
+}
+
+RecoveryKeyAttributes = {
+  pubkey:                  bstr .size 32,
+  authorizes_recovery_for: [+ bstr .size 16],   ; kids of signing keys only
+  activation_quorum:       uint,
+  activation_quorum_set:   [+ bstr .size 16] / null,
+  effective_from:          uint,
+  supersedes:              bstr .size 16 / null,
+}
+```
+
+#### 8.7.3 Verifier obligations for `KeyEntry` dispatch
+
+A conforming verifier resolving a `kid` in the embedded registry MUST:
+
+1. **Decode** the registry array; for each entry detect dispatch path: top-level `kind` field present → `KeyEntry`; absent → `SigningKeyEntry` (§8.2).
+2. **Validate `kind`** against the closed taxonomy `{"signing", "tenant-root", "scope", "subject", "recovery"}` plus any registered extension. Unknown `kind` per §8.7.3 *Unknown `kind`*.
+3. **Dispatch on `kind`:** for `"signing"`, validate the flat eight-field set (parity with §8.2); for reserved non-signing kinds, validate `attributes` against the matching CDDL group; structural mismatch → `key_entry_attributes_shape_mismatch`.
+4. **Class-specific invariants** (Phase-2+ activation; Phase-1 verifiers MAY skip with a warning):
+   - `signing`: existing §8.4 lifecycle.
+   - `tenant-root` / `scope`: `effective_from ≤ authored_at` for events claiming this scope.
+   - `subject`: `effective_from ≤ authored_at ≤ valid_to` (when non-null) for `KeyBagEntry` wraps referencing this subject-kid.
+   - `recovery`: NOT acceptable as a signing kid for any non-recovery event. A `recovery`-class kid in a COSE_Sign1 protected header for an ordinary event is a class-confusion attack; verifier MUST reject with `key_class_mismatch`.
+5. **Supersession acyclicity** across per-class `supersedes` chains.
+
+**Unknown `kind`.** When the verifier encounters an entry whose `kind` is not one of the five reserved literals and not in the verifier's extension registry: it MUST record `unknown_key_class` and MUST NOT coerce the entry into a reserved class. It MUST NOT set `integrity_verified = false` solely for unknown `kind` (forward-compatibility, mirrors the unknown-extension-event-type pattern). If a downstream artifact (signature, HPKE wrap, erasure-evidence subtree) requires that `kid` to be interpreted under the unknown class and the verifier lacks normative rules, it MUST fail closed for that obligation with an explicit capability-gap code.
+
+#### 8.7.4 Phase-1 lint discipline
+
+Phase-1 lint (`scripts/check-specs.py`) emits a warning for any `KeyEntry` whose `kind != "signing"`. This is a reservation-permitted-but-unused signal, not a verifier failure: the wire admits the reservation; the runtime warns to surface that the deployment is exercising a Phase-2+ surface ahead of phase activation. Phase-2+ lifts the warning when the relevant custody model activates per ADR 0006.
+
+#### 8.7.5 Traceability
+
+TR-CORE-039 anchors the unified `KeyEntry` taxonomy + verifier dispatch on `kind`. TR-CORE-047 anchors Phase-1 reservation acceptance + non-signing lint warning. TR-CORE-048 anchors class-dispatch failures (`key_entry_attributes_shape_mismatch`, `key_class_mismatch`). TR-CORE-049 anchors the unknown-`kind` capability-gap rule.
+
+#### 8.7.6 Cross-class references (ADR 0005 reconciliation)
+
+ADR 0005 `ErasureEvidencePayload.key_class` uses the same five literals as `KeyEntry.kind`. **Normative name for HPKE / subject-wrap material is `subject`**; the wire string `"wrap"` is a deprecated synonym retained for pre-reconciliation interop. Verifiers MUST normalize `"wrap"` → `"subject"` before any `kind` comparison or registry resolution. `kid_destroyed` resolves against the **single** key registry: signing-class entries via the legacy shape OR the `KeyEntry` signing arm; non-signing classes via `KeyEntry` non-signing arms.
 
 ---
 
@@ -1986,7 +2102,12 @@ AppendHead = {
   canonical_event_hash: digest,
 }
 
-; --- Signing-Key Registry --------------------------------------------
+; --- Key Registry (signing class — legacy flat shape) ----------------
+; The legacy `SigningKeyEntry` shape is retained for byte-for-byte
+; preservation across the Phase-1 v1.0.0 corpus. Verifiers accept both
+; this flat shape and the `KeyEntry` taxonomy below; dispatch is on the
+; presence of a top-level `kind` field. See §8.7 for the unified
+; taxonomy and dispatch rules.
 
 SigningKeyEntry = {
   kid:          kid,
@@ -2005,6 +2126,67 @@ SigningKeyStatus = &(
   Retired:  2,
   Revoked:  3,
 )
+
+; --- Key Registry (unified taxonomy, ADR 0006) -----------------------
+; Phase-1 runtime: only `kind = "signing"` is populated. Reserved
+; non-signing classes are envelope reservations; lint warns on emit.
+
+KeyEntry = KeyEntrySigning / KeyEntryNonSigning
+
+KeyEntrySigning = {
+  kind:         "signing",
+  kid:          kid,
+  pubkey:       bstr,
+  suite_id:     suite_id,
+  status:       SigningKeyStatus,
+  valid_from:   timestamp,
+  valid_to:     timestamp / null,
+  supersedes:   kid / null,
+  attestation:  bstr / null,
+}
+
+KeyEntryNonSigning = {
+  kind:         "tenant-root" / "scope" / "subject" / "recovery" / tstr,
+  kid:          kid,
+  suite_id:     suite_id,
+  attributes:   TenantRootKeyAttributes / ScopeKeyAttributes /
+                SubjectKeyAttributes / RecoveryKeyAttributes /
+                { * tstr => any },
+  extensions:   { * tstr => any } / null,
+}
+
+TenantRootKeyAttributes = {
+  pubkey:           bstr .size 32,
+  tenant_ref:       tstr,
+  effective_from:   timestamp,
+  supersedes:       bstr .size 16 / null,
+}
+
+ScopeKeyAttributes = {
+  pubkey:              bstr .size 32,
+  scope_ref:           bstr,
+  parent_tenant_ref:   tstr,
+  effective_from:      timestamp,
+  supersedes:          bstr .size 16 / null,
+}
+
+SubjectKeyAttributes = {
+  pubkey:            bstr .size 32,
+  subject_ref:       tstr,
+  authorized_for:    [+ bstr],
+  effective_from:    timestamp,
+  valid_to:          timestamp / null,
+  supersedes:        bstr .size 16 / null,
+}
+
+RecoveryKeyAttributes = {
+  pubkey:                  bstr .size 32,
+  authorizes_recovery_for: [+ bstr .size 16],
+  activation_quorum:       uint,
+  activation_quorum_set:   [+ bstr .size 16] / null,
+  effective_from:          timestamp,
+  supersedes:              bstr .size 16 / null,
+}
 
 LedgerServiceWrapEntry = {
   ledger_id:         bstr,
