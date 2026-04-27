@@ -78,16 +78,11 @@ consume amended responses once those stacks land.
    `tamper/023..025`; reconcile ADR 0005 `key_class`. Gap source:
    [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md) §8.
 
-2. **HPKE wrap/unwrap in Rust** — **M**.
-   Core §9.4 amendment landed; `append/004-hpke-wrapped-inline` and the
-   Python stranger both exercise real HPKE; `trellis-core` has no Rust
-   wrap/unwrap path, so Rust only round-trips committed bytes. Strengthens
-   the G-5 reproducibility-across-two-independent-implementations claim
-   from "vectors match" to "both implementations do the crypto work."
-   Crate selection + interface sketch + verification approach pinned in
-   [`thoughts/specs/2026-04-24-hpke-crate-spike.md`](thoughts/specs/2026-04-24-hpke-crate-spike.md)
-   (decision: `hpke` crate, version-pinned). Land the Rust path + one
-   integration test matching `append/004` byte-for-byte.
+2. ~~**HPKE wrap/unwrap in Rust**~~ — **CLOSED Wave 16, 2026-04-27.**
+   New `trellis-hpke` sibling crate; byte-matches `append/004` via
+   `tests/append_004_byte_match.rs`. See [`COMPLETED.md`](COMPLETED.md)
+   Wave 16 entry. Renumbering of items #3..#31 deferred to the wave's
+   final landing pass (parallel sibling scout on item #31).
 
 3. **HPKE duplicate-ephemeral detection lint** — **S**.
    *After #2.* §9.4 requires X25519 ephemeral uniqueness across every

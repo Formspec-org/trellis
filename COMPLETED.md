@@ -18,6 +18,36 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 16 (2026-04-27) — Rust HPKE wrap/unwrap; production-hardening (in progress)
+
+Foundational crypto execution begins. Targets items #2 (HPKE wrap/unwrap
+in Rust) and #31 (`trellis-store-postgres` production hardening) from
+the post-Wave-15 TODO. Run in parallel — no file overlap (HPKE in
+`crates/trellis-hpke/`, store hardening in `crates/trellis-store-postgres/`).
+
+- **Item #2 — Rust HPKE wrap/unwrap, byte-matching `append/004`.**
+  New `trellis-hpke` sibling crate (NOT folded into `trellis-cose`) so
+  HPKE deps do not leak into `trellis-verify` via the existing
+  `trellis-verify -> trellis-cose` chain — Core §16 verification
+  independence preserved (`cargo tree -p trellis-verify` confirms zero
+  HPKE crates pulled). Three call shapes: `wrap_dek` (production seal,
+  `OsRng` ephemeral, through `hpke::single_shot_seal_in_place_detached`),
+  `wrap_dek_with_pinned_ephemeral` (fixture-only carve-out per Core §9.4
+  test-vector clause — bypasses `hpke::setup_sender`'s mandatory
+  DeriveKeyPair-on-fresh-randomness path and uses the lower-level
+  public KDF helpers `labeled_extract` / `extract_and_expand` plus
+  `x25519-dalek` + `chacha20poly1305` directly), and `unwrap_dek`
+  (production / verifier, `setup_receiver` + `AeadCtxR::open`). Pinned
+  to `hpke =0.13.0`; the `0.14.0-pre.2` pre-release pulls a broken
+  `sha3 0.11.0-rc.7`. **G-5 strengthens** from "vectors match" to
+  "Rust independently derives the same `ephemeral_pubkey` (`34e42d4af5...`)
+  and `wrapped_dek` (`9f89d135c1...`) bytes as `gen_append_004.py`"
+  — `tests/append_004_byte_match.rs` is the byte oracle and includes a
+  cross-check that decrypts the `wrapped_dek` pulled directly out of
+  the committed `expected-event-payload.cbor`. Spike doc
+  (`thoughts/specs/2026-04-24-hpke-crate-spike.md`) updated to
+  Status = Executed with implementation notes.
+
 ### Wave 15 (2026-04-27) — small-stuff sweep before HPKE / Postgres
 
 Cleared the four XS/S items at the top of TODO before tackling the

@@ -1,0 +1,36 @@
+[package]
+name = "trellis-hpke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Phase-1 HPKE wrap/unwrap for `KeyBagEntry.wrapped_dek` (Core §9.4 suite 1:
+# RFC 9180 Base mode, X25519-HKDF-SHA256-ChaCha20-Poly1305).
+#
+# Crate selection: `hpke` (rozbb/rust-hpke), version-pinned per
+# `thoughts/specs/2026-04-24-hpke-crate-spike.md`. Pinned to `=0.13.0`
+# (latest stable). The `0.14.0-pre.2` pre-release pulls in a broken
+# `sha3 0.11.0-rc.7` chain; we are not opting into pre-release crypto.
+#
+# `wrap_dek` / `unwrap_dek` go through hpke's RFC-blessed public API
+# (`single_shot_seal` / `setup_receiver`). The fixture-only
+# `wrap_dek_with_pinned_ephemeral` path bypasses hpke's `setup_sender`
+# (which always derives the ephemeral via `DeriveKeyPair(GenerateRandomBytes())`)
+# and reaches into hpke's lower-level `LabeledExtract` / `ExtractAndExpand`
+# helpers — the only way to produce HPKE bytes that match the Python
+# fixture generator's "raw 32-byte seed = X25519 scalar" carve-out (Core
+# §9.4 test-vector carve-out). x25519-dalek and chacha20poly1305 are
+# explicit deps so the carve-out path does not lean on hpke's transitive
+# graph.
+#
+# Isolated from `trellis-cose` so HPKE deps do not leak into `trellis-verify`
+# via the existing `trellis-verify -> trellis-cose` chain (Core §16
+# verification independence).
+
+[dependencies]
+hpke = { version = "=0.13.0" }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+rand_core = { version = "0.9", features = ["os_rng"] }
+sha2 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }

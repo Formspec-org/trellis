@@ -1,7 +1,7 @@
 # HPKE crate selection spike — `trellis-core`
 
 **Date:** 2026-04-24
-**Status:** Decided; pending implementation landing.
+**Status:** Executed (Wave 16, 2026-04-27). Implementation landed in `trellis-hpke` sibling crate; `tests/append_004_byte_match.rs` is the byte-exact oracle; G-5 strengthens from "vectors match" to "both implementations independently derive the HPKE bytes."
 **Lifecycle:** Spike — crate + interface are authoritative for TODO item #6 until execution lands; **promote to ADR 0008** (or fold into ADR 0004 amendment) when the first `trellis-core` HPKE PR opens so normative prose carries an ADR id.
 **Owner:** Trellis center.
 **Unblocks:** Sequence item #6 (HPKE wrap/unwrap in Rust) in [`../../TODO.md`](../../TODO.md). Also item #7 (duplicate-ephemeral lint), which hangs off the Rust HPKE infrastructure this item stands up.
@@ -143,7 +143,25 @@ Once the Rust HPKE path lands:
 ## Decision log
 
 - 2026-04-24 — Selected `hpke` (rozbb/rust-hpke). Rationale above.
+- 2026-04-27 — Executed against TODO item #2 (post-Wave-15 renumber).
+  Pinned to `=0.13.0` (latest stable), not `0.14.0-pre.2` — the pre-release
+  pulls in `sha3 0.11.0-rc.7` whose `keccak::p1600` API drift breaks the
+  build chain. Crate selection is what is load-bearing; the pinned
+  version is a solvable downstream concern. Landed in a new
+  `trellis-hpke` sibling crate (not in `trellis-core` / `trellis-cose`)
+  to preserve Core §16 verification independence — `trellis-verify`'s
+  dep tree does not pull HPKE crypto crates. The fixture-only
+  `wrap_dek_with_pinned_ephemeral` path bypasses `hpke::setup_sender`
+  (which always derives the ephemeral via DeriveKeyPair on fresh
+  randomness, RFC 9180 §7.1) and reaches the lower-level public KDF
+  helpers (`labeled_extract`, `extract_and_expand`) plus
+  `x25519-dalek` + `chacha20poly1305` directly — the only way to feed
+  a raw 32-byte X25519 scalar as the ephemeral, which is the carve-out
+  shape the Python generator and the committed fixture commit to. The
+  production `wrap_dek` and verifier-side `unwrap_dek` go through
+  `hpke`'s RFC-blessed public API (`single_shot_seal`,
+  `setup_receiver` + `AeadCtxR::open`).
 
 ---
 
-*End of spike memo. Implementation lands against sequence item #6 in the Trellis TODO.*
+*End of spike memo. Implementation landed against sequence item #2 in the Trellis TODO (post-Wave-15 renumber); see `trellis/COMPLETED.md` Wave 16.*
