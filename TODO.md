@@ -64,12 +64,21 @@ Processor and HTTP parity work lives in parent [`wos-spec/TODO.md`](../../wos-sp
 ratified). Trellis items **12** (ADR 0066) and **17** (case ledger) may later
 consume amended responses once those stacks land.
 
-1. **Key-class taxonomy — execute per ADR 0006** — **M**.
-   [ADR 0006](thoughts/adr/0006-key-class-taxonomy.md): Core §8 `KeyEntry`
-   + five classes; flat signing arm per ADR *Wire preservation*; Rust/Python
-   dispatch; lint warn on non-`signing`; vectors `append/031..035` +
-   `tamper/023..025`; reconcile ADR 0005 `key_class`. Gap source:
-   [`specs/archive/cross-reference-map-coverage-analysis.md`](specs/archive/cross-reference-map-coverage-analysis.md) §8.
+1. ~~**Key-class taxonomy — execute per ADR 0006**~~ — **CLOSED Wave 17, 2026-04-27.**
+   Spec + Rust + Python + lint + matrix landed via commits `3327cbe` /
+   `1b2886c` / `acfef57` / `cf0e4fd`. Core §8 renamed "Signing-Key
+   Registry" → "Key Registry"; §8.7 unified `KeyEntry` taxonomy with
+   five classes (`signing` / `tenant-root` / `scope` / `subject` /
+   `recovery`) + extension `tstr` escape; legacy `SigningKeyEntry`
+   retained byte-stable so Phase-1 v1.0.0 corpus does not regenerate;
+   verifiers dispatch on top-level `kind` presence. ADR 0005
+   `"wrap"` → `"subject"` reconciliation landed in §8.7.6. **Vector
+   corpus** (`append/031..035` + `tamper/023..025`) landed in the same
+   Wave 17 train; tamper vectors plumb `key_entry_attributes_shape_mismatch`
+   (TR-CORE-048) through a typed `VerifyError.kind` tag on both runtimes;
+   TR-CORE-049 (unknown-`kind`) demoted to `Verification = prose` per
+   ADR 0006 *Fixture plan* deferral. See [`COMPLETED.md`](COMPLETED.md)
+   Wave 17 lead entry.
 
 2. ~~**HPKE duplicate-ephemeral detection lint**~~ — **CLOSED Wave 17, 2026-04-27.**
    `scripts/check-specs.py` rule R17 walks every event payload in the
@@ -88,10 +97,10 @@ consume amended responses once those stacks land.
    `append/023..027` + `tamper/017..019` + export `009` / catalog → CLI →
    §27 tests. Expand tamper set per ADR *Fixture plan* follow-on row.
 
-   *Bundle pointer:* items 1-3 form the remaining "foundational crypto
-   execution bundle" in parent **PLN-0312** (key-class taxonomy +
-   duplicate-ephemeral lint + crypto-erasure evidence); Rust HPKE
-   landed Wave 16.
+   *Bundle pointer:* item #3 is the last open row in parent **PLN-0312**
+   (foundational crypto execution bundle). Rust HPKE landed Wave 16;
+   key-class taxonomy + duplicate-ephemeral lint landed Wave 17;
+   crypto-erasure evidence is what's left.
 
 4. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
    [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
@@ -131,9 +140,10 @@ consume amended responses once those stacks land.
     negative — response-hash mismatch), **PLN-0069** (CI/conformance gate).
 
 9. **ADR 0073 handoff residue — shared fixture alignment** — **S**.
-    *Same prerequisite as #12.* Workflow-initiated attach and public-
-    intake create vectors are live; the residue is consuming from one
-    shared bundle rather than parallel corpora. Parent backlog: **PLN-0067**.
+    *Same prerequisite as #8 (shared cross-stack fixture bundle).*
+    Workflow-initiated attach and public-intake create vectors are
+    live; the residue is consuming from one shared bundle rather than
+    parallel corpora. Parent backlog: **PLN-0067**.
 
 10. **Identity attestation bundle shape** — **S**.
     *Lands once WOS lifts `SignatureAffirmation.identityBinding` into a
@@ -408,7 +418,99 @@ consume amended responses once those stacks land.
       cross-check; cross-stack three-way agreement (WOS spec + Trellis
       verifier + reference adapter).
 
-29. **Stack-level security disclosure policy** — **S**, stack-coordination.
+29. **Wave 15 BLOCKER — Companion §A.5.2 reason-code corpus reconciliation** — **XS**.
+    *From Wave 15 review (2026-04-27).* Companion §A.5.2 seeded
+    `code 4 = audience-scope-change`, but committed disclosure-profile
+    fixtures (`append/008-disclosure-profile-transition-a-to-b/derivation.md:50`,
+    `tamper/016-disclosure-profile-from-mismatch/derivation.md:55`, both
+    generators) emit `reason_code=4` annotated as `governance-policy-change`
+    (which the new table puts at code 2). Spec ↔ fixture prose disagree
+    at HEAD. Owner picks: (a) renumber A.5.2 to mirror A.5.1 and reshuffle
+    codes 2/4 — fixtures unchanged, prose locks at first runtime use per
+    the seed's own kill-criterion; (b) update four fixture annotations +
+    generator comments to `audience-scope-change`. (a) is more honest
+    given Phase-1 SBA PoC pins these. Co-lands with item #35 (parity lint).
+
+30. **Wave 15 follow-up — R15 temporal-in-force enforcement OR prose narrowing** — **S**.
+    *From Wave 15 review.* A.6 rule 15 reads "supersedes chain is acyclic
+    AND each linked declaration was in force at the time of the
+    successor's `effective_from`." R15 currently enforces only acyclicity;
+    OC-70e + TR-OP-048 silently dropped the temporal half. Two fixes
+    (pick): (a) extend R15 to compare `effective_from` along edges;
+    (b) narrow OC-70e + TR-OP-048 prose to "acyclic and resolvable"
+    (matches current lint surface) and file a follow-up for the temporal
+    check when a successor declaration lands. With one declaration in
+    the corpus the gap is latent — picking (a) prevents an out-of-order
+    `effective_from` from passing silently the moment a second declaration
+    lands.
+
+31. **HPKE crate hardening (Wave 16 review follow-ups)** — **S**.
+    *From Wave 16 HPKE review (commit `0c1573d`).* Architecture sound;
+    four follow-ups worth landing as one change train.
+    + [ ] **Pin all crypto deps exact.** `chacha20poly1305`, `hkdf`,
+      `x25519-dalek`, `sha2`, `rand_core` are caret-ranges in
+      `crates/trellis-hpke/Cargo.toml`; byte-exact reproducibility for
+      `append/004` flows through them directly. `=`-pin all five (or
+      commit a lockfile + `--locked` CI gate).
+    + [ ] **Pin against `#[doc(hidden)]` `hpke` internals risk.**
+      `wrap_dek_with_pinned_ephemeral` reaches into
+      `hpke::kdf::{labeled_extract, extract_and_expand, LabeledExpand}`
+      (all `#[doc(hidden)]` but `pub`). Add a `# DO NOT BUMP without
+      re-verifying these are still pub` comment in `Cargo.toml` next
+      to the `=0.13.0` pin; promote
+      [`thoughts/specs/2026-04-24-hpke-crate-spike.md`](thoughts/specs/2026-04-24-hpke-crate-spike.md)
+      to ADR before the next bump per its own §Lifecycle.
+    + [ ] **`test-vectors` Cargo feature gate.** Put
+      `wrap_dek_with_pinned_ephemeral` behind a default-off
+      `test-vectors` feature; production crate-graph cannot link it.
+      Removes the production footgun forever.
+    + [ ] **Verifier-isolation CI test.** Lock down
+      `cargo tree -p trellis-verify | grep -E 'hpke|x25519-dalek|chacha20poly1305|hkdf'`
+      empty as a CI assertion. Future `trellis-cose` change cannot
+      silently regress §16.
+
+32. **`trellis-store-postgres` review follow-ups (Wave 16)** — **S**.
+    *From Wave 16 store-postgres review (commits `4fe787a`, `00570c3`,
+    `8bb61fb`, `351dfb8`).* Approve-with-suggestions; three substantive
+    follow-ups.
+    + [ ] **`MemoryTransaction::commit` returns `Result<(), Infallible>`.**
+      Currently returns `()`; cross-store generic test bodies can't
+      share `tx.commit()?` because the postgres-side returns
+      `Result<(), Error>`. The leakiest bit of the parity abstraction.
+      Returning `Result<(), Infallible>` (or an empty
+      `MemoryTransactionError` enum) lets generic tests `?`-chain
+      identically.
+    + [ ] **Loopback DSN classifier edge-case tests.**
+      `require_loopback_dsn` is conservative-correct but subtle. Add
+      unit tests for: comma-separated host list (`host=a,b` → reject),
+      empty-string host (`host=` → accept libpq local-socket
+      fallback), and a relative-path Unix socket case. Pins behavior
+      so future edits do not regress.
+    + [ ] **Migration runner: refuse-on-future-version guard.**
+      "Append-only migrations" is currently convention only — the
+      `BTreeSet::contains` check skips already-applied but does not
+      refuse to apply v3 if v4 already ran. At v3+ this becomes a
+      footgun. Assert: if
+      `applied.iter().max() > MIGRATIONS.iter().map(|(v,_)|v).max()`
+      → `MigrationFailed("schema ahead of binary")`.
+
+33. ~~**ADR 0006 vector corpus completion**~~ — **CLOSED Wave 17, 2026-04-27.**
+    Subsumed by item #1's same-wave landing. `append/031..035` cover the
+    five reservation classes; `tamper/023..025` cover the three negative
+    cases. TR-CORE-039 / TR-CORE-047 / TR-CORE-048 covered;
+    TR-CORE-049 demoted to `Verification = prose` per ADR 0006
+    *Fixture plan* (unknown-`kind` corner deferred to follow-on row).
+
+34. **Reason-code parity lint** — **XS**.
+    *From Wave 15 review F1 follow-up.* Wave 15's `tamper_kind` enum
+    has a corpus-vs-table parity test (`test_enum_matches_corpus`) that
+    fires when the enum drifts from the corpus. ReasonCode tables
+    (A.5.1, A.5.2, ADR 0005 erasure-evidence) have no equivalent —
+    item #30's drift would have fired statically. Add a corpus-vs-table
+    parity lint per ReasonCode family. XS once item #30 lands the
+    table-side reconciliation.
+
+35. **Stack-level security disclosure policy** — **S**, stack-coordination.
     *Coordinates parent **PLN-0308**.* Trellis is in the security
     perimeter (envelope, verifier, export attack surface); without a
     published intake channel and scope, security reports route through

@@ -1,7 +1,7 @@
 # ADR 0006 — Key-Class Taxonomy and Wire Format
 
 **Date:** 2026-04-24
-**Status:** Accepted (pending implementation)
+**Status:** Accepted — executed Wave 17, 2026-04-27 (Core §8.7 prose, `trellis-verify` registry dispatch, `trellis-py` parity, vectors `append/031..035` + `tamper/023..025`, matrix rows TR-CORE-039/047/048; TR-CORE-049 unknown-`kind` deferred to follow-on per *Fixture plan*)
 **Supersedes:** —
 **Superseded by:** —
 **Related:** Core §8 (SigningKeyEntry); ADR 0005 (`key_class` field of `ErasureEvidencePayload` back-plugs into this taxonomy); ADR 0001-0004 (Phase-1 envelope / runtime discipline); STACK.md end-state commitment #5 (custody-honest privacy — identity separation); `specs/archive/cross-reference-map-coverage-analysis.md` §8 (five-key-class gap that motivates this ADR).

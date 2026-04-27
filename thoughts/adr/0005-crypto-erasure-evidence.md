@@ -1,7 +1,7 @@
 # ADR 0005 — Cryptographic-Erasure Evidence Format
 
 **Date:** 2026-04-23
-**Status:** Accepted (pending implementation)
+**Status:** Accepted (pending implementation; ADR 0006 cross-reference now in-tree — `key_class` normalization `wrap`→`subject` is executed in `trellis-verify` and `trellis-py` registry dispatchers, Wave 17 2026-04-27)
 **Supersedes:** —
 **Superseded by:** —
 **Related:** ADR 0006 (key-class taxonomy — single export key registry, `subject` vs legacy `wrap` synonym); Companion §20 (Lifecycle and Retention — OC-75..OC-78); Companion Appendix A.7 (Cascade-Scope Enumeration); Core §6.7 (Extension Registry); Core §9.3 (Hash over ciphertext); Core §18 (Export Package Layout); STACK.md end-state commitment #1 (independent verification) and #5 (custody-honest privacy); `specs/archive/cross-reference-map-coverage-analysis.md` §8 (erasure-evidence gap).
