@@ -18,6 +18,56 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 15 (2026-04-27) — small-stuff sweep before HPKE / Postgres
+
+Cleared the four XS/S items at the top of TODO before tackling the
+foundational crypto + production-hardening work. All four close
+de-facto contracts that prose was leaving informal:
+
+- **Item #1 — `tamper_kind` enum normative in Core §19.1.** Promoted
+  the de-facto fixture-author convention from `tamper/001`'s
+  derivation.md (proposed 13 values) to a normative §19.1 enum table
+  matching the 15 categories actually in the corpus (caught the drift:
+  corpus had renamed `wrong_scope` → `scope_mismatch`,
+  `registry_snapshot_swap` → `registry_digest_mismatch`, plus three
+  catalog-digest-mismatch values absent from the original proposal).
+  Authority placement: §19.1 (verifier output), not §17.5 (CAS
+  rejection codes — different concept). Enforced by check-specs R13.
+  TR-CORE-068 row + tamper/001 coverage update.
+- **Item #2 — ReasonCode registry per-family under Core §6.9.**
+  Decision: per-family namespace, `255 = Other` is the only shared
+  cross-family invariant. Code `3` already meant
+  `operator-boundary-change` in custody-model and
+  `legal-order-compelling-erasure` in erasure-evidence; merging the
+  namespaces would silently reinterpret. Companion §A.5.1 +
+  §A.5.2 (NEW reason-code table — was a gap; A.5.2 had `reason_code:
+  uint` with no inline registry) + §20.6.1 (NEW erasure reservation)
+  + ADR 0005 all cite Core §6.9. Three matrix rows: TR-CORE-069 +
+  TR-OP-046 + TR-OP-104.
+- **Items #3 + #4 — O-4 lint rules 14 + 15 + renumbering CI guard.**
+  Batched; all three live in `scripts/check-specs.py`.
+  + R14 = signing-key structural validation (no crypto): alg in the
+    Phase-1 set, signer_kid non-empty, cose_sign1_b64 base64-shaped.
+    Anchored at Companion §19.9 OC-70d, TR-OP-047.
+  + R15 = `supersedes` chain acyclicity: walks declaration corpus,
+    builds DFS graph, rejects cycles / dangling refs / duplicate ids.
+    Anchored at Companion §19.9 OC-70e, TR-OP-048.
+  + R16 = wrapper around the existing `check-vector-renumbering.py`
+    (which had unit-test coverage but was unwired from
+    `check-specs.py`). Opt-in via `TRELLIS_CHECK_RENUMBERING=1`
+    so local dev branches without an `origin/main` to compare to
+    don't trip; CI / `make check-specs-strict` sets it.
+
+Verification: 129 lint tests (was 106; +23), 7 renumbering-script
+tests, full cargo workspace, and `make check-specs-strict` all green.
+
+NEEDS_CONTEXT note: Companion §A.5.2's seeded reason codes (1-5) are
+best-effort interpretations of disclosure-side reasons by analogy to
+A.5.1's custody-side codes — first SBA PoC vector that exercises a
+disclosure-profile transition pins them. Codes 1-5 freeze at first
+runtime use; 255 stays as catch-all and codes 6-onwards register
+cleanly under append-only.
+
 ### Wave 14 (2026-04-24) — ADR 0006/0007, HPKE + anchor spikes, shared-bundle design
 
 Rounded out the decision-document set that the 2026-04-23 audit sweep
