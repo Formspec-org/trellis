@@ -192,7 +192,7 @@ pub fn verify_tampered_ledger(
     initial_posture_declaration: Option<&[u8]>,
     posture_declaration: Option<&[u8]>,
 ) -> Result<VerificationReport, VerifyError> {
-    let registry = parse_signing_key_registry(signing_key_registry)?;
+    let (registry, non_signing) = parse_key_registry(signing_key_registry)?;
     let events = parse_sign1_array(ledger).unwrap_or_else(|_| Vec::new());
     if events.is_empty() {
         return Ok(VerificationReport::fatal(
@@ -201,9 +201,10 @@ pub fn verify_tampered_ledger(
         ));
     }
 
-    Ok(verify_event_set(
+    Ok(verify_event_set_with_classes(
         &events,
         &registry,
+        Some(&non_signing),
         initial_posture_declaration,
         posture_declaration,
         true,
@@ -233,8 +234,8 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             );
         }
     };
-    let registry = match parse_signing_key_registry(signing_key_registry_bytes) {
-        Ok(registry) => registry,
+    let (registry, non_signing_registry) = match parse_key_registry(signing_key_registry_bytes) {
+        Ok(maps) => maps,
         Err(error) => {
             return VerificationReport::fatal(
                 "signing_key_registry_invalid",
@@ -463,9 +464,10 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some((digest, bytes.clone()))
         })
         .collect::<BTreeMap<_, _>>();
-    let mut report = verify_event_set(
+    let mut report = verify_event_set_with_classes(
         &events,
         &registry,
+        Some(&non_signing_registry),
         None,
         None,
         false,
@@ -937,6 +939,19 @@ struct SigningKeyEntry {
     valid_to: Option<u64>,
 }
 
+/// A reserved non-signing `KeyEntry` (Core §8.7 / ADR 0006).
+///
+/// Phase-1 verifiers track these so a signature attempt under a kid registered
+/// as `tenant-root`, `scope`, `subject`, or `recovery` can be flagged with
+/// `key_class_mismatch` (Core §8.7.3 step 4) rather than the generic
+/// `unresolvable_manifest_kid` failure.
+#[derive(Clone, Debug)]
+struct NonSigningKeyEntry {
+    /// Class string from the registry entry's `kind` field, normalized so the
+    /// legacy synonym `"wrap"` is mapped to `"subject"` per Core §8.7.6.
+    class: String,
+}
+
 #[derive(Clone, Debug)]
 struct RegistryBindingInfo {
     digest_hex: String,
@@ -1151,6 +1166,29 @@ fn verify_event_set(
     expected_ledger_scope: Option<&[u8]>,
     payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
 ) -> VerificationReport {
+    verify_event_set_with_classes(
+        events,
+        registry,
+        None,
+        initial_posture_declaration,
+        posture_declaration,
+        classify_tamper,
+        expected_ledger_scope,
+        payload_blobs,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_event_set_with_classes(
+    events: &[ParsedSign1],
+    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
+    non_signing_registry: Option<&BTreeMap<Vec<u8>, NonSigningKeyEntry>>,
+    initial_posture_declaration: Option<&[u8]>,
+    posture_declaration: Option<&[u8]>,
+    classify_tamper: bool,
+    expected_ledger_scope: Option<&[u8]>,
+    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
+) -> VerificationReport {
     let mut event_failures = Vec::new();
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
@@ -1164,6 +1202,23 @@ fn verify_event_set(
         let key_entry = match registry.get(&event.kid) {
             Some(entry) => entry,
             None => {
+                // Core §8.7.3 step 4: if the kid resolves to a reserved
+                // non-signing class, this is `key_class_mismatch` rather
+                // than `unresolvable_manifest_kid`. Recovery-only keys are
+                // the canonical class-confusion attack surface; tenant-root
+                // / scope / subject kids signing ordinary events are also
+                // class violations under the unified taxonomy.
+                if let Some(non_signing) = non_signing_registry
+                    .and_then(|map| map.get(&event.kid))
+                {
+                    return VerificationReport::fatal(
+                        "key_class_mismatch",
+                        format!(
+                            "event signed under a `{}`-class kid; only `signing` keys may sign canonical events (Core §8.7.3 step 4)",
+                            non_signing.class
+                        ),
+                    );
+                }
                 return VerificationReport::fatal(
                     "unresolvable_manifest_kid",
                     "event kid is not resolvable via the provided signing-key registry",
@@ -2623,43 +2678,120 @@ fn case_created_record_matches_handoff(
         && case_record.initiation_mode == entry.handoff.initiation_mode
 }
 
+/// Reserved non-signing class literals from Core §8.7 (ADR 0006).
+const RESERVED_NON_SIGNING_KIND: &[&str] = &["tenant-root", "scope", "subject", "recovery"];
+
+/// Parses the unified key registry per Core §8 (ADR 0006).
+///
+/// Verifier dispatch follows Core §8.7.3 step 1: an entry whose top-level map
+/// carries a `kind` field is `KeyEntry` (§8.7.1); an entry without `kind` is
+/// the legacy `SigningKeyEntry` flat shape (§8.2). Both paths populate the
+/// signing-key map identically for `kind = "signing"` and the legacy shape.
+///
+/// Reserved non-signing classes (`tenant-root`, `scope`, `subject`,
+/// `recovery`) and unknown extension `tstr` kinds are NOT inserted into the
+/// signing-key map — they cannot resolve a COSE_Sign1 protected-header `kid`.
+/// They are returned in `non_signing` so the caller can emit
+/// `key_class_mismatch` (Core §8.7.3 step 4) when an event tries to sign under
+/// such a kid, distinct from the generic `unresolvable_manifest_kid` failure.
+///
+/// Per Core §8.7.6 the wire string `"wrap"` is a deprecated synonym for
+/// `"subject"`; this parser normalizes the stored class label so callers see
+/// only the canonical taxonomy.
+#[cfg(test)]
 fn parse_signing_key_registry(
     bytes: &[u8],
 ) -> Result<BTreeMap<Vec<u8>, SigningKeyEntry>, VerifyError> {
+    let (signing, _non_signing) = parse_key_registry(bytes)?;
+    Ok(signing)
+}
+
+fn parse_key_registry(
+    bytes: &[u8],
+) -> Result<
+    (
+        BTreeMap<Vec<u8>, SigningKeyEntry>,
+        BTreeMap<Vec<u8>, NonSigningKeyEntry>,
+    ),
+    VerifyError,
+> {
     let value = decode_value(bytes)?;
     let entries = value
         .as_array()
         .ok_or_else(|| VerifyError::new("signing-key registry root is not an array"))?;
     let mut registry = BTreeMap::new();
+    let mut non_signing = BTreeMap::new();
     for entry in entries {
         let map = entry
             .as_map()
             .ok_or_else(|| VerifyError::new("signing-key registry entry is not a map"))?;
+
+        // Core §8.7.3 step 1: dispatch on presence of the top-level `kind`
+        // field. Absent → legacy `SigningKeyEntry` (§8.2); present →
+        // `KeyEntry` (§8.7.1) with `kind` discriminating the arm.
+        let kind = map_lookup_optional_text(map, "kind")?;
+        let kind_norm = kind.as_deref().map(|s| match s {
+            // Core §8.7.6: `"wrap"` is a deprecated synonym for `"subject"`.
+            "wrap" => "subject",
+            other => other,
+        });
+
         let kid = map_lookup_bytes(map, "kid")?;
-        let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
-        let status = map_lookup_u64(map, "status")?;
-        let valid_to =
-            match map_lookup_optional_value(map, "valid_to") {
-                Some(Value::Integer(value)) => Some(u64::try_from(*value).map_err(|_| {
-                    VerifyError::new("signing-key registry valid_to is out of range")
-                })?),
-                Some(Value::Null) | None => None,
-                Some(_) => {
-                    return Err(VerifyError::new(
-                        "signing-key registry valid_to is neither uint nor null",
-                    ));
-                }
-            };
-        registry.insert(
-            kid,
-            SigningKeyEntry {
-                public_key: pubkey,
-                status,
-                valid_to,
-            },
-        );
+
+        match kind_norm {
+            // Legacy `SigningKeyEntry` (no `kind` field) OR new `KeyEntrySigning`.
+            None | Some("signing") => {
+                let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
+                let status = map_lookup_u64(map, "status")?;
+                let valid_to = match map_lookup_optional_value(map, "valid_to") {
+                    Some(Value::Integer(value)) => {
+                        Some(u64::try_from(*value).map_err(|_| {
+                            VerifyError::new("signing-key registry valid_to is out of range")
+                        })?)
+                    }
+                    Some(Value::Null) | None => None,
+                    Some(_) => {
+                        return Err(VerifyError::new(
+                            "signing-key registry valid_to is neither uint nor null",
+                        ));
+                    }
+                };
+                registry.insert(
+                    kid,
+                    SigningKeyEntry {
+                        public_key: pubkey,
+                        status,
+                        valid_to,
+                    },
+                );
+            }
+            // Core §8.7.3 step 3: reserved non-signing class. Phase-1 verifier
+            // does not attempt to read class-specific attributes (those slots
+            // are envelope reservations); recording the kid is enough to
+            // diagnose `key_class_mismatch` if a signature later targets it.
+            Some(class) if RESERVED_NON_SIGNING_KIND.contains(&class) => {
+                non_signing.insert(
+                    kid,
+                    NonSigningKeyEntry {
+                        class: class.to_string(),
+                    },
+                );
+            }
+            // Core §8.7.3 step 4 *Unknown `kind`*: forward-compatibility
+            // floor. The entry is admitted at the wire layer; downstream
+            // resolution failures (signature attempt under this kid) surface
+            // as a capability gap rather than a structure failure here.
+            Some(other) => {
+                non_signing.insert(
+                    kid,
+                    NonSigningKeyEntry {
+                        class: other.to_string(),
+                    },
+                );
+            }
+        }
     }
-    Ok(registry)
+    Ok((registry, non_signing))
 }
 
 fn parse_bound_registry(bytes: &[u8]) -> Result<BoundRegistry, VerifyError> {
