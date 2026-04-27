@@ -8,7 +8,7 @@ Cryptographic integrity substrate beneath Formspec (intake) and WOS (governance)
 |---|---|
 | Behavioral interrupts before any task | [`../.claude/operating-mode.md`](../.claude/operating-mode.md) |
 | Owner operating preferences | [`../.claude/user_profile.md`](../.claude/user_profile.md) |
-| Stack vision + fully-populated Trellis section | [`../.claude/vision-model.md`](../.claude/vision-model.md) |
+| Stack vision + Trellis section | [`../VISION.md`](../VISION.md) |
 | Platform decision register | [`../thoughts/specs/2026-04-22-platform-decisioning-forks-and-options.md`](../thoughts/specs/2026-04-22-platform-decisioning-forks-and-options.md) |
 | Parent repo guide | [`../CLAUDE.md`](../CLAUDE.md) |
 | One-page framing + internal pointers | [`README.md`](README.md) |
@@ -37,7 +37,7 @@ For public-facing stack framing, see [`../STACK.md`](../STACK.md) — lookup-onl
 
 ## Decision heuristics
 
-Apply after stack-wide heuristics (in vision-model.md):
+Apply after stack-wide heuristics (in [`../VISION.md`](../VISION.md)):
 
 1. **Phase-check.** Phase 1 (SBA PoC, single-agency intake) or Phase 2+? Phase 2+ defers; Phase 4 version-bumps the envelope regardless.
 2. **Architectural-debt check.** Would keeping the current shape make a future change more expensive than changing now? If yes, change it.
