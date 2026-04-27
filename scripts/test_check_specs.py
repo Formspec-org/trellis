@@ -1125,5 +1125,97 @@ class TestVerifyReportConsistency(unittest.TestCase):
         self.assertEqual(errors, [], msg=f"R12 found errors: {errors}")
 
 
+
+class TestTamperKindEnum(unittest.TestCase):
+    """R13 — every tamper manifest's `[expected.report].tamper_kind` is in
+    the Core §19.1 enum. Drift outside the enum fails loud."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _run(self, manifest: dict) -> list[str]:
+        errors: list[str] = []
+        self.cs.check_tamper_kind_enum(
+            errors,
+            manifests=[(Path("tamper/xxx-test/manifest.toml"), manifest)],
+        )
+        return errors
+
+    def test_non_tamper_op_is_skipped(self):
+        errors = self._run({
+            "op": "verify",
+            "expected": {"report": {"tamper_kind": "not_a_real_value"}},
+        })
+        self.assertEqual(errors, [])
+
+    def test_known_kind_passes(self):
+        errors = self._run({
+            "op": "tamper",
+            "expected": {"report": {"tamper_kind": "signature_invalid"}},
+        })
+        self.assertEqual(errors, [])
+
+    def test_unknown_kind_fails(self):
+        errors = self._run({
+            "op": "tamper",
+            "expected": {"report": {"tamper_kind": "made_up_value"}},
+        })
+        self.assertTrue(errors)
+        self.assertIn("not in the Core §19.1 enum", errors[0])
+        self.assertIn("made_up_value", errors[0])
+
+    def test_missing_tamper_kind_fails(self):
+        errors = self._run({
+            "op": "tamper",
+            "expected": {"report": {"structure_verified": True}},
+        })
+        self.assertTrue(errors)
+        self.assertIn("missing required", errors[0])
+
+    def test_missing_expected_report_fails(self):
+        errors = self._run({"op": "tamper"})
+        self.assertTrue(errors)
+        self.assertIn("missing [expected.report]", errors[0])
+
+    def test_non_string_kind_fails(self):
+        errors = self._run({
+            "op": "tamper",
+            "expected": {"report": {"tamper_kind": 123}},
+        })
+        self.assertTrue(errors)
+        self.assertIn("must be a string", errors[0])
+
+    def test_real_corpus_is_clean(self):
+        # Every committed tamper/* vector MUST satisfy R13 — drift detection.
+        errors: list[str] = []
+        self.cs.check_tamper_kind_enum(errors)
+        self.assertEqual(errors, [], msg=f"R13 found errors: {errors}")
+
+    def test_enum_matches_corpus(self):
+        # Belt-and-braces: the enum should exactly match the set of
+        # tamper_kind values currently in the corpus, so a future drop of a
+        # tamper category from the enum without removing the vector trips
+        # this test before reaching CI.
+        cs = self.cs
+        corpus_kinds: set[str] = set()
+        for _path, manifest in cs.vector_manifests():
+            if manifest.get("op") != "tamper":
+                continue
+            report = manifest.get("expected", {}).get("report", {})
+            kind = report.get("tamper_kind")
+            if isinstance(kind, str):
+                corpus_kinds.add(kind)
+        # Enum is allowed to be a superset (reserved values for upcoming
+        # vectors), but every corpus kind MUST be in the enum.
+        self.assertTrue(
+            corpus_kinds.issubset(cs.TAMPER_KIND_ENUM),
+            msg=(
+                f"corpus uses tamper_kinds outside the enum: "
+                f"{sorted(corpus_kinds - cs.TAMPER_KIND_ENUM)}"
+            ),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,7 @@ does NOT byte-compare output artifacts."""
 [coverage]
 tr_core = [
     "TR-CORE-061",
+    "TR-CORE-068",
 ]
 
 [inputs]

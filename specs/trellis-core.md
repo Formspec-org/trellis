@@ -1458,6 +1458,28 @@ PostureTransitionOutcome = {
 
 When any verification boolean is false, the report identifies specifically **which** canonical bytes or payload checks do not reconcile. This is the "difficult and obvious" property: tampering that rewrites history after an export has been published is detectable by any verifier holding a prior export copy, because the tampered re-export's head will not be a consistent extension of the prior export's head (§11.4). The verifier does not require the tampering party to self-report; consistency-proof failure is the signal.
 
+When a verifier reports a localizable or fatal failure to a human auditor or to a fixture-runner, it MUST classify the dominant failure under one of the values in the **`tamper_kind` enum** below. The enum names the §19 step where the failure was detected (per the "Failure classes" prose) and the surface that mismatched. Implementations MAY expose `tamper_kind` as a top-level field on `VerificationReport` (parallel to the three booleans) projecting the dominant `event_failures[].code`, `checkpoint_failures[].code`, or `proof_failures[].code`; conformance fixtures pin the value in `[expected.report].tamper_kind` (§27).
+
+| `tamper_kind` | §19 step | Surface that mismatched |
+|---|---|---|
+| `signature_invalid` | 4.b | COSE_Sign1 signature does not verify under the kid's pubkey. |
+| `hash_mismatch` | 4.d / 4.e | `author_event_hash` or `canonical_event_hash` recomputation disagrees with the recorded value. |
+| `prev_hash_break` | 4.h | Event's `prev_hash` does not equal the prior event's recomputed `canonical_event_hash`. |
+| `event_truncation` | 4.h | A middle event of a chain is absent; subsequent `prev_hash` values do not link. |
+| `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
+| `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
+| `malformed_cose` | 4.c | COSE_Sign1 envelope is structurally invalid (wrong tag, wrong array shape, wrong protected-header type). |
+| `scope_mismatch` | 4.f | `EventPayload.ledger_scope` does not equal `manifest.scope`. |
+| `registry_digest_mismatch` | 3.f | A `RegistryBinding`'s `registry_digest` does not equal the SHA-256 of the corresponding `050-registries/<digest>.cbor` file. |
+| `state_continuity_mismatch` | 6.b | Posture-transition event's `from_*` state does not match the most-recent prior transition's `to_*` state (or initial declaration). |
+| `attestation_insufficient` | 6.d | Posture-transition event fails Companion §10 attestation-count, or an attestation signature does not verify. |
+| `posture_declaration_digest_mismatch` | 6.c | Posture-declaration document is present but its recomputed digest does not equal the event's `declaration_doc_digest`. |
+| `attachment_manifest_digest_mismatch` | 3.f / extensions check | `061-attachments.cbor` digest does not match the manifest's `trellis.export.attachments.v1` binding (ADR 0072). |
+| `signature_catalog_digest_mismatch` | 3.f / extensions check | `062-signature-affirmations.cbor` digest does not match the manifest's `trellis.export.signature-affirmations.v1` binding. |
+| `intake_handoff_catalog_digest_mismatch` | 3.f / extensions check | `063-intake-handoffs.cbor` digest does not match the manifest's `trellis.export.intake-handoffs.v1` binding. |
+
+The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
+
 ### 19.2 No network, no fallbacks
 
 The verifier MUST NOT fetch external resources. It MUST NOT fall back to heuristic interpretation of malformed data. It MUST NOT silently skip checks that it lacks material to perform; it MUST record each skipped check in the report.

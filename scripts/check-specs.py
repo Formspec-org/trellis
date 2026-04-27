@@ -55,6 +55,29 @@ GENERATOR_ALLOWED_IMPORTS = set(sys.stdlib_module_names) | {"cryptography", "cbo
 # O-3 projection conformance vectors.
 VECTOR_OPS = ("append", "verify", "export", "tamper", "projection", "shred")
 
+# Normative `tamper_kind` values per Core §19.1 (Tamper Evidence).
+# Every `tamper` vector's `[expected.report].tamper_kind` MUST be one of these.
+# This is the Phase-1 enum; new categories MUST land in Core §19.1 first, with
+# a matching matrix row, before a vector references the value. Order matches
+# the §19.1 normative table.
+TAMPER_KIND_ENUM = frozenset({
+    "signature_invalid",
+    "hash_mismatch",
+    "prev_hash_break",
+    "event_truncation",
+    "event_reorder",
+    "head_checkpoint_digest_mismatch",
+    "malformed_cose",
+    "scope_mismatch",
+    "registry_digest_mismatch",
+    "state_continuity_mismatch",
+    "attestation_insufficient",
+    "posture_declaration_digest_mismatch",
+    "attachment_manifest_digest_mismatch",
+    "signature_catalog_digest_mismatch",
+    "intake_handoff_catalog_digest_mismatch",
+})
+
 
 def parse_invariants_cell(cell: str) -> set[int]:
     """Parse an Invariant-column cell. Handles '#5', '#1, #4', '1', '—'/'-' → empty."""
@@ -1685,6 +1708,54 @@ def check_declaration_docs(errors: list[str], *, root: Path | None = None) -> No
             )
 
 
+def check_tamper_kind_enum(
+    errors: list[str],
+    *,
+    manifests: list[tuple[Path, dict]] | None = None,
+) -> None:
+    """R13 — every `op = "tamper"` manifest's `[expected.report].tamper_kind`
+    MUST be a value enumerated in `TAMPER_KIND_ENUM` (Core §19.1).
+
+    The corpus authors a per-vector `tamper_kind` describing the Core §19
+    failure category the vector exercises. Values were de-facto consistent
+    across the first batch of vectors but not normatively enumerated; drift
+    in later batches would silently bifurcate the verifier-output vocabulary.
+    This rule pins the contract: prose change in §19.1 is a fail-loud event,
+    forcing matrix + Rust + Python to move together.
+
+    The `manifests` kwarg is a test hook (parallel to
+    `check_verify_report_consistency`).
+    """
+    iter_manifests = manifests if manifests is not None else vector_manifests()
+    for manifest_path, manifest in iter_manifests:
+        if manifest.get("op") != "tamper":
+            continue
+        rel = relpath(manifest_path)
+        report = manifest.get("expected", {}).get("report")
+        if not isinstance(report, dict):
+            errors.append(
+                f"{rel}: tamper manifest missing [expected.report] table"
+            )
+            continue
+        if "tamper_kind" not in report:
+            errors.append(
+                f"{rel}: tamper manifest [expected.report] missing required "
+                f"`tamper_kind` field (Core §19.1)"
+            )
+            continue
+        kind = report["tamper_kind"]
+        if not isinstance(kind, str):
+            errors.append(
+                f"{rel}: tamper_kind must be a string; got {type(kind).__name__}"
+            )
+            continue
+        if kind not in TAMPER_KIND_ENUM:
+            errors.append(
+                f"{rel}: tamper_kind={kind!r} is not in the Core §19.1 enum; "
+                f"allowed values are {sorted(TAMPER_KIND_ENUM)}"
+            )
+
+
 def check_verify_report_consistency(
     errors: list[str],
     *,
@@ -1800,6 +1871,7 @@ def main() -> int:
     check_transition_cddl_cross_refs(errors)
     check_declaration_docs(errors)
     check_generator_imports(errors)
+    check_tamper_kind_enum(errors)
     check_verify_report_consistency(errors)
 
     for warning in warnings:
