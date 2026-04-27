@@ -47,15 +47,21 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
 **Cross-repo pointer — parent PLANNING.md backlog.** Stack-wide cross-spec
 coordination lives in [`/PLANNING.md`](../PLANNING.md) as `PLN-XXXX` rows.
 Trellis-implicated rows are referenced inline below where the mapping is
-clean (items 5-8, 13-18, 23, 29-34). Trellis-internal rows (1-4, 9-12,
+clean (items 5-8, 13-18, 23, 29-35). Trellis-internal rows (1-4, 9-12,
 19-22, 24-28) carry no parent counterpart by design — they are
 envelope/verifier discipline that nothing downstream gates. The
 MVP-foundation cluster (PLN-0331..0349) consumes Trellis crates
-downstream; Trellis-side action is "keep `trellis-store-postgres` /
-`trellis-cose` / `trellis-verify` public APIs stable enough to compose,"
-not new TODO rows. Cross-submodule Cargo path-dep posture
-(parent **PLN-0347**) is a stack-level decision; Trellis-side action is
-"comply with the chosen pattern when it lands."
+downstream; `trellis-cose` / `trellis-verify` public APIs are
+"keep stable for composition" with no new rows. **Exception:**
+`trellis-store-postgres` production-hardening (TLS, transaction-composition
+surface, migrations, parity tests) is **Trellis-side** because Trellis
+owns the canonical schema in the wos-server composed `EventStore` per
+VISION.md §III + §V + §VIII. Tracked as item **35** below; supersedes
+the canonical-side scope of parent **WS-020** + **WS-090** (which drifted
+to a two-port `Storage` + `AuditSink` design VISION.md §VIII explicitly
+rejects — to be reconciled wos-server-side). Cross-submodule Cargo
+path-dep posture (parent **PLN-0347**) is a stack-level decision;
+Trellis-side action is "comply with the chosen pattern when it lands."
 
 **Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
 center tasks for the core handoff (validation, mapping, draft/submit/dismiss).
@@ -450,6 +456,52 @@ consume amended responses once those stacks land.
     Trellis-side action once stack governance picks the policy home:
     contribute Trellis-specific scope notes (which crates and surfaces
     are in-scope, which are out-of-scope archive material).
+
+35. **`trellis-store-postgres` production hardening — canonical-side of
+    composed `EventStore`** — **M–L**.
+    *Architectural correction. The canonical event chain (hash-chained,
+    signed COSE_Sign1, dCBOR) is Trellis's; the wos-server `EventStore`
+    composes `trellis-store-postgres` for it plus an in-database
+    `projections` schema for mutable metadata — one Postgres database,
+    two schemas, single transaction per write per VISION.md §III + §V.
+    The drift in [`../wos-spec/crates/wos-server/TODO.md`](../wos-spec/crates/wos-server/TODO.md)
+    **WS-020** + **WS-090** (two-port `Storage` + `AuditSink` split) is
+    rejected by VISION.md §VIII and to be reconciled wos-server-side.
+    Today the crate is a Phase-1 scaffold (`LedgerStore` impl,
+    `trellis_events` table, `NoTls`); production hardening is Trellis-
+    side work.* Parent backlog: **PLN-0332** (wos-server execution row).
+    Coordinates with item #28 (`idempotency_key` Postgres uniqueness)
+    and item #29 (tenant column on the canonical table once ADR 0068
+    ratifies).
+    + [ ] **TLS wiring.** The crate doc-comment flags `NoTls` as a
+      Phase-1 local-only scaffold. Add explicit TLS support (`postgres-
+      native-tls` or `postgres-rustls`); refuse non-loopback DSNs unless
+      TLS is configured. Pre-condition for any non-localhost deployment.
+    + [ ] **Transaction-composition surface.** Extend `LedgerStore` (or
+      add a sibling trait) so `append_event` accepts an externally-
+      supplied `&mut Transaction`. Lets the wos-server `EventStore`
+      write the canonical event + projection updates in **one**
+      transaction — single-transaction-per-write is the load-bearing
+      invariant the rejection of dual-write rests on (VISION.md §VIII).
+      Memory-store parity required.
+    + [ ] **Idempotency-key uniqueness.** `(ledger_scope, idempotency_key)`
+      unique constraint on `trellis_events`; reject duplicate appends
+      per Core §17.3. Co-lands with item #28; the constraint is the
+      Postgres half of that item's "stores enforce §17.3" bullet.
+    + [ ] **Versioned migrations.** Replace the ad-hoc `CREATE TABLE IF
+      NOT EXISTS` with a versioned migration runner (`refinery` or
+      hand-rolled `schema_migrations`); migration covers initial table +
+      idempotency-key column + envelope reservations from items 17 / 29 /
+      30 as they land. Migration test asserts schema parity with Rust
+      types.
+    + [ ] **Parity tests + Postgres CI.** Conformance-suite parity vs
+      `trellis-store-memory` against the full append + verify corpus;
+      integration test against a containerized Postgres in CI
+      (`docker compose` or `testcontainers`).
+    + [ ] **Connection pool.** Production deployments need a pool;
+      add `PostgresStore::connect_pooled` (`deadpool-postgres` lean) as
+      a sibling to the existing single-connection `connect`. Document
+      pool sizing guidance.
 
 ---
 
