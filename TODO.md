@@ -44,6 +44,19 @@ item lists its prerequisite inline where it has one. Closed work is out of
 this file — see [`COMPLETED.md`](COMPLETED.md) and
 [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md).
 
+**Cross-repo pointer — parent PLANNING.md backlog.** Stack-wide cross-spec
+coordination lives in [`/PLANNING.md`](../PLANNING.md) as `PLN-XXXX` rows.
+Trellis-implicated rows are referenced inline below where the mapping is
+clean (items 5-8, 13-18, 23, 29-34). Trellis-internal rows (1-4, 9-12,
+19-22, 24-28) carry no parent counterpart by design — they are
+envelope/verifier discipline that nothing downstream gates. The
+MVP-foundation cluster (PLN-0331..0349) consumes Trellis crates
+downstream; Trellis-side action is "keep `trellis-store-postgres` /
+`trellis-cose` / `trellis-verify` public APIs stable enough to compose,"
+not new TODO rows. Cross-submodule Cargo path-dep posture
+(parent **PLN-0347**) is a stack-level decision; Trellis-side action is
+"comply with the chosen pattern when it lands."
+
 **Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
 center tasks for the core handoff (validation, mapping, draft/submit/dismiss).
 Processor and HTTP parity work lives in parent [`wos-spec/TODO.md`](../../wos-spec/TODO.md)
@@ -110,6 +123,10 @@ consume amended responses once those stacks land.
    `append/023..027` + `tamper/017..019` + export `009` / catalog → CLI →
    §27 tests. Expand tamper set per ADR *Fixture plan* follow-on row.
 
+   *Bundle pointer:* items 5-8 form the "foundational crypto execution
+   bundle" in parent **PLN-0312** (key-class taxonomy + Rust HPKE +
+   duplicate-ephemeral lint + crypto-erasure evidence).
+
 9. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
    [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
    `trellis.certificate-of-completion.v1` + ADR 0072 attachment binding +
@@ -144,28 +161,34 @@ consume amended responses once those stacks land.
     *Lands when the parent repo standardizes a single shared cross-stack
     fixture bundle.* Trellis consumes those declarative inputs rather than
     seeding a parallel corpus. Coordination, not a Trellis-center gap.
+    Parent backlog: **PLN-0067** (shared bundle), **PLN-0068** (required
+    negative — response-hash mismatch), **PLN-0069** (CI/conformance gate).
 
 14. **ADR 0073 handoff residue — shared fixture alignment** — **S**.
     *Same prerequisite as #13.* Workflow-initiated attach and public-
     intake create vectors are live; the residue is consuming from one
-    shared bundle rather than parallel corpora.
+    shared bundle rather than parallel corpora. Parent backlog: **PLN-0067**.
 
 15. **Identity attestation bundle shape** — **S**.
     *Lands once WOS lifts `SignatureAffirmation.identityBinding` into a
     reusable shape.* Declare how a provider-neutral identity-proofing
     attestation lands as a canonical event kind and travels in the
-    export bundle.
+    export bundle. Parent backlog: **PLN-0310** (Trigger).
 
 16. **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
     *Lands after Formspec-side promotes §6.2 `eventHash` / `priorEventHash`
     from SHOULD → MUST.* Trellis-side spec amendment + conformance/lint
-    checks follow the Formspec promotion.
+    checks follow the Formspec promotion. Parent backlog: **PLN-0311**
+    (Respondent Ledger offline-authoring profile + chain semantics).
 
 17. **ADR 0066 execution — amendment / supersession / rescission / correction**
     — **L**, phased across Phase 1 + Phase 4.
     *Lands after parent accepts ADR 0066.* Canonical ADR:
     [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
     WOS checklist: [`../wos-spec/TODO.md#adr-0066-exec-checklist`](../wos-spec/TODO.md#adr-0066-exec-checklist).
+    Parent backlog: **PLN-0055** (Phase 1), **PLN-0056** (Phase 4),
+    **PLN-0050** (`ResponseCorrection` linkage shape), **PLN-0051**
+    (supersession-start linkage).
     **Phase 1 (correction, amendment, rescission on one chain):**
     + [ ] Reserve `supersedes_chain_id` in the envelope header (Core + CDDL)
       under ADR 0003 **MUST NOT populate** lint discipline.
@@ -190,6 +213,10 @@ consume amended responses once those stacks land.
 18. **ADR 0067 execution — statutory clocks** — **M**.
     *Lands after parent accepts ADR 0067.* Coordinate payload hashes with WOS
     `clockStarted` / `clockResolved` (parent [`wos-spec/TODO.md`](../wos-spec/TODO.md#adr-0067-exec-checklist)).
+    Parent backlog: **PLN-0159** (`open-clocks.json` export), **PLN-0160**
+    (verifier diagnostics with chosen severity per **PLN-0170**), **PLN-0161**
+    (pause/resume verifier composition), **PLN-0162** (vectors), **PLN-0164**
+    (cross-stack clock-composition fixture).
     + [ ] **Export bundle:** normative **`open-clocks.json`** at bundle root
       (D-3): enumerate open clocks `{ clock_id, clock_kind, computed_deadline,
       origin_event_hash }` for every `clockStarted` lacking a matching
@@ -242,6 +269,8 @@ consume amended responses once those stacks land.
     1 until this lands.
 
 23. **Interop sidecar reservation — execute per ADR 0008** — **S**, Phase 1.
+    *Items 23-27 form the ADR 0008 ecosystem-derivation adapter bundle;
+    parent backlog: **PLN-0313** (Trigger-gated, per-adapter activation).*
     [ADR 0008](thoughts/adr/0008-interop-sidecar-discipline.md) registers
     four ecosystem-derivation sidecar kinds (`scitt-receipt`,
     `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`) under
@@ -297,6 +326,130 @@ consume amended responses once those stacks land.
     public key). Unlocks the `did-key-view` kind. Non-signing key
     classes are explicitly out of scope; a future `did-tenant-root-view`
     or similar requires a separate landing ADR.
+
+28. **Core §17 `idempotency_key` — Rust + fixtures + stores + verify (G-4
+    scaffold catch-up)** — **L**.
+    Normative: Core §6.1 / §17 + CDDL already pin `idempotency_key` as
+    `bstr .size (1..64)` and `(ledger_scope, idempotency_key)` identity;
+    the Rust append scaffold (`ParsedAuthoredEvent`, `StoredEvent`,
+    `LedgerStore::append_event`) does not yet thread or enforce it.
+    **WOS `custodyHook` binding:** parent
+    [`wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md`](../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
+    §2.4 — semantic tuple `(caseId, recordId)` (TypeIDs); Trellis wire key
+    `SHA-256(len_prefix("trellis-wos-idempotency-v1") || dCBOR({"caseId",
+    "recordId"}))` per §17 / Core §23.5. Land Trellis-center work here;
+    WOS runtime wiring tracks in parent [`wos-spec/TODO.md`](../wos-spec/TODO.md).
+    + [ ] **Fixtures first:** extend append corpus authored CBOR with
+      `idempotency_key`; add vectors for retry no-op and
+      `IdempotencyKeyPayloadMismatch` (same key, divergent payload).
+    + [ ] **`trellis-cddl` / `trellis-types`:** parse, validate length,
+      include in canonical / preimage construction per spec (today only
+      `ledger_scope` + `sequence` on the authored path).
+    + [ ] **`trellis-core` + stores:** extend `LedgerStore` / `StoredEvent`
+      (or equivalent seam) so stores enforce §17.3; unique
+      `(ledger_scope, idempotency_key)` in `trellis-store-postgres`;
+      in-memory map in `trellis-store-memory`.
+    + [ ] **`trellis-verify`:** reject chains with duplicate idempotency
+      identity and divergent canonical material; align with §17.5.
+    + [ ] **`trellis-conformance` + `trellis-cli`:** drive updated vectors.
+    + [ ] **`trellis-py`:** G-5 parity with Rust on key + dedup semantics.
+    + [ ] **Hygiene:** `trellis-verify` declares `trellis-cddl` as a
+      dev-dependency but does not use it — add a focused CDDL cross-check
+      test or remove the dep until wired.
+    + [ ] **Close the loop in docs:** parent
+      [`.claude-plugin/skills/trellis-core/SKILL.md`](../.claude-plugin/skills/trellis-core/SKILL.md)
+      “Findings since last sync” + matrix rows when behavior is real.
+
+29. **ADR 0068 execution — tenant in envelope and verifier** — **M**.
+    *Lands after parent accepts ADR 0068 (gated on parent **PLN-0004**,
+    **PLN-0011**, **PLN-0013**, **PLN-0015** — tenant grammar, ID scope,
+    actor identity, identity-vs-pin split).* Phase-1 envelope already
+    reserves capacity under ADR 0003; activation is the runtime + verifier
+    + vector work. Parent backlog: **PLN-0002**, **PLN-0009**, **PLN-0023**
+    (tenant portion), **PLN-0030**.
+    + [ ] Required `tenant` field in envelope header and bundle-level
+      export metadata; CDDL + Rust + dCBOR ordering pinned per ADR 0004.
+    + [ ] Verifier refusal when expected tenant scope ≠ chain/bundle
+      tenant; failure taxonomy distinct from hash/signature integrity.
+    + [ ] Vectors: `tamper/0NN-tenant-mismatch`, `tamper/0NN-tenant-missing`,
+      plus the cross-tenant export-bundle rejection case.
+
+30. **ADR 0071 execution — `CaseOpenPin` reservation and migration transitions**
+    — **M–L**, phased across Phase 1 + Phase 4.
+    *Lands after parent accepts ADR 0071 (gated on parent **PLN-0019**
+    authoritative wire home + **PLN-0095** wire encoding decision).*
+    Coordinates with WOS `MigrationPinChanged` shape (parent **PLN-0021**)
+    and ops guardrails (parent **PLN-0027**). Parent backlog: **PLN-0023**
+    (envelope/verifier obligations — pin portion), **PLN-0026**
+    (cross-version replay determinism vectors).
+    **Phase 1 (reservation only):**
+    + [ ] Reserve `caseOpenPin` slot in envelope header (Core + CDDL)
+      under ADR 0003 **MUST NOT populate** lint discipline; verifier
+      rejects populated value with `case_open_pin_phase_1_locked`.
+    **Phase 4 (activation, co-lands with item #17 Phase 4):**
+    + [ ] Activate `caseOpenPin` population at the phase gate.
+    + [ ] Verifier: pin immutability unless `MigrationPinChanged` anchors
+      a transition; phase-lineage compatibility across prior envelope phases.
+    + [ ] Vectors: pin-set, pin-mutation-rejected, valid-pin-transition
+      under `MigrationPinChanged`.
+
+31. **ADR 0070 execution — `CommitAttemptFailure` ProvenanceKind** — **M**.
+    *Lands after parent accepts ADR 0070 (gated on parent **PLN-0035**
+    failure-contract closure).* Trellis local append is the stack commit
+    point per ADR 0070 D-1; this item adds the Facts-tier evidence shape
+    for retryable / budget-exhausted / terminal commit failures plus
+    optional bundle-level export summary. Parent backlog: **PLN-0044**,
+    **PLN-0045**, **PLN-0089** (cross-repo failure-scenario bundle).
+    + [ ] New `recordKind` literal (per ADR 0070 final naming) under
+      Core §6.7 / §19; Facts tier; reservation under ADR 0080's
+      open-discriminator pattern.
+    + [ ] Verifier reporting taxonomy distinguishing the three typed
+      outcomes; advisory-not-integrity-failure.
+    + [ ] Optional `failures.json` at bundle root summarizing
+      commit-attempt failures in scope.
+    + [ ] Vectors: `append/0NN-commit-failure-retried`,
+      `append/0NN-commit-failure-stalled`,
+      `tamper/0NN-failures-json-mismatch`.
+
+32. **ADR 0069 execution — chain timestamp-order verification** — **S–M**.
+    *Lands after parent accepts ADR 0069 (gated on parent **PLN-0073**
+    + **PLN-0114** + **PLN-0115** + **PLN-0117** — UTC wire, precision
+    profile, leap-second policy, FEL timezone rollout).* Parent backlog:
+    **PLN-0077**, **PLN-0083**, **PLN-0131** (distinct failure taxonomy),
+    **PLN-0082** (cross-repo timestamp fixture bundle), **PLN-0084**
+    (leap-second vectors).
+    + [ ] Verifier check: chain timestamps non-decreasing across linked
+      events; D-3 precision profile honored.
+    + [ ] Failure taxonomy: temporal-order violations classified
+      separately from hash/signature integrity failures, so reports
+      distinguish "the chain says 'after' but the clocks say 'before'"
+      from "the bytes were tampered."
+    + [ ] Vectors: `tamper/0NN-timestamp-backwards` including the edge
+      case where the hash chain is valid but temporal order fails.
+
+33. **ADR 0081 execution — content-addressed artifact identity custody integration**
+    — **S**.
+    *Lands after parent ratifies ADR 0081 (parent **PLN-0358**) and WOS
+    lands the three-segment `*Ref` syntax (parent **PLN-0359**).* WOS
+    emits a definition-hash event on `caseCreated` and `determination`;
+    Trellis anchors it via the existing `custodyHook` seam. No new
+    Trellis primitive — the existing evidence-anchoring pattern handles
+    it. Parent backlog: **PLN-0360**.
+    + [ ] Register a definition-hash event-type tag under Core §6.7.
+    + [ ] `custodyHook` ingest path for the WOS-emitted record;
+      dCBOR-canonicalized; round-trip byte-exact.
+    + [ ] Vector exercising definition-hash anchor + verifier
+      cross-check; cross-stack three-way agreement (WOS spec + Trellis
+      verifier + reference adapter).
+
+34. **Stack-level security disclosure policy** — **S**, stack-coordination.
+    *Coordinates parent **PLN-0308**.* Trellis is in the security
+    perimeter (envelope, verifier, export attack surface); without a
+    published intake channel and scope, security reports route through
+    private conversation rather than a durable governance path.
+    Trellis-side action once stack governance picks the policy home:
+    contribute Trellis-specific scope notes (which crates and surfaces
+    are in-scope, which are out-of-scope archive material).
 
 ---
 
