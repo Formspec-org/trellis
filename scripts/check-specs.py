@@ -1533,6 +1533,17 @@ DECLARATION_REQUIRED_TOP_LEVEL = {
 DECLARATION_ALLOWED_TOP_LEVEL = DECLARATION_REQUIRED_TOP_LEVEL | {"supersedes"}
 DECLARATION_SIGNATURE_KEYS = {"cose_sign1_b64", "signer_kid", "alg"}
 
+# Phase-1 declaration `[signature].alg` allowed values per Core §7.1 (pinned
+# Ed25519 suite). Extensions land here when the §7.2 suite registry adds new
+# rows; per Core §7.2 Phase-1 the only Active row is suite_id = 1 (EdDSA).
+DECLARATION_ALLOWED_ALGS = frozenset({"EdDSA"})
+
+# Base64-character regex for the placeholder/real `cose_sign1_b64` value. The
+# field MUST be a non-empty string composed of base64 characters (allow URL-
+# safe variant). Phase-1 reference declarations carry placeholder content;
+# the structural lint accepts any non-empty base64-shaped value.
+DECLARATION_B64_PATTERN = re.compile(r"^[A-Za-z0-9+/=_-]+$")
+
 
 def _extract_toml_frontmatter(path: Path, errors: list[str]) -> dict | None:
     """Parse TOML frontmatter from a Markdown declaration document."""
@@ -1706,6 +1717,190 @@ def check_declaration_docs(errors: list[str], *, root: Path | None = None) -> No
                 f"{rel}: [signature] keys {sorted(signature.keys())} do not "
                 f"match required keys {sorted(DECLARATION_SIGNATURE_KEYS)}"
             )
+        else:
+            # R14 — signing-key structural validation (no crypto).
+            # Pins the [signature] field shapes that a verifier needs to
+            # resolve before running any signature crypto: the alg is in
+            # the Phase-1 registered set, the kid is a non-empty URI-shaped
+            # string, and the cose_sign1_b64 payload is non-empty base64.
+            alg = signature.get("alg")
+            if not isinstance(alg, str) or alg not in DECLARATION_ALLOWED_ALGS:
+                errors.append(
+                    f"{rel}: [signature].alg={alg!r} is not in the Phase-1 "
+                    f"allowed set {sorted(DECLARATION_ALLOWED_ALGS)} "
+                    f"(Core §7.1 / §7.2)"
+                )
+            signer_kid = signature.get("signer_kid")
+            if not isinstance(signer_kid, str) or not signer_kid.strip():
+                errors.append(
+                    f"{rel}: [signature].signer_kid must be a non-empty "
+                    f"string (URI resolving to a key registry entry); got "
+                    f"{signer_kid!r}"
+                )
+            cose_b64 = signature.get("cose_sign1_b64")
+            if not isinstance(cose_b64, str) or not cose_b64.strip():
+                errors.append(
+                    f"{rel}: [signature].cose_sign1_b64 must be a non-empty "
+                    f"base64 string; got {cose_b64!r}"
+                )
+            elif not DECLARATION_B64_PATTERN.fullmatch(cose_b64):
+                errors.append(
+                    f"{rel}: [signature].cose_sign1_b64 contains characters "
+                    f"outside the base64 alphabet (RFC 4648 standard or "
+                    f"URL-safe); got {cose_b64!r}"
+                )
+
+
+def check_declaration_supersedes_acyclic(
+    errors: list[str],
+    *,
+    root: Path | None = None,
+) -> None:
+    """R15 — declaration `supersedes` chains MUST be acyclic and resolvable.
+
+    Walks every fixtures/declarations/<deployment-slug>/declaration.md,
+    builds a directed graph keyed by `declaration_id` with edges
+    `declaration_id → supersedes`, and rejects:
+
+    - cycles (a chain that revisits an earlier `declaration_id`),
+    - dangling references (a `supersedes` value not appearing as any
+      declaration's `declaration_id`),
+    - duplicate declaration_ids across the corpus (would silently mask
+      a cycle through identifier reuse),
+    - non-string `declaration_id` / `supersedes` values.
+
+    Per Companion §A.6 / Phase-1 convention: `supersedes` absent OR empty
+    string denotes "no predecessor" (root of a chain); each declaration
+    carries at most one `supersedes` value.
+    """
+    base = root if root is not None else DECLARATIONS
+    if not base.exists():
+        return
+    paths = sorted(base.glob("*/declaration.md"))
+    if not paths:
+        return
+
+    # Build (id → supersedes) map keyed by canonical declaration_id.
+    decl_supersedes: dict[str, str | None] = {}
+    decl_origin: dict[str, Path] = {}
+    for path in paths:
+        rel = relpath(path)
+        data = _extract_toml_frontmatter(path, errors)
+        if data is None:
+            continue
+        declaration_id = data.get("declaration_id")
+        if not isinstance(declaration_id, str) or not declaration_id.strip():
+            errors.append(
+                f"{rel}: declaration_id must be a non-empty string for "
+                f"supersedes-graph membership; got {declaration_id!r}"
+            )
+            continue
+        if declaration_id in decl_supersedes:
+            errors.append(
+                f"{rel}: declaration_id={declaration_id!r} is also used in "
+                f"{relpath(decl_origin[declaration_id])}; declaration ids "
+                f"MUST be unique across the corpus"
+            )
+            continue
+        supersedes = data.get("supersedes")
+        if supersedes is not None and not isinstance(supersedes, str):
+            errors.append(
+                f"{rel}: supersedes must be a string or absent; got "
+                f"{type(supersedes).__name__}"
+            )
+            continue
+        # Treat empty string and None as "no predecessor" per A.6 convention.
+        if isinstance(supersedes, str) and not supersedes.strip():
+            supersedes = None
+        decl_supersedes[declaration_id] = supersedes
+        decl_origin[declaration_id] = path
+
+    # Resolve dangling supersedes refs.
+    for declaration_id, predecessor in decl_supersedes.items():
+        if predecessor is not None and predecessor not in decl_supersedes:
+            errors.append(
+                f"{relpath(decl_origin[declaration_id])}: "
+                f"supersedes={predecessor!r} does not resolve to any "
+                f"declaration_id in the corpus"
+            )
+
+    # Cycle detection via DFS with WHITE/GRAY/BLACK coloring.
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {k: WHITE for k in decl_supersedes}
+    reported_cycles: set[tuple[str, ...]] = set()
+
+    def visit(node: str, path_stack: list[str]) -> None:
+        color[node] = GRAY
+        path_stack.append(node)
+        predecessor = decl_supersedes.get(node)
+        if predecessor is not None and predecessor in decl_supersedes:
+            if color[predecessor] == GRAY:
+                # Cycle: extract the loop (predecessor onward in stack).
+                loop_start = path_stack.index(predecessor)
+                cycle = tuple(path_stack[loop_start:]) + (predecessor,)
+                cycle_key = tuple(sorted(set(cycle)))
+                if cycle_key not in reported_cycles:
+                    reported_cycles.add(cycle_key)
+                    errors.append(
+                        f"{relpath(decl_origin[node])}: supersedes chain "
+                        f"contains a cycle: {' -> '.join(cycle)}"
+                    )
+            elif color[predecessor] == WHITE:
+                visit(predecessor, path_stack)
+        path_stack.pop()
+        color[node] = BLACK
+
+    for declaration_id in decl_supersedes:
+        if color[declaration_id] == WHITE:
+            visit(declaration_id, [])
+
+
+def check_vector_renumbering(errors: list[str]) -> None:
+    """R16 — invoke the vector-prefix renumbering pre-merge guard.
+
+    Defers to the sibling `check-vector-renumbering.py` script, which
+    compares vector `<op>/NNN` prefixes on the current working tree
+    against a base ref (default `origin/main`, override via
+    `TRELLIS_RATIFICATION_REF`). The corpus has 63 vectors with
+    derivation cross-references and Rust conformance test IDs; silent
+    renumber would corrupt both.
+
+    **Activation:** opt-in via `TRELLIS_CHECK_RENUMBERING=1`. The check
+    is opt-in because local dev branches that have not yet been pushed
+    cannot resolve the base ref, and a hard failure on every check-specs
+    run would be a usability regression. CI sets the env var; Makefile
+    target `check-specs-strict` sets it; local dev runs without it by
+    default.
+    """
+    if os.environ.get("TRELLIS_CHECK_RENUMBERING") != "1":
+        return
+    script = REAL_ROOT / "scripts" / "check-vector-renumbering.py"
+    if not script.exists():
+        errors.append(
+            f"TRELLIS_CHECK_RENUMBERING=1 was set but "
+            f"{script.relative_to(REAL_ROOT)} is missing"
+        )
+        return
+    import subprocess
+    result = subprocess.run(
+        ["python3", str(script)],
+        capture_output=True,
+        text=True,
+        cwd=str(REAL_ROOT),
+    )
+    if result.returncode == 0:
+        return
+    # Either return code 1 (renumber detected) or 2 (base ref unresolvable).
+    # Both are lint failures when the env opt-in is set — if you ask for the
+    # check, you ask for it to actually run.
+    for line in (result.stderr or result.stdout or "").splitlines():
+        if line.strip():
+            errors.append(f"vector-renumbering guard: {line.strip()}")
+    if not result.stderr and not result.stdout:
+        errors.append(
+            f"vector-renumbering guard exited {result.returncode} with no "
+            f"output"
+        )
 
 
 def check_tamper_kind_enum(
@@ -1870,7 +2065,9 @@ def main() -> int:
     check_event_type_registry(errors)
     check_transition_cddl_cross_refs(errors)
     check_declaration_docs(errors)
+    check_declaration_supersedes_acyclic(errors)
     check_generator_imports(errors)
+    check_vector_renumbering(errors)
     check_tamper_kind_enum(errors)
     check_verify_report_consistency(errors)
 

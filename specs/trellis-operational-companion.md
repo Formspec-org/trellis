@@ -768,6 +768,10 @@ Where a WOS runtime uses Trellis as its custody backend via WOS Kernel §10.5 `c
 
 **OC-70c (MUST).** Every event emitted under a Declaration's scope MUST attribute to exactly one of `actor_human` or `actor_agent_under_delegation` (invariant #15; Appendix A.6 rule 11). Dual-population or empty-population is NON-CONFORMANT. This obligation flows through to Core §19 (Verification Algorithm): a chain in which delegated-compute events fail the actor-discriminator rule fails `integrity_verified` through the operational-conformance path.
 
+**OC-70d (MUST).** The Declaration's `[signature]` block MUST be structurally valid even when its content is a placeholder: `alg` MUST equal a Phase-1 registered value (currently only `"EdDSA"` per Core §7 (Signature Profile) §7.1 / §7.2); `signer_kid` MUST be a non-empty string identifier resolving in the Operator's key registry; `cose_sign1_b64` MUST be a non-empty base64-shaped string. Phase-1 reference declarations MAY ship with placeholder signature bytes provided the field shapes are valid; conforming production declarations MUST replace the placeholder with a real COSE_Sign1 value. The structural check is independent of crypto verification and runs without a key snapshot. Traceability: **TR-OP-047** — enforced by `scripts/check-specs.py` rule R14.
+
+**OC-70e (MUST).** Across all O-4 Declaration documents in a deployment corpus, the `supersedes` graph MUST be acyclic and resolvable. Every non-empty `supersedes` value MUST point to a `declaration_id` carried by another Declaration; `declaration_id` values MUST be unique across the corpus; no chain MUST revisit a node. Empty-string and absent `supersedes` denote "no predecessor" (root of a chain). Successor declarations supersede predecessors in chronological order; the chain is the auditor's path back to the prior declaration in force at any point in the deployment timeline. Traceability: **TR-OP-048** — enforced by `scripts/check-specs.py` rule R15 (`check_declaration_supersedes_acyclic`).
+
 ---
 
 ## 20. Lifecycle and Erasure

@@ -12,7 +12,7 @@ TRELLIS_PY_DIR = trellis-py
 SCRIPTS_DIR = scripts
 VECTORS_DIR = fixtures/vectors
 
-.PHONY: all help build test test-rust test-python test-scripts check-specs lint fmt clean
+.PHONY: all help build test test-rust test-python test-scripts check-specs check-specs-strict lint fmt clean
 
 all: build test
 
@@ -26,6 +26,7 @@ help:
 	@echo "  make test-python    Run Python conformance tests"
 	@echo "  make test-scripts   Run tests for helper scripts"
 	@echo "  make check-specs    Run spec discipline and coverage lint"
+	@echo "  make check-specs-strict  Run check-specs + vector-renumbering guard (CI variant)"
 	@echo "  make lint           Run Rust clippy"
 	@echo "  make fmt            Check Rust formatting"
 	@echo "  make clean          Clean build artifacts"
@@ -55,6 +56,14 @@ test-scripts:
 check-specs:
 	@echo "Running spec checks..."
 	$(PYTHON) $(SCRIPTS_DIR)/check-specs.py
+
+# Strict pre-merge variant: enables the vector-renumbering guard
+# (`TRELLIS_CHECK_RENUMBERING=1`) that compares vector NNN- prefixes against
+# the base ref (default `origin/main`, override via `TRELLIS_RATIFICATION_REF`).
+# CI invokes this target; local dev uses `check-specs` (without the guard).
+check-specs-strict:
+	@echo "Running spec checks (strict, with renumbering guard)..."
+	TRELLIS_CHECK_RENUMBERING=1 $(PYTHON) $(SCRIPTS_DIR)/check-specs.py
 
 lint:
 	@echo "Running Rust clippy..."

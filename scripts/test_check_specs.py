@@ -1126,6 +1126,266 @@ class TestVerifyReportConsistency(unittest.TestCase):
 
 
 
+
+class TestDeclarationSignatureStructural(unittest.TestCase):
+    """R14 — O-4 declaration `[signature]` field structural validation
+    (no crypto). The reference declaration is a passing baseline; mutate
+    individual signature-block fields to confirm each fail-loud branch.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _mutate_and_run(self, replacement: tuple[str, str]) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            shutil.copytree(
+                ROOT / "fixtures/declarations/ssdi-intake-triage",
+                root / "ssdi",
+            )
+            declaration = root / "ssdi/declaration.md"
+            declaration.write_text(
+                declaration.read_text(encoding="utf-8").replace(
+                    replacement[0], replacement[1]
+                ),
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            self.cs.check_declaration_docs(errors, root=root)
+        return errors
+
+    def test_unknown_alg_is_rejected(self):
+        errors = self._mutate_and_run((
+            'alg            = "EdDSA"',
+            'alg            = "RS256"',
+        ))
+        self.assertTrue(any("alg" in e and "Phase-1" in e for e in errors), errors)
+
+    def test_empty_signer_kid_is_rejected(self):
+        errors = self._mutate_and_run((
+            'signer_kid     = "urn:example:operator/ssa-example-adjudication-unit#key-2026-05"',
+            'signer_kid     = ""',
+        ))
+        self.assertTrue(any("signer_kid" in e for e in errors), errors)
+
+    def test_empty_cose_b64_is_rejected(self):
+        errors = self._mutate_and_run((
+            'cose_sign1_b64 = "AAAA-placeholder-signature-for-reference-purposes-only-AAAA"',
+            'cose_sign1_b64 = ""',
+        ))
+        self.assertTrue(any("cose_sign1_b64" in e for e in errors), errors)
+
+    def test_non_b64_cose_value_is_rejected(self):
+        errors = self._mutate_and_run((
+            'cose_sign1_b64 = "AAAA-placeholder-signature-for-reference-purposes-only-AAAA"',
+            'cose_sign1_b64 = "not base64 has spaces!"',
+        ))
+        self.assertTrue(
+            any("base64 alphabet" in e for e in errors),
+            errors,
+        )
+
+
+class TestDeclarationSupersedesAcyclic(unittest.TestCase):
+    """R15 — declaration `supersedes` chains MUST be acyclic and
+    resolvable. The reference corpus has one root declaration with no
+    `supersedes`; tests build synthetic multi-doc corpora to exercise
+    cycles and dangling refs.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _scaffold(self, tmp: Path, decls: list[tuple[str, str | None]]) -> Path:
+        """Create N synthetic declaration.md files with given (id, supersedes).
+
+        Each declaration is a minimal-frontmatter stub — the supersedes
+        check parses frontmatter and ignores fields it does not need.
+        """
+        root = tmp / "declarations"
+        root.mkdir(parents=True)
+        for i, (decl_id, supersedes) in enumerate(decls):
+            d = root / f"slug-{i}"
+            d.mkdir()
+            lines = [
+                "---",
+                f'declaration_id          = "{decl_id}"',
+            ]
+            if supersedes is not None:
+                lines.append(f'supersedes              = "{supersedes}"')
+            lines.append("---")
+            lines.append("")
+            lines.append("# stub")
+            (d / "declaration.md").write_text("\n".join(lines), encoding="utf-8")
+        return root
+
+    def test_real_reference_corpus_has_no_cycles(self):
+        errors: list[str] = []
+        self.cs.check_declaration_supersedes_acyclic(errors)
+        self.assertEqual(errors, [])
+
+    def test_simple_chain_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:v1", None),
+                ("urn:test:v2", "urn:test:v1"),
+                ("urn:test:v3", "urn:test:v2"),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertEqual(errors, [])
+
+    def test_two_node_cycle_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:a", "urn:test:b"),
+                ("urn:test:b", "urn:test:a"),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("cycle" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_three_node_cycle_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:a", "urn:test:b"),
+                ("urn:test:b", "urn:test:c"),
+                ("urn:test:c", "urn:test:a"),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("cycle" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_dangling_supersedes_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:v1", "urn:nonexistent"),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("does not resolve" in e for e in errors),
+            errors,
+        )
+
+    def test_duplicate_declaration_id_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:dup", None),
+                ("urn:test:dup", None),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("MUST be unique" in e for e in errors),
+            errors,
+        )
+
+    def test_self_loop_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:self", "urn:test:self"),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("cycle" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_empty_supersedes_treated_as_root(self):
+        # Empty-string supersedes is the A.6 convention for "no predecessor".
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold(Path(tmp), [
+                ("urn:test:root", ""),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        # Empty-string supersedes is treated as None — should not flag dangling.
+        self.assertEqual(errors, [], errors)
+
+
+
+class TestVectorRenumberingWrapper(unittest.TestCase):
+    """R16 — `scripts/check-specs.py` opt-in wrapper around
+    `check-vector-renumbering.py`.
+
+    The wrapper is OFF by default (local dev) and ON via
+    `TRELLIS_CHECK_RENUMBERING=1` (CI / Makefile strict target).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def test_off_by_default(self):
+        os_env = os.environ.copy()
+        os_env.pop("TRELLIS_CHECK_RENUMBERING", None)
+        # Direct call: the wrapper reads the live os.environ; mutate within
+        # a controlled scope.
+        had = os.environ.pop("TRELLIS_CHECK_RENUMBERING", None)
+        try:
+            errors: list[str] = []
+            self.cs.check_vector_renumbering(errors)
+            # No env var set: the rule is a no-op.
+            self.assertEqual(errors, [])
+        finally:
+            if had is not None:
+                os.environ["TRELLIS_CHECK_RENUMBERING"] = had
+
+    def test_on_with_real_repo_passes(self):
+        # When the env var is set and the live repo is consistent with
+        # origin/main (or whatever TRELLIS_RATIFICATION_REF resolves to),
+        # the rule passes. We do not assert hard pass here because the
+        # local repo may have un-pushed renumbers; we just assert the
+        # rule runs without infrastructure errors.
+        had = os.environ.get("TRELLIS_CHECK_RENUMBERING")
+        os.environ["TRELLIS_CHECK_RENUMBERING"] = "1"
+        try:
+            errors: list[str] = []
+            self.cs.check_vector_renumbering(errors)
+            # Errors are acceptable here (real repo state); we only assert
+            # the wrapper invoked the script without infrastructure
+            # failures (i.e. the script existed and ran).
+            for error in errors:
+                self.assertNotIn("is missing", error)
+        finally:
+            if had is None:
+                os.environ.pop("TRELLIS_CHECK_RENUMBERING", None)
+            else:
+                os.environ["TRELLIS_CHECK_RENUMBERING"] = had
+
+    def test_on_with_unresolvable_base_ref_fails_loud(self):
+        # An impossible base ref forces the underlying script to exit 2
+        # (could-not-read fixtures); our wrapper escalates to a lint
+        # failure when the env opt-in is set.
+        had_check = os.environ.get("TRELLIS_CHECK_RENUMBERING")
+        had_ref = os.environ.get("TRELLIS_RATIFICATION_REF")
+        os.environ["TRELLIS_CHECK_RENUMBERING"] = "1"
+        os.environ["TRELLIS_RATIFICATION_REF"] = "definitely-not-a-real-ref"
+        try:
+            errors: list[str] = []
+            self.cs.check_vector_renumbering(errors)
+            self.assertTrue(errors, "expected wrapper to surface base-ref failure")
+        finally:
+            if had_check is None:
+                os.environ.pop("TRELLIS_CHECK_RENUMBERING", None)
+            else:
+                os.environ["TRELLIS_CHECK_RENUMBERING"] = had_check
+            if had_ref is None:
+                os.environ.pop("TRELLIS_RATIFICATION_REF", None)
+            else:
+                os.environ["TRELLIS_RATIFICATION_REF"] = had_ref
+
+
 class TestTamperKindEnum(unittest.TestCase):
     """R13 — every tamper manifest's `[expected.report].tamper_kind` is in
     the Core §19.1 enum. Drift outside the enum fails loud."""
