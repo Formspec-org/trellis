@@ -18,6 +18,7 @@ test_artifact_keys = [
 [coverage]
 tr_core = [
     "TR-CORE-031",  # inv #4 — content_hash computed over real ciphertext bytes.
+    "TR-CORE-033",  # §9.4 — pinned ephemeral_pubkey under the test-vector carve-out (lint R17).
     "TR-CORE-038",  # inv #7 — populated key_bag participates in author_event_hash.
 ]
 tr_op = [

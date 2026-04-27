@@ -1477,5 +1477,110 @@ class TestTamperKindEnum(unittest.TestCase):
         )
 
 
+class TestHpkeEphemeralUniqueness(unittest.TestCase):
+    """R17 — every HPKE wrap MUST use a unique X25519 ephemeral_pubkey within
+    its containing ledger scope (Core §9.4). Catches weak-RNG / fixture-
+    authoring drift; failure mode is otherwise silent."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _payload(self, scope: bytes, ephemerals: list[bytes], event_type: str = "x-trellis-test/append") -> dict:
+        return {
+            "header": {"event_type": event_type},
+            "ledger_scope": scope,
+            "key_bag": {
+                "entries": [
+                    {"recipient": f"r{i}".encode(), "suite": 1, "ephemeral_pubkey": ep, "wrapped_dek": b"\x00"}
+                    for i, ep in enumerate(ephemerals)
+                ],
+            },
+        }
+
+    def _run(self, items: list[tuple[Path, dict]]) -> list[str]:
+        errors: list[str] = []
+        self.cs.check_hpke_ephemeral_uniqueness(errors, payloads=items)
+        return errors
+
+    def test_distinct_ephemerals_across_vectors_pass(self):
+        ep_a = b"\xaa" * 32
+        ep_b = b"\xbb" * 32
+        items = [
+            (Path("fixtures/vectors/append/100-a/expected-event.cbor"), self._payload(b"scope-X", [ep_a])),
+            (Path("fixtures/vectors/append/101-b/expected-event.cbor"), self._payload(b"scope-X", [ep_b])),
+        ]
+        self.assertEqual(self._run(items), [])
+
+    def test_same_vector_repeated_artifacts_pass(self):
+        # vector_event_payloads yields the same logical event multiple times
+        # (one per CBOR artifact view); identical (scope, ephemeral) pairs
+        # within a single vector dir are NOT reuse — they are byte-identical
+        # re-encodings of the same wrap.
+        ep = b"\xcc" * 32
+        items = [
+            (Path("fixtures/vectors/append/200-x/input-author-event-hash-preimage.cbor"), self._payload(b"scope-Y", [ep])),
+            (Path("fixtures/vectors/append/200-x/expected-event-payload.cbor"), self._payload(b"scope-Y", [ep])),
+            (Path("fixtures/vectors/append/200-x/expected-event.cbor"), self._payload(b"scope-Y", [ep])),
+        ]
+        self.assertEqual(self._run(items), [])
+
+    def test_cross_vector_reuse_in_same_scope_fails(self):
+        ep = b"\xdd" * 32
+        items = [
+            (Path("fixtures/vectors/append/300-first/expected-event.cbor"), self._payload(b"scope-Z", [ep])),
+            (Path("fixtures/vectors/append/301-second/expected-event.cbor"), self._payload(b"scope-Z", [ep])),
+        ]
+        errors = self._run(items)
+        self.assertTrue(errors)
+        self.assertTrue(any("ephemeral_pubkey" in e for e in errors))
+        self.assertTrue(any("Core §9.4" in e for e in errors))
+        self.assertTrue(any("300-first" in e and "301-second" in e for e in errors))
+
+    def test_cross_scope_reuse_also_fails(self):
+        # §9.4: "Reusing an ephemeral private key ... across ledger scopes,
+        # is a non-conformance." The persisted ephemeral_pubkey IS the
+        # encapsulated key; same value across scopes is the same reuse.
+        ep = b"\xee" * 32
+        items = [
+            (Path("fixtures/vectors/append/400-a/expected-event.cbor"), self._payload(b"scope-P", [ep])),
+            (Path("fixtures/vectors/append/401-b/expected-event.cbor"), self._payload(b"scope-Q", [ep])),
+        ]
+        errors = self._run(items)
+        self.assertTrue(errors)
+        self.assertTrue(any("ephemeral_pubkey" in e for e in errors))
+
+    def test_within_event_duplicate_recipients_fails(self):
+        # §9.4: "in an event with N recipients the key_bag contains N
+        # KeyBagEntry rows with N distinct ephemeral_pubkey values"
+        ep = b"\x11" * 32
+        items = [
+            (Path("fixtures/vectors/append/500-multi/expected-event.cbor"), self._payload(b"scope-R", [ep, ep])),
+        ]
+        errors = self._run(items)
+        self.assertTrue(errors)
+        self.assertTrue(any("within a single key_bag" in e or "within event" in e for e in errors))
+
+    def test_no_keybag_skipped(self):
+        items = [
+            (Path("fixtures/vectors/append/600-no-keybag/expected-event.cbor"),
+             {"header": {"event_type": "x-trellis-test/no-keybag"}, "ledger_scope": b"s"}),
+        ]
+        self.assertEqual(self._run(items), [])
+
+    def test_empty_keybag_skipped(self):
+        items = [
+            (Path("fixtures/vectors/append/700-empty/expected-event.cbor"),
+             {"header": {"event_type": "x-trellis-test/empty"}, "ledger_scope": b"s",
+              "key_bag": {"entries": []}}),
+        ]
+        self.assertEqual(self._run(items), [])
+
+    def test_real_corpus_is_clean(self):
+        errors: list[str] = []
+        self.cs.check_hpke_ephemeral_uniqueness(errors)
+        self.assertEqual(errors, [], msg=f"R17 found errors: {errors}")
+
+
 if __name__ == "__main__":
     unittest.main()
