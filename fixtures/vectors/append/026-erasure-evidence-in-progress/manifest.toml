@@ -1,0 +1,46 @@
+id          = "append/026-erasure-evidence-in-progress"
+op          = "append"
+status      = "active"
+description = """`completion_mode = in-progress` path. Operator attests that the cascade for this destruction is incomplete at emission time (e.g., third-party cache-invalidation API has not yet acknowledged). Phase-1 verifier accepts the wire shape — the policy detail is auditor surface, not integrity gating."""
+
+# ADR 0005 erasure-evidence positive vector. The full 10-step verifier
+# checklist runs against the chain context (see `derivation.md` for the
+# step-by-step reproduction). Phase-1 chain-walk scope (step 8) is
+# `norm_key_class ∈ {"signing", "subject"}` per ADR 0005 step-8 bound;
+# this vector's `key_class = subject` exercises that surface.
+[coverage]
+tr_core = [
+    "TR-CORE-018",  # three event surfaces (authored / canonical / signed)
+    "TR-CORE-021",  # ledger_scope declared
+    "TR-CORE-030",  # dCBOR + canonical event hash construction
+    "TR-CORE-031",  # content_hash over ciphertext
+    "TR-CORE-032",  # Phase-1 canonical encoding is dCBOR + SHA-256
+    "TR-CORE-035",  # suite_id=1 (Ed25519/COSE_Sign1)
+    "TR-CORE-069",  # Core §6.9 ReasonCode Registry — Erasure-Evidence family
+    "TR-CORE-110",  # versioning + immutable interpretation material
+    "TR-CORE-112",  # crypto-erasure documentation discipline (TR-OP-100 sibling)
+]
+tr_op = [
+    "TR-OP-100",  # operational elaboration of TR-CORE-112 (crypto-erasure documentation)
+    "TR-OP-104",  # Companion §20.6.1 reason-code table (ADR 0005 §"Reason codes")
+    "TR-OP-105",  # §20.6.2 wire-shape + §A.5 attestation rule under trellis-transition-attestation-v1
+    "TR-OP-106",  # §20.6.3 OC-141 cascade_scopes registry
+    "TR-OP-109",  # §20.6.3 OC-144 destroyed_at <= host authored_at
+    "TR-OP-113",  # §20.6.3 OC-145 single destroyed_at per kid_destroyed (positive corpus row)
+    "TR-OP-114",  # §20.6.3 OC-146 key_class normalization + registry-bind (positive shape)
+]
+
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+prior_append_head            = "input-prior-append-head.cbor"
+authored_event               = "input-author-event-hash-preimage.cbor"
+attestation_preimage_new    = "input-attestation-preimage-new.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
