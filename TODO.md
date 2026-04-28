@@ -447,30 +447,25 @@ consume amended responses once those stacks land.
     DFS) / `3575a10` (prose) plus sibling commit `abaef36` for the
     matrix line. See [`COMPLETED.md`](COMPLETED.md) Wave 18 entry.
 
-31. **HPKE crate hardening (Wave 16 review follow-ups)** — **S**.
-    *From Wave 16 HPKE review (commit `0c1573d`).* Architecture sound;
-    four follow-ups worth landing as one change train.
-    + [ ] **Pin all crypto deps exact.** `chacha20poly1305`, `hkdf`,
-      `x25519-dalek`, `sha2`, `rand_core` are caret-ranges in
-      `crates/trellis-hpke/Cargo.toml`; byte-exact reproducibility for
-      `append/004` flows through them directly. `=`-pin all five (or
-      commit a lockfile + `--locked` CI gate).
-    + [ ] **Pin against `#[doc(hidden)]` `hpke` internals risk.**
-      `wrap_dek_with_pinned_ephemeral` reaches into
-      `hpke::kdf::{labeled_extract, extract_and_expand, LabeledExpand}`
-      (all `#[doc(hidden)]` but `pub`). Add a `# DO NOT BUMP without
-      re-verifying these are still pub` comment in `Cargo.toml` next
-      to the `=0.13.0` pin; promote
-      [`thoughts/specs/2026-04-24-hpke-crate-spike.md`](thoughts/specs/2026-04-24-hpke-crate-spike.md)
-      to ADR before the next bump per its own §Lifecycle.
-    + [ ] **`test-vectors` Cargo feature gate.** Put
-      `wrap_dek_with_pinned_ephemeral` behind a default-off
-      `test-vectors` feature; production crate-graph cannot link it.
-      Removes the production footgun forever.
-    + [ ] **Verifier-isolation CI test.** Lock down
-      `cargo tree -p trellis-verify | grep -E 'hpke|x25519-dalek|chacha20poly1305|hkdf'`
-      empty as a CI assertion. Future `trellis-cose` change cannot
-      silently regress §16.
+31. ~~**HPKE crate hardening (Wave 16 review follow-ups)**~~ — **CLOSED Wave 18, 2026-04-27.**
+    All four sub-bullets landed as one change train (`0ac4261` /
+    `1c87dc3` / `0576ccd` / `4d18b40`):
+    (1) `chacha20poly1305 = 0.10.1`, `hkdf = 0.12.4`, `x25519-dalek =
+    2.0.1`, `sha2 = 0.10.9`, `rand_core = 0.9.5` `=`-pinned alongside
+    the existing `hpke = 0.13.0` pin; (2) `# DO NOT BUMP without
+    re-verifying:` comment block adjacent to the pins names the
+    `#[doc(hidden)]`-but-`pub` `hpke::kdf::*` symbols
+    `wrap_dek_with_pinned_ephemeral` leans on; spike doc promoted to
+    [`thoughts/adr/0009-hpke-crate-selection.md`](thoughts/adr/0009-hpke-crate-selection.md);
+    (3) `test-vectors` Cargo feature (default off) gates
+    `wrap_dek_with_pinned_ephemeral`, the related fixture-only KDF /
+    X25519 / AEAD imports, and `tests/append_004_byte_match.rs` so the
+    production crate-graph cannot link the carve-out path; (4)
+    `scripts/check-verifier-isolation.sh` + `make check-verifier-isolation`
+    asserts `cargo tree -p trellis-verify` is HPKE-clean. Wired into
+    `make test`; CI fails loud if `trellis-verify`'s graph regains
+    any of `hpke`, `x25519-dalek`, `chacha20poly1305`, or `hkdf`.
+    See [`COMPLETED.md`](COMPLETED.md) Wave 18 entry.
 
 32. ~~**`trellis-store-postgres` review follow-ups (Wave 16)**~~ — **CLOSED Wave 18, 2026-04-27.**
     Three substantive follow-ups landed via `db4ad29` / `c33c91c` / `6684b23`.

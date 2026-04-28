@@ -439,6 +439,105 @@ new = 167 covered); `python3 scripts/check-specs.py` clean
 
 NEEDS_CONTEXT: none.
 
+### Wave 18 (2026-04-27) — HPKE crate hardening (item #31)
+
+Closes item #31 from the post-Wave-17 TODO. Lands the four follow-ups
+from the Wave 16 HPKE review (commit `0c1573d`, approve-with-suggestions)
+as one change train. Architecture sound; this train closes the
+dep-pin / production-footgun / verifier-isolation drift in one wave so
+the HPKE substrate is a stable foundation for ADR 0005 (item #3, Wave
+18+) and the Phase-2+ adapters in TODO items #19–#22.
+
+- **Pin all crypto deps exact** (`0ac4261`). Byte-exact reproducibility
+  for `append/004-hpke-wrapped-inline` flows through `chacha20poly1305`,
+  `hkdf`, `x25519-dalek`, `sha2`, and `rand_core` directly; caret-ranges
+  left those crates free to drift on the next `cargo update`. `=`-pin
+  all five at the resolved versions (`Cargo.lock`):
+  `chacha20poly1305 = 0.10.1`, `hkdf = 0.12.4`, `x25519-dalek = 2.0.1`,
+  `sha2 = 0.10.9`, `rand_core = 0.9.5`. The existing `hpke = 0.13.0`
+  pin stays unchanged. `Cargo.toml` gains a `# DO NOT BUMP without
+  re-verifying:` block adjacent to the pins; (1) names the
+  `#[doc(hidden)]`-but-`pub` `hpke::kdf::{labeled_extract,
+  extract_and_expand, LabeledExpand}` symbols
+  `wrap_dek_with_pinned_ephemeral` leans on (any minor-version bump may
+  make these private and silently break the carve-out); (2) names the
+  four other crates whose under-specified version-level behavior (AEAD
+  nonce schedules, KDF chaining, X25519 scalar clamping) drives the
+  byte oracle; (3) pins ADR 0009 §Lifecycle promote-on-bump as the
+  doc-trigger.
+
+- **`test-vectors` Cargo feature gate** (`1c87dc3`).
+  `wrap_dek_with_pinned_ephemeral` (the Core §9.4 test-vector carve-out
+  path) now sits behind a `test-vectors` Cargo feature, default off.
+  `derive_base_key_and_nonce`, the `chacha20poly1305` /
+  `hpke::kdf::{labeled_extract, extract_and_expand, LabeledExpand}` /
+  `x25519_dalek` imports, the `KEM_SUITE_ID` and `HPKE_SUITE_ID` consts,
+  the `pinned_ephemeral_wrap_round_trips` unit test, and
+  `tests/append_004_byte_match.rs` (whole file) all gate to the same
+  feature. A binary built without `--features test-vectors` does not
+  have the symbol to link — production crate-graphs cannot link the
+  carve-out path even by mistake. Production code (`wrap_dek`,
+  `unwrap_dek`, `WrapResult`, `HpkeError`, `HPKE_SUITE1_INFO`,
+  `HPKE_SUITE1_AAD`, the `wrap_then_unwrap_round_trip` smoke test)
+  unchanged. Smoke test switched its recipient-pubkey derivation from
+  `x25519_dalek::PublicKey::from(&X25519Static::from(seed))` to the
+  `hpke` crate's own `Kem::sk_to_pk` so it stays compilable when the
+  `x25519-dalek` import is gated off. Makefile `test-rust` now runs
+  both passes (`cargo test --workspace` + `cargo test -p trellis-hpke
+  --features test-vectors`); CI exercises the byte oracle.
+
+- **Spike → ADR 0009 promotion** (`0576ccd`). The 2026-04-24 spike's
+  own §Lifecycle pinned promote-on-bump as the trigger; closing this
+  debt proactively gives normative HPKE crate-selection authority a
+  stable doc id. New
+  [`thoughts/adr/0009-hpke-crate-selection.md`](thoughts/adr/0009-hpke-crate-selection.md)
+  covers crate selection + rejected options, the sibling-crate posture
+  (`trellis-hpke` peer-of `trellis-cose`, not embedded — same
+  architectural pattern as ADR 0008 §ISC-05), the six pinned versions,
+  the `wrap_dek_with_pinned_ephemeral` carve-out path's reliance on
+  `#[doc(hidden)]`-but-`pub` symbols, the verifier-isolation invariant,
+  the §Lifecycle clause (any of the six bumps triggers re-read +
+  Decision-log entry; byte oracle is the load-bearing canary), and a
+  Decision log with entries for 2026-04-24 (selection), Wave 16
+  (execution), Wave 18 (this hardening). Spike header rewritten to
+  declare **Superseded — non-normative archive** and point at ADR
+  0009; spike body preserved as historical context.
+
+- **Verifier-isolation CI assertion** (`4d18b40`). The sibling-crate
+  architecture rests on Core §16 (Verification Independence): the
+  offline verifier path MUST NOT pull HPKE / X25519 / AEAD / HKDF
+  crypto crates. Until now, that property was prose-only. A future
+  `trellis-cose` change adding `trellis-hpke` as a dep would silently
+  breach the invariant — every consumer of `trellis-cose` (including
+  `trellis-verify`) would inherit HPKE.
+  `scripts/check-verifier-isolation.sh` is the loud-fail gate:
+  `cargo tree -p trellis-verify` MUST NOT mention `hpke`,
+  `x25519-dalek`, `chacha20poly1305`, or `hkdf`. Wired three ways:
+  `make check-verifier-isolation` (fast iteration), `make test` (CI
+  runs this target), `.PHONY` + help text. Negative-case verified by
+  injecting `hpke = "=0.13.0"` as a `trellis-verify` dep; the script
+  flagged all four crates with diagnose hint and exited 1.
+
+Verification: `cargo test --workspace` clean (workspace still resolves
+to the same `Cargo.lock` entries; no consumer's resolved version
+moves); `cargo test -p trellis-hpke --features test-vectors` green
+(2 unit tests + 3 byte-oracle integration tests; `append/004`
+produces `34e42d4af5ef94a07a3a84201b889d4cd1a743cb27b11b6a10438a8feb8e5847`
+for the ephemeral pubkey and the committed wrapped-DEK bytes);
+`cargo test -p trellis-hpke` (feature off) — 1 unit test, 0
+integration tests (gated symbols cannot be referenced even by accident);
+`cargo tree -p trellis-verify | grep -E 'hpke|x25519-dalek|chacha20poly1305|hkdf'`
+empty; `make check-verifier-isolation` → `OK: trellis-verify is
+HPKE-clean.`; `python3 scripts/check-specs.py` clean (warnings-only
+on Phase-1 non-signing key-class fixtures, no errors); G-5 stranger
+cross-check (`trellis-py`) clean across all 71 vectors.
+
+NEEDS_CONTEXT: none. Five-sibling parallel wave produced concurrent-
+staging churn on TODO.md / COMPLETED.md / spec files; Cargo.toml /
+lib.rs / Makefile changes were committed atomically with `git commit
+-o <path>` to dodge index races (the parent submodule is shared on
+disk between sibling agents).
+
 ### Wave 17 (2026-04-27) — Key-class taxonomy execution (ADR 0006)
 
 Closes item #1 from the post-Wave-15 TODO. Lands the unified `KeyEntry`
