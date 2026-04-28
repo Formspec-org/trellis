@@ -18,6 +18,37 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 20 (2026-04-27) — Interop sidecar reservation (item #18)
+
+Closes item #18 from the TODO. Lands Phase-1 reservation of the interop
+sidecar slot in the export manifest under ADR 0008 ISC-01..ISC-05 discipline.
+
+- Core 18.3a gains interop_sidecars field with InteropSidecarEntry
+  CDDL; Phase-1 lock-off prose anchors TR-CORE-145.
+
+- trellis-verify rejects non-empty interop_sidecars with
+  interop_sidecar_phase_1_locked fatal failure.
+
+- Fixtures: export/011-interop-sidecars-absent (canonical positive,
+  absent field), export/012-interop-sidecars-empty-list (canonical
+  positive, empty array), tamper/027-interop-sidecar-populated-phase-1
+  (verifier rejects populated entry). scripts/check-specs.py
+  TAMPER_KIND_ENUM extended.
+
+- Scaffolding: empty crates trellis-interop-scitt, trellis-interop-vc,
+  trellis-interop-c2pa, trellis-interop-did; parent workspace Cargo.toml
+  updated; deny.toml cargo-deny config with ecosystem-lib ban list.
+
+Verification:
+- cargo test --workspace clean (0 failures).
+- python3 scripts/check-specs.py clean.
+- python3 -m pytest scripts/test_check_specs.py clean (155).
+
+NEEDS_CONTEXT: none. tamper/028-031 require Phase-2+ adapter logic and
+are deferred to per-kind activation waves.
+
+---
+
 ### Wave 19 (2026-04-27) — AEAD nonce determinism (item #37)
 
 Closes item #37 from the TODO. Lands deterministic ChaCha20-Poly1305 nonce
