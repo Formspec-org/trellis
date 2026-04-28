@@ -34,7 +34,6 @@ const SIGNATURE_EXPORT_EXTENSION: &str = "trellis.export.signature-affirmations.
 const INTAKE_EXPORT_EXTENSION: &str = "trellis.export.intake-handoffs.v1";
 const ERASURE_EVIDENCE_EVENT_EXTENSION: &str = "trellis.erasure-evidence.v1";
 const ERASURE_EVIDENCE_EXPORT_EXTENSION: &str = "trellis.export.erasure-evidence.v1";
-const ERASURE_EVIDENCE_CATALOG_MEMBER: &str = "064-erasure-evidence.cbor";
 /// Domain separation tag for transition-attestation preimages (Core §9.8).
 /// Shared verbatim between §A.5 posture transitions and ADR 0005 erasure
 /// evidence; Phase-1 verifier checks structural shape (`signature` is 64
@@ -635,6 +634,17 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     } {
         verify_intake_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
     }
+    if let Some(extension) = match parse_erasure_evidence_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                "manifest_payload_invalid",
+                format!("erasure export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_erasure_evidence_catalog(&archive, &events, &extension, &mut report);
+    }
     for failure in &mut report.event_failures {
         if failure.kind == "scope_mismatch" {
             failure.location = format!("manifest-scope/{}", failure.location);
@@ -1228,6 +1238,26 @@ struct SignatureExportExtension {
 #[derive(Clone, Debug)]
 struct IntakeExportExtension {
     catalog_digest: [u8; 32],
+}
+
+/// Optional `trellis.export.erasure-evidence.v1` manifest extension (ADR 0005).
+#[derive(Clone, Debug)]
+struct ErasureEvidenceExportExtension {
+    catalog_ref: String,
+    catalog_digest: [u8; 32],
+    entry_count: u64,
+}
+
+/// One row in `064-erasure-evidence.cbor` (ADR 0005 export manifest catalog).
+#[derive(Clone, Debug)]
+struct ErasureEvidenceCatalogEntryRow {
+    canonical_event_hash: [u8; 32],
+    evidence_id: String,
+    kid_destroyed: [u8; 16],
+    destroyed_at: u64,
+    completion_mode: String,
+    cascade_scopes: Vec<String>,
+    subject_scope_kind: String,
 }
 
 #[derive(Clone, Debug)]
@@ -2576,6 +2606,37 @@ fn parse_intake_export_extension(
     }))
 }
 
+fn parse_erasure_evidence_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<ErasureEvidenceExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) =
+        map_lookup_optional_value(extensions, ERASURE_EVIDENCE_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("erasure export extension is not a map"))?;
+    let catalog_ref = map_lookup_text(extension_map, "catalog_ref")?;
+    if !catalog_ref.chars().all(|c| c.is_ascii()) {
+        return Err(VerifyError::new(
+            "erasure export extension catalog_ref must be ASCII (ZIP member path)",
+        ));
+    }
+    Ok(Some(ErasureEvidenceExportExtension {
+        catalog_ref,
+        catalog_digest: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "catalog_digest",
+            32,
+        )?),
+        entry_count: map_lookup_u64(extension_map, "entry_count")?,
+    }))
+}
+
 fn verify_attachment_manifest(
     archive: &ExportArchive,
     events: &[ParsedSign1],
@@ -2953,6 +3014,176 @@ fn verify_intake_catalog(
                     ),
                 ));
             }
+        }
+    }
+}
+
+fn parse_erasure_catalog_entries(
+    catalog_bytes: &[u8],
+) -> Result<Vec<ErasureEvidenceCatalogEntryRow>, VerifyError> {
+    let value = decode_value(catalog_bytes)?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| VerifyError::new("erasure evidence catalog root is not an array"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let map = entry
+                .as_map()
+                .ok_or_else(|| VerifyError::new("erasure evidence catalog entry is not a map"))?;
+            let cascade_array = map_lookup_array(map, "cascade_scopes")?;
+            if cascade_array.is_empty() {
+                return Err(VerifyError::new(
+                    "erasure evidence catalog cascade_scopes MUST be non-empty",
+                ));
+            }
+            let mut cascade_scopes = Vec::with_capacity(cascade_array.len());
+            for scope_value in cascade_array {
+                let scope = scope_value
+                    .as_text()
+                    .ok_or_else(|| VerifyError::new("erasure catalog cascade_scope entry is not text"))?;
+                cascade_scopes.push(scope.to_string());
+            }
+            let kid_bytes = map_lookup_fixed_bytes(map, "kid_destroyed", 16)?;
+            let kid_destroyed: [u8; 16] = kid_bytes
+                .as_slice()
+                .try_into()
+                .expect("map_lookup_fixed_bytes enforces 16-byte kid_destroyed");
+            Ok(ErasureEvidenceCatalogEntryRow {
+                canonical_event_hash: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "canonical_event_hash",
+                    32,
+                )?),
+                evidence_id: map_lookup_text(map, "evidence_id")?,
+                kid_destroyed,
+                destroyed_at: map_lookup_u64(map, "destroyed_at")?,
+                completion_mode: map_lookup_text(map, "completion_mode")?,
+                cascade_scopes,
+                subject_scope_kind: map_lookup_text(map, "subject_scope_kind")?,
+            })
+        })
+        .collect()
+}
+
+fn erasure_catalog_row_matches_details(
+    row: &ErasureEvidenceCatalogEntryRow,
+    details: &EventDetails,
+) -> bool {
+    let Some(erasure) = details.erasure.as_ref() else {
+        return false;
+    };
+    if row.canonical_event_hash != details.canonical_event_hash {
+        return false;
+    }
+    if row.evidence_id != erasure.evidence_id {
+        return false;
+    }
+    if row.kid_destroyed.as_slice() != erasure.kid_destroyed.as_slice() {
+        return false;
+    }
+    if row.destroyed_at != erasure.destroyed_at {
+        return false;
+    }
+    if row.completion_mode != erasure.completion_mode {
+        return false;
+    }
+    if row.cascade_scopes != erasure.cascade_scopes {
+        return false;
+    }
+    if row.subject_scope_kind != erasure.subject_scope_kind {
+        return false;
+    }
+    true
+}
+
+fn verify_erasure_evidence_catalog(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    extension: &ErasureEvidenceExportExtension,
+    report: &mut VerificationReport,
+) {
+    let member_name = extension.catalog_ref.as_str();
+    let Some(catalog_bytes) = archive.members.get(member_name) else {
+        report.event_failures.push(VerificationFailure::new(
+            "missing_erasure_evidence_catalog",
+            member_name.to_string(),
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(catalog_bytes);
+    if actual_digest.as_slice() != extension.catalog_digest.as_slice() {
+        report.event_failures.push(VerificationFailure::new(
+            "erasure_evidence_catalog_digest_mismatch",
+            member_name.to_string(),
+        ));
+    }
+
+    let entries = match parse_erasure_catalog_entries(catalog_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                "erasure_evidence_catalog_invalid",
+                format!("{member_name}/{error}"),
+            ));
+            return;
+        }
+    };
+
+    if entries.len() as u64 != extension.entry_count {
+        report.event_failures.push(VerificationFailure::new(
+            "erasure_evidence_catalog_invalid",
+            format!("{member_name}/entry_count"),
+        ));
+    }
+
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            match event_by_hash.entry(details.canonical_event_hash) {
+                Entry::Vacant(slot) => {
+                    slot.insert(details);
+                }
+                Entry::Occupied(_) => {
+                    report.event_failures.push(VerificationFailure::new(
+                        "export_events_duplicate_canonical_hash",
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_hashes = BTreeSet::new();
+    for row in &entries {
+        if !seen_hashes.insert(row.canonical_event_hash) {
+            report.event_failures.push(VerificationFailure::new(
+                "erasure_evidence_catalog_duplicate_event",
+                hex_string(&row.canonical_event_hash),
+            ));
+        }
+    }
+
+    for row in &entries {
+        let Some(details) = event_by_hash.get(&row.canonical_event_hash) else {
+            report.event_failures.push(VerificationFailure::new(
+                "erasure_evidence_catalog_event_unresolved",
+                hex_string(&row.canonical_event_hash),
+            ));
+            continue;
+        };
+        if details.event_type != ERASURE_EVIDENCE_EVENT_EXTENSION {
+            report.event_failures.push(VerificationFailure::new(
+                "erasure_evidence_catalog_event_type_mismatch",
+                hex_string(&row.canonical_event_hash),
+            ));
+            continue;
+        }
+        if !erasure_catalog_row_matches_details(row, details) {
+            report.event_failures.push(VerificationFailure::new(
+                "erasure_evidence_catalog_mismatch",
+                hex_string(&row.canonical_event_hash),
+            ));
         }
     }
 }
