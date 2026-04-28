@@ -1616,6 +1616,145 @@ def _parse_intake_export_extension(manifest_map: dict) -> Optional[bytes]:
     return _map_lookup_fixed_bytes(ext, "intake_catalog_digest", 32)
 
 
+def _parse_erasure_evidence_export_extension(
+    manifest_map: dict,
+) -> Optional[tuple[str, bytes, int]]:
+    exts = _map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(ERASURE_EVIDENCE_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("erasure export extension is not a map")
+    catalog_ref = str(_map_lookup_str(ext, "catalog_ref"))
+    if not catalog_ref.isascii():
+        raise VerifyError("erasure export extension catalog_ref must be ASCII")
+    digest = _map_lookup_fixed_bytes(ext, "catalog_digest", 32)
+    entry_count = int(_map_lookup_u64(ext, "entry_count"))
+    return catalog_ref, digest, entry_count
+
+
+def _parse_erasure_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]:
+    root = _decode_value(cat_bytes)
+    if not isinstance(root, list):
+        raise VerifyError("erasure evidence catalog root is not an array")
+    rows: list[dict[str, Any]] = []
+    for entry in root:
+        if not isinstance(entry, dict):
+            raise VerifyError("erasure evidence catalog entry is not a map")
+        scopes = _map_lookup_array(entry, "cascade_scopes")
+        if not scopes:
+            raise VerifyError("erasure evidence catalog cascade_scopes MUST be non-empty")
+        cascade_scopes = []
+        for s in scopes:
+            if not isinstance(s, str):
+                raise VerifyError("erasure catalog cascade_scope entry is not text")
+            cascade_scopes.append(s)
+        rows.append(
+            {
+                "canonical_event_hash": _map_lookup_fixed_bytes(
+                    entry, "canonical_event_hash", 32
+                ),
+                "evidence_id": str(_map_lookup_str(entry, "evidence_id")),
+                "kid_destroyed": _map_lookup_fixed_bytes(entry, "kid_destroyed", 16),
+                "destroyed_at": int(_map_lookup_u64(entry, "destroyed_at")),
+                "completion_mode": str(_map_lookup_str(entry, "completion_mode")),
+                "cascade_scopes": cascade_scopes,
+                "subject_scope_kind": str(_map_lookup_str(entry, "subject_scope_kind")),
+            }
+        )
+    return rows
+
+
+def _erasure_catalog_row_matches(row: dict[str, Any], det: EventDetails) -> bool:
+    er = det.erasure
+    if er is None:
+        return False
+    if row["canonical_event_hash"] != det.canonical_event_hash:
+        return False
+    if row["evidence_id"] != er.evidence_id:
+        return False
+    if row["kid_destroyed"] != er.kid_destroyed:
+        return False
+    if row["destroyed_at"] != er.destroyed_at:
+        return False
+    if row["completion_mode"] != er.completion_mode:
+        return False
+    if row["cascade_scopes"] != er.cascade_scopes:
+        return False
+    if row["subject_scope_kind"] != er.subject_scope_kind:
+        return False
+    return True
+
+
+def _verify_erasure_evidence_catalog(
+    archive: dict[str, bytes],
+    erasure_ext: tuple[str, bytes, int],
+    report: VerificationReport,
+    event_by_hash: dict[bytes, EventDetails],
+) -> None:
+    catalog_ref, catalog_digest, entry_count = erasure_ext
+    cat_bytes = archive.get(catalog_ref)
+    if cat_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("missing_erasure_evidence_catalog", catalog_ref)
+        )
+        return
+    if _sha256(cat_bytes) != catalog_digest:
+        report.event_failures.append(
+            VerificationFailure(
+                "erasure_evidence_catalog_digest_mismatch",
+                catalog_ref,
+            )
+        )
+    try:
+        entries = _parse_erasure_catalog_entries(cat_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure(
+                "erasure_evidence_catalog_invalid",
+                f"{catalog_ref}/{exc}",
+            )
+        )
+        return
+    if len(entries) != entry_count:
+        report.event_failures.append(
+            VerificationFailure(
+                "erasure_evidence_catalog_invalid",
+                f"{catalog_ref}/entry_count",
+            )
+        )
+    seen: set[bytes] = set()
+    for row in entries:
+        h = row["canonical_event_hash"]
+        if h in seen:
+            report.event_failures.append(
+                VerificationFailure("erasure_evidence_catalog_duplicate_event", _hex(h))
+            )
+        seen.add(h)
+    for row in entries:
+        h = row["canonical_event_hash"]
+        det = event_by_hash.get(h)
+        if det is None:
+            report.event_failures.append(
+                VerificationFailure("erasure_evidence_catalog_event_unresolved", _hex(h))
+            )
+            continue
+        if det.event_type != ERASURE_EVIDENCE_EVENT_EXTENSION:
+            report.event_failures.append(
+                VerificationFailure(
+                    "erasure_evidence_catalog_event_type_mismatch",
+                    _hex(h),
+                )
+            )
+            continue
+        if not _erasure_catalog_row_matches(row, det):
+            report.event_failures.append(
+                VerificationFailure("erasure_evidence_catalog_mismatch", _hex(h))
+            )
+
+
 def _map_lookup_optional_text(m: dict, key: str) -> Optional[str]:
     v = m.get(key)
     if v is None:
@@ -2396,6 +2535,21 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         return VerificationReport.fatal("manifest_payload_invalid", "manifest payload root is not a map")
     manifest_map = manifest_payload
 
+    # Phase-1 interop sidecar lock-off (ADR 0008); mirrors `trellis-verify`.
+    isc = manifest_map.get("interop_sidecars")
+    if isc is not None:
+        if isinstance(isc, list):
+            if len(isc) > 0:
+                return VerificationReport.fatal(
+                    "interop_sidecar_phase_1_locked",
+                    "Phase-1 verifier rejects populated interop_sidecars (ADR 0008)",
+                )
+        else:
+            return VerificationReport.fatal(
+                "manifest_payload_invalid",
+                "interop_sidecars must be an array or null",
+            )
+
     required_digests = [
         ("010-events.cbor", "events_digest"),
         ("020-inclusion-proofs.cbor", "inclusion_proofs_digest"),
@@ -2519,8 +2673,18 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         return VerificationReport.fatal(
             "manifest_payload_invalid", f"intake export extension is invalid: {exc}"
         )
+    try:
+        erasure_export_ext = _parse_erasure_evidence_export_extension(manifest_map)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"erasure export extension is invalid: {exc}"
+        )
     shared_event_by_hash: dict[bytes, EventDetails] = {}
-    if signature_catalog_digest is not None or intake_catalog_digest is not None:
+    if (
+        signature_catalog_digest is not None
+        or intake_catalog_digest is not None
+        or erasure_export_ext is not None
+    ):
         shared_event_by_hash, dup_failures = _index_events_by_canonical_hash(events)
         report.event_failures.extend(dup_failures)
     if signature_catalog_digest is not None:
@@ -2530,6 +2694,10 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
     if intake_catalog_digest is not None:
         _verify_intake_catalog(
             archive, payload_blobs, intake_catalog_digest, report, shared_event_by_hash
+        )
+    if erasure_export_ext is not None:
+        _verify_erasure_evidence_catalog(
+            archive, erasure_export_ext, report, shared_event_by_hash
         )
 
     for failure in report.event_failures:
