@@ -38,6 +38,9 @@ ATTACHMENT_EXPORT_EXTENSION = "trellis.export.attachments.v1"
 ATTACHMENT_EVENT_EXTENSION = "trellis.evidence-attachment-binding.v1"
 SIGNATURE_EXPORT_EXTENSION = "trellis.export.signature-affirmations.v1"
 INTAKE_EXPORT_EXTENSION = "trellis.export.intake-handoffs.v1"
+ERASURE_EVIDENCE_EVENT_EXTENSION = "trellis.erasure-evidence.v1"
+ERASURE_EVIDENCE_EXPORT_EXTENSION = "trellis.export.erasure-evidence.v1"
+ERASURE_EVIDENCE_CATALOG_MEMBER = "064-erasure-evidence.cbor"
 WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signatureAffirmation"
 WOS_INTAKE_ACCEPTED_EVENT_TYPE = "wos.kernel.intakeAccepted"
 WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.caseCreated"
@@ -63,6 +66,33 @@ class PostureTransitionOutcome:
 
 
 @dataclass
+class ErasureEvidenceOutcome:
+    """Outcome for one cryptographic-erasure-evidence verification (ADR 0005
+    step 10 / Core §19 step 6b). One entry per `trellis.erasure-evidence.v1`
+    payload in the chain, in chain order. Mirrors Rust
+    `trellis_verify::ErasureEvidenceOutcome` byte-for-byte.
+
+    `signature_verified` is the Phase-1 structural check (every attestation
+    row carries a 64-byte signature + recognized `authority_class`).
+    Crypto-verification of the Ed25519 signatures themselves rides Phase-2+
+    alongside the posture-transition flow.
+    """
+
+    evidence_id: str
+    kid_destroyed: bytes
+    destroyed_at: int
+    cascade_scopes: list[str]
+    completion_mode: str
+    event_index: int
+    signature_verified: bool
+    post_erasure_uses: int = 0
+    post_erasure_wraps: int = 0
+    cascade_violations: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+
+
+@dataclass
 class VerificationReport:
     structure_verified: bool = False
     integrity_verified: bool = False
@@ -71,6 +101,7 @@ class VerificationReport:
     checkpoint_failures: list[VerificationFailure] = field(default_factory=list)
     proof_failures: list[VerificationFailure] = field(default_factory=list)
     posture_transitions: list[PostureTransitionOutcome] = field(default_factory=list)
+    erasure_evidence: list[ErasureEvidenceOutcome] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     @staticmethod
@@ -181,6 +212,8 @@ class EventDetails:
     payload_ref_external: bool
     transition: Optional["TransitionDetails"]
     attachment_binding: Optional[AttachmentBindingDetails] = None
+    erasure: Optional["ErasureEvidenceDetails"] = None
+    wrap_recipients: list[bytes] = field(default_factory=list)
 
 
 @dataclass
@@ -197,6 +230,39 @@ class TransitionDetails:
     # Only populated for disclosure-profile transitions. Drives the
     # Narrowing / Widening / Orthogonal attestation rule (A.5.3 step 4).
     scope_change: Optional[str] = None
+
+
+
+@dataclass
+class ErasureEvidenceDetails:
+    """Decoded `trellis.erasure-evidence.v1` payload (ADR 0005 §"Wire shape").
+
+    Mirrors Rust `trellis_verify::ErasureEvidenceDetails`. `norm_key_class`
+    holds the wire `key_class` AFTER `wrap` → `subject` normalization (Core
+    §8.7.6 / ADR 0005 step 2) so cross-event step 5 / step 8 reasoning
+    operates on the canonical taxonomy.
+    """
+
+    evidence_id: str
+    kid_destroyed: bytes
+    norm_key_class: str
+    destroyed_at: int
+    cascade_scopes: list[str]
+    completion_mode: str
+    attestation_signatures_well_formed: bool
+    attestation_classes: list[str]
+    subject_scope_kind: str
+
+
+@dataclass
+class _ChainEventSummary:
+    """Per-event chain summary used by ADR 0005 step 8 cross-event walk."""
+
+    event_index: int
+    authored_at: int
+    signing_kid: bytes
+    wrap_recipients: list[bytes]
+    canonical_event_hash: bytes
 
 
 def _sha256(b: bytes) -> bytes:
@@ -553,6 +619,183 @@ def _cbor_nested_semantic_eq(a: Any, b: Any) -> bool:
     return _normalize_cbor_compare(a) == _normalize_cbor_compare(b)
 
 
+def _validate_subject_scope_shape(subject_scope: dict, kind: str) -> None:
+    """ADR 0005 step 3 — validates the cross-field shape of `subject_scope`.
+
+    Mirrors Rust `validate_subject_scope_shape`. Raises VerifyError on any
+    structural violation.
+    """
+
+    subject_refs = subject_scope.get("subject_refs")
+    ledger_scopes = subject_scope.get("ledger_scopes")
+    tenant_refs = subject_scope.get("tenant_refs")
+
+    def is_present(v: Any) -> bool:
+        return isinstance(v, list) and len(v) > 0
+
+    def is_null_or_absent(v: Any) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, list) and len(v) == 0:
+            return True
+        return False
+
+    if kind == "per-subject":
+        ok = is_present(subject_refs) and is_null_or_absent(ledger_scopes) and is_null_or_absent(tenant_refs)
+    elif kind == "per-scope":
+        ok = is_null_or_absent(subject_refs) and is_present(ledger_scopes) and is_null_or_absent(tenant_refs)
+    elif kind == "per-tenant":
+        ok = is_null_or_absent(subject_refs) and is_null_or_absent(ledger_scopes) and is_present(tenant_refs)
+    elif kind == "deployment-wide":
+        ok = is_null_or_absent(subject_refs) and is_null_or_absent(ledger_scopes) and is_null_or_absent(tenant_refs)
+    else:
+        raise VerifyError(
+            f"erasure-evidence subject_scope.kind `{kind}` is not one of "
+            "per-subject / per-scope / per-tenant / deployment-wide (ADR 0005 step 3)"
+        )
+
+    if not ok:
+        raise VerifyError(
+            f"erasure-evidence subject_scope cross-field shape violates ADR 0005 step 3 for kind `{kind}`"
+        )
+
+
+def _decode_erasure_evidence_details(
+    extensions: dict, host_authored_at: int
+) -> Optional[ErasureEvidenceDetails]:
+    """Decodes the optional `trellis.erasure-evidence.v1` extension payload
+    and runs ADR 0005 §"Verifier obligations" steps 1 (CDDL), 3 (subject_scope
+    shape), 4 (`destroyed_at` ≤ host `authored_at`), and 6 (hsm_receipt
+    null-consistency) inline. Steps 2 / 5 / 7 / 8 / 9 / 10 run in the
+    cross-event finalization pass after every event has been decoded.
+
+    Mirrors Rust `decode_erasure_evidence_details` byte-for-byte.
+    """
+
+    ext = extensions.get(ERASURE_EVIDENCE_EVENT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("erasure-evidence extension is not a map")
+
+    # Step 1: CDDL decode. Required fields per ADR 0005 §"Wire shape".
+    evidence_id = str(_map_lookup_str(ext, "evidence_id"))
+    kid_destroyed = _map_lookup_fixed_bytes(ext, "kid_destroyed", 16)
+
+    # Step 2 prep: capture `key_class` and apply `wrap` → `subject`
+    # normalization. Registry-bind happens in the finalize pass.
+    wire_key_class = str(_map_lookup_str(ext, "key_class"))
+    norm_key_class = "subject" if wire_key_class == "wrap" else wire_key_class
+
+    destroyed_at = _map_lookup_u64(ext, "destroyed_at")
+
+    # Step 4: `destroyed_at` MUST be ≤ host event's `authored_at`.
+    # Companion OC-144 / TR-OP-109. Typed kind so the report's `tamper_kind`
+    # carries `erasure_destroyed_at_after_host`.
+    if destroyed_at > host_authored_at:
+        raise VerifyError(
+            f"erasure-evidence `destroyed_at` ({destroyed_at}) exceeds "
+            f"hosting event `authored_at` ({host_authored_at}) "
+            "(Companion OC-144 / ADR 0005 step 4)",
+            kind="erasure_destroyed_at_after_host",
+        )
+
+    # CDDL: cascade_scopes is a non-empty array of CascadeScope text strings.
+    cascade_array = _map_lookup_str(ext, "cascade_scopes")
+    if not isinstance(cascade_array, list) or len(cascade_array) == 0:
+        raise VerifyError(
+            "erasure-evidence `cascade_scopes` MUST be a non-empty array "
+            "(ADR 0005 §Wire shape)"
+        )
+    cascade_scopes: list[str] = []
+    for scope_value in cascade_array:
+        if not isinstance(scope_value, str):
+            raise VerifyError("erasure-evidence cascade_scope entry is not text")
+        cascade_scopes.append(scope_value)
+
+    completion_mode = str(_map_lookup_str(ext, "completion_mode"))
+    _ = str(_map_lookup_str(ext, "destruction_actor"))
+    _ = str(_map_lookup_str(ext, "policy_authority"))
+    _ = _map_lookup_u64(ext, "reason_code")
+
+    # Step 3: `subject_scope` cross-field shape by `kind`.
+    subject_scope = ext.get("subject_scope")
+    if subject_scope is None:
+        raise VerifyError("erasure-evidence `subject_scope` is missing")
+    if not isinstance(subject_scope, dict):
+        raise VerifyError("erasure-evidence `subject_scope` is not a map")
+    subject_scope_kind = str(_map_lookup_str(subject_scope, "kind"))
+    _validate_subject_scope_shape(subject_scope, subject_scope_kind)
+
+    # Step 6: `hsm_receipt` / `hsm_receipt_kind` null-consistency.
+    receipt = ext.get("hsm_receipt")
+    receipt_kind = ext.get("hsm_receipt_kind")
+    receipt_present = isinstance(receipt, bytes)
+    receipt_kind_present = isinstance(receipt_kind, str)
+    if receipt_present != receipt_kind_present:
+        raise VerifyError(
+            "erasure-evidence `hsm_receipt` and `hsm_receipt_kind` must "
+            "both be null or both non-null (ADR 0005 step 6)"
+        )
+
+    # Step 7 (Phase-1 structural): every attestation row carries a 64-byte
+    # signature and a recognized `authority_class`. Crypto-verification of
+    # the Ed25519 signature itself rides Phase-2+.
+    attestations = _map_lookup_str(ext, "attestations")
+    if not isinstance(attestations, list) or len(attestations) == 0:
+        raise VerifyError(
+            "erasure-evidence `attestations` MUST be non-empty "
+            "(ADR 0005 §Wire shape)"
+        )
+    attestation_classes: list[str] = []
+    attestation_signatures_well_formed = True
+    for entry in attestations:
+        if not isinstance(entry, dict):
+            raise VerifyError("attestation entry is not a map")
+        ac = str(_map_lookup_str(entry, "authority_class"))
+        attestation_classes.append(ac)
+        sig = _map_lookup_str(entry, "signature")
+        if not isinstance(sig, bytes) or len(sig) != 64:
+            attestation_signatures_well_formed = False
+        # `authority` is captured by the wire but not yet used by the
+        # Phase-1 verifier (no authority↔key registry binding); we still
+        # require the field per CDDL.
+        _ = str(_map_lookup_str(entry, "authority"))
+
+    return ErasureEvidenceDetails(
+        evidence_id=evidence_id,
+        kid_destroyed=kid_destroyed,
+        norm_key_class=norm_key_class,
+        destroyed_at=destroyed_at,
+        cascade_scopes=cascade_scopes,
+        completion_mode=completion_mode,
+        attestation_signatures_well_formed=attestation_signatures_well_formed,
+        attestation_classes=attestation_classes,
+        subject_scope_kind=subject_scope_kind,
+    )
+
+
+def _decode_key_bag_recipients(payload_value: dict) -> list[bytes]:
+    """Extracts wrap recipients from `payload.key_bag.entries[*].recipient`
+    so step 8 (post_erasure_wrap detection) can compare against
+    `kid_destroyed`. Mirrors Rust `decode_key_bag_recipients`.
+    """
+
+    key_bag = payload_value.get("key_bag")
+    if key_bag is None or not isinstance(key_bag, dict):
+        return []
+    entries = key_bag.get("entries")
+    if entries is None or not isinstance(entries, list):
+        return []
+    out: list[bytes] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise VerifyError("key_bag entry is not a map")
+        recipient = _map_lookup_bytes(entry, "recipient")
+        out.append(recipient)
+    return out
+
+
 def _decode_event_details(event: ParsedSign1) -> EventDetails:
     if event.payload is None:
         raise VerifyError("detached event payloads are out of scope")
@@ -590,11 +833,14 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
     exts = payload_value.get("extensions")
     transition: Optional[TransitionDetails] = None
     attachment_binding: Optional[AttachmentBindingDetails] = None
+    erasure: Optional[ErasureEvidenceDetails] = None
     if isinstance(exts, dict):
         transition = _decode_transition_details(exts)
         attachment_binding = _decode_attachment_binding_details(exts)
+        erasure = _decode_erasure_evidence_details(exts, authored_at)
     elif exts is not None:
         raise VerifyError("extensions not map")
+    wrap_recipients = _decode_key_bag_recipients(payload_value)
     return EventDetails(
         scope=scope,
         sequence=sequence,
@@ -609,6 +855,8 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         payload_ref_external=external,
         transition=transition,
         attachment_binding=attachment_binding,
+        erasure=erasure,
+        wrap_recipients=wrap_recipients,
     )
 
 
@@ -770,6 +1018,152 @@ def _requires_dual_attestation(from_state: str, to_state: str) -> bool:
     return _custody_rank(to_state) > _custody_rank(from_state)
 
 
+def _finalize_erasure_evidence(
+    payloads: list[tuple[int, ErasureEvidenceDetails, bytes]],
+    chain: list["_ChainEventSummary"],
+    registry: dict[bytes, SigningKeyEntry],
+    non_signing_registry: Optional[dict[bytes, NonSigningKeyEntry]],
+    event_failures: list[VerificationFailure],
+) -> list[ErasureEvidenceOutcome]:
+    """ADR 0005 §"Verifier obligations" finalization pass: runs steps 2 / 5 /
+    7 / 8 / 10 after every event has been decoded. Mirrors Rust
+    `finalize_erasure_evidence` byte-for-byte.
+
+    Localizable failures are pushed into `event_failures` so the report's
+    `tamper_kind` projection picks them up. Cross-payload group failures
+    localize to the second-emitted payload's canonical hash.
+    """
+
+    if not payloads:
+        return []
+
+    # Step 5 / 8 group state — keyed by `kid_destroyed` bytes.
+    group_destroyed_at: dict[bytes, int] = {}
+    group_key_class: dict[bytes, str] = {}
+    group_conflict_destroyed_at: set[bytes] = set()
+    group_conflict_key_class: set[bytes] = set()
+    outcomes: list[ErasureEvidenceOutcome] = []
+
+    # First pass: step 2 (registry bind) per payload + step 5 (group
+    # destroyed_at / key_class agreement).
+    for index, payload, canonical_hash in payloads:
+        # Step 2: registry bind. If `kid_destroyed` resolves to exactly one
+        # KeyEntry row, `norm_key_class` MUST match that row's `kind`. For
+        # legacy flat `SigningKeyEntry` (no `kind`), expected = `signing`.
+        registry_class: Optional[str] = None
+        if payload.kid_destroyed in registry:
+            registry_class = "signing"
+        elif non_signing_registry is not None and payload.kid_destroyed in non_signing_registry:
+            registry_class = non_signing_registry[payload.kid_destroyed].class_
+
+        if registry_class is not None and registry_class != payload.norm_key_class:
+            event_failures.append(
+                VerificationFailure(
+                    "erasure_key_class_registry_mismatch",
+                    _hex(canonical_hash),
+                )
+            )
+
+        # Step 5: group by kid_destroyed.
+        if payload.kid_destroyed not in group_destroyed_at:
+            group_destroyed_at[payload.kid_destroyed] = payload.destroyed_at
+        else:
+            if (
+                group_destroyed_at[payload.kid_destroyed] != payload.destroyed_at
+                and payload.kid_destroyed not in group_conflict_destroyed_at
+            ):
+                event_failures.append(
+                    VerificationFailure(
+                        "erasure_destroyed_at_conflict",
+                        _hex(canonical_hash),
+                    )
+                )
+                group_conflict_destroyed_at.add(payload.kid_destroyed)
+        if payload.kid_destroyed not in group_key_class:
+            group_key_class[payload.kid_destroyed] = payload.norm_key_class
+        else:
+            if (
+                group_key_class[payload.kid_destroyed] != payload.norm_key_class
+                and payload.kid_destroyed not in group_conflict_key_class
+            ):
+                event_failures.append(
+                    VerificationFailure(
+                        "erasure_key_class_payload_conflict",
+                        _hex(canonical_hash),
+                    )
+                )
+                group_conflict_key_class.add(payload.kid_destroyed)
+
+        outcomes.append(
+            ErasureEvidenceOutcome(
+                evidence_id=payload.evidence_id,
+                kid_destroyed=payload.kid_destroyed,
+                destroyed_at=payload.destroyed_at,
+                cascade_scopes=list(payload.cascade_scopes),
+                completion_mode=payload.completion_mode,
+                event_index=index,
+                signature_verified=payload.attestation_signatures_well_formed,
+                post_erasure_uses=0,
+                post_erasure_wraps=0,
+                cascade_violations=[],
+                failures=[],
+            )
+        )
+
+    # Step 8: chain consistency for `norm_key_class ∈ {"signing", "subject"}`.
+    for outcome in outcomes:
+        if outcome.kid_destroyed in group_conflict_destroyed_at:
+            outcome.failures.append("erasure_destroyed_at_conflict")
+            continue
+        if outcome.kid_destroyed in group_conflict_key_class:
+            outcome.failures.append("erasure_key_class_payload_conflict")
+            continue
+        cls = group_key_class.get(outcome.kid_destroyed, "")
+        if cls not in ("signing", "subject"):
+            # ADR 0005 step 8 Phase-1 scope: only signing + subject classes
+            # run the chain walk. Other classes are wire-valid; subtree
+            # dispatch co-lands with ADR 0006 follow-on milestones.
+            continue
+        destroyed_at = group_destroyed_at.get(outcome.kid_destroyed)
+        if destroyed_at is None:
+            continue
+        for ev in chain:
+            if ev.authored_at <= destroyed_at:
+                continue
+            if ev.signing_kid == outcome.kid_destroyed:
+                outcome.post_erasure_uses += 1
+                outcome.failures.append("post_erasure_use")
+                event_failures.append(
+                    VerificationFailure(
+                        "post_erasure_use",
+                        _hex(ev.canonical_event_hash),
+                    )
+                )
+            if any(r == outcome.kid_destroyed for r in ev.wrap_recipients):
+                outcome.post_erasure_wraps += 1
+                outcome.failures.append("post_erasure_wrap")
+                event_failures.append(
+                    VerificationFailure(
+                        "post_erasure_wrap",
+                        _hex(ev.canonical_event_hash),
+                    )
+                )
+
+    # Step 7 (Phase-1 structural): malformed attestation surfaces as a
+    # localized failure so `integrity_verified` flips and the `tamper_kind`
+    # projection finds it.
+    for outcome in outcomes:
+        if not outcome.signature_verified:
+            event_failures.append(
+                VerificationFailure(
+                    "erasure_attestation_signature_invalid",
+                    _hex(b"\x00" * 32),
+                )
+            )
+
+    return outcomes
+
+
 def _verify_event_set(
     events: list[ParsedSign1],
     registry: dict[bytes, SigningKeyEntry],
@@ -782,6 +1176,8 @@ def _verify_event_set(
 ) -> VerificationReport:
     event_failures: list[VerificationFailure] = []
     posture_transitions: list[PostureTransitionOutcome] = []
+    erasure_payloads: list[tuple[int, ErasureEvidenceDetails, bytes]] = []
+    chain_summaries: list[_ChainEventSummary] = []
     previous_hash: Optional[bytes] = None
     skip_prev = initial_posture_declaration is not None and len(events) == 1
     shadow_custody_model: Optional[str] = None
@@ -836,11 +1232,17 @@ def _verify_event_set(
 
         try:
             details = _decode_event_details(event)
-        except VerifyError:
-            return VerificationReport.fatal(
-                "malformed_cose",
-                "event payload does not decode as a canonical Trellis event",
+        except VerifyError as exc:
+            # Surface typed structural-failure kinds (e.g.
+            # `erasure_destroyed_at_after_host` from ADR 0005 step 4)
+            # as the report's `tamper_kind`. Untyped decode errors
+            # continue to land as generic `malformed_cose`.
+            tamper_kind = exc.kind or "malformed_cose"
+            warning = (
+                str(exc) if exc.kind is not None
+                else "event payload does not decode as a canonical Trellis event"
             )
+            return VerificationReport.fatal(tamper_kind, warning)
 
         if key_entry.status == 3:
             if key_entry.valid_to is None:
@@ -907,6 +1309,24 @@ def _verify_event_set(
             event_failures.append(VerificationFailure(kind, _hex(details.canonical_event_hash)))
         previous_hash = details.canonical_event_hash
 
+        # ADR 0005 step 8 input collection — every event contributes a
+        # chain summary so the post-loop pass can flag `authored_at >
+        # destroyed_at` events that sign under (post_erasure_use) or wrap
+        # for (post_erasure_wrap) a destroyed kid.
+        chain_summaries.append(
+            _ChainEventSummary(
+                event_index=index,
+                authored_at=details.authored_at,
+                signing_kid=event.kid,
+                wrap_recipients=list(details.wrap_recipients),
+                canonical_event_hash=details.canonical_event_hash,
+            )
+        )
+        if details.erasure is not None:
+            erasure_payloads.append(
+                (index, details.erasure, details.canonical_event_hash)
+            )
+
         if details.transition is not None:
             tr = details.transition
             outcome = PostureTransitionOutcome(
@@ -959,18 +1379,35 @@ def _verify_event_set(
                 shadow_disclosure_profile = tr.to_state
             posture_transitions.append(outcome)
 
+    erasure_evidence = _finalize_erasure_evidence(
+        erasure_payloads,
+        chain_summaries,
+        registry,
+        non_signing_registry,
+        event_failures,
+    )
     posture_ok = all(
         o.continuity_verified and o.declaration_resolved and o.attestations_verified
         for o in posture_transitions
     )
+    # ADR 0005 step 10 fold: any erasure-evidence outcome with
+    # `signature_verified = false`, `post_erasure_uses > 0`, or
+    # `post_erasure_wraps > 0` flips integrity. Structure failures
+    # (steps 1-6) already accumulated into `event_failures` so they
+    # also gate via `not event_failures`.
+    erasure_ok = all(
+        o.signature_verified and o.post_erasure_uses == 0 and o.post_erasure_wraps == 0
+        for o in erasure_evidence
+    )
     return VerificationReport(
         structure_verified=True,
-        integrity_verified=not event_failures and posture_ok,
+        integrity_verified=not event_failures and posture_ok and erasure_ok,
         readability_verified=True,
         event_failures=event_failures,
         checkpoint_failures=[],
         proof_failures=[],
         posture_transitions=posture_transitions,
+        erasure_evidence=erasure_evidence,
         warnings=[],
     )
 
