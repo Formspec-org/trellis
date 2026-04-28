@@ -1,0 +1,461 @@
+"""Unit tests for ADR 0007 certificate-of-completion verification.
+
+Mirrors the focused unit tests in `crates/trellis-verify/src/lib.rs` so
+Rust + Python stay byte-equivalent on the verifier-side semantics. G-5
+corpus parity (the same fixtures pass on both runtimes) is asserted by
+`trellis_py.conformance` against the committed `append/028..030`,
+`tamper/020..026`, and `export/010` vectors; these tests cover the
+focused decode + finalize + catalog helpers.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+import pytest
+
+from trellis_py.verify import (
+    CertificateDetails,
+    CertificateOfCompletionOutcome,
+    PresentationArtifactDetails,
+    ChainSummaryDetails,
+    SignerDisplayDetails,
+    VerificationFailure,
+    VerifyError,
+    _decode_certificate_payload,
+    _finalize_certificates_of_completion,
+    _parse_certificate_export_extension,
+    _parse_certificate_catalog_entries,
+)
+
+
+# ---------------------------------------------------------------------------
+# Builders.
+# ---------------------------------------------------------------------------
+
+
+def one_attestation(authority_class: str = "new") -> dict:
+    return {
+        "authority": f"urn:trellis:authority:test-{authority_class}",
+        "authority_class": authority_class,
+        "signature": b"\x00" * 64,
+    }
+
+
+def signer_display_entry(
+    *,
+    principal_ref: str = "applicant",
+    display_name: str = "Test Signer",
+    display_role: Optional[str] = "applicant",
+    signed_at: int = 1_776_900_000,
+) -> dict:
+    return {
+        "principal_ref": principal_ref,
+        "display_name":  display_name,
+        "display_role":  display_role,
+        "signed_at":     signed_at,
+    }
+
+
+def presentation_artifact(
+    *,
+    content_hash: bytes = b"\xa1" * 32,
+    media_type: str = "application/pdf",
+    byte_length: int = 64,
+    attachment_id: str = "urn:trellis:attachment:test",
+    template_id: Optional[str] = None,
+    template_hash: Optional[bytes] = None,
+) -> dict:
+    return {
+        "content_hash":  content_hash,
+        "media_type":    media_type,
+        "byte_length":   byte_length,
+        "attachment_id": attachment_id,
+        "template_id":   template_id,
+        "template_hash": template_hash,
+    }
+
+
+def chain_summary(
+    *,
+    signer_count: int = 1,
+    signer_display: Optional[list[dict]] = None,
+    response_ref: Optional[bytes] = None,
+    workflow_status: str = "completed",
+    impact_level: Optional[str] = None,
+    covered_claims: Optional[list[str]] = None,
+) -> dict:
+    if signer_display is None:
+        signer_display = [signer_display_entry()]
+    if covered_claims is None:
+        covered_claims = []
+    return {
+        "signer_count":    signer_count,
+        "signer_display":  signer_display,
+        "response_ref":    response_ref,
+        "workflow_status": workflow_status,
+        "impact_level":    impact_level,
+        "covered_claims":  covered_claims,
+    }
+
+
+def certificate_extensions(
+    *,
+    certificate_id: str = "urn:trellis:certificate:test:1",
+    case_ref: Optional[str] = None,
+    completed_at: int = 1_776_899_500,
+    pa: Optional[dict] = None,
+    cs: Optional[dict] = None,
+    signing_events: Optional[list[bytes]] = None,
+    workflow_ref: Optional[str] = None,
+    attestations: Optional[list[dict]] = None,
+) -> dict:
+    if pa is None:
+        pa = presentation_artifact()
+    if cs is None:
+        cs = chain_summary()
+    if signing_events is None:
+        signing_events = [b"\x80" * 32]
+    if attestations is None:
+        attestations = [one_attestation("new")]
+    return {
+        "trellis.certificate-of-completion.v1": {
+            "certificate_id":        certificate_id,
+            "case_ref":              case_ref,
+            "completed_at":          completed_at,
+            "presentation_artifact": pa,
+            "chain_summary":         cs,
+            "signing_events":        signing_events,
+            "workflow_ref":          workflow_ref,
+            "attestations":          attestations,
+            "extensions":            None,
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Decode tests.
+# ---------------------------------------------------------------------------
+
+
+def test_decode_minimal_certificate_succeeds():
+    exts = certificate_extensions()
+    cert = _decode_certificate_payload(exts)
+    assert cert is not None
+    assert cert.certificate_id == "urn:trellis:certificate:test:1"
+    assert cert.case_ref is None
+    assert cert.chain_summary.signer_count == 1
+    assert len(cert.signing_events) == 1
+    assert cert.attestation_signatures_well_formed is True
+
+
+def test_decode_returns_none_when_extension_absent():
+    cert = _decode_certificate_payload({})
+    assert cert is None
+
+
+def test_decode_signer_count_mismatch_flips_kind():
+    """ADR 0007 step 2 first invariant — signer_count != len(signing_events)."""
+    exts = certificate_extensions(
+        cs=chain_summary(signer_count=2),  # but signing_events has 1
+    )
+    with pytest.raises(VerifyError) as exc:
+        _decode_certificate_payload(exts)
+    assert exc.value.kind == "certificate_chain_summary_mismatch"
+
+
+def test_decode_signer_display_length_mismatch_flips_kind():
+    """ADR 0007 step 2 first invariant — len(signer_display) != len(signing_events)."""
+    exts = certificate_extensions(
+        cs=chain_summary(
+            signer_count=1,
+            signer_display=[signer_display_entry(), signer_display_entry()],
+        ),
+        signing_events=[b"\x80" * 32],  # one event but two signer_display entries
+    )
+    with pytest.raises(VerifyError) as exc:
+        _decode_certificate_payload(exts)
+    # signer_count=1 but signer_display=2 — chain-summary invariant failure.
+    # (Implementation-wise: we set signer_count=1 to align with signing_events
+    # length, then signer_display length=2 trips the second clause.)
+    assert exc.value.kind == "certificate_chain_summary_mismatch"
+
+
+def test_decode_html_without_template_hash_flips_malformed_cose():
+    """ADR 0007 §"Wire shape" PresentationArtifact.template_hash — HTML
+    binding requires non-null template_hash."""
+    exts = certificate_extensions(
+        pa=presentation_artifact(media_type="text/html", template_hash=None),
+    )
+    with pytest.raises(VerifyError) as exc:
+        _decode_certificate_payload(exts)
+    assert exc.value.kind == "malformed_cose"
+
+
+def test_decode_html_with_template_hash_succeeds():
+    exts = certificate_extensions(
+        pa=presentation_artifact(media_type="text/html", template_hash=b"\xf1" * 32),
+    )
+    cert = _decode_certificate_payload(exts)
+    assert cert is not None
+    assert cert.presentation_artifact.media_type == "text/html"
+    assert cert.presentation_artifact.template_hash == b"\xf1" * 32
+
+
+def test_decode_short_attestation_signature_flips_well_formed_false():
+    """ADR 0007 step 3 — Phase-1 structural attestation contract: signature
+    bytes != 64 sets `attestation_signatures_well_formed = False`."""
+    short_sig = {
+        "authority":       "urn:trellis:authority:test-new",
+        "authority_class": "new",
+        "signature":       b"\x00" * 63,
+    }
+    exts = certificate_extensions(attestations=[short_sig])
+    cert = _decode_certificate_payload(exts)
+    assert cert is not None
+    assert cert.attestation_signatures_well_formed is False
+
+
+def test_decode_empty_signing_events_rejected():
+    exts = certificate_extensions(signing_events=[])
+    with pytest.raises(VerifyError):
+        _decode_certificate_payload(exts)
+
+
+def test_decode_empty_attestations_rejected():
+    exts = certificate_extensions(attestations=[])
+    with pytest.raises(VerifyError):
+        _decode_certificate_payload(exts)
+
+
+def test_decode_empty_signer_display_rejected():
+    exts = certificate_extensions(
+        cs=chain_summary(signer_display=[]),
+    )
+    with pytest.raises(VerifyError):
+        _decode_certificate_payload(exts)
+
+
+def test_decode_response_ref_round_trip():
+    exts = certificate_extensions(
+        cs=chain_summary(response_ref=b"\xfe" * 32),
+    )
+    cert = _decode_certificate_payload(exts)
+    assert cert is not None
+    assert cert.chain_summary.response_ref == b"\xfe" * 32
+
+
+def test_decode_impact_level_null_admitted():
+    """ADR 0007 §"Field semantics" `impact_level` clause: null is the valid
+    omission for signing-only Trellis deployments."""
+    exts = certificate_extensions(cs=chain_summary(impact_level=None))
+    cert = _decode_certificate_payload(exts)
+    assert cert is not None
+    assert cert.chain_summary.impact_level is None
+
+
+def test_decode_workflow_status_extension_admitted():
+    """ADR 0007 §"Field semantics" `workflow_status` clause: append-only
+    registry-extension `tstr` values admitted (Phase-1 reference verifier
+    accepts any tstr)."""
+    exts = certificate_extensions(
+        cs=chain_summary(workflow_status="x-deployment/test-status"),
+    )
+    cert = _decode_certificate_payload(exts)
+    assert cert is not None
+    assert cert.chain_summary.workflow_status == "x-deployment/test-status"
+
+
+# ---------------------------------------------------------------------------
+# Finalize tests.
+# ---------------------------------------------------------------------------
+
+
+def make_cert_details(
+    *,
+    certificate_id: str = "cert-test",
+    signing_events: Optional[list[bytes]] = None,
+    signer_count: int = 1,
+    completed_at: int = 1_776_899_500,
+    workflow_status: str = "completed",
+    presentation_content_hash: bytes = b"\xa1" * 32,
+    response_ref: Optional[bytes] = None,
+    attestation_signatures_well_formed: bool = True,
+) -> CertificateDetails:
+    if signing_events is None:
+        signing_events = [b"\x80" * 32]
+    return CertificateDetails(
+        certificate_id=certificate_id,
+        case_ref=None,
+        completed_at=completed_at,
+        presentation_artifact=PresentationArtifactDetails(
+            content_hash=presentation_content_hash,
+            media_type="application/pdf",
+            byte_length=64,
+            attachment_id="urn:trellis:attachment:test",
+            template_id=None,
+            template_hash=None,
+        ),
+        chain_summary=ChainSummaryDetails(
+            signer_count=signer_count,
+            signer_display=[
+                SignerDisplayDetails(
+                    principal_ref="applicant",
+                    display_name="Test Signer",
+                    display_role="applicant",
+                    signed_at=1_776_900_000,
+                )
+                for _ in signing_events
+            ],
+            response_ref=response_ref,
+            workflow_status=workflow_status,
+            impact_level=None,
+            covered_claims=[],
+        ),
+        signing_events=signing_events,
+        workflow_ref=None,
+        attestation_signatures_well_formed=attestation_signatures_well_formed,
+    )
+
+
+def test_finalize_genesis_path_marks_attachment_resolved_true():
+    """Phase-1 minimal-genesis posture mirror: genesis-append context lacks
+    chain visibility; step 4 defers to the export-bundle path. The genesis-
+    path outcome MUST NOT false-positive on `attachment_resolved`."""
+    payloads = [(0, make_cert_details(certificate_id="cert-genesis"), b"\x00" * 32)]
+    failures: list[VerificationFailure] = []
+    outcomes = _finalize_certificates_of_completion(payloads, [], failures)
+    assert len(outcomes) == 1
+    assert outcomes[0].attachment_resolved is True
+    assert all(
+        f != "presentation_artifact_attachment_missing"
+        for f in outcomes[0].failures
+    )
+
+
+def test_finalize_unresolved_signing_event_in_export_context():
+    """When chain context is present (events list non-empty) and the
+    signing_events digest doesn't resolve, emit `signing_event_unresolved`."""
+    payloads = [(0, make_cert_details(), b"\x00" * 32)]
+    failures: list[VerificationFailure] = []
+    # Pass an empty events list — but we want to simulate "context exists,
+    # digest unresolvable". The Phase-1 posture is: when slice doesn't have
+    # the digest, mark unresolved. Since slice is empty, no event resolves,
+    # and `signing_event_unresolved` would fire. (Genesis-context posture
+    # marks attachment_resolved=true but step-5 step still flags missing.)
+    outcomes = _finalize_certificates_of_completion(payloads, [], failures)
+    # When `events` is empty, the loop has no event_by_hash entries, so each
+    # signing_events digest resolves to None → signing_event_unresolved.
+    assert any(f.kind == "signing_event_unresolved" for f in failures)
+    assert outcomes[0].all_signing_events_resolved is False
+
+
+def test_finalize_attestation_insufficient_when_signature_malformed():
+    """ADR 0007 step 3 — malformed attestation row (signature_well_formed=False)
+    flips `chain_summary_consistent = false` and emits `attestation_insufficient`."""
+    payloads = [
+        (0, make_cert_details(attestation_signatures_well_formed=False), b"\x00" * 32)
+    ]
+    failures: list[VerificationFailure] = []
+    outcomes = _finalize_certificates_of_completion(payloads, [], failures)
+    assert outcomes[0].chain_summary_consistent is False
+    assert "attestation_insufficient" in outcomes[0].failures
+    assert any(f.kind == "attestation_insufficient" for f in failures)
+
+
+def test_finalize_certificate_id_collision_detected():
+    """Two events with same certificate_id but byte-different payloads
+    (different completed_at) → certificate_id_collision on second event."""
+    a = make_cert_details(certificate_id="dup", completed_at=1_776_899_500)
+    b = make_cert_details(certificate_id="dup", completed_at=1_776_899_999)
+    payloads = [(0, a, b"\x01" * 32), (1, b, b"\x02" * 32)]
+    failures: list[VerificationFailure] = []
+    _finalize_certificates_of_completion(payloads, [], failures)
+    assert any(f.kind == "certificate_id_collision" for f in failures)
+
+
+def test_finalize_certificate_id_no_collision_when_byte_identical():
+    """Two events with same certificate_id AND byte-identical payloads
+    must NOT emit certificate_id_collision."""
+    a = make_cert_details(certificate_id="same")
+    b = make_cert_details(certificate_id="same")
+    payloads = [(0, a, b"\x01" * 32), (1, b, b"\x02" * 32)]
+    failures: list[VerificationFailure] = []
+    _finalize_certificates_of_completion(payloads, [], failures)
+    assert not any(f.kind == "certificate_id_collision" for f in failures)
+
+
+# ---------------------------------------------------------------------------
+# Export-extension parser tests.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_certificate_export_extension_round_trip():
+    manifest_map = {
+        "extensions": {
+            "trellis.export.certificates-of-completion.v1": {
+                "catalog_ref":    "065-certificates-of-completion.cbor",
+                "catalog_digest": b"\xab" * 32,
+                "entry_count":    3,
+            }
+        }
+    }
+    result = _parse_certificate_export_extension(manifest_map)
+    assert result is not None
+    catalog_ref, catalog_digest, entry_count = result
+    assert catalog_ref == "065-certificates-of-completion.cbor"
+    assert catalog_digest == b"\xab" * 32
+    assert entry_count == 3
+
+
+def test_parse_certificate_export_extension_returns_none_when_absent():
+    assert _parse_certificate_export_extension({}) is None
+    assert _parse_certificate_export_extension({"extensions": {}}) is None
+
+
+def test_parse_certificate_export_extension_rejects_non_ascii_catalog_ref():
+    manifest_map = {
+        "extensions": {
+            "trellis.export.certificates-of-completion.v1": {
+                "catalog_ref":    "065-certificates-of-completion-é.cbor",
+                "catalog_digest": b"\xab" * 32,
+                "entry_count":    1,
+            }
+        }
+    }
+    with pytest.raises(VerifyError):
+        _parse_certificate_export_extension(manifest_map)
+
+
+# ---------------------------------------------------------------------------
+# Catalog parser tests.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_certificate_catalog_entries_round_trip():
+    import cbor2
+
+    catalog = [
+        {
+            "canonical_event_hash": b"\xc1" * 32,
+            "certificate_id":       "cert-1",
+            "completed_at":         1_776_899_500,
+            "signer_count":         2,
+            "media_type":           "application/pdf",
+            "attachment_id":        "urn:trellis:attachment:cert-1",
+            "workflow_status":      "countersigned",
+        }
+    ]
+    rows = _parse_certificate_catalog_entries(cbor2.dumps(catalog, canonical=True))
+    assert len(rows) == 1
+    assert rows[0]["canonical_event_hash"] == b"\xc1" * 32
+    assert rows[0]["certificate_id"] == "cert-1"
+    assert rows[0]["signer_count"] == 2
+    assert rows[0]["workflow_status"] == "countersigned"
+
+
+def test_parse_certificate_catalog_entries_rejects_non_array_root():
+    import cbor2
+
+    with pytest.raises(VerifyError):
+        _parse_certificate_catalog_entries(cbor2.dumps({"not": "array"}, canonical=True))
