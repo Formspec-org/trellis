@@ -1,0 +1,35 @@
+id          = "append/038-user-content-attestation-without-identity"
+op          = "append"
+status      = "active"
+description = """ADR 0010 §"Field semantics" `identity_attestation_ref` null-admission positive vector. `identity_attestation_ref = null`; the deployment's Posture Declaration MUST declare `admit_unverified_user_attestations: true` for the verifier to admit (TR-CORE-154). Public-comment intake is the canonical use-case (`urn:wos:signature-intent:public-comment`)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+    "TR-CORE-152",
+    "TR-CORE-154",
+]
+
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+authored_event               = "input-author-event-hash-preimage.cbor"
+user_content_attestation_payload = "input-uca-payload.cbor"
+user_content_attestation_signature_preimage = "input-uca-signature-preimage.cbor"
+user_content_attestation_signature = "input-uca-signature.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

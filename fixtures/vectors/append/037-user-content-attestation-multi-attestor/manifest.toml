@@ -1,0 +1,34 @@
+id          = "append/037-user-content-attestation-multi-attestor"
+op          = "append"
+status      = "active"
+description = """ADR 0010 §"Fixture plan" multi-attestor positive vector. Distinct `attestation_id` (per-role), distinct `signing_intent` (applicant role), non-null `identity_attestation_ref`. The ADR's two-attestor scenario maps to two byte-distinct events with disjoint `attestation_id` values; this fixture pins the primary applicant attestation. Witness / co-signer attestations follow the same shape with `attestor` + `attestation_id` + `signing_intent` distinguishing the role."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+    "TR-CORE-152",
+]
+
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+authored_event               = "input-author-event-hash-preimage.cbor"
+user_content_attestation_payload = "input-uca-payload.cbor"
+user_content_attestation_signature_preimage = "input-uca-signature-preimage.cbor"
+user_content_attestation_signature = "input-uca-signature.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,34 @@
+id          = "append/036-user-content-attestation-minimal"
+op          = "append"
+status      = "active"
+description = """ADR 0010 §"Wire shape" minimal positive vector. Single user-content-attestation event (`trellis.user-content-attestation.v1`) with `identity_attestation_ref` non-null, `signing_intent` well-formed (`urn:wos:signature-intent:applicant-affirmation`), `attestor` non-operator URI. Genesis sequence on its own ledger_scope; per-event verifier path (steps 1 + 2 partial) decodes cleanly. Chain-position / identity resolution (steps 3 / 4) and signature verification against the registry (step 5) exercise via the multi-event tamper corpus."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+    "TR-CORE-152",
+]
+
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+authored_event               = "input-author-event-hash-preimage.cbor"
+user_content_attestation_payload = "input-uca-payload.cbor"
+user_content_attestation_signature_preimage = "input-uca-signature-preimage.cbor"
+user_content_attestation_signature = "input-uca-signature.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
