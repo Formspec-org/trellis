@@ -139,23 +139,37 @@ consume amended responses once those stacks land.
     *Bundle pointer:* **this closes parent `PLN-0312` entirely** —
     the foundational crypto execution bundle has no remaining row.
 
-4. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
-   [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
-   `trellis.certificate-of-completion.v1` + ADR 0072 attachment binding +
-   `ChainSummary` / `covered_claims` verifier cross-checks. Vectors
-   `append/028..030`, `tamper/020..026`, export `010` + catalog, CLI,
-   reference HTML template.
-
-   *Signature stack relevance:* this is the integrity artifact for ESIGN
-   / UETA compliance. Cross-stack composes with parent **PLN-0067**
+4. ~~**Certificate-of-completion composition — execute per ADR 0007**~~ — **CLOSED Wave 22, 2026-04-28.**
+   Spec deltas (Core §6.7 / §9.8 / §19 step 6c, Companion §27.1, matrix
+   TR-CORE-146..151 + TR-OP-131/132) closed Waves 18-21 via `f968663` /
+   `517ec5e` / `d0043de` / `97c2082` / `c1613b2` / `00b6303` / `1cc5320`.
+   Wave 22 closed the corpus + downstream surfaces in an 8-commit train:
+   positive vectors `append/028..030` (PDF-minimal / dual-signer-with-
+   template / HTML-template-bound), ledger-only tampers `021/023/025/026`
+   (signer-count mismatch / attestation truncation / HTML-without-template-
+   hash CDDL reject / certificate_id collision), verifier multi-event-chain
+   indexing fix (`c9f46cc` — `cert_events` Vec→BTreeMap on global
+   `event_index`), export bundle `export/010-certificate-of-completion-
+   inline` + 432-line generator + `065-certificates-of-completion.cbor`
+   catalog + tampers `020/022/024` (content-hash / signing-event-unresolved
+   / response-ref-mismatch), Python parity in `trellis-py.conformance` +
+   `verify.py` + 23 new pytest cases (G-5 84/0/0 → 95/0/0), `trellis-cli
+   seal-completion --help` flag-contract stub, reference HTML template at
+   `reference/certificate-of-completion/template-v1/` (template.html +
+   template.css + README + template_hash.txt), and matrix promotion of
+   TR-CORE-146..151 from `prose` → `test-vector` (TR-OP-131 retains its
+   posture per fixture coverage in `tamper/025`; TR-OP-132 retains
+   `declaration-doc-check` per matrix design). See [`COMPLETED.md`](COMPLETED.md)
+   Wave 22 entry.
+   *Signature stack closure:* this lands the integrity artifact for
+   ESIGN / UETA compliance. Cross-stack composition with parent **PLN-0067**
    (WOS-T4 signature-complete bundle `001`), **PLN-0355** (ESIGN/UETA
-   gate, Trigger — gates commercial-mode SaaS signature flow),
-   **PLN-0370** (marketing reframe holds the line until both close),
-   **PLN-0379** (Trellis user-content Attestation primitive — composes
-   for full DocuSign-100% parity per VISION §X), and **PLN-0398**
-   (DocuSign 100% admin surface, Trigger). Trellis owns the integrity
-   artifact bytes; WOS owns the signature semantics. The c2pa-manifest
-   adapter at item #21 layers the certificate onto the presentation PDF.
+   gate, Trigger), **PLN-0370** (marketing reframe), **PLN-0379**
+   (Trellis user-content Attestation primitive), and **PLN-0398**
+   (DocuSign 100% admin surface, Trigger) is now Trellis-side ready;
+   WOS-side semantic work and parent gates close on their own clocks.
+   The c2pa-manifest adapter at item #21 layers the certificate onto the
+   presentation PDF in a downstream ADR slot.
 
 5. **Key-rotation grace-window semantics** — **XS**.
     *Land proactively or when the first production rotation plans.* Core
