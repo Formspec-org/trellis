@@ -1755,5 +1755,240 @@ class TestHpkeEphemeralUniqueness(unittest.TestCase):
         self.assertEqual(errors, [], msg=f"R17 found errors: {errors}")
 
 
+class TestReasonCodeCorpusParity(unittest.TestCase):
+    """R19 — ReasonCode corpus-vs-table parity per family.
+
+    Mirrors R13's ``test_enum_matches_corpus`` discipline: the spec table is
+    the source of truth, fixture annotations are dependent corpus, drift
+    between them is a lint failure naming the file + family + (code,
+    annotated, registered) triple. Closes the gap that let TODO item #29
+    (Wave 15 BLOCKER — §A.5.2 codes vs. fixture annotations) land
+    undetected.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    # --- table-parser smoke tests ------------------------------------------------
+
+    def test_table_parser_returns_three_families(self):
+        tables = self.cs.reason_code_tables()
+        self.assertEqual(set(tables), {"custody-model", "disclosure-profile", "erasure-evidence"})
+        # Every family registers code 255 = Other (Core §6.9 cross-family floor).
+        for family, table in tables.items():
+            self.assertIn(255, table, msg=f"{family} missing 255 = Other floor")
+            self.assertEqual(table[255].lower(), "other", msg=f"{family} 255 != Other")
+
+    def test_table_parser_custody_model_codes_1_to_5(self):
+        tables = self.cs.reason_code_tables()
+        # Companion §A.5.1 — Phase-1 seeded codes; values 1-5 + 255.
+        cm = tables["custody-model"]
+        self.assertEqual(cm[1], "initial-deployment-correction")
+        self.assertEqual(cm[2], "key-custody-change")
+        self.assertEqual(cm[3], "operator-boundary-change")
+        self.assertEqual(cm[4], "governance-policy-change")
+        self.assertEqual(cm[5], "legal-order-compelling-transition")
+
+    def test_table_parser_isolates_per_family(self):
+        # Cross-family integer collision (the whole reason §6.9 namespaces by
+        # family): code 3 means different things in different tables. Per
+        # Core §6.9: codes 1-254 are family-local; the only cross-family
+        # invariant is 255 = Other. Concrete witness:
+        tables = self.cs.reason_code_tables()
+        self.assertEqual(tables["custody-model"][3], "operator-boundary-change")
+        self.assertEqual(tables["disclosure-profile"][3], "disclosure-policy-realignment")
+        self.assertEqual(tables["erasure-evidence"][3], "legal-order-compelling-erasure")
+        # All three are distinct semantic claims under code 3 — merging the
+        # namespaces would silently reinterpret one of them.
+        names_at_3 = {tables[fam][3] for fam in ("custody-model", "disclosure-profile", "erasure-evidence")}
+        self.assertEqual(len(names_at_3), 3)
+
+    # --- synthetic-injection lint behavior ---------------------------------------
+
+    def _stub_tables(self) -> dict[str, dict[int, str]]:
+        return {
+            "custody-model": {
+                1: "initial-deployment-correction",
+                2: "key-custody-change",
+                3: "operator-boundary-change",
+                4: "governance-policy-change",
+                255: "Other",
+            },
+            "disclosure-profile": {
+                1: "initial-deployment-correction",
+                2: "governance-policy-change",
+                3: "legal-order-compelling-transition",
+                4: "audience-scope-change",
+                255: "Other",
+            },
+            "erasure-evidence": {
+                1: "retention-expired",
+                255: "Other",
+            },
+        }
+
+    def _run(
+        self,
+        derivation_files: list[tuple[Path, str]] | None = None,
+        generator_files: list[tuple[Path, str]] | None = None,
+    ) -> list[str]:
+        errors: list[str] = []
+        self.cs.check_reason_code_corpus_parity(
+            errors,
+            derivation_files=derivation_files or [],
+            generator_files=generator_files or [],
+            tables=self._stub_tables(),
+        )
+        return errors
+
+    def test_aligned_derivation_passes(self):
+        # Custody-model family marker + table-row form, registered (code, name).
+        blob = (
+            "# Derivation\n\n"
+            "Step 4 — `CustodyModelTransitionPayload` (Appendix A.5.1)\n\n"
+            "| `reason_code` | `2` (key-custody-change) |\n"
+        )
+        self.assertEqual(
+            self._run(derivation_files=[(Path("fixtures/vectors/append/xyz/derivation.md"), blob)]),
+            [],
+        )
+
+    def test_drifted_derivation_fails_with_diagnostic(self):
+        # Disclosure-profile fires: code 4 annotated as governance-policy-change,
+        # registered as audience-scope-change. EXACTLY the item #29 BLOCKER drift.
+        blob = (
+            "# Derivation\n\n"
+            "Step 4 — `DisclosureProfileTransitionPayload` (Appendix A.5.2)\n\n"
+            "| `reason_code` | `4` (governance-policy-change) |\n"
+        )
+        errors = self._run(
+            derivation_files=[(Path("fixtures/vectors/tamper/synth-016/derivation.md"), blob)],
+        )
+        self.assertEqual(len(errors), 1, msg=errors)
+        self.assertIn("reason_code=4", errors[0])
+        self.assertIn("'governance-policy-change'", errors[0])
+        self.assertIn("'disclosure-profile'", errors[0])
+        self.assertIn("'audience-scope-change'", errors[0])
+
+    def test_unregistered_code_fails(self):
+        # Code 99 is not in any registered table — Core §6.9 says verifiers
+        # MUST reject unregistered codes.
+        blob = (
+            "# Derivation\n\n"
+            "Step 4 — `CustodyModelTransitionPayload` (Appendix A.5.1)\n\n"
+            "| `reason_code` | `99` (made-up-name) |\n"
+        )
+        errors = self._run(
+            derivation_files=[(Path("fixtures/vectors/append/synth-99/derivation.md"), blob)],
+        )
+        self.assertEqual(len(errors), 1, msg=errors)
+        self.assertIn("no code 99 registered", errors[0])
+        self.assertIn("Core §6.9", errors[0])
+
+    def test_family_ambiguous_file_fails(self):
+        # Reason-code annotation present, but file does not name any
+        # registered family marker — Core §6.9 forbids family-ambiguous
+        # annotations because integer collision across families is real.
+        blob = (
+            "# Derivation\n\n"
+            "Step 4 — Posture transition payload\n\n"
+            "| `reason_code` | `2` (key-custody-change) |\n"
+        )
+        errors = self._run(
+            derivation_files=[(Path("fixtures/vectors/append/synth-amb/derivation.md"), blob)],
+        )
+        self.assertEqual(len(errors), 1, msg=errors)
+        self.assertIn("does not name a registered family", errors[0])
+
+    def test_inline_body_form_also_caught(self):
+        # Body-prose form: `reason_code = 2` (`key-custody-change` ...). Used
+        # in append/007's derivation.md body text; lint must catch drift here
+        # too, not only in table rows.
+        blob = (
+            "# Derivation\n\n"
+            "References Appendix A.5.1.\n\n"
+            "Concretely, `reason_code = 4` (`key-custody-change`) — clearly wrong.\n"
+        )
+        errors = self._run(
+            derivation_files=[(Path("fixtures/vectors/append/synth-body/derivation.md"), blob)],
+        )
+        self.assertEqual(len(errors), 1, msg=errors)
+        self.assertIn("reason_code=4", errors[0])
+        self.assertIn("'key-custody-change'", errors[0])
+        self.assertIn("'governance-policy-change'", errors[0])  # registered name for code 4
+
+    def test_generator_comment_form_caught(self):
+        # Generator form: `REASON_CODE = <int>  # <name>`. Same drift surface,
+        # same family detection (the generator file references the family
+        # marker by docstring or constant context).
+        blob = (
+            "\"\"\"Generator for trellis.disclosure-profile-transition.v1.\"\"\"\n"
+            "FROM_DISCLOSURE_PROFILE = \"rl-profile-A\"\n"
+            "REASON_CODE = 4                          # governance-policy-change\n"
+        )
+        errors = self._run(
+            generator_files=[(Path("fixtures/vectors/_generator/gen_synth_016.py"), blob)],
+        )
+        self.assertEqual(len(errors), 1, msg=errors)
+        self.assertIn("generator reason_code=4", errors[0])
+        self.assertIn("'governance-policy-change'", errors[0])
+        self.assertIn("'audience-scope-change'", errors[0])
+
+    def test_other_code_255_is_cross_family_floor(self):
+        # Core §6.9: 255 = Other is the only cross-family invariant. Annotating
+        # 255 with anything but "Other" / "other" should fail.
+        blob_ok = (
+            "# Derivation\n\n"
+            "Step 4 — `CustodyModelTransitionPayload` (Appendix A.5.1)\n\n"
+            "| `reason_code` | `255` (Other) |\n"
+        )
+        self.assertEqual(
+            self._run(derivation_files=[(Path("fixtures/vectors/append/synth-255/derivation.md"), blob_ok)]),
+            [],
+        )
+        blob_bad = (
+            "# Derivation\n\n"
+            "Step 4 — `CustodyModelTransitionPayload` (Appendix A.5.1)\n\n"
+            "| `reason_code` | `255` (Foo) |\n"
+        )
+        errors = self._run(
+            derivation_files=[(Path("fixtures/vectors/append/synth-bad/derivation.md"), blob_bad)],
+        )
+        self.assertEqual(len(errors), 1, msg=errors)
+        self.assertIn("'Foo'", errors[0])
+        self.assertIn("'Other'", errors[0])
+
+    def test_files_without_reason_code_are_skipped(self):
+        # No reason_code annotation, no family marker, no work to do.
+        blob = "# Some other vector\n\nNothing about reason codes here.\n"
+        self.assertEqual(
+            self._run(derivation_files=[(Path("fixtures/vectors/append/synth-none/derivation.md"), blob)]),
+            [],
+        )
+
+    # --- live-corpus parity ------------------------------------------------------
+
+    def test_real_corpus_parity_via_table_authority(self):
+        # Belt-and-braces parity check against the live corpus, parallel to
+        # R13's ``test_enum_matches_corpus``. The lint reads the spec table
+        # dynamically — whichever state the §A.5.2 table is in (TODO item
+        # #29's reconciliation may or may not have landed when this test
+        # runs), the parity contract holds: every (code, annotated_name)
+        # pair in the corpus MUST agree with whatever the table currently
+        # registers. If a drift exists, the diagnostic names the file and
+        # the (annotated, registered) disagreement so the fix path is
+        # mechanical.
+        errors: list[str] = []
+        self.cs.check_reason_code_corpus_parity(errors)
+        # NOTE: This assertion may fail until TODO item #29 lands the
+        # §A.5.2 table reconciliation. That is the lint working as
+        # designed — same as R13's first landing required the corpus to
+        # align with the §19.1 enum. When #29 lands, this test goes
+        # green.
+        self.assertEqual(errors, [], msg=f"R19 found errors: {errors}")
+
+
+
 if __name__ == "__main__":
     unittest.main()
