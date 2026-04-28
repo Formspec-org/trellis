@@ -1758,7 +1758,8 @@ def check_declaration_supersedes_acyclic(
     *,
     root: Path | None = None,
 ) -> None:
-    """R15 — declaration `supersedes` chains MUST be acyclic and resolvable.
+    """R15 — declaration `supersedes` chains MUST be acyclic, resolvable,
+    AND temporal-in-force per Companion §A.6 rule 15.
 
     Walks every fixtures/declarations/<deployment-slug>/declaration.md,
     builds a directed graph keyed by `declaration_id` with edges
@@ -1769,11 +1770,21 @@ def check_declaration_supersedes_acyclic(
       declaration's `declaration_id`),
     - duplicate declaration_ids across the corpus (would silently mask
       a cycle through identifier reuse),
-    - non-string `declaration_id` / `supersedes` values.
+    - non-string `declaration_id` / `supersedes` values,
+    - temporal-in-force violations: for each edge
+      `successor -> predecessor` the predecessor MUST have been in force
+      at `successor.effective_from`. The in-force window is
+      `[effective_from, scope.time_bound)`; absent `scope.time_bound`
+      (key absent per A.6 nullable-field convention) is open-ended.
 
     Per Companion §A.6 / Phase-1 convention: `supersedes` absent OR empty
     string denotes "no predecessor" (root of a chain); each declaration
     carries at most one `supersedes` value.
+
+    DFS is iterative (explicit stack). The chain shape is single-parent,
+    so the worst-case path length equals the number of declarations in
+    the corpus; recursion would risk Python's 1000-frame limit on long
+    chains. Iterative shape removes that footgun.
     """
     base = root if root is not None else DECLARATIONS
     if not base.exists():
@@ -1782,9 +1793,12 @@ def check_declaration_supersedes_acyclic(
     if not paths:
         return
 
-    # Build (id → supersedes) map keyed by canonical declaration_id.
+    # Build (id → supersedes) map keyed by canonical declaration_id, plus
+    # the temporal-window state needed for rule-15 enforcement.
     decl_supersedes: dict[str, str | None] = {}
     decl_origin: dict[str, Path] = {}
+    decl_effective_from: dict[str, object] = {}
+    decl_time_bound: dict[str, object | None] = {}
     for path in paths:
         rel = relpath(path)
         data = _extract_toml_frontmatter(path, errors)
@@ -1817,6 +1831,18 @@ def check_declaration_supersedes_acyclic(
         decl_supersedes[declaration_id] = supersedes
         decl_origin[declaration_id] = path
 
+        # Capture the temporal-window endpoints. R11 separately enforces
+        # `effective_from` shape; here we store whatever is present and
+        # let R15's temporal check skip edges whose endpoints are not
+        # comparable UTC datetimes (R11 will have already flagged the
+        # shape error so we do not double-fire).
+        decl_effective_from[declaration_id] = data.get("effective_from")
+        scope = data.get("scope")
+        if isinstance(scope, dict):
+            decl_time_bound[declaration_id] = scope.get("time_bound")
+        else:
+            decl_time_bound[declaration_id] = None
+
     # Resolve dangling supersedes refs.
     for declaration_id, predecessor in decl_supersedes.items():
         if predecessor is not None and predecessor not in decl_supersedes:
@@ -1826,20 +1852,30 @@ def check_declaration_supersedes_acyclic(
                 f"declaration_id in the corpus"
             )
 
-    # Cycle detection via DFS with WHITE/GRAY/BLACK coloring.
+    # Iterative cycle detection with WHITE/GRAY/BLACK coloring. Each
+    # declaration has at most one outgoing edge (chain, not tree), so the
+    # walk from any starting node is a single path; iterative form is a
+    # simple while-loop over the path_stack rather than the recursive
+    # dual-color discipline.
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[str, int] = {k: WHITE for k in decl_supersedes}
     reported_cycles: set[tuple[str, ...]] = set()
 
-    def visit(node: str, path_stack: list[str]) -> None:
-        color[node] = GRAY
-        path_stack.append(node)
-        predecessor = decl_supersedes.get(node)
-        if predecessor is not None and predecessor in decl_supersedes:
-            if color[predecessor] == GRAY:
-                # Cycle: extract the loop (predecessor onward in stack).
-                loop_start = path_stack.index(predecessor)
-                cycle = tuple(path_stack[loop_start:]) + (predecessor,)
+    for start in decl_supersedes:
+        if color[start] != WHITE:
+            continue
+        path_stack: list[str] = []
+        node: str | None = start
+        while node is not None:
+            if color[node] == BLACK:
+                # Joined an already-cleared chain; nothing more to do.
+                break
+            if color[node] == GRAY:
+                # Cycle: the GRAY node is reachable from itself via the
+                # current path_stack (path_stack always contains GRAY
+                # nodes for the in-progress walk).
+                loop_start = path_stack.index(node)
+                cycle = tuple(path_stack[loop_start:]) + (node,)
                 cycle_key = tuple(sorted(set(cycle)))
                 if cycle_key not in reported_cycles:
                     reported_cycles.add(cycle_key)
@@ -1847,14 +1883,61 @@ def check_declaration_supersedes_acyclic(
                         f"{relpath(decl_origin[node])}: supersedes chain "
                         f"contains a cycle: {' -> '.join(cycle)}"
                     )
-            elif color[predecessor] == WHITE:
-                visit(predecessor, path_stack)
-        path_stack.pop()
-        color[node] = BLACK
+                break
+            color[node] = GRAY
+            path_stack.append(node)
+            predecessor = decl_supersedes.get(node)
+            if predecessor is None or predecessor not in decl_supersedes:
+                # Reached a root or a dangling ref (already reported above).
+                break
+            node = predecessor
+        # Mark every node on the in-progress path BLACK; future starts
+        # that re-enter this chain short-circuit at the BLACK guard.
+        for visited in path_stack:
+            color[visited] = BLACK
 
-    for declaration_id in decl_supersedes:
-        if color[declaration_id] == WHITE:
-            visit(declaration_id, [])
+    # Temporal-in-force enforcement (Companion §A.6 rule 15, second
+    # half). For each edge `successor -> predecessor` whose endpoints
+    # are both comparable UTC datetimes, assert the predecessor was in
+    # force at the successor's `effective_from`:
+    #
+    #   predecessor.effective_from  <=  successor.effective_from
+    #   AND (predecessor.scope.time_bound is None  OR
+    #        successor.effective_from < predecessor.scope.time_bound).
+    #
+    # Window is half-open `[effective_from, time_bound)`: equal lower
+    # bound is in, equal upper bound is out. Edges with non-datetime
+    # endpoints are skipped — R11 is responsible for the shape error
+    # and would double-fire here otherwise.
+    for successor_id, predecessor_id in decl_supersedes.items():
+        if predecessor_id is None or predecessor_id not in decl_supersedes:
+            continue
+        succ_eff_from = decl_effective_from.get(successor_id)
+        pred_eff_from = decl_effective_from.get(predecessor_id)
+        if not _is_utc_datetime(succ_eff_from) or not _is_utc_datetime(pred_eff_from):
+            continue
+        if pred_eff_from > succ_eff_from:
+            errors.append(
+                f"{relpath(decl_origin[successor_id])}: predecessor "
+                f"declaration_id={predecessor_id!r} (effective_from="
+                f"{pred_eff_from.isoformat()}) was not yet in force at "
+                f"successor effective_from={succ_eff_from.isoformat()} "
+                f"(Companion §A.6 rule 15 — supersedes chain temporal-in-force)"
+            )
+            continue
+        pred_time_bound = decl_time_bound.get(predecessor_id)
+        if pred_time_bound is not None and _is_utc_datetime(pred_time_bound):
+            if succ_eff_from >= pred_time_bound:
+                errors.append(
+                    f"{relpath(decl_origin[successor_id])}: predecessor "
+                    f"declaration_id={predecessor_id!r} was no longer in "
+                    f"force at successor effective_from="
+                    f"{succ_eff_from.isoformat()} "
+                    f"(predecessor scope.time_bound="
+                    f"{pred_time_bound.isoformat()}; window is half-open "
+                    f"[effective_from, time_bound)) "
+                    f"(Companion §A.6 rule 15 — supersedes chain temporal-in-force)"
+                )
 
 
 def check_vector_renumbering(errors: list[str]) -> None:
