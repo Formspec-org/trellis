@@ -1,0 +1,22 @@
+id          = "tamper/025-cert-html-missing-template-hash"
+op          = "tamper"
+status      = "active"
+description = """ADR 0007 §"Wire shape" PresentationArtifact.template_hash violation: `media_type = "text/html"` with `template_hash = null`. ADR 0007 requires non-null template_hash for HTML even when template_id is null. Source: `append/030-certificate-of-completion-html-template` with template_hash zeroed. Verifier emits `malformed_cose` per Core §19.1 generic-structure-failure clause (no dedicated tamper_kind for this case in the current registry). Generator: `_generator/gen_tamper_021_023_025_026.py`."""
+
+[coverage]
+tr_core = ["TR-CORE-018", "TR-CORE-030", "TR-CORE-035", "TR-CORE-146"]
+tr_op = ["TR-OP-131"]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "malformed_cose"
+
+[derivation]
+document = "derivation.md"

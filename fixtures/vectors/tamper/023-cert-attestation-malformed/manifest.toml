@@ -1,0 +1,22 @@
+id          = "tamper/023-cert-attestation-malformed"
+op          = "tamper"
+status      = "active"
+description = """ADR 0007 §"Verifier obligations" step 3 violation: certificate `attestations[0].signature` truncated from 64 → 63 bytes. Source: `append/028-certificate-of-completion-minimal-pdf` with attestation signature shortened. Phase-1 reference verifier emits `attestation_insufficient` (existing Core §19.1 kind, reused per ADR 0007 §"Verifier obligations" step 3). Generator: `_generator/gen_tamper_021_023_025_026.py`."""
+
+[coverage]
+tr_core = ["TR-CORE-018", "TR-CORE-030", "TR-CORE-035", "TR-CORE-146"]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "attestation_insufficient"
+failing_event_id     = "b82aec24029e4f502213ad60af2a67d83f2a00539a3bb13078efe048371dd8a0"
+
+[derivation]
+document = "derivation.md"

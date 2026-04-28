@@ -1,0 +1,21 @@
+id          = "tamper/021-cert-signer-count-mismatch"
+op          = "tamper"
+status      = "active"
+description = """ADR 0007 §"Verifier obligations" step 2 violation: certificate `chain_summary.signer_count = 3` but `len(signing_events) = 2` (and `len(signer_display) = 2`). Source: `append/029-certificate-of-completion-dual-signer-pdf` with `signer_count` rewritten to 3. CDDL decode flips integrity via `certificate_chain_summary_mismatch`. Generator: `_generator/gen_tamper_021_023_025_026.py`."""
+
+[coverage]
+tr_core = ["TR-CORE-018", "TR-CORE-030", "TR-CORE-035", "TR-CORE-147"]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "certificate_chain_summary_mismatch"
+
+[derivation]
+document = "derivation.md"
