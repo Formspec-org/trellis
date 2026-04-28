@@ -18,6 +18,196 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 18 (2026-04-27) — `trellis-store-postgres` review follow-ups (item #32)
+
+Closes item #32 from the post-Wave-17 TODO. Lands the three
+SUGGESTION-tier follow-ups from the Wave 16 store-postgres review
+(commits `4fe787a` / `00570c3` / `8bb61fb` / `351dfb8` —
+approve-with-suggestions) before wos-server composes the adapter.
+
+- **`MemoryTransaction::commit` returns `Result<(), Infallible>`**
+  (`db4ad29`). Was `()`; cross-store generic test bodies could not
+  share `tx.commit()?` against both adapters because postgres-side
+  returns `Result<(), postgres::Error>`. Tightened to
+  `Result<(), Infallible>` so the `?`-chain shape is identical.
+  Pinned by `commit_supports_question_mark_chaining` driving a
+  generic `Result<(), Infallible>`-returning body. The sole external
+  caller in this submodule (`trellis-conformance/tests/store_parity.rs`)
+  targets the postgres-side commit and was unaffected; the only
+  memory-side caller updated was the internal test at `lib.rs:213`.
+
+- **Loopback DSN classifier edge cases + bracketed-IPv6 parser fix**
+  (`c33c91c`). Four new unit tests: comma-separated host list rejected
+  conservatively (false-negative is the safe direction; production
+  multi-host setups must use `connect_with_tls`); empty-string `host=`
+  accepts (libpq local-socket fallback); relative-path "socket" hosts
+  rejected (libpq requires absolute paths; the gate enforces "no
+  cleartext on a wire" first); IPv6 `[::1]` accepts in both kv and
+  URI forms. **Real-bug surfaced:** the IPv6-URI test fired a defect in
+  `extract_dsn_host` where `rsplit_once(':')` sliced bracketed IPv6
+  literals internally (e.g. `[::1]` produced host=`[:`, port=`1]`).
+  The classifier was fail-closed (rejecting valid loopback DSNs with
+  a confusing "host `:`" error) — safe direction but operator-hostile.
+  Fixed inline: when `host_port` starts with `[`, the bracketed slice
+  IS the host; port (if any) comes after `]:`. Mismatched brackets
+  fall through to the loopback classifier which rejects anything
+  non-trivial.
+
+- **Migration runner refuse-on-future-version guard** (`6684b23`).
+  "Append-only migrations" was convention only — `BTreeSet::contains`
+  let an old binary connect to a forward-rolled schema (botched
+  rollback / partial deployment) and silently no-op. The guard
+  compares `applied.iter().max()` against
+  `MIGRATIONS.iter().map(|(v,_)| *v).max()` inside the same
+  advisory-lock-bracketed transaction; if the database is ahead,
+  returns `MigrationFailed` with a "schema ahead of binary" message
+  naming both versions so the operator rolls forward (deploy newer
+  binary) or rolls back (database state) rather than running on
+  lying schema awareness. Pinned by
+  `migrations_refuse_when_schema_ahead_of_binary`, which forges a
+  `version=999` row on a fresh cluster and asserts
+  `PostgresStore::connect` refuses with `MigrationFailed` and the
+  expected message fragments.
+
+Verification: `cargo test -p trellis-store-memory` clean (5/5);
+`cargo test -p trellis-store-postgres` clean (21/21);
+`cargo test -p trellis-conformance --test store_parity` clean (2/2);
+`cargo test --workspace` clean (48 result buckets, 0 failures);
+`cargo tree -p trellis-verify | grep -E '(postgres|r2d2|tokio-postgres|native-tls)'`
+empty (Core §16 verifier-isolation invariant intact).
+
+NEEDS_CONTEXT: none. The IPv6-URI parser fix went in the same commit
+as the surfacing test on the rationale that the new test demonstrates
+the defect AND validates the fix; splitting them produces a
+deliberately-red commit which is worse history.
+
+### Wave 18 (2026-04-27) — R15 temporal-in-force enforcement (item #30)
+
+Closes item #30 from the post-Wave-17 TODO. Wave 15 review surfaced
+that R15 enforces only the acyclic half of Companion §A.6 rule 15
+("supersedes chain is acyclic AND each linked declaration was in force
+at the time of the successor's `effective_from`"); OC-70e + TR-OP-048
+silently dropped the temporal half. With one declaration in the corpus
+today the gap is latent; closing it prevents an out-of-order
+`effective_from` from passing silently the moment a second declaration
+lands.
+
+- **RED tests** (`2d559e5`). Six new R15 cases: valid temporal chain;
+  successor `effective_from` BEFORE predecessor's (out-of-order);
+  successor `effective_from` AFTER predecessor's `scope.time_bound`
+  (window closed); two half-open boundary positives (equal lower bound
+  is in; equal upper bound is out — pin comparator semantics so a
+  GREEN regression cannot drift the bounds); real-reference
+  declaration via `shutil.copytree` of `fixtures/declarations/ssdi-intake-triage/`
+  + synthetic successor with out-of-order `effective_from` (Wave 15
+  review F3 follow-up — removes the synthetic-vs-real seam).
+
+- **GREEN extension** (`3ea9849`). Extends
+  `check_declaration_supersedes_acyclic` to capture top-level
+  `effective_from` and nested `scope.time_bound` per declaration during
+  the existing single-pass walk; after cycle / dangling / duplicate
+  detection, iterates supersedes edges and asserts the predecessor's
+  half-open in-force window `[effective_from, scope.time_bound)`
+  covered the successor's `effective_from`. Edges with non-UTC-datetime
+  endpoints are skipped (R11 separately enforces shape; double-firing
+  would be noise). External lint contract unchanged: same diagnostic
+  class, same exit code, same call site. Cycle detection switched from
+  recursive DFS to iterative explicit-stack while-loop with
+  WHITE/GRAY/BLACK coloring preserved (Wave 15 review F6 nit closed —
+  Python's 1000-frame default would have panicked on long single-parent
+  chains; theoretical today, footgun removed cheaply).
+
+- **Prose restoration** (`3575a10` + sibling `abaef36`). OC-70e prose
+  restored to state both clauses ("acyclic, resolvable, AND
+  temporal-in-force per Appendix A.6 rule 15") and now explicitly
+  pins §A.6 rule 15 as the single-source-of-truth contract. Matrix
+  TR-OP-048 was extended in flight by sibling-scout #32's commit
+  `abaef36` (commit subject misnamed — message says store-postgres but
+  the file diff is the matrix only; content is correct).
+
+Wave 18 sibling-coordination note: five parallel scouts (#29 reason-code
+reconciliation, #30 R15 temporal, #31 HPKE hardening, #32
+store-postgres, #34 reason-code parity lint, plus ongoing #3 ADR 0005
+crypto-erasure work) raced repeatedly on
+`scripts/check-specs.py`, `scripts/test_check_specs.py`,
+`specs/trellis-operational-companion.md`,
+`specs/trellis-requirements-matrix.md`. Race protocol per the dispatch
+brief: `git pull --rebase` before push. TR-OP-048 prose drift between
+sibling commits resolved by accepting the sibling-committed matrix line
+(content correct) and committing OC-70e under the right
+docs(spec)-prefixed message in this scout's chain.
+
+Verification: `python3 -m pytest scripts/test_check_specs.py -q` →
+143 passed within R15 + adjacent territory (137 prior + 6 new R15
+temporal); two pre-existing sibling-scout #34 failures
+(`TestReasonCodeCorpusParity`) gate on item #29 (Wave 15 BLOCKER) and
+are out of scope for this entry. `cargo test --workspace` clean.
+
+NEEDS_CONTEXT: none.
+
+### Wave 18 (2026-04-27) — Reason-code parity lint (item #34)
+
+Closes item #34 from the post-Wave-17 TODO. Generalizes Wave 15's R13
+`tamper_kind` corpus-vs-table parity discipline to the three Phase-1
+ReasonCode families: Companion §A.5.1 (Custody-Model Transition),
+Companion §A.5.2 (Disclosure-Profile Transition), and ADR 0005
+§"Reason codes" (Erasure-Evidence; Companion §20.6.1 once promoted).
+Closes the gap that let item #29's Wave-15 BLOCKER drift land
+undetected — every `(family, code, name)` triple in fixture
+derivations and generators now has to agree with its family's
+registered table or the lint fires loud.
+
+- **R19 `check_reason_code_corpus_parity` in `scripts/check-specs.py`.**
+  Parses each table from spec markdown into `{family: {code: name}}`,
+  walks every `derivation.md` under `fixtures/vectors/` and every
+  `gen_*.py` under `fixtures/vectors/_generator/`, detects family
+  by the first canonical marker (`CustodyModelTransitionPayload` /
+  `DisclosureProfileTransitionPayload` / `ErasureEvidencePayload` and
+  their event-type tags), and reports each disagreement with file +
+  family + (annotated, registered) triple. Three annotation forms
+  caught: derivation table-row (`| ` + "`reason_code`" + ` | ` + "`<int>`" + ` (<name>) |`),
+  derivation body-prose form (`reason_code = <int>` (`<name>` ...)),
+  generator comment (`REASON_CODE = <int>  # <name>`).
+
+- **Family-ambiguous diagnostic.** A file annotating reason codes
+  without naming any registered family marker is also rejected — the
+  drift surface Core §6.9 cares about includes "author wrote a code
+  without anchoring which family it belongs to."
+
+- **TDD evidence.** `scripts/test_check_specs.py::TestReasonCodeCorpusParity`
+  adds 12 cases: 3 table-parser smoke tests, 8 synthetic-injection
+  cases (positive aligned, drift, unregistered code, family-ambiguous,
+  body-prose form, generator-comment form, code-255-Other-floor OK +
+  fail, files-without-reason-code-skipped), 1 live-corpus parity
+  (`test_real_corpus_parity_via_table_authority`, mirroring R13's
+  `test_real_corpus_is_clean`). All synthetic tests use stub tables
+  via the `tables=` kwarg so test bodies do not depend on the live
+  corpus state.
+
+- **Matrix discipline.** TR-CORE-069 (Core §6.9 ReasonCode Registry,
+  added Wave 15) Notes column updated to register R19 enforcement and
+  cite the corpus-vs-table parity surface. `Verification = spec-cross-ref`
+  unchanged — the lint is a meta-check across the corpus, not per-vector
+  evidence; per-vector `tr_core` declarations would be a manifest-touch
+  cascade (every transition + erasure fixture). Mirrors the R13 ↔
+  TR-CORE-068 pattern (R13 lint cited in Notes, fixtures carry the
+  TR-OP claims).
+
+- **Sibling-coordination.** Lean-(b) per the brief: waited for
+  item #29's §A.5.2 renumber to land before committing, so R19's
+  `test_real_corpus_parity_via_table_authority` is GREEN at landing
+  rather than a brief CI-red window. The lint detected exactly four
+  drift sites pre-#29 (`append/008/derivation.md`,
+  `tamper/016/derivation.md`, `gen_append_008.py`, `gen_tamper_016.py`);
+  post-#29 the corpus is clean.
+
+Verification: `cargo test --workspace` clean (0 failures across all
+crates); `python3 scripts/test_check_specs.py` clean (155 prior + 12
+new = 167 covered); `python3 scripts/check-specs.py` clean
+(`Trellis spec checks passed.`).
+
+NEEDS_CONTEXT: none.
+
 ### Wave 17 (2026-04-27) — Key-class taxonomy execution (ADR 0006)
 
 Closes item #1 from the post-Wave-15 TODO. Lands the unified `KeyEntry`

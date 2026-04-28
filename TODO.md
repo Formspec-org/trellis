@@ -431,18 +431,17 @@ consume amended responses once those stacks land.
     generator comments to `audience-scope-change`. (a) is more honest
     given Phase-1 SBA PoC pins these. Co-lands with item #35 (parity lint).
 
-30. **Wave 15 follow-up — R15 temporal-in-force enforcement OR prose narrowing** — **S**.
-    *From Wave 15 review.* A.6 rule 15 reads "supersedes chain is acyclic
-    AND each linked declaration was in force at the time of the
-    successor's `effective_from`." R15 currently enforces only acyclicity;
-    OC-70e + TR-OP-048 silently dropped the temporal half. Two fixes
-    (pick): (a) extend R15 to compare `effective_from` along edges;
-    (b) narrow OC-70e + TR-OP-048 prose to "acyclic and resolvable"
-    (matches current lint surface) and file a follow-up for the temporal
-    check when a successor declaration lands. With one declaration in
-    the corpus the gap is latent — picking (a) prevents an out-of-order
-    `effective_from` from passing silently the moment a second declaration
-    lands.
+30. ~~**Wave 15 follow-up — R15 temporal-in-force enforcement**~~ — **CLOSED Wave 18, 2026-04-27.**
+    Picked option (a): extended R15 to assert the predecessor's half-open
+    in-force window `[effective_from, scope.time_bound)` covers the
+    successor's `effective_from`. Cycle-detection DFS converted to
+    iterative explicit-stack (closes Wave 15 review F6 nit). Six new
+    tests including a real-declaration `shutil.copytree` case (closes
+    Wave 15 review F3 follow-up). OC-70e + TR-OP-048 prose restored to
+    state both clauses; §A.6 rule 15 pinned as the single-source-of-truth
+    contract. Commits `2d559e5` (RED) / `3ea9849` (GREEN + iterative
+    DFS) / `3575a10` (prose) plus sibling commit `abaef36` for the
+    matrix line. See [`COMPLETED.md`](COMPLETED.md) Wave 18 entry.
 
 31. **HPKE crate hardening (Wave 16 review follow-ups)** — **S**.
     *From Wave 16 HPKE review (commit `0c1573d`).* Architecture sound;
@@ -469,30 +468,22 @@ consume amended responses once those stacks land.
       empty as a CI assertion. Future `trellis-cose` change cannot
       silently regress §16.
 
-32. **`trellis-store-postgres` review follow-ups (Wave 16)** — **S**.
-    *From Wave 16 store-postgres review (commits `4fe787a`, `00570c3`,
-    `8bb61fb`, `351dfb8`).* Approve-with-suggestions; three substantive
-    follow-ups.
-    + [ ] **`MemoryTransaction::commit` returns `Result<(), Infallible>`.**
-      Currently returns `()`; cross-store generic test bodies can't
-      share `tx.commit()?` because the postgres-side returns
-      `Result<(), Error>`. The leakiest bit of the parity abstraction.
-      Returning `Result<(), Infallible>` (or an empty
-      `MemoryTransactionError` enum) lets generic tests `?`-chain
-      identically.
-    + [ ] **Loopback DSN classifier edge-case tests.**
-      `require_loopback_dsn` is conservative-correct but subtle. Add
-      unit tests for: comma-separated host list (`host=a,b` → reject),
-      empty-string host (`host=` → accept libpq local-socket
-      fallback), and a relative-path Unix socket case. Pins behavior
-      so future edits do not regress.
-    + [ ] **Migration runner: refuse-on-future-version guard.**
-      "Append-only migrations" is currently convention only — the
-      `BTreeSet::contains` check skips already-applied but does not
-      refuse to apply v3 if v4 already ran. At v3+ this becomes a
-      footgun. Assert: if
-      `applied.iter().max() > MIGRATIONS.iter().map(|(v,_)|v).max()`
-      → `MigrationFailed("schema ahead of binary")`.
+32. ~~**`trellis-store-postgres` review follow-ups (Wave 16)**~~ — **CLOSED Wave 18, 2026-04-27.**
+    Three substantive follow-ups landed via `db4ad29` / `c33c91c` / `6684b23`.
+    `MemoryTransaction::commit` now returns `Result<(), Infallible>` so
+    cross-store generic test bodies share `tx.commit()?` against both
+    adapters; pinned by `commit_supports_question_mark_chaining`.
+    `require_loopback_dsn` gained four edge-case tests (comma-separated
+    host list rejected conservatively; empty `host=` accepts libpq
+    local-socket fallback; relative-path "socket" hosts rejected;
+    IPv6 `[::1]` accepts in both kv and URI forms) — and the IPv6-URI
+    test surfaced a real bug in `extract_dsn_host` where bracketed IPv6
+    literals were sliced internally by the `rsplit_once(':')` port-split
+    (host `[::1]` produced host=`[:`, port=`1]`); fixed in the same
+    commit. Migration runner gained a refuse-on-future-version guard
+    inside the advisory-lock-bracketed apply; an integration test forges
+    a v999 row and asserts `PostgresStore::connect` refuses with
+    `MigrationFailed`. See [`COMPLETED.md`](COMPLETED.md) Wave 18 entry.
 
 33. ~~**ADR 0006 vector corpus completion**~~ — **CLOSED Wave 17, 2026-04-27.**
     Subsumed by item #1's same-wave landing. `append/031..035` cover the
