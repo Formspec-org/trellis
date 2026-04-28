@@ -1,0 +1,29 @@
+id          = "append/041-aead-retry-determinism"
+op          = "append"
+description = """Deterministic AEAD nonce derivation per Core §9.4. Proves that retry
+with the same idempotency_key and identical authored bytes produces byte-identical
+ciphertext, content_hash, author_event_hash, and canonical_event_hash. Uses real
+ChaCha20-Poly1305 payload encryption + HPKE suite-1 DEK wrap.
+"""
+
+[coverage]
+tr_core = [
+    "TR-CORE-031",  # inv #4 — content_hash over real AEAD ciphertext bytes
+    "TR-CORE-038",  # inv #7 — key_bag populated + included in author_event_hash
+    "TR-CORE-051",  # inv #13 — idempotency semantics
+    "TR-CORE-144",  # new row — deterministic AEAD nonce derivation
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+payload        = "../../_inputs/sample-payload-001.bin"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

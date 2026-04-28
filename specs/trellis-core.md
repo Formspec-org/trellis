@@ -705,6 +705,23 @@ Choice of ChaCha20-Poly1305 over AES-256-GCM for payload AEAD is for constant-ti
 
 For each `KeyBagEntry`, Phase 1 producers call RFC 9180 `SetupBaseS` / `Seal` with `info = h''` and AEAD associated data `aad = h''`. The plaintext input to `Seal` is the 32-byte payload DEK. `KeyBagEntry.ephemeral_pubkey` stores the HPKE encapsulated public key `enc`; `KeyBagEntry.wrapped_dek` stores the AEAD ciphertext-and-tag returned by `Seal`. A future suite registration MAY define a non-empty `info` or `aad`, but suite 1 is pinned to zero-length values so a verifier can reproduce the wrapped-DEK bytes from only the fixture inputs.
 
+**AEAD nonce determinism (payload layer).** `PayloadInline.nonce` (§6.4) MUST be derived deterministically from the authored event content so that a retry with the same `idempotency_key` (§17) and identical authored bytes produces byte-identical ciphertext. The Phase 1 derivation is:
+
+```
+nonce = HKDF-SHA256(
+    salt = dCBOR(idempotency_key),
+    ikm  = SHA-256(plaintext_payload),
+    info = "trellis-payload-nonce-v1",
+    length = 12
+)
+```
+
+where `plaintext_payload` is the exact payload bytes to be encrypted. This construction binds the nonce to both the idempotency identity (preventing cross-key collisions) and the exact payload content (preventing same-key, different-payload silent divergence). The `ikm` is the SHA-256 hash of the plaintext rather than the plaintext itself so that the derivation has a fixed-length input and does not require the HKDF layer to handle large payloads.
+
+A Canonical Append Service MAY memoize the ciphertext per `(ledger_scope, idempotency_key)` as an implementation optimization, but memoization is not normative; the deterministic derivation alone is sufficient to guarantee retry byte identity. A verifier does not re-derive or validate the nonce; the rule is a producer obligation that makes the idempotency contract (§17.3) decidable without mutable state.
+
+Traceability: **TR-CORE-144** (matrix row).
+
 Every `KeyBagEntry` (hereafter "wrap") MUST use a fresh X25519 ephemeral keypair, unique across every wrap in the containing ledger scope. For the avoidance of doubt: in an event with N recipients the `key_bag` contains N `KeyBagEntry` rows with N distinct `ephemeral_pubkey` values, generated from N distinct ephemeral private keys; no `ephemeral_pubkey` value produced by any author in any event in the same ledger scope may recur in any later event. The `ephemeral_pubkey` is persisted in the envelope so the recipient can perform ECDH; the corresponding ephemeral private key MUST be used exactly once and destroyed after the wrap is sealed. Reusing an ephemeral private key across wraps, within the same event, across events in the same ledger scope, or across ledger scopes, is a non-conformance.
 
 **Test-vector carve-out.** Language-neutral byte-level test vectors under `fixtures/vectors/**` MAY pin the ephemeral private key as a fixture artifact, because §5.2 and §27 require every fixture to reproduce byte-for-byte across independent implementations and that requirement would otherwise be unsatisfiable for HPKE wraps. A fixture that pins an ephemeral private key MUST: (a) commit the pinned private key under `fixtures/vectors/_keys/` with a filename that names the owning vector, (b) declare in its `manifest.toml` that the pinned key is a test artifact, and (c) state in its `derivation.md` that a production implementation MUST generate the ephemeral in-process and destroy it after single use. The carve-out applies to fixtures only; no production `Fact Producer`, `Canonical Append Service`, or `Verifier` may rely on it. Traceability: **TR-CORE-033** (matrix row) — enforced by `scripts/check-specs.py` rule R17, which fails loud when any `(ledger_scope, ephemeral_pubkey)` pair recurs across distinct vector dirs in the corpus and when any `key_bag.entries` list contains a duplicate `ephemeral_pubkey`.
@@ -1173,7 +1190,7 @@ An idempotency identity is the pair `(ledger_scope, idempotency_key)`. **The ide
 For a given `idempotency_key` within a declared ledger scope, a Canonical Append Service MUST resolve every successful retry to exactly one of:
 
 1. **Same canonical reference.** The exact canonical event hash that was admitted on the first successful submission. The service returns the same `canonical_event_hash`, and the payload `content_hash` is byte-equal to the original.
-2. **Declared no-op.** A successful retry against a key that was admitted but whose subsequent retry carries a payload that is byte-identical (post-dCBOR canonicalization) returns a structured no-op response referencing the original canonical event hash.
+2. **Declared no-op.** A successful retry against a key that was admitted but whose subsequent retry carries a payload that is byte-identical (post-dCBOR canonicalization and post-§9.4 deterministic AEAD nonce) returns a structured no-op response referencing the original canonical event hash.
 3. **Reject on conflict.** A retry that shares `idempotency_key` but whose payload would produce a different `content_hash`, `author_event_hash`, or `canonical_event_hash` MUST be rejected with the structured error `IdempotencyKeyPayloadMismatch` (§17.5). This is invariant #13 of the vision document, lifted to normative text: same key, different payload means deterministic rejection, auditable.
 
 The service MUST NOT, on retry, create a new canonical order position with a different canonical event hash under the same `idempotency_key`. Duplication at the same `idempotency_key` with a different hash is undefined canonical order.

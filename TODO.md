@@ -47,14 +47,34 @@ this file — see [`COMPLETED.md`](COMPLETED.md) and
 **Cross-repo pointer — parent PLANNING.md backlog.** Stack-wide cross-spec
 coordination lives in [`/PLANNING.md`](../PLANNING.md) as `PLN-XXXX` rows.
 Trellis-implicated rows are referenced inline below where the mapping is
-clean (items 1-3, 8-13, 18, 24-29). Trellis-internal rows (4-7, 14-17,
-19-23) carry no parent counterpart by design — they are
-envelope/verifier discipline that nothing downstream gates. The
+clean (items 1-4, 8-13, 18, 21, 24-29, 36-40). Trellis-internal rows
+(5-7, 14-17, 19-20, 22-23) carry no parent counterpart by design — they
+are envelope/verifier discipline that nothing downstream gates. The
 MVP-foundation cluster (PLN-0331..0349) consumes Trellis crates
 downstream; `trellis-cose` / `trellis-verify` public APIs are
 "keep stable for composition" with no new rows. Cross-submodule Cargo
-path-dep posture (parent **PLN-0347**) is a stack-level decision;
+path-dep posture (parent **PLN-0368**) is a stack-level decision;
 Trellis-side action is "comply with the chosen pattern when it lands."
+
+**Signature-stack rows in this file** (cluster pointer for "everything
+about signatures"): item **#4** (cert-of-completion ADR 0007 — the
+integrity artifact for ESIGN/UETA), **#8** + **#9** (WOS-T4 + ADR 0073
+shared-fixture residue), **#10** (identity attestation, supersedes
+PLN-0310 → PLN-0381), **#21** (c2pa-manifest adapter — layers the
+certificate onto the presentation PDF), **#36** (user-content
+Attestation primitive — Trellis ADR 0010, parent PLN-0379), **#37**
+(AEAD nonce determinism — silent-bug class on signed-event retry,
+parent PLN-0383), **#38** (`custody-hook-encoding.md` v1.0 — the
+four-field append wire surface that carries `producer_signature`,
+parent PLN-0385), **#39** (external recipient lifecycle — recipients
+of signed events; access events, parent PLN-0382), **#40** (tenant-
+scope export — bundles include signed events, parent PLN-0392).
+The integrity artifact is Trellis's; the semantics are WOS's; both
+compose under PLN-0379 + PLN-0380. Parent stack closure cluster
+spans PLN-0379..0398: open-contract closure (0379-0385), engineering
+scaffolds (0386-0389), drift-prevention guards (0390-0391), profile-
+specific extensions and procurement triggers (0392-0398) + PLN-0355
+(ESIGN gate, Trigger) + PLN-0370 (DocuSign reframe).
 
 **Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
 center tasks for the core handoff (validation, mapping, draft/submit/dismiss).
@@ -88,19 +108,25 @@ consume amended responses once those stacks land.
    Core §9.4. See [`COMPLETED.md`](COMPLETED.md) Wave 17 entry. Renumbering
    of items #3..#29 deferred to the wave's final landing pass.
 
-3. **Crypto-erasure evidence — execute per ADR 0005** — **M–L**.
-   [ADR 0005](thoughts/adr/0005-crypto-erasure-evidence.md): spec deltas
-   (Companion §20 + OC-141..143) → Core §6.7/§19 → Rust decode + the
-   full 10-step verifier checklist (ADR 0005 steps 1–10), with Phase-1
-   chain-walk (step 8) scoped to `signing` + `subject` kids per ADR step-8
-   Phase-1 bound; other classes co-land with item #1 → vectors
-   `append/023..027` + `tamper/017..019` + export `009` / catalog → CLI →
-   §27 tests. Expand tamper set per ADR *Fixture plan* follow-on row.
+3. **Crypto-erasure evidence — Stages 2-5** — **M–L**, continuation.
+    Stage 1 (spec deltas: Companion §20.6, Core §6.7/§19, matrix rows,
+    `tamper_kind` enum pre-declaration) closed Wave 18 via commit `9b3d3e4`;
+    see [`COMPLETED.md`](COMPLETED.md) Wave 18 entry. Remaining work:
+    + [ ] **Rust verifier:** 10-step checklist (ADR 0005 steps 1–10) in
+      `crates/trellis-verify/`, Phase-1 chain-walk scoped to `signing` +
+      `subject` kids per ADR step-8 bound.
+    + [ ] **Python parity:** `trellis-py/` G-5 cross-check for erasure
+      evidence decode and validator composition.
+    + [ ] **Fixture vectors:** `append/023..027`, `tamper/017..019`,
+      `export/009` (renumber — intake-handoff currently holds `009`) /
+      catalog `064-erasure-evidence.cbor`. Stage 4 corpus lands with
+      matrix `Verification = prose → test-vector` promotion lockstep.
+    + [ ] **CLI:** `trellis-cli erase-key` scaffolding + integration.
+    + [ ] **Companion §27:** test extensions for §27.3 / §27.7 erasure-
+      evidence verifier paths.
 
-   *Bundle pointer:* item #3 is the last open row in parent **PLN-0312**
-   (foundational crypto execution bundle). Rust HPKE landed Wave 16;
-   key-class taxonomy + duplicate-ephemeral lint landed Wave 17;
-   crypto-erasure evidence is what's left.
+    *Bundle pointer:* remaining work is the last open row in parent
+    **PLN-0312** (foundational crypto execution bundle).
 
 4. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
    [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
@@ -108,6 +134,17 @@ consume amended responses once those stacks land.
    `ChainSummary` / `covered_claims` verifier cross-checks. Vectors
    `append/028..030`, `tamper/020..025`, export `010` + catalog, CLI,
    reference HTML template.
+
+   *Signature stack relevance:* this is the integrity artifact for ESIGN
+   / UETA compliance. Cross-stack composes with parent **PLN-0067**
+   (WOS-T4 signature-complete bundle `001`), **PLN-0355** (ESIGN/UETA
+   gate, Trigger — gates commercial-mode SaaS signature flow),
+   **PLN-0370** (marketing reframe holds the line until both close),
+   **PLN-0379** (Trellis user-content Attestation primitive — composes
+   for full DocuSign-100% parity per VISION §X), and **PLN-0398**
+   (DocuSign 100% admin surface, Trigger). Trellis owns the integrity
+   artifact bytes; WOS owns the signature semantics. The c2pa-manifest
+   adapter at item #21 layers the certificate onto the presentation PDF.
 
 5. **Key-rotation grace-window semantics** — **XS**.
     *Land proactively or when the first production rotation plans.* Core
@@ -146,10 +183,17 @@ consume amended responses once those stacks land.
     parallel corpora. Parent backlog: **PLN-0067**.
 
 10. **Identity attestation bundle shape** — **S**.
-    *Lands once WOS lifts `SignatureAffirmation.identityBinding` into a
-    reusable shape.* Declare how a provider-neutral identity-proofing
-    attestation lands as a canonical event kind and travels in the
-    export bundle. Parent backlog: **PLN-0310** (Trigger).
+    *Lands after parent ratifies the stack ADR for IdentityAttestation
+    per **PLN-0381**.* Synthesis-merge 2026-04-27 promoted identity
+    attestation from Trigger to P0 center commitment; **PLN-0310 closed
+    by supersession** (PLN-0381 carries the work). Trellis-side action:
+    declare how a provider-neutral identity-proofing attestation lands
+    as a canonical event kind and travels in the export bundle.
+    Composes with the new `wos.identity.*` event taxonomy (parent
+    **PLN-0384** — gates the namespace) and with PLN-0380 (signer-
+    authority claim shape, distinct from authentication-method). Cross-
+    stack fixtures (Formspec → WOS provenance → Trellis envelope) prove
+    the identity claim composes.
 
 11. **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
     *Lands after Formspec-side promotes §6.2 `eventHash` / `priorEventHash`
@@ -512,6 +556,96 @@ consume amended responses once those stacks land.
     Trellis-side action once stack governance picks the policy home:
     contribute Trellis-specific scope notes (which crates and surfaces
     are in-scope, which are out-of-scope archive material).
+
+36. **User-content Attestation primitive — author + execute Trellis ADR 0010**
+    — **M–L**, **signature-stack**.
+    *Coordinates parent **PLN-0379** (parent renumbered ADR reference
+    to 0010 after the Wave 18 #31 collision was surfaced — HPKE
+    crate-selection spike took 0009 via commit `0576ccd`).* Phase-1
+    envelope reservation + Phase-2 activation per ADR 0001-0004
+    maximalist-envelope discipline: CDDL §28 entry; new §9.8 domain-
+    separation tag; binding proof to host event (chain position);
+    reference to IdentityAttestation; `signing_intent` as URI (Trellis
+    owns bytes, WOS owns meaning per parent **PLN-0380**). Distinct
+    from existing Companion App A.5 Attestation (custody / disclosure
+    / erasure). Mirror ADR 0007 precedent: ~300 lines + 11 vectors +
+    verifier-obligation update. Composes with item #4 (cert-of-completion)
+    for full DocuSign-100% parity per VISION §X.
+    + [ ] Author `thoughts/adr/0010-user-content-attestation-primitive.md`.
+    + [ ] CDDL §28 + §9.8 domain-separation tag.
+    + [ ] Verifier-obligation update (chain-position binding,
+      IdentityAttestation reference resolution).
+    + [ ] 11 fixture vectors per ADR 0007 precedent.
+    + [ ] G-5 stranger gate extension passes.
+
+37. ~~**AEAD nonce determinism — Core §9.4 + §17 amendment**~~ — **CLOSED Wave 19, 2026-04-27.**
+    Core §9.4 prose pinned deterministic AEAD nonce derivation rule:
+    `nonce = HKDF-SHA256(salt = dCBOR(idempotency_key), ikm =
+    SHA-256(plaintext_payload), info = "trellis-payload-nonce-v1",
+    length = 12)`. Core §17.3 no-op retry clause updated to reference
+    "post-dCBOR canonicalization and post-§9.4 deterministic AEAD
+    nonce". Vector `append/041-aead-retry-determinism` (real
+    ChaCha20-Poly1305 + HPKE suite-1 wrap) proves retry determinism
+    with seven byte-identity assertions (nonce, ciphertext,
+    content_hash, authored bytes, author_event_hash, event_payload
+    bytes, canonical_event_hash). Rust `trellis-types`
+    `derive_payload_nonce` helper + 2 unit tests; `trellis-conformance`
+    `vector_dirs` filter tightened to skip dirs without `manifest.toml`
+    (handles incomplete tamper/017-018 dirs safely). TR-CORE-144
+    matrix row added. Full suite green: `cargo test --workspace` 0
+    failures, `python3 scripts/check-specs.py` clean, `trellis-py`
+    G-5 34 passed.
+
+38. **`custody-hook-encoding.md` v1.0 + cross-stack ingestion fixture**
+    — **S**.
+    *Coordinates parent **PLN-0385**.* WOS-side companion authoring
+    promotes `wos-spec/specs/kernel/custody-hook-encoding.md` to v1.0
+    status (currently informally referenced); Trellis-side action is
+    the cross-stack ingestion fixture proving one authored WOS record
+    → dCBOR canonicalization → Trellis envelope ingest. Four-field
+    append wire surface: `tag`, `payload`, `prior_event_hash`,
+    **`producer_signature`** (signature-stack relevance — this is the
+    field that carries WOS-side signatures into the Trellis envelope).
+    Without companion at v1.0, "Trellis owns bytes / WOS owns meaning"
+    decomposes silently. Cited from Kernel §10.5 + Trellis Core §22
+    (RL composition).
+    + [ ] WOS-side: companion at v1.0 (parent-tracked).
+    + [ ] Trellis-side: cross-stack fixture in shared bundle (one
+      authored record → dCBOR → envelope, byte-exact).
+    + [ ] Verifier round-trip: Trellis envelope → dCBOR decode →
+      authored record → byte-equal.
+
+39. **External recipient lifecycle — Trellis-side ingestion** — **M**.
+    *Lands after parent ratifies stack ADR per **PLN-0382**.* Privacy
+    Profile registers external systems as per-class recipients;
+    ledgered `wos.governance.access-granted` / `wos.governance.access-
+    revoked` events flow through `custodyHook`; recipient-rotation
+    rule is per-event scope (past events keep existing key_bag
+    immutably; future events scoped to current recipients). Trellis-
+    side: ingest the new event types; clarify Companion §6.4 + §9.4 +
+    §25.6 + §8.6 `LedgerServiceWrapEntry` re-wrap semantics; matrix
+    explicit. Closes "External recipient lifecycle" center commitment
+    in VISION §V. Cross-stack fixture proves rotation across two
+    events (PLN-0382 done-criterion). Composes with `wos.governance.*`
+    namespace ratification at parent **PLN-0384**.
+
+40. **Tenant-scope Trellis export shape** — **M**, Trigger.
+    *Coordinates parent **PLN-0392**.* Core §18 ZIP layout is per-
+    `ledger_scope`; tenant-scope spans many. Owner lean: option (a) —
+    new `070-tenant-package-manifest.cbor` cataloging constituent
+    per-scope ZIPs with cross-binding digests. Alternative (b): new
+    top-level package format nesting per-scope exports. Activate
+    trigger: first tenant-scope export use case surfaces. Abandon
+    trigger: none — center-adjacent profile-specific extension; will
+    eventually land. Depends on item #39 (export must cover recipient-
+    rotation events). Signature-stack relevance: tenant-scope export
+    bundles include signed events spanning multiple ledger scopes —
+    procurement + audit may demand a single bundle.
+    + [ ] Choice ratified (lean: option (a)).
+    + [ ] CDDL written.
+    + [ ] Fixture vector for one tenant spanning two `ledger_scope`s.
+    + [ ] Verifier accepts; secret-exclusion list (per ADR-0013
+      absorption) enforced.
 
 ---
 

@@ -43,7 +43,7 @@ mod tests {
         let mut dirs = fs::read_dir(fixtures_root().join(op))
             .unwrap()
             .map(|entry| entry.unwrap().path())
-            .filter(|path| path.is_dir())
+            .filter(|path| path.is_dir() && path.join("manifest.toml").exists())
             .collect::<Vec<_>>();
         dirs.sort();
         dirs
