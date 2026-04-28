@@ -121,6 +121,21 @@ TAMPER_KIND_ENUM = frozenset({
     "certificate_catalog_event_unresolved",
     "certificate_catalog_event_type_mismatch",
     "certificate_catalog_mismatch",
+    # User-content-attestation primitive (Core §19.1 / §19 step 6d; ADR 0010).
+    # Phase-1 reserved enum values; corpus vectors land alongside the ADR 0010
+    # train (`append/036..039` + `tamper/028..034`). The corpus is a subset of
+    # the enum, so reserved-without-fixture is allowed.
+    "user_content_attestation_timestamp_mismatch",
+    "user_content_attestation_intent_malformed",
+    "user_content_attestation_chain_position_mismatch",
+    "user_content_attestation_identity_required",
+    "user_content_attestation_identity_unresolved",
+    "user_content_attestation_identity_subject_mismatch",
+    "user_content_attestation_identity_temporal_inversion",
+    "user_content_attestation_signature_invalid",
+    "user_content_attestation_key_not_active",
+    "user_content_attestation_id_collision",
+    "user_content_attestation_operator_in_user_slot",
     "interop_sidecar_phase_1_locked",  # ADR 0008 Phase-1 lock-off.
 })
 

@@ -313,6 +313,7 @@ Registered extension identifiers:
 | `EventPayload.extensions` | `trellis.staff-view-decision-binding.v1` | 1 | Staff-view decision-binding record carrying the §15.2 `Watermark` seen by the adjudicator for a rights-impacting decision; payload shape `StaffViewDecisionBinding`. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.evidence-attachment-binding.v1` | 1 | Evidence attachment-binding record from ADR 0072 / Formspec Respondent Ledger §6.9. `PayloadExternal` names the attachment ciphertext bytes; this extension carries the binding metadata. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.certificate-of-completion.v1` | 1 | Certificate-of-completion record per ADR 0007: binds a presentation artifact (PDF or HTML) to the underlying signing chain via ADR 0072 attachment lineage and `signing_events` digests. Payload shape `CertificateOfCompletionPayload` (ADR 0007 §"Wire shape"). Verifier obligations in §19 step 6c. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.user-content-attestation.v1` | 1 | User-content attestation primitive per ADR 0010: one user (non-operator; Companion §6.4) attesting to one in-chain content event with a declared `signing_intent` URI (RFC 3986; semantics owned by WOS Signature Profile §1.3 / PLN-0380). Binds the host event by hash + position (`attested_event_hash` + `attested_event_position`), the attestor's identity-attestation event (`identity_attestation_ref`), and the attestation timestamp (`attested_at`, exact equality with envelope `authored_at`). Payload shape `UserContentAttestationPayload` (§28). Verifier obligations in §19 step 6d under domain tag `trellis-user-content-attestation-v1` (§9.8). Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
 | `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
 | `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
@@ -808,6 +809,7 @@ Phase 1 reserves these domain tags. An implementation MUST NOT use any of these 
 - `trellis-posture-declaration-v1` — Posture-declaration document digest referenced from custody-model and disclosure-profile Posture-transition events (§6.7 registered extensions; Companion §10)
 - `trellis-transition-attestation-v1` — Posture-transition attestation signature preimage `dCBOR([transition_id, effective_at, authority_class])` per Companion A.5 `Attestation` shared rule
 - `trellis-presentation-artifact-v1` — SHA-256 preimage for `PresentationArtifact.content_hash` carried by `trellis.certificate-of-completion.v1` events (ADR 0007). Domain-separates the rendered PDF / HTML bytes from event-payload, content, checkpoint, and Merkle-tree hashing.
+- `trellis-user-content-attestation-v1` — Ed25519 signature preimage for `UserContentAttestationPayload.signature` carried by `trellis.user-content-attestation.v1` events (ADR 0010). Inner preimage is `dCBOR([attestation_id, attested_event_hash, attested_event_position, attestor, identity_attestation_ref, signing_intent, attested_at])`. Distinct from `trellis-transition-attestation-v1` so a wrongly-typed user-content attestation cannot cross-validate against the operator-actor posture-transition family, and vice versa.
 
 ---
 
@@ -1734,6 +1736,95 @@ VERIFY(E) -> VerificationReport
    canonical-response-hash equivalence), **TR-CORE-151** (optional
    `trellis.export.certificates-of-completion.v1` manifest catalog).
 
+6d. User-content-attestation processing. For each event e whose
+   EventPayload.extensions carries `trellis.user-content-attestation.v1`
+   (§6.7; payload shape `UserContentAttestationPayload` in §28): the
+   verifier MUST execute the **9-step user-content-attestation checklist**
+   defined normatively in ADR 0010 §"Verifier obligations". The checklist
+   is reproduced here as an enumeration so the prose section is
+   self-contained; the ADR remains the byte-authoritative source if prose
+   drifts.
+     1. Decode the payload against the §28 CDDL. Mismatch is a structure
+        failure for that event (recorded in report.event_failures).
+     2. Validate intra-payload invariants:
+        `attested_at == envelope.authored_at` (uint exact equality, no
+        skew slack); `signing_intent` is a syntactically valid URI per
+        RFC 3986. Each failure flips `integrity_verified = false` with
+        localizable failure `user_content_attestation_timestamp_mismatch`
+        / `user_content_attestation_intent_malformed`.
+     3. Resolve `attested_event_position` to a chain-present event in
+        the same `ledger_scope` and confirm its `canonical_event_hash`
+        equals `attested_event_hash`. Position-without-hash or
+        hash-without-position attestations are rejected; both fields
+        are normative and disagreement flips `integrity_verified = false`
+        with `user_content_attestation_chain_position_mismatch`.
+     4. Resolve `identity_attestation_ref`:
+          - If null: confirm the Posture Declaration in force at
+            `attested_at` declares
+            `admit_unverified_user_attestations: true`. Otherwise flip
+            `integrity_verified = false` with
+            `user_content_attestation_identity_required`. Default
+            posture is REQUIRED non-null.
+          - If non-null: resolve to a chain-present event of a
+            registered identity-attestation event type (initial
+            registration target `wos.identity.*` per PLN-0381;
+            until ratified, deployment-local extension types per §6.7).
+            Confirm its `ledger_scope` matches; confirm its
+            `sequence < attested_event_position` (identity proof
+            temporally precedes the attestation); confirm its payload
+            subject equals `attestor`. Failure flips
+            `integrity_verified = false` with
+            `user_content_attestation_identity_unresolved` (no resolve)
+            / `user_content_attestation_identity_subject_mismatch`
+            (resolved but wrong subject) /
+            `user_content_attestation_identity_temporal_inversion`
+            (sequence not strictly prior).
+     5. Verify `signature` over
+        `dCBOR([attestation_id, attested_event_hash, attested_event_position, attestor, identity_attestation_ref, signing_intent, attested_at])`
+        under domain tag `trellis-user-content-attestation-v1` (§9.8),
+        using the public key resolved from `signing_kid`. Failure flips
+        `integrity_verified = false` with
+        `user_content_attestation_signature_invalid`.
+     6. Validate key state at `attested_at`: the §8 KeyEntry for
+        `signing_kid` MUST be class `signing` and lifecycle state
+        `Active` (or `Rotating` per ratified rotation-grace overlap;
+        until then, `Rotating` is not admitted). Wrong class or wrong
+        state flips `integrity_verified = false` with
+        `user_content_attestation_key_not_active`.
+     7. Detect collision: after decoding all user-content-attestation
+        events in scope, two events sharing `attestation_id` with
+        disagreeing canonical payload flip
+        `integrity_verified = false` with
+        `user_content_attestation_id_collision` (fail-closed; first-seen
+        wins is non-normative).
+     8. Forbid operator-as-attestor: when `attestor` resolves to a
+        principal class registered as `operator` (Companion §6.4), flip
+        `integrity_verified = false` with
+        `user_content_attestation_operator_in_user_slot`. Operator
+        attestations belong in §A.5's `Attestation` shape under domain
+        tag `trellis-transition-attestation-v1`, not in this primitive.
+     9. Accumulate outcomes into a new
+        `report.user_content_attestations` array parallel to
+        `report.posture_transitions` / `report.erasure_evidence` /
+        `report.certificates_of_completion`. Each entry carries
+        `attestation_id`, `attested_event_hash`, `attestor`,
+        `signing_intent`, `chain_position_resolved`, `identity_resolved`,
+        `signature_verified`, `key_active`, `failures` (array of
+        localizable failure codes).
+
+   `integrity_verified = false` if any user-content-attestation entry
+   has `chain_position_resolved = false`, `identity_resolved = false`
+   (when required), `signature_verified = false`, `key_active = false`,
+   or any step 7–8 failure.
+
+   Traceability: **TR-CORE-152** (registered extension + domain tag +
+   wire shape), **TR-CORE-153** (chain-position binding), **TR-CORE-154**
+   (identity-attestation resolution + temporal precedence), **TR-CORE-155**
+   (signature verification under
+   `trellis-user-content-attestation-v1`), **TR-CORE-156** (key-state
+   check at `attested_at`), **TR-CORE-157** (collision detection +
+   operator-in-user-slot enforcement).
+
 **Attachment manifest (optional, stack ADR 0072).** If `ExportManifestPayload.extensions` carries `trellis.export.attachments.v1` (§6.7), the verifier MUST:
 
      a. Require the archive member `061-attachments.cbor` (§18.2).
@@ -1918,6 +2009,17 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `certificate_catalog_event_unresolved` | 6c optional catalog | A catalog row's `canonical_event_hash` does not resolve to any in-chain event. |
 | `certificate_catalog_event_type_mismatch` | 6c optional catalog | A catalog row's `canonical_event_hash` resolves to an in-chain event whose `event_type` is not `trellis.certificate-of-completion.v1`. |
 | `certificate_catalog_mismatch` | 6c optional catalog | A catalog row's per-field values do not byte-match the resolved certificate-of-completion event payload (certificate_id, completed_at, signer_count, media_type, attachment_id, workflow_status). |
+| `user_content_attestation_timestamp_mismatch` | 6d step 2 | A `trellis.user-content-attestation.v1` payload's `attested_at` does not exactly equal the envelope's `authored_at` (uint seconds; no skew slack) (ADR 0010 §"Verifier obligations" step 2). |
+| `user_content_attestation_intent_malformed` | 6d step 2 | A user-content-attestation `signing_intent` is not a syntactically valid URI per RFC 3986 (ADR 0010 §"Verifier obligations" step 2). |
+| `user_content_attestation_chain_position_mismatch` | 6d step 3 | `attested_event_position` resolves to a chain-present event whose `canonical_event_hash` does not equal `attested_event_hash`, OR the position resolves to no event in the same `ledger_scope` (ADR 0010 §"Verifier obligations" step 3). |
+| `user_content_attestation_identity_required` | 6d step 4 | `identity_attestation_ref` is null and the Posture Declaration in force at `attested_at` does not declare `admit_unverified_user_attestations: true` (ADR 0010 §"Verifier obligations" step 4). |
+| `user_content_attestation_identity_unresolved` | 6d step 4 | `identity_attestation_ref` digest does not resolve to any chain-present event of a registered identity-attestation event type (ADR 0010 §"Verifier obligations" step 4). |
+| `user_content_attestation_identity_subject_mismatch` | 6d step 4 | Resolved identity-attestation event's payload subject does not equal `attestor` (ADR 0010 §"Verifier obligations" step 4). |
+| `user_content_attestation_identity_temporal_inversion` | 6d step 4 | Resolved identity-attestation event's `sequence` is not strictly less than `attested_event_position` — identity proof MUST temporally precede the attestation (ADR 0010 §"Verifier obligations" step 4). |
+| `user_content_attestation_signature_invalid` | 6d step 5 | `UserContentAttestationPayload.signature` does not verify under domain tag `trellis-user-content-attestation-v1` (§9.8) over the §28 preimage with the `signing_kid` public key (ADR 0010 §"Verifier obligations" step 5). |
+| `user_content_attestation_key_not_active` | 6d step 6 | `signing_kid` resolves to a `KeyEntry` whose `kind` is not `signing` or whose lifecycle state at `attested_at` is not `Active` (`Rotating` not admitted until rotation-grace ratifies) (ADR 0010 §"Verifier obligations" step 6). |
+| `user_content_attestation_id_collision` | 6d step 7 | Two `trellis.user-content-attestation.v1` events in scope share `attestation_id` with disagreeing canonical payload (ADR 0010 §"Verifier obligations" step 7; fail-closed). |
+| `user_content_attestation_operator_in_user_slot` | 6d step 8 | An `attestor` URI resolves to a principal class registered as `operator` per Companion §6.4; user-content attestations are user-actor-only, operator attestations belong in §A.5's `Attestation` shape (ADR 0010 §"Verifier obligations" step 8). |
 | `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` is non-empty in Phase 1 (ADR 0008 ISC-04 / ADR 0003 lock-off). |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
@@ -2641,6 +2743,30 @@ VerificationFailure = {
   location: tstr,
   code:     tstr,
   detail:   tstr,
+}
+
+; --- User-content attestation (ADR 0010) -----------------------------
+; Carried under EventPayload.extensions["trellis.user-content-attestation.v1"]
+; (§6.7). Signature preimage uses domain tag
+; `trellis-user-content-attestation-v1` (§9.8). Verifier obligations live
+; in §19 step 6d.
+
+UserContentAttestationPayload = {
+  attestation_id:           tstr,                  ; stable within ledger_scope; idempotent re-emit by hash
+  attested_event_hash:      digest,                ; canonical_event_hash of the host event being attested
+  attested_event_position:  uint,                  ; 0-based sequence within ledger_scope
+  attestor:                 tstr,                  ; principal URI (NOT operator URI; Companion §6.4)
+  identity_attestation_ref: digest / null,         ; canonical_event_hash of an identity-attestation event;
+                                                   ; null only when the deployment Posture Declaration admits
+                                                   ; unverified attestors (default REQUIRED non-null)
+  signing_intent:           tstr,                  ; URI per RFC 3986; meaning per WOS Signature Profile registry
+  attested_at:              uint,                  ; Unix seconds UTC; MUST equal envelope authored_at exactly
+  signature:                bstr,                  ; detached Ed25519 over dCBOR([attestation_id,
+                                                   ;   attested_event_hash, attested_event_position,
+                                                   ;   attestor, identity_attestation_ref, signing_intent,
+                                                   ;   attested_at]) under tag trellis-user-content-attestation-v1
+  signing_kid:              tstr,                  ; §8 KeyEntry signing-class kid; MUST be Active at attested_at
+  extensions:               { * tstr => any } / null,
 }
 ```
 
