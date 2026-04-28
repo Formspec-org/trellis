@@ -89,6 +89,15 @@ TAMPER_KIND_ENUM = frozenset({
     "post_erasure_use",
     "post_erasure_wrap",
     "erasure_evidence_catalog_digest_mismatch",
+    # Erasure-evidence optional-catalog localization labels (Core §19.1 /
+    # §19 step 6b optional manifest catalog; ADR 0005 §"Export manifest
+    # catalog"). Emitted by `verify_erasure_evidence_catalog` for the
+    # non-digest failure surface; reserved per the corpus-subset rule.
+    "erasure_evidence_catalog_invalid",
+    "erasure_evidence_catalog_duplicate_event",
+    "erasure_evidence_catalog_event_unresolved",
+    "erasure_evidence_catalog_event_type_mismatch",
+    "erasure_evidence_catalog_mismatch",
     # Certificate-of-completion (Core §19.1 / §19 step 6c; ADR 0007). Phase-1
     # reserved enum values; corpus vectors land in the ADR 0007 execution
     # train (TODO item #4). The corpus is a subset of the enum, so
@@ -103,6 +112,15 @@ TAMPER_KIND_ENUM = frozenset({
     "signing_event_timestamp_mismatch",
     "response_ref_mismatch",
     "certificate_catalog_digest_mismatch",
+    # Certificate-of-completion optional-catalog localization labels
+    # (Core §19.1 / §19 step 6c optional manifest catalog; ADR 0007 §"Export
+    # manifest catalog"). Emitted by `verify_certificate_catalog` for the
+    # non-digest failure surface; reserved per the corpus-subset rule.
+    "certificate_catalog_invalid",
+    "certificate_catalog_duplicate_event",
+    "certificate_catalog_event_unresolved",
+    "certificate_catalog_event_type_mismatch",
+    "certificate_catalog_mismatch",
     "interop_sidecar_phase_1_locked",  # ADR 0008 Phase-1 lock-off.
 })
 

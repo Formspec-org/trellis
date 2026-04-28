@@ -63,7 +63,7 @@ Wave 21 commit train:
 - Python parity (`feat(py-verify)`). G-5 stranger-test parity per ADR
   0004 — `_parse_erasure_evidence_export_extension`,
   `_parse_erasure_catalog_entries`, `_verify_erasure_evidence_catalog`,
-  step-8 chain-walk extension. `python3 -m trellis_py.conformance` 88/0/0
+  step-8 chain-walk extension. `python3 -m trellis_py.conformance` 84/0/0
   on the expanded corpus.
 
 - Tamper vectors (`test(fixtures)`). Three new negative vectors:
@@ -111,8 +111,8 @@ Verification:
 - `TRELLIS_CHECK_RENUMBERING=1 python3 scripts/check-specs.py` clean
   (R16 strict — deprecated tombstone at `export/009` preserves the
   prefix).
-- `python3 -m trellis_py.conformance` 88/0/0 (G-5 stranger gate; +4
-  vectors landed this wave).
+- `python3 -m trellis_py.conformance` 84/0/0 (G-5 stranger gate;
+  85 manifests minus 1 deprecated tombstone = 84 live vectors).
 - `python3 -m pytest scripts/` 162/0.
 - `python3 -m pytest trellis-py/` 34/0.
 

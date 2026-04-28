@@ -141,7 +141,7 @@ consume amended responses once those stacks land.
    [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
    `trellis.certificate-of-completion.v1` + ADR 0072 attachment binding +
    `ChainSummary` / `covered_claims` verifier cross-checks. Vectors
-   `append/028..030`, `tamper/020..025`, export `010` + catalog, CLI,
+   `append/028..030`, `tamper/020..026`, export `010` + catalog, CLI,
    reference HTML template.
 
    *Signature stack relevance:* this is the integrity artifact for ESIGN
