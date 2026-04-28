@@ -1,0 +1,32 @@
+id          = "append/028-certificate-of-completion-minimal-pdf"
+op          = "append"
+status      = "active"
+description = """ADR 0007 §"Wire shape" minimal-PDF positive vector. Single-signer certificate-of-completion event (`trellis.certificate-of-completion.v1`) with `media_type = application/pdf`, `template_id = null`, `template_hash = null`, `case_ref = null` (intake-record-scoped), one `signing_events` digest pointing at `append/019-wos-signature-affirmation`, one `attestations` row signed under `trellis-transition-attestation-v1`. Genesis sequence on its own ledger_scope; per-event verifier path admits the unresolved `signing_events` reference per `finalize_certificates_of_completion` Phase-1 chain-context posture."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+    "TR-CORE-146",
+]
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+authored_event               = "input-author-event-hash-preimage.cbor"
+certificate_payload          = "input-certificate-payload.cbor"
+presentation_artifact        = "presentation-artifact.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

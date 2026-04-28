@@ -1,0 +1,34 @@
+id          = "append/029-certificate-of-completion-dual-signer-pdf"
+op          = "append"
+status      = "active"
+description = """ADR 0007 §"Wire shape" dual-signer countersigned-PDF positive vector. Two `signing_events` references (workflow order), `workflow_status = countersigned`, `impact_level = moderate`, `case_ref` set, two attestations, `template_id` + non-null `template_hash` (operator-pinned reference template)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+    "TR-CORE-146",
+    "TR-CORE-147",
+    "TR-CORE-148",
+]
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+authored_event               = "input-author-event-hash-preimage.cbor"
+certificate_payload          = "input-certificate-payload.cbor"
+presentation_artifact        = "presentation-artifact.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

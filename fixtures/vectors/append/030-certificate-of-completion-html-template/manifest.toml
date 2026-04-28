@@ -1,0 +1,35 @@
+id          = "append/030-certificate-of-completion-html-template"
+op          = "append"
+status      = "active"
+description = """ADR 0007 §"Wire shape" HTML-template positive vector. `media_type = text/html`, `template_id = null`, `template_hash` non-null per ADR 0007 §"Wire shape" PresentationArtifact.template_hash (HTML binding requires a template pin even when `template_id` is null)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-050",
+    "TR-CORE-051",
+    "TR-CORE-080",
+    "TR-CORE-146",
+]
+tr_op = [
+    "TR-OP-131",
+]
+[inputs]
+signing_key                  = "../../_keys/issuer-001.cose_key"
+authored_event               = "input-author-event-hash-preimage.cbor"
+certificate_payload          = "input-certificate-payload.cbor"
+presentation_artifact        = "presentation-artifact.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"
