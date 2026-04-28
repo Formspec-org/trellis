@@ -21,10 +21,11 @@ fn main() {
 }
 
 fn usage_top_level() -> String {
-    "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002|erase-key>\n\
+    "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002|erase-key|seal-completion>\n\
      \n\
      These commands mirror a small smoke subset of the Trellis fixture corpus.\n\
      `erase-key --help` prints the ADR 0005 CLI contract (Phase-1 stub; KMS wiring not landed).\n\
+     `seal-completion --help` prints the ADR 0007 CLI contract (Phase-1 stub; KMS + ledger append not landed).\n\
      Run the full committed vector set via the `trellis-conformance` binary."
         .to_string()
 }
@@ -33,6 +34,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let command = args.get(1).map(String::as_str).ok_or_else(usage_top_level)?;
     match command {
         "erase-key" => erase_key_command(args),
+        "seal-completion" => seal_completion_command(args),
         _ => dispatch_command(command),
     }
 }
@@ -67,6 +69,46 @@ This build does not perform KMS destruction or ledger append; pass --help any ti
     Err(
         "trellis-cli erase-key: not wired in this build (ADR 0005 Phase-1 stub). \
          Run `trellis-cli erase-key --help` for the planned flag contract."
+            .into(),
+    )
+}
+
+fn seal_completion_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        eprintln!(
+            "\
+trellis-cli seal-completion (Phase-1 stub)
+
+Planned contract per ADR 0007 — reference UX for emitting `trellis.certificate-of-completion.v1`:
+
+  trellis-cli seal-completion \\
+    --workflow-ref <uri>                    # optional
+    --case-ref <uri>                        # optional
+    --response-ref <digest>                 # optional; sha256:<hex>
+    --signing-events <digest>,<digest>,...  # canonical_event_hash per SignatureAffirmation
+    --signer-display <json-array-file>      # structured signer display entries
+    --workflow-status completed|countersigned|notarized|partially-completed|<custom>
+    --impact-level low|moderate|high        # optional
+    --template-id <id>                      # optional
+    --presentation-artifact <path>          # path to PDF/HTML file
+    --media-type application/pdf|text/html  # default application/pdf
+    --attestation-key <cose-key-file>       # repeatable; ≥1 required
+
+The command performs a single atomic unit:
+  (a) hash the presentation artifact under `trellis-presentation-artifact-v1` (Core §9.8);
+  (b) construct the canonical certificate-of-completion event payload;
+  (c) bind the artifact via ADR 0072 attachment-binding mechanism;
+  (d) sign the event under the operator key + attest under each --attestation-key;
+  (e) append to the ledger.
+
+This build does not perform KMS attestation, attachment binding, or ledger append; pass --help any time to show this text.
+"
+        );
+        return Ok(());
+    }
+    Err(
+        "trellis-cli seal-completion: not wired in this build (ADR 0007 Phase-1 stub). \
+         Run `trellis-cli seal-completion --help` for the planned flag contract."
             .into(),
     )
 }
@@ -250,6 +292,22 @@ mod tests {
     #[test]
     fn erase_key_without_help_errors() {
         let err = run(&["trellis-cli".into(), "erase-key".into()]).unwrap_err();
+        assert!(err.contains("not wired"), "{err}");
+    }
+
+    #[test]
+    fn seal_completion_help_succeeds() {
+        run(&[
+            "trellis-cli".into(),
+            "seal-completion".into(),
+            "--help".into(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn seal_completion_without_help_errors() {
+        let err = run(&["trellis-cli".into(), "seal-completion".into()]).unwrap_err();
         assert!(err.contains("not wired"), "{err}");
     }
 
