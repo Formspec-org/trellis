@@ -285,12 +285,14 @@ Emit erasure evidence as a sidecar manifest outside the canonical event chain (s
 - **Forward-compat surfaces.** The `key_class` field accepts registry-appended values; ADR 0006 is the design anchor for reserved literals and `kid` lookup. Multi-operator quorum extends `attestations` without wire change when federation lands.
 - **Case-ledger composition.** Erasure evidence events compose into case ledgers identically to other `trellis.*` extension events. No special-casing.
 
-## Open questions / follow-ups
+## Open questions and downstream ADR slots
 
-1. **Interaction with `LedgerServiceWrapEntry` rotation (Core §8.6).** When the LAK rotates, existing wrap entries re-wrap under the new key. An erasure-evidence event destroying an LAK-rotation predecessor must specify whether cascade includes rotating-out the affected entries. Follow-on: add a `"re-wrap-required"` cascade mode or a companion "LAK rotation coupled to erasure" recipe. Lands when the first live LAK rotation touches an erasure-cascade-bearing subject.
-2. **HSM-receipt format registry.** The `hsm_receipt_kind` identifier needs a small registry (AWS KMS, PKCS#11, GCP KMS, Azure Key Vault, HSM-vendor-specific). Registry-append-only; currently empty beyond an `"opaque-vendor-receipt-v1"` catch-all.
-3. **Per-scope erasure of legal-hold-protected events.** Legal hold (Companion §20.6) prevents retention-expired destruction while the hold is in force. The ADR does not prohibit erasure-evidence emission under legal hold, but operators should treat this as a governance violation; a follow-on lint rule SHOULD detect it.
-4. **Multi-operator quorum.** Companion §26 witness / federation work covers cross-operator trust anchors. Erasure evidence for cross-operator shared keys (e.g., a federated trust anchor) needs a quorum-of-N attestation shape; the current 1+ attestation requirement is the lower bound.
+Each item below is a separate decision that does not block ADR 0005's claim. When activated, each lands as its own ADR — none is a future "phase" of this one. Tracker rows live in [`trellis/TODO.md`](../../TODO.md) item #15.
+
+1. **LAK rotation coupled to erasure.** When the LAK rotates (Core §8.6 `LedgerServiceWrapEntry`), existing wrap entries re-wrap under the new key. An erasure-evidence event destroying an LAK-rotation predecessor must specify whether cascade includes rotating-out the affected entries. Future ADR adds a `"re-wrap-required"` cascade mode or a companion "LAK rotation coupled to erasure" recipe; activation trigger is the first live LAK rotation touching an erasure-cascade-bearing subject.
+2. **HSM-receipt format registry.** The `hsm_receipt_kind` identifier needs a small registry (AWS KMS, PKCS#11, GCP KMS, Azure Key Vault, HSM-vendor-specific). Registry-append-only; currently empty beyond an `"opaque-vendor-receipt-v1"` catch-all. Future ADR pins the registry and the per-vendor parsing contract; activation trigger is the second deployment adopter on a different HSM vendor.
+3. **Legal-hold-coupled erasure lint.** Legal hold (Companion §20.6) prevents retention-expired destruction while the hold is in force. The ADR does not prohibit erasure-evidence emission under legal hold, but operators should treat this as a governance violation. Future ADR adds the OC-78 vs §20.6 conflict-detection lint rule.
+4. **Multi-operator quorum attestation.** Erasure evidence for cross-operator shared keys (e.g., a federated trust anchor) needs a quorum-of-N attestation shape; the current 1+ attestation requirement is the lower bound. Future ADR rides Companion §26 witness / federation work; activation trigger is the first federated deployment.
 
 ## Cross-references
 

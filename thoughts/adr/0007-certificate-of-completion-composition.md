@@ -148,9 +148,9 @@ A conforming verifier processing an export bundle containing `trellis.certificat
 
 Rendering-drift checks (re-rendering from `template_id` + chain data) are NOT required. Adopters that want stronger binding publish `template_id` + `template_hash` and rebuild at verification time as a stretch check.
 
-### C2PA interop-sidecar binding
+### C2PA interop-sidecar binding (separate ADR)
 
-The registered interop-sidecar format for content-provenance attachment to the rendered presentation artifact is **C2PA 2.x** per [ADR 0008 — Interop Sidecar Discipline](./0008-interop-sidecar-discipline.md), `kind = "c2pa-manifest"`. A deployment that wants C2PA manifest emission co-lands it with the reference-template work in *Implementation sequencing* step 9. The manifest carries a Trellis-owned assertion pinning `certificate_id`, the certificate event's `canonical_event_hash`, `presentation_artifact.content_hash`, the signer `kid`, and a digest of the canonical COSE_Sign1 bytes — giving the PDF dual attestation (C2PA tooling verifies the manifest; Trellis verifier verifies the underlying canonical event). The envelope is unaffected: core verification MUST NOT depend on the C2PA sidecar (ADR 0008 ISC-01).
+C2PA composition with the rendered presentation artifact is a separate decision tracked at [`trellis/TODO.md`](../../TODO.md) item #21 (`c2pa-manifest` adapter, `kind = "c2pa-manifest"` per [ADR 0008 — Interop Sidecar Discipline](./0008-interop-sidecar-discipline.md)). The follow-on ADR will pin assertion-label registration, manifest payload shape, and the dual-attestation contract. ADR 0007's envelope is unaffected: core verification MUST NOT depend on the C2PA sidecar (ADR 0008 ISC-01).
 
 ## Export manifest catalog (optional)
 
@@ -270,12 +270,15 @@ Minimum fixture set:
 
 Three positive + seven tamper + one export catalog. Minimum set covers primary failures; expand with `covered_claims` mismatch and template re-render drift as implementation matures.
 
-## Open questions / follow-ons
+## Open questions and downstream ADR slots
 
-1. **Reference template authorship.** Which HTML-to-PDF pipeline does the reference template assume? (Chromium headless is the most common default; WeasyPrint is the pure-Python alternative.) Not a blocking question for this ADR; resolved when the reference template lands.
-2. **Accessibility claims.** PDFs for counsel/court contexts should be WCAG-accessible (tagged PDF). Reference template should produce tagged PDFs by default but non-normative. Becomes load-bearing if accessibility surfaces as a compliance requirement.
-3. **Cross-jurisdictional localization.** Date formats, name ordering, RTL scripts. Template-level concern; `signer_display.display_name` allows arbitrary strings.
-4. **PAdES / eIDAS / ESIGN integration.** Some jurisdictions require a PAdES-conformant signature inside the PDF itself (not just a Trellis-chain reference). If an operator needs this, they produce a PAdES-signed PDF themselves and bind it via this ADR; Trellis does not embed the PAdES signing. Separate ADR if this becomes a required capability.
+Each item below is a separate decision that does not block ADR 0007's claim. When activated, each lands as its own ADR — none is a future "phase" of this one.
+
+1. **Reference template authorship.** Which HTML-to-PDF pipeline does the reference template assume? (Chromium headless is the most common default; WeasyPrint is the pure-Python alternative.) Resolved inline when the reference template lands; if the choice is normatively load-bearing, capture in a follow-on ADR.
+2. **Accessibility claims.** PDFs for counsel/court contexts should be WCAG-accessible (tagged PDF). Reference template should produce tagged PDFs by default but non-normative here. Becomes a separate ADR if accessibility surfaces as a compliance requirement.
+3. **Cross-jurisdictional localization.** Date formats, name ordering, RTL scripts. Template-level concern; `signer_display.display_name` allows arbitrary strings. Becomes a separate ADR only if a deployment surfaces a normative localization contract.
+4. **PAdES / eIDAS / ESIGN integration.** Some jurisdictions require a PAdES-conformant signature inside the PDF itself (not just a Trellis-chain reference). If an operator needs this, they produce a PAdES-signed PDF themselves and bind it via this ADR; Trellis does not embed the PAdES signing. Separate ADR slot when a deployment requires it.
+5. **C2PA interop-sidecar binding.** Tracked at [`trellis/TODO.md`](../../TODO.md) item #21 (the `c2pa-manifest` adapter under ADR 0008). Separate ADR will pin assertion-label registration + manifest payload shape.
 
 ## Cross-references
 
