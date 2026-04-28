@@ -1,10 +1,10 @@
 # HPKE crate selection spike — `trellis-core`
 
 **Date:** 2026-04-24
-**Status:** Executed (Wave 16, 2026-04-27). Implementation landed in `trellis-hpke` sibling crate; `tests/append_004_byte_match.rs` is the byte-exact oracle; G-5 strengthens from "vectors match" to "both implementations independently derive the HPKE bytes."
-**Lifecycle:** Spike — crate + interface are authoritative for TODO item #6 until execution lands; **promote to ADR 0008** (or fold into ADR 0004 amendment) when the first `trellis-core` HPKE PR opens so normative prose carries an ADR id.
+**Status:** **Superseded — non-normative archive.** Promoted to [ADR 0009 — HPKE Crate Selection](../adr/0009-hpke-crate-selection.md) (Wave 18, 2026-04-27). Cite ADR 0009 — never this spike — for normative HPKE crate-selection authority going forward. This file is kept for historical context only.
+**Lifecycle:** Closed. The promote-on-bump discipline now lives in ADR 0009 §Lifecycle.
 **Owner:** Trellis center.
-**Unblocks:** Sequence item #6 (HPKE wrap/unwrap in Rust) in [`../../TODO.md`](../../TODO.md). Also item #7 (duplicate-ephemeral lint), which hangs off the Rust HPKE infrastructure this item stands up.
+**Unblocks:** Sequence item #6 (HPKE wrap/unwrap in Rust) in [`../../TODO.md`](../../TODO.md) — landed Wave 16. Also item #7 (duplicate-ephemeral lint) — landed Wave 17.
 
 ## Decision
 
