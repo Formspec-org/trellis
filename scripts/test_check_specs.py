@@ -1313,6 +1313,179 @@ class TestDeclarationSupersedesAcyclic(unittest.TestCase):
         self.assertEqual(errors, [], errors)
 
 
+class TestDeclarationSupersedesTemporalInForce(unittest.TestCase):
+    """R15 (temporal-in-force half) — for every supersedes edge
+    `successor -> predecessor`, the predecessor MUST have been in force
+    at `successor.effective_from`. A declaration's in-force window is
+    `[effective_from, scope.time_bound)`; absent `scope.time_bound` is
+    open-ended. Companion §A.6 rule 15 ("supersedes chain is acyclic
+    AND each linked declaration was in force at the time of the
+    successor's `effective_from`"). Wave 18 closes the temporal half
+    that Wave 15 silently dropped.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cs = _load_check_specs_module()
+
+    def _scaffold_temporal(
+        self,
+        tmp: Path,
+        decls: list[tuple[str, str | None, str, str | None]],
+    ) -> Path:
+        """Create N declarations with (id, supersedes, effective_from, time_bound).
+
+        `effective_from` is required (RFC 3339 UTC); `time_bound` is the
+        nested `scope.time_bound` close-of-window, encoded by key absence
+        when None per the A.6 nullable-field convention.
+        """
+        root = tmp / "declarations"
+        root.mkdir(parents=True)
+        for i, (decl_id, supersedes, eff_from, time_bound) in enumerate(decls):
+            d = root / f"slug-{i}"
+            d.mkdir()
+            lines = [
+                "---",
+                f'declaration_id          = "{decl_id}"',
+                f"effective_from          = {eff_from}",
+            ]
+            if supersedes is not None:
+                lines.append(f'supersedes              = "{supersedes}"')
+            if time_bound is not None:
+                lines.append("[scope]")
+                lines.append(f"time_bound              = {time_bound}")
+            lines.append("---")
+            lines.append("")
+            lines.append("# stub")
+            (d / "declaration.md").write_text(
+                "\n".join(lines), encoding="utf-8"
+            )
+        return root
+
+    def test_temporal_in_force_chain_passes(self):
+        # v1 takes effect 2026-01-01 with no time_bound; v2 takes effect
+        # 2026-06-01 (well within v1's open-ended window). In force at
+        # successor's effective_from -> passes.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold_temporal(Path(tmp), [
+                ("urn:test:v1", None, "2026-01-01T00:00:00Z", None),
+                ("urn:test:v2", "urn:test:v1", "2026-06-01T00:00:00Z", None),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertEqual(errors, [], errors)
+
+    def test_successor_effective_from_before_predecessor_is_rejected(self):
+        # Out-of-order: v2's effective_from (2025-12-01) precedes v1's
+        # effective_from (2026-01-01). Predecessor was not yet in force
+        # at successor's effective_from -> reject.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold_temporal(Path(tmp), [
+                ("urn:test:v1", None, "2026-01-01T00:00:00Z", None),
+                ("urn:test:v2", "urn:test:v1", "2025-12-01T00:00:00Z", None),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("in force" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_successor_effective_from_after_predecessor_time_bound_is_rejected(self):
+        # v1 closes its window at 2026-05-01 (scope.time_bound). v2's
+        # effective_from is 2026-06-01 — predecessor's window had
+        # already closed -> reject.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold_temporal(Path(tmp), [
+                (
+                    "urn:test:v1",
+                    None,
+                    "2026-01-01T00:00:00Z",
+                    "2026-05-01T00:00:00Z",
+                ),
+                ("urn:test:v2", "urn:test:v1", "2026-06-01T00:00:00Z", None),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("in force" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_successor_effective_from_equals_predecessor_effective_from_passes(self):
+        # Boundary: equal effective_from is in force per the half-open
+        # window `[effective_from, time_bound)`. Documents the inclusive
+        # lower bound so a future regression cannot flip the comparison.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold_temporal(Path(tmp), [
+                ("urn:test:v1", None, "2026-01-01T00:00:00Z", None),
+                ("urn:test:v2", "urn:test:v1", "2026-01-01T00:00:00Z", None),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertEqual(errors, [], errors)
+
+    def test_successor_effective_from_equals_predecessor_time_bound_is_rejected(self):
+        # Boundary: equal to the half-open upper bound is OUT of the
+        # window per `[effective_from, time_bound)`. Documents the
+        # exclusive upper bound.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._scaffold_temporal(Path(tmp), [
+                (
+                    "urn:test:v1",
+                    None,
+                    "2026-01-01T00:00:00Z",
+                    "2026-05-01T00:00:00Z",
+                ),
+                ("urn:test:v2", "urn:test:v1", "2026-05-01T00:00:00Z", None),
+            ])
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("in force" in e.lower() for e in errors),
+            errors,
+        )
+
+    def test_real_reference_declaration_temporal_violation(self):
+        # Wave 15 review F3 follow-up: copy the real reference
+        # declaration via shutil.copytree and mutate it to introduce a
+        # temporal-in-force violation. Removes the synthetic-vs-real seam
+        # so a runtime regression touching real-declaration parsing
+        # cannot pass under synthetic stubs alone.
+        #
+        # Strategy: keep ssdi-intake-triage as the predecessor (real
+        # bytes, real effective_from = 2026-05-01); add a synthetic
+        # successor that supersedes it with an out-of-order
+        # effective_from = 2026-04-01 (one month BEFORE the predecessor
+        # took effect).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "declarations"
+            root.mkdir(parents=True)
+            shutil.copytree(
+                ROOT / "fixtures/declarations/ssdi-intake-triage",
+                root / "ssdi-intake-triage",
+            )
+            successor_dir = root / "ssdi-intake-triage-v2"
+            successor_dir.mkdir()
+            (successor_dir / "declaration.md").write_text(
+                """---
+declaration_id          = "urn:example:ssdi-intake-triage/declaration/v2"
+effective_from          = 2026-04-01T00:00:00Z
+supersedes              = "urn:example:ssdi-intake-triage/declaration/v1"
+---
+
+# successor stub for temporal-violation test
+""",
+                encoding="utf-8",
+            )
+            errors: list[str] = []
+            self.cs.check_declaration_supersedes_acyclic(errors, root=root)
+        self.assertTrue(
+            any("in force" in e.lower() for e in errors),
+            errors,
+        )
+
+
 
 class TestVectorRenumberingWrapper(unittest.TestCase):
     """R16 — `scripts/check-specs.py` opt-in wrapper around
