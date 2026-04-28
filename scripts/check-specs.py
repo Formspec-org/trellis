@@ -89,6 +89,7 @@ TAMPER_KIND_ENUM = frozenset({
     "post_erasure_use",
     "post_erasure_wrap",
     "erasure_evidence_catalog_digest_mismatch",
+    "interop_sidecar_phase_1_locked",  # ADR 0008 Phase-1 lock-off.
 })
 
 

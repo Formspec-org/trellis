@@ -1,0 +1,20 @@
+id          = "export/011-interop-sidecars-absent"
+op          = "export"
+status      = "active"
+description = """Canonical positive: interop-sidecars/ tree absent;
+manifest omits interop_sidecars (ADR 0008 Phase-1 reservation discipline).
+Reuses export/001 chain for the underlying bytes — the signal is that
+Phase-1 verifier accepts absent interop_sidecars without error."""
+
+[coverage]
+tr_core = ["TR-CORE-145"]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "05adf6efaf2d563c28de6076bec1b5c46a64b76df14b8cfd696323907bdf89ef"
+
+[derivation]
+document = "derivation.md"

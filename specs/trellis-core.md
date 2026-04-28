@@ -1322,11 +1322,19 @@ ExportManifestPayload = {
   posture_declaration: PostureDeclaration, ; §20
   head_format_version: uint,              ; §18.7; Phase 1 = 1
   omitted_payload_checks: [* OmittedPayloadCheck], ; §16.4, §19
+  ? interop_sidecars: [* InteropSidecarEntry] / null, ; §18.3a; Phase-1 locked
   extensions:       { * tstr => any } / null,
 }
 ```
 
 The manifest binds every other archive member by digest. A verifier MUST check that every digest in the manifest matches the actual archive contents.
+
+**Interop sidecars (§18.3a).** `interop_sidecars` is reserved under ADR 0003
+lock-off discipline. Phase-1 producers MUST emit `null` or `[]` when `interop_sidecars` is present.
+Phase-1 verifiers receiving a non-empty list MUST fail with `interop_sidecar_phase_1_locked`. Phase-2+ adapters populate the field
+per [ADR 0008](../../thoughts/adr/0008-interop-sidecar-discipline.md);
+verification of populated entries is deferred until the adapter kind
+activates. Traceability: **TR-CORE-145**.
 
 ```cddl
 OmittedPayloadCheck = {
@@ -1733,6 +1741,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `post_erasure_use` | 6b step 8 | A canonical event with `authored_at > destroyed_at` is signed under the destroyed `kid` (within `norm_key_class ∈ {"signing", "subject"}` Phase-1 scope). |
 | `post_erasure_wrap` | 6b step 8 | A canonical event with `authored_at > destroyed_at` carries a `key_bag.entries` row wrapped under the destroyed `kid` (within `norm_key_class ∈ {"signing", "subject"}` Phase-1 scope). |
 | `erasure_evidence_catalog_digest_mismatch` | 6b optional catalog | `064-erasure-evidence.cbor` digest does not match the manifest's `trellis.export.erasure-evidence.v1` binding (ADR 0005 §"Export manifest catalog"). |
+| `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` is non-empty in Phase 1 (ADR 0008 ISC-04 / ADR 0003 lock-off). |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
 
@@ -2367,6 +2376,7 @@ ExportManifestPayload = {
   posture_declaration:         PostureDeclaration,
   head_format_version:         uint,
   omitted_payload_checks:      [* OmittedPayloadCheck],
+  ? interop_sidecars:            [* InteropSidecarEntry] / null,
   extensions:                  { * tstr => any } / null,
 }
 
@@ -2374,6 +2384,21 @@ ExportManifestHashPreimage = {
   version:          uint .size 1,
   scope:            bstr,
   manifest_payload: ExportManifestPayload,
+}
+
+; Reserved under ADR 0003 discipline; Phase-1 producers emit null or [].
+InteropSidecarEntry = {
+  kind:               "scitt-receipt" /
+                      "vc-jose-cose-event" /
+                      "c2pa-manifest" /
+                      "did-key-view" /
+                      tstr,              ; extension via future ADR
+  derivation_version: uint .size 1,     ; pinned per kind; bumps on wire break
+  path:               tstr,              ; relative to export root;
+                                         ; MUST start with "interop-sidecars/"
+  content_digest:     bstr .size 32,     ; SHA-256 under domain tag trellis-content-v1
+  source_ref:         tstr,              ; anchor back to canonical record derived from
+  extensions:         { * tstr => any } / null,
 }
 
 OmittedPayloadCheck = {
@@ -2665,4 +2690,3 @@ Core traceability rows:
 - **[FIPS 205]** NIST, "Stateless Hash-Based Digital Signature Standard (SLH-DSA)", FIPS 205, August 2024. Reserved for Phase 2+ post-quantum `suite_id`.
 - **[WOS Assurance]** WOS Working Group, "WOS Assurance Specification". Referenced for legal-sufficiency disclosure obligations (§20.4).
 - **Trellis Operational Companion (Phase 2)** — separate normative document for projection and derived-artifact discipline, metadata-budget declarations, delegated-compute honesty, posture-transition auditability, snapshot watermarks, and rebuild semantics.
-- **Formspec/WOS/Trellis Product Vision** — `thoughts/product-vision.md`, 2026-04-17. Phase roadmap and Phase 1 envelope invariants #1–#15.

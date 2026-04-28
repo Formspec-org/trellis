@@ -56,6 +56,16 @@ downstream; `trellis-cose` / `trellis-verify` public APIs are
 path-dep posture (parent **PLN-0368**) is a stack-level decision;
 Trellis-side action is "comply with the chosen pattern when it lands."
 
+**`trellis-store-postgres` ↔ downstream `EventStore` (continuation):** the
+Postgres canonical store (`trellis/crates/trellis-store-postgres/`, Wave 16/18
+hardening + `append_event_in_tx`) is the **Trellis-side** half of the composed
+reference-server write path. **WOS-side** work is the
+`wos-server-eventstore-postgres` adapter (parent **PLN-0332**) gated by
+**PLN-0368** — see [`wos-spec/crates/wos-server/TODO.md`](../wos-spec/crates/wos-server/TODO.md)
+Phase 4 + **WS-095** (embedded / `trellis-store-memory` for single-process).
+Trellis crate owners: keep `append_event_in_tx` and migration discipline stable
+for that composition; no new Trellis TODO row unless a gap blocks the adapter.
+
 **Signature-stack rows in this file** (cluster pointer for "everything
 about signatures"): item **#4** (cert-of-completion ADR 0007 — the
 integrity artifact for ESIGN/UETA), **#8** + **#9** (WOS-T4 + ADR 0073
@@ -78,8 +88,8 @@ specific extensions and procurement triggers (0392-0398) + PLN-0355
 
 **Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
 center tasks for the core handoff (validation, mapping, draft/submit/dismiss).
-Processor and HTTP parity work lives in parent [`wos-spec/TODO.md`](../../wos-spec/TODO.md)
-**#66** and [`wos-spec/crates/wos-server/TODO.md`](../../wos-spec/crates/wos-server/TODO.md)
+Processor and HTTP parity work lives in parent [`wos-spec/TODO.md`](../wos-spec/TODO.md)
+**#66** and [`wos-spec/crates/wos-server/TODO.md`](../wos-spec/crates/wos-server/TODO.md)
 **WS-011**, **WS-074–WS-075** (plus **WS-072** for ADR 0066 server surfaces once
 ratified). Trellis items **12** (ADR 0066) and **17** (case ledger) may later
 consume amended responses once those stacks land.
@@ -288,21 +298,18 @@ consume amended responses once those stacks land.
     hooks stay reserved under ADR 0003 and `MUST NOT populate` in Phase
     1 until this lands.
 
-18. **Interop sidecar reservation — execute per ADR 0008** — **S**, Phase 1.
-    *Items 19-23 form the ADR 0008 ecosystem-derivation adapter bundle;
-    parent backlog: **PLN-0313** (Trigger-gated, per-adapter activation).*
-    [ADR 0008](thoughts/adr/0008-interop-sidecar-discipline.md) registers
-    four ecosystem-derivation sidecar kinds (`scitt-receipt`,
-    `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`) under
-    canonical-first, deterministic, additive discipline. Phase-1 scope is
-    **reservation only**: Core §18 export-manifest gains `interop_sidecars:
-    [* InteropSidecarEntry] / null`; Phase-1 producers emit null/empty;
-    Phase-1 verifiers reject any populated entry with
-    `interop_sidecar_phase_1_locked`. Vectors `export/011-012` +
-    `tamper/027-031` per ADR *Fixture plan*. Also scaffolds empty crates
-    `trellis-interop-{scitt,vc,c2pa,did}` + `cargo-deny` config forbidding
-    ecosystem libs from `trellis-core` / `trellis-verify` / `trellis-types`
-    (ADR 0008 ISC-05 hygiene contract).
+18. ~~**Interop sidecar reservation — execute per ADR 0008**~~ — **CLOSED Wave 20, 2026-04-27.**
+    Core §18.3a gains `interop_sidecars` field with `InteropSidecarEntry`
+    CDDL; Phase-1 lock-off prose; TR-CORE-145 matrix row.
+    `trellis-verify` rejects non-empty `interop_sidecars` with
+    `interop_sidecar_phase_1_locked` fatal failure. Fixtures:
+    `export/011-interop-sidecars-absent` (canonical positive, absent),
+    `export/012-interop-sidecars-empty-list` (canonical positive, empty
+    array), `tamper/027-interop-sidecar-populated-phase-1` (verifier
+    rejects populated entry). Empty crates
+    `trellis-interop-{scitt,vc,c2pa,did}` scaffolded in workspace;
+    `deny.toml` cargo-deny config reserves ecosystem-lib ban list.
+    `scripts/check-specs.py` TAMPER_KIND_ENUM extended.
 
 19. **`scitt-receipt` adapter — execute per ADR 0008** — **M**, Phase 2+.
     *Lands when SCITT Architecture draft reaches WG Last Call OR a

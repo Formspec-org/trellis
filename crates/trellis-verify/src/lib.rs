@@ -423,6 +423,25 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         }
     };
 
+    // Phase-1 interop sidecar lock-off (ADR 0008).
+    if let Some(value) = map_lookup_optional_value(manifest_map, "interop_sidecars") {
+        if !value.is_null() {
+            if let Some(arr) = value.as_array() {
+                if !arr.is_empty() {
+                    return VerificationReport::fatal(
+                        "interop_sidecar_phase_1_locked",
+                        "Phase-1 verifier rejects populated interop_sidecars (ADR 0008)",
+                    );
+                }
+            } else {
+                return VerificationReport::fatal(
+                    "manifest_payload_invalid",
+                    "interop_sidecars must be an array or null",
+                );
+            }
+        }
+    }
+
     let required_digests = [
         ("010-events.cbor", "events_digest"),
         ("020-inclusion-proofs.cbor", "inclusion_proofs_digest"),
