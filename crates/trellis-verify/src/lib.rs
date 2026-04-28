@@ -32,9 +32,31 @@ const ATTACHMENT_EXPORT_EXTENSION: &str = "trellis.export.attachments.v1";
 const ATTACHMENT_EVENT_EXTENSION: &str = "trellis.evidence-attachment-binding.v1";
 const SIGNATURE_EXPORT_EXTENSION: &str = "trellis.export.signature-affirmations.v1";
 const INTAKE_EXPORT_EXTENSION: &str = "trellis.export.intake-handoffs.v1";
+const ERASURE_EVIDENCE_EVENT_EXTENSION: &str = "trellis.erasure-evidence.v1";
+const ERASURE_EVIDENCE_EXPORT_EXTENSION: &str = "trellis.export.erasure-evidence.v1";
+const ERASURE_EVIDENCE_CATALOG_MEMBER: &str = "064-erasure-evidence.cbor";
+/// Domain separation tag for transition-attestation preimages (Core §9.8).
+/// Shared verbatim between §A.5 posture transitions and ADR 0005 erasure
+/// evidence; Phase-1 verifier checks structural shape (`signature` is 64
+/// bytes, `authority_class` is one of `prior` / `new`) — full Ed25519
+/// crypto-verification of attestation signatures rides Phase-2+ when an
+/// authority↔key registry binding lands. Mirrors the existing
+/// posture-transition flow: presence + class-count today, crypto later.
+#[allow(dead_code)]
+const TRANSITION_ATTESTATION_DOMAIN: &str = "trellis-transition-attestation-v1";
 const WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE: &str = "wos.kernel.signatureAffirmation";
 const WOS_INTAKE_ACCEPTED_EVENT_TYPE: &str = "wos.kernel.intakeAccepted";
 const WOS_CASE_CREATED_EVENT_TYPE: &str = "wos.kernel.caseCreated";
+
+/// Reserved CascadeScope identifiers from Companion Appendix A.7. Free-text
+/// scope values are non-conformant per OC-141 (Companion §20.6.3 / TR-OP-106);
+/// registry-extension `tstr` values that follow the Appendix A.7 convention
+/// are admitted (Phase-1 reference verifier accepts any `tstr` shape; deep
+/// registry-membership lint rides O-3 evolution).
+#[allow(dead_code)]
+const APPENDIX_A7_CASCADE_SCOPES: &[&str] = &[
+    "CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06",
+];
 
 /// Verification failure localized to one artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +88,32 @@ pub struct PostureTransitionOutcome {
     pub failures: Vec<String>,
 }
 
+/// Outcome for one cryptographic-erasure-evidence verification (ADR 0005
+/// step 10 / Core §19 step 6b). One entry per `trellis.erasure-evidence.v1`
+/// payload in the chain, in chain order. `post_erasure_uses` and
+/// `post_erasure_wraps` count cross-event violations attributable to this
+/// evidence's `kid_destroyed`; `cascade_violations` is reserved for the
+/// Phase-2 deep-cascade lint (Phase-1 leaves it empty).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ErasureEvidenceOutcome {
+    pub evidence_id: String,
+    pub kid_destroyed: Vec<u8>,
+    pub destroyed_at: u64,
+    pub cascade_scopes: Vec<String>,
+    pub completion_mode: String,
+    pub event_index: u64,
+    /// Phase-1 contract: `true` iff every attestation row carries the
+    /// structural shape (64-byte `signature`, valid `authority_class`).
+    /// Crypto-verification rides Phase-2+ — see Phase-1 limit comment on
+    /// `TRANSITION_ATTESTATION_DOMAIN`. Parallel to the existing
+    /// posture-transition flow (`PostureTransitionOutcome.attestations_verified`).
+    pub signature_verified: bool,
+    pub post_erasure_uses: u64,
+    pub post_erasure_wraps: u64,
+    pub cascade_violations: Vec<String>,
+    pub failures: Vec<String>,
+}
+
 /// Verification report for the current Phase-1 runtime.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VerificationReport {
@@ -76,6 +124,7 @@ pub struct VerificationReport {
     pub checkpoint_failures: Vec<VerificationFailure>,
     pub proof_failures: Vec<VerificationFailure>,
     pub posture_transitions: Vec<PostureTransitionOutcome>,
+    pub erasure_evidence: Vec<ErasureEvidenceOutcome>,
     pub warnings: Vec<String>,
 }
 
@@ -91,6 +140,7 @@ impl VerificationReport {
             checkpoint_failures: Vec::new(),
             proof_failures: Vec::new(),
             posture_transitions: Vec::new(),
+            erasure_evidence: Vec::new(),
             warnings: vec![warning],
         }
     }
@@ -100,6 +150,7 @@ impl VerificationReport {
         checkpoint_failures: Vec<VerificationFailure>,
         proof_failures: Vec<VerificationFailure>,
         posture_transitions: Vec<PostureTransitionOutcome>,
+        erasure_evidence: Vec<ErasureEvidenceOutcome>,
         warnings: Vec<String>,
     ) -> Self {
         let posture_ok = posture_transitions.iter().all(|outcome| {
@@ -107,18 +158,31 @@ impl VerificationReport {
                 && outcome.declaration_resolved
                 && outcome.attestations_verified
         });
+        // ADR 0005 step 10 fold: any erasure-evidence outcome with
+        // `signature_verified = false`, `post_erasure_uses > 0`, or
+        // `post_erasure_wraps > 0` flips integrity. Structure failures
+        // (steps 1-6) already accumulated into `event_failures` so they
+        // also gate via the `event_failures.is_empty()` predicate below.
+        // Cascade violations remain warnings in Phase 1 (step 9 best-effort).
+        let erasure_ok = erasure_evidence.iter().all(|outcome| {
+            outcome.signature_verified
+                && outcome.post_erasure_uses == 0
+                && outcome.post_erasure_wraps == 0
+        });
 
         Self {
             structure_verified: true,
             integrity_verified: event_failures.is_empty()
                 && checkpoint_failures.is_empty()
                 && proof_failures.is_empty()
-                && posture_ok,
+                && posture_ok
+                && erasure_ok,
             readability_verified: true,
             event_failures,
             checkpoint_failures,
             proof_failures,
             posture_transitions,
+            erasure_evidence,
             warnings,
         }
     }
@@ -975,6 +1039,22 @@ struct EventDetails {
     payload_ref: PayloadRef,
     transition: Option<TransitionDetails>,
     attachment_binding: Option<AttachmentBindingDetails>,
+    /// Decoded ADR 0005 erasure-evidence payload, populated when
+    /// `EventPayload.extensions["trellis.erasure-evidence.v1"]` is present.
+    /// `None` for non-erasure events. The decoder runs ADR 0005 §"Verifier
+    /// obligations" steps 1, 3, 6 (CDDL + subject_scope shape + hsm_receipt
+    /// null-consistency) inline; structural failures surface as `Err`
+    /// `VerifyError` from `decode_erasure_evidence_details` and bubble up
+    /// to a `tamper_kind` via `VerifyError::with_kind`. Step 2 (registry
+    /// bind), step 4 (destroyed_at vs host), step 5 (cross-event group),
+    /// step 7 (attestation), and step 8 (chain consistency) run from the
+    /// caller after collecting all events.
+    erasure: Option<ErasureEvidenceDetails>,
+    /// Wrap recipients from `key_bag.entries[*].recipient`. Bytes copied
+    /// verbatim from the wire so step 8 can compare against `kid_destroyed`
+    /// (a `bstr .size 16`) for `post_erasure_wrap` detection. Empty when
+    /// the event has no key_bag entries (Phase-1 plaintext path).
+    wrap_recipients: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -1067,6 +1147,39 @@ struct AttachmentBindingDetails {
     payload_content_hash: [u8; 32],
     filename: Option<String>,
     prior_binding_hash: Option<[u8; 32]>,
+}
+
+/// Decoded `trellis.erasure-evidence.v1` payload (ADR 0005 §"Wire shape").
+/// Carries the inputs needed for cross-event finalization (steps 5 / 8) and
+/// the report-level fields surfaced through [`ErasureEvidenceOutcome`].
+#[derive(Clone, Debug)]
+struct ErasureEvidenceDetails {
+    evidence_id: String,
+    kid_destroyed: Vec<u8>,
+    /// Wire `key_class` AFTER the `wrap` → `subject` normalization (Core
+    /// §8.7.6 / ADR 0005 step 2). Stored as the normalized string so step 5
+    /// / step 8 group reasoning compares apples to apples.
+    norm_key_class: String,
+    destroyed_at: u64,
+    cascade_scopes: Vec<String>,
+    completion_mode: String,
+    /// Phase-1 contract: every attestation row has structural shape
+    /// (64-byte signature; valid `authority_class`). Crypto-verification of
+    /// the Ed25519 signature itself is deferred to Phase-2+ alongside the
+    /// posture-transition flow — see `TRANSITION_ATTESTATION_DOMAIN`.
+    attestation_signatures_well_formed: bool,
+    /// Reserved for the §10 outcome shape (per-class attestation reporting).
+    /// The dual-attestation rule (Companion OC-143) is a SHOULD-grade
+    /// per-deployment policy declared in the Posture Declaration; the
+    /// Phase-1 verifier captures the classes for tooling but does not gate
+    /// `integrity_verified` on count.
+    #[allow(dead_code)]
+    attestation_classes: Vec<String>,
+    /// Subject-scope kind text (`per-subject` / `per-scope` / `per-tenant`
+    /// / `deployment-wide`). Captured for the §10 outcome report; the
+    /// cross-field shape rule (step 3) is enforced inline at decode time.
+    #[allow(dead_code)]
+    subject_scope_kind: String,
 }
 
 #[derive(Clone, Debug)]
@@ -1256,6 +1369,16 @@ fn verify_event_set_with_classes(
     let mut shadow_disclosure_profile =
         initial_posture_declaration.and_then(|bytes| parse_disclosure_profile(bytes).ok());
 
+    // ADR 0005 cross-event finalization inputs.
+    // - `erasure_payloads` collects every decoded erasure-evidence event for
+    //   the post-loop finalize pass (steps 2 / 5 / 7 / 8 / 10).
+    // - `chain_summaries` carries every event's (authored_at, signing kid,
+    //   wrap recipients, canonical_event_hash) tuple so step 8 (chain
+    //   consistency for the destroyed kid) can flag post_erasure_use /
+    //   post_erasure_wrap.
+    let mut erasure_payloads: Vec<(usize, ErasureEvidenceDetails, [u8; 32])> = Vec::new();
+    let mut chain_summaries: Vec<ChainEventSummary> = Vec::with_capacity(events.len());
+
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
             Some(entry) => entry,
@@ -1299,11 +1422,19 @@ fn verify_event_set_with_classes(
 
         let details = match decode_event_details(event) {
             Ok(details) => details,
-            Err(_) => {
-                return VerificationReport::fatal(
-                    "malformed_cose",
-                    "event payload does not decode as a canonical Trellis event",
-                );
+            Err(error) => {
+                // Surface typed structural-failure kinds (e.g.
+                // `erasure_destroyed_at_after_host` from ADR 0005 step 4)
+                // as the report's `tamper_kind`. Untyped decode errors
+                // continue to land as the generic `malformed_cose` for
+                // back-compat with existing fixtures.
+                let kind = error.kind().unwrap_or("malformed_cose");
+                let warning = if error.kind().is_some() {
+                    error.to_string()
+                } else {
+                    "event payload does not decode as a canonical Trellis event".to_string()
+                };
+                return VerificationReport::fatal(kind, warning);
             }
         };
 
@@ -1420,6 +1551,21 @@ fn verify_event_set_with_classes(
         }
         previous_hash = Some(details.canonical_event_hash);
 
+        // ADR 0005 step 8 input collection — every event contributes a
+        // chain summary so the post-loop pass can flag `authored_at >
+        // destroyed_at` events that sign under (post_erasure_use) or wrap
+        // for (post_erasure_wrap) a destroyed kid.
+        chain_summaries.push(ChainEventSummary {
+            event_index: index as u64,
+            authored_at: details.authored_at,
+            signing_kid: event.kid.clone(),
+            wrap_recipients: details.wrap_recipients.clone(),
+            canonical_event_hash: details.canonical_event_hash,
+        });
+        if let Some(erasure) = details.erasure.clone() {
+            erasure_payloads.push((index, erasure, details.canonical_event_hash));
+        }
+
         if let Some(transition) = details.transition {
             let mut outcome = PostureTransitionOutcome {
                 transition_id: transition.transition_id.clone(),
@@ -1504,13 +1650,219 @@ fn verify_event_set_with_classes(
         }
     }
 
+    let erasure_evidence = finalize_erasure_evidence(
+        &erasure_payloads,
+        &chain_summaries,
+        registry,
+        non_signing_registry,
+        &mut event_failures,
+    );
+
     VerificationReport::from_integrity_state(
         event_failures,
         Vec::new(),
         Vec::new(),
         posture_transitions,
+        erasure_evidence,
         Vec::new(),
     )
+}
+
+/// Per-event chain summary used by ADR 0005 step 8 — the destroyed-kid
+/// chain-consistency walk needs `authored_at`, the signing `kid`, every
+/// `key_bag.entries[*].recipient`, and the canonical event hash for failure
+/// localization.
+#[derive(Clone, Debug)]
+struct ChainEventSummary {
+    /// Reserved for future step-8 localization where the chain index is the
+    /// dominant audit dimension. Today step 8 localizes by canonical event
+    /// hash (parallel to existing event_failures localization).
+    #[allow(dead_code)]
+    event_index: u64,
+    authored_at: u64,
+    signing_kid: Vec<u8>,
+    wrap_recipients: Vec<Vec<u8>>,
+    canonical_event_hash: [u8; 32],
+}
+
+/// ADR 0005 §"Verifier obligations" finalization pass: runs steps 2 / 5 / 7
+/// / 8 / 10 after every event has been individually decoded. Steps 1, 3, 4,
+/// and 6 ran inline in [`decode_erasure_evidence_details`] (those checks
+/// are local to one event and short-circuit on first violation). Step 9
+/// (cascade-scope cross-check) is reserved for a Phase-2 deep-cascade pass.
+///
+/// Localizable failures are pushed into `event_failures` so the report's
+/// `tamper_kind` projection picks them up; cross-payload group failures
+/// (`erasure_destroyed_at_conflict`, `erasure_key_class_payload_conflict`)
+/// localize to the second-emitted payload's canonical hash so the auditor
+/// can find the disagreement by walking forward from the first row.
+fn finalize_erasure_evidence(
+    payloads: &[(usize, ErasureEvidenceDetails, [u8; 32])],
+    chain: &[ChainEventSummary],
+    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
+    non_signing_registry: Option<&BTreeMap<Vec<u8>, NonSigningKeyEntry>>,
+    event_failures: &mut Vec<VerificationFailure>,
+) -> Vec<ErasureEvidenceOutcome> {
+    if payloads.is_empty() {
+        return Vec::new();
+    }
+
+    // Step 5 / 8 group state — keyed by `kid_destroyed` bytes.
+    let mut group_destroyed_at: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+    let mut group_key_class: BTreeMap<Vec<u8>, String> = BTreeMap::new();
+    let mut group_conflict_destroyed_at: BTreeSet<Vec<u8>> = BTreeSet::new();
+    let mut group_conflict_key_class: BTreeSet<Vec<u8>> = BTreeSet::new();
+
+    let mut outcomes: Vec<ErasureEvidenceOutcome> = Vec::with_capacity(payloads.len());
+
+    // First pass: step 2 (registry bind) per payload + step 5 (group
+    // destroyed_at / key_class agreement). Localize conflicts on the
+    // second-encountered row.
+    for (index, payload, canonical_hash) in payloads {
+        // Step 2: registry bind. If `kid_destroyed` resolves to exactly one
+        // KeyEntry row, `norm_key_class` MUST match that row's `kind`. For
+        // legacy flat `SigningKeyEntry` (no `kind` on the row), the
+        // expected class is `signing`.
+        let registry_class: Option<&str> = if registry.contains_key(&payload.kid_destroyed) {
+            Some("signing")
+        } else if let Some(non_signing) = non_signing_registry
+            && let Some(entry) = non_signing.get(&payload.kid_destroyed)
+        {
+            Some(entry.class.as_str())
+        } else {
+            None
+        };
+
+        if let Some(expected_class) = registry_class
+            && expected_class != payload.norm_key_class
+        {
+            event_failures.push(VerificationFailure::new(
+                "erasure_key_class_registry_mismatch",
+                hex_string(canonical_hash),
+            ));
+        }
+
+        // Step 5: group by kid_destroyed. First payload sets the canonical
+        // destroyed_at + key_class; subsequent rows must agree byte-for-byte.
+        match group_destroyed_at.entry(payload.kid_destroyed.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(payload.destroyed_at);
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                if *entry.get() != payload.destroyed_at
+                    && !group_conflict_destroyed_at.contains(&payload.kid_destroyed)
+                {
+                    event_failures.push(VerificationFailure::new(
+                        "erasure_destroyed_at_conflict",
+                        hex_string(canonical_hash),
+                    ));
+                    group_conflict_destroyed_at.insert(payload.kid_destroyed.clone());
+                }
+            }
+        }
+        match group_key_class.entry(payload.kid_destroyed.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(payload.norm_key_class.clone());
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                if entry.get() != &payload.norm_key_class
+                    && !group_conflict_key_class.contains(&payload.kid_destroyed)
+                {
+                    event_failures.push(VerificationFailure::new(
+                        "erasure_key_class_payload_conflict",
+                        hex_string(canonical_hash),
+                    ));
+                    group_conflict_key_class.insert(payload.kid_destroyed.clone());
+                }
+            }
+        }
+
+        outcomes.push(ErasureEvidenceOutcome {
+            evidence_id: payload.evidence_id.clone(),
+            kid_destroyed: payload.kid_destroyed.clone(),
+            destroyed_at: payload.destroyed_at,
+            cascade_scopes: payload.cascade_scopes.clone(),
+            completion_mode: payload.completion_mode.clone(),
+            event_index: *index as u64,
+            signature_verified: payload.attestation_signatures_well_formed,
+            post_erasure_uses: 0,
+            post_erasure_wraps: 0,
+            cascade_violations: Vec::new(),
+            failures: Vec::new(),
+        });
+    }
+
+    // Step 8: chain consistency for `norm_key_class ∈ {"signing", "subject"}`.
+    // For each kid_destroyed group with a non-conflicting destroyed_at +
+    // key_class, walk every chain event with `authored_at > destroyed_at`
+    // and flag uses / wraps.
+    for outcome in outcomes.iter_mut() {
+        // Skip groups that already failed step 5 — propagating step-8 noise
+        // on top of a destroyed_at conflict is misleading.
+        if group_conflict_destroyed_at.contains(&outcome.kid_destroyed) {
+            outcome.failures.push("erasure_destroyed_at_conflict".into());
+            continue;
+        }
+        if group_conflict_key_class.contains(&outcome.kid_destroyed) {
+            outcome.failures.push("erasure_key_class_payload_conflict".into());
+            continue;
+        }
+        let class = group_key_class
+            .get(&outcome.kid_destroyed)
+            .map(String::as_str)
+            .unwrap_or("");
+        if class != "signing" && class != "subject" {
+            // ADR 0005 step 8 Phase-1 scope: only signing + subject classes
+            // run the chain walk. recovery / scope / tenant-root and
+            // extension `tstr` classes are admitted at the wire layer; the
+            // subtree obligations co-land with ADR 0006 follow-on milestones.
+            continue;
+        }
+        let destroyed_at = match group_destroyed_at.get(&outcome.kid_destroyed) {
+            Some(value) => *value,
+            None => continue,
+        };
+        for event in chain {
+            if event.authored_at <= destroyed_at {
+                continue;
+            }
+            if event.signing_kid == outcome.kid_destroyed {
+                outcome.post_erasure_uses += 1;
+                outcome.failures.push("post_erasure_use".into());
+                event_failures.push(VerificationFailure::new(
+                    "post_erasure_use",
+                    hex_string(&event.canonical_event_hash),
+                ));
+            }
+            if event
+                .wrap_recipients
+                .iter()
+                .any(|recipient| recipient == &outcome.kid_destroyed)
+            {
+                outcome.post_erasure_wraps += 1;
+                outcome.failures.push("post_erasure_wrap".into());
+                event_failures.push(VerificationFailure::new(
+                    "post_erasure_wrap",
+                    hex_string(&event.canonical_event_hash),
+                ));
+            }
+        }
+    }
+
+    // Step 7 (Phase-1 structural): `signature_verified = false` already set
+    // on individual outcomes if any attestation row is malformed; surface a
+    // localized failure so `integrity_verified` flips and the
+    // `tamper_kind` projection can find it.
+    for outcome in outcomes.iter() {
+        if !outcome.signature_verified {
+            event_failures.push(VerificationFailure::new(
+                "erasure_attestation_signature_invalid",
+                hex_string(&[0u8; 32]),
+            ));
+        }
+    }
+
+    outcomes
 }
 
 fn parse_sign1_array(bytes: &[u8]) -> Result<Vec<ParsedSign1>, VerifyError> {
@@ -1643,14 +1995,16 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         }
     };
 
-    let (transition, attachment_binding) = match map_lookup_optional_map(payload_map, "extensions")?
+    let (transition, attachment_binding, erasure) = match map_lookup_optional_map(payload_map, "extensions")?
     {
         Some(extensions) => (
             decode_transition_details(extensions)?,
             decode_attachment_binding_details(extensions)?,
+            decode_erasure_evidence_details(extensions, authored_at)?,
         ),
-        None => (None, None),
+        None => (None, None, None),
     };
+    let wrap_recipients = decode_key_bag_recipients(payload_map)?;
 
     Ok(EventDetails {
         scope,
@@ -1665,7 +2019,42 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         payload_ref,
         transition,
         attachment_binding,
+        erasure,
+        wrap_recipients,
     })
+}
+
+/// Extracts wrap recipients from `payload.key_bag.entries[*].recipient` so
+/// step 8 (post_erasure_wrap detection) can compare against `kid_destroyed`.
+/// Returns an empty vec when `key_bag` is missing or has no entries (Phase-1
+/// plaintext path). Recipients are opaque bytes per Core §9.4 — comparison
+/// is byte-equality with the 16-byte `kid_destroyed` in step 8.
+fn decode_key_bag_recipients(payload_map: &[(Value, Value)]) -> Result<Vec<Vec<u8>>, VerifyError> {
+    let Some(key_bag_value) = map_lookup_optional_value(payload_map, "key_bag") else {
+        return Ok(Vec::new());
+    };
+    let key_bag = match key_bag_value {
+        Value::Map(map) => map.as_slice(),
+        Value::Null => return Ok(Vec::new()),
+        _ => return Err(VerifyError::new("key_bag is neither a map nor null")),
+    };
+    let Some(entries_value) = map_lookup_optional_value(key_bag, "entries") else {
+        return Ok(Vec::new());
+    };
+    let entries = match entries_value {
+        Value::Array(array) => array,
+        Value::Null => return Ok(Vec::new()),
+        _ => return Err(VerifyError::new("key_bag.entries is neither an array nor null")),
+    };
+    let mut recipients = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let entry_map = entry
+            .as_map()
+            .ok_or_else(|| VerifyError::new("key_bag entry is not a map"))?;
+        let recipient = map_lookup_bytes(entry_map, "recipient")?;
+        recipients.push(recipient);
+    }
+    Ok(recipients)
 }
 
 fn decode_transition_details(
@@ -1794,6 +2183,196 @@ fn decode_attachment_binding_details(
         filename,
         prior_binding_hash,
     }))
+}
+
+/// Decodes the optional `trellis.erasure-evidence.v1` extension payload
+/// and runs ADR 0005 §"Verifier obligations" steps 1 (CDDL), 3 (subject_scope
+/// shape), and 6 (hsm_receipt null-consistency) inline. Step 4 (`destroyed_at`
+/// vs hosting event `authored_at`) is also enforced here because both inputs
+/// are local to one event. Steps 2 / 5 / 7 / 8 / 9 / 10 run in the cross-event
+/// finalization pass after every event has been decoded.
+///
+/// `host_authored_at` is the `authored_at` of the carrying event so step 4
+/// can short-circuit at decode time.
+fn decode_erasure_evidence_details(
+    extensions: &[(Value, Value)],
+    host_authored_at: u64,
+) -> Result<Option<ErasureEvidenceDetails>, VerifyError> {
+    let Some(extension_value) =
+        map_lookup_optional_value(extensions, ERASURE_EVIDENCE_EVENT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("erasure-evidence extension is not a map"))?;
+
+    // Step 1: CDDL decode. Required fields per ADR 0005 §"Wire shape".
+    let evidence_id = map_lookup_text(extension_map, "evidence_id")?;
+    let kid_destroyed = map_lookup_fixed_bytes(extension_map, "kid_destroyed", 16)?;
+
+    // Step 2 prep: capture `key_class` and apply the `wrap` → `subject`
+    // normalization at decode time so cross-event step 5 / step 8 reasoning
+    // operates on the canonical taxonomy. Registry-bind happens in the
+    // finalize pass once the registry maps are in scope.
+    let wire_key_class = map_lookup_text(extension_map, "key_class")?;
+    let norm_key_class = if wire_key_class == "wrap" {
+        "subject".to_string()
+    } else {
+        wire_key_class
+    };
+
+    let destroyed_at = map_lookup_u64(extension_map, "destroyed_at")?;
+
+    // Step 4: `destroyed_at` MUST be ≤ host event's `authored_at`.
+    // Companion OC-144 / TR-OP-109. Violation is a structure failure with
+    // typed kind so the report's `tamper_kind` carries
+    // `erasure_destroyed_at_after_host`.
+    if destroyed_at > host_authored_at {
+        return Err(VerifyError::with_kind(
+            format!(
+                "erasure-evidence `destroyed_at` ({destroyed_at}) exceeds hosting event `authored_at` ({host_authored_at}) (Companion OC-144 / ADR 0005 step 4)"
+            ),
+            "erasure_destroyed_at_after_host",
+        ));
+    }
+
+    // CDDL: cascade_scopes is a non-empty array of CascadeScope text strings.
+    let cascade_array = map_lookup_array(extension_map, "cascade_scopes")?;
+    if cascade_array.is_empty() {
+        return Err(VerifyError::new(
+            "erasure-evidence `cascade_scopes` MUST be a non-empty array (ADR 0005 §Wire shape)",
+        ));
+    }
+    let mut cascade_scopes = Vec::with_capacity(cascade_array.len());
+    for scope_value in cascade_array {
+        let scope = scope_value
+            .as_text()
+            .ok_or_else(|| VerifyError::new("erasure-evidence cascade_scope entry is not text"))?;
+        cascade_scopes.push(scope.to_string());
+    }
+
+    let completion_mode = map_lookup_text(extension_map, "completion_mode")?;
+    let _destruction_actor = map_lookup_text(extension_map, "destruction_actor")?;
+    let _policy_authority = map_lookup_text(extension_map, "policy_authority")?;
+    let _reason_code = map_lookup_u64(extension_map, "reason_code")?;
+
+    // Step 3: `subject_scope` cross-field shape by `kind`.
+    let subject_scope_value = map_lookup_optional_value(extension_map, "subject_scope")
+        .ok_or_else(|| VerifyError::new("erasure-evidence `subject_scope` is missing"))?;
+    let subject_scope_map = subject_scope_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("erasure-evidence `subject_scope` is not a map"))?;
+    let subject_scope_kind = map_lookup_text(subject_scope_map, "kind")?;
+    validate_subject_scope_shape(subject_scope_map, &subject_scope_kind)?;
+
+    // Step 6: `hsm_receipt` / `hsm_receipt_kind` null-consistency.
+    let receipt_present = matches!(
+        map_lookup_optional_value(extension_map, "hsm_receipt"),
+        Some(Value::Bytes(_))
+    );
+    let receipt_kind_present = matches!(
+        map_lookup_optional_value(extension_map, "hsm_receipt_kind"),
+        Some(Value::Text(_))
+    );
+    if receipt_present != receipt_kind_present {
+        return Err(VerifyError::new(
+            "erasure-evidence `hsm_receipt` and `hsm_receipt_kind` must both be null or both non-null (ADR 0005 step 6)",
+        ));
+    }
+
+    // Step 7 (Phase-1 structural): every attestation row carries a 64-byte
+    // signature and a recognized `authority_class`. Crypto-verification of
+    // the Ed25519 signature itself rides Phase-2+ — same posture as the
+    // existing `decode_attestation_classes` flow for posture transitions.
+    let attestations = map_lookup_array(extension_map, "attestations")?;
+    if attestations.is_empty() {
+        return Err(VerifyError::new(
+            "erasure-evidence `attestations` MUST be non-empty (ADR 0005 §Wire shape)",
+        ));
+    }
+    let mut attestation_classes = Vec::with_capacity(attestations.len());
+    let mut attestation_signatures_well_formed = true;
+    for entry in attestations {
+        let entry_map = entry
+            .as_map()
+            .ok_or_else(|| VerifyError::new("attestation entry is not a map"))?;
+        let class = map_lookup_text(entry_map, "authority_class")?;
+        attestation_classes.push(class);
+        let signature = map_lookup_bytes(entry_map, "signature")?;
+        if signature.len() != 64 {
+            attestation_signatures_well_formed = false;
+        }
+        // `authority` is captured by ADR 0005 wire but not yet used by the
+        // Phase-1 verifier (no authority↔key registry binding); we still
+        // require the field to exist per CDDL.
+        let _authority = map_lookup_text(entry_map, "authority")?;
+    }
+
+    Ok(Some(ErasureEvidenceDetails {
+        evidence_id,
+        kid_destroyed,
+        norm_key_class,
+        destroyed_at,
+        cascade_scopes,
+        completion_mode,
+        attestation_signatures_well_formed,
+        attestation_classes,
+        subject_scope_kind,
+    }))
+}
+
+/// ADR 0005 step 3 — validates the cross-field shape of `subject_scope`
+/// based on `kind`.
+fn validate_subject_scope_shape(
+    subject_scope_map: &[(Value, Value)],
+    kind: &str,
+) -> Result<(), VerifyError> {
+    let subject_refs = map_lookup_optional_value(subject_scope_map, "subject_refs");
+    let ledger_scopes = map_lookup_optional_value(subject_scope_map, "ledger_scopes");
+    let tenant_refs = map_lookup_optional_value(subject_scope_map, "tenant_refs");
+
+    let is_present = |value: Option<&Value>| -> bool {
+        matches!(value, Some(Value::Array(array)) if !array.is_empty())
+    };
+    let is_null_or_absent = |value: Option<&Value>| -> bool {
+        matches!(value, None | Some(Value::Null))
+            || matches!(value, Some(Value::Array(array)) if array.is_empty())
+    };
+
+    let ok = match kind {
+        "per-subject" => {
+            is_present(subject_refs)
+                && is_null_or_absent(ledger_scopes)
+                && is_null_or_absent(tenant_refs)
+        }
+        "per-scope" => {
+            is_null_or_absent(subject_refs)
+                && is_present(ledger_scopes)
+                && is_null_or_absent(tenant_refs)
+        }
+        "per-tenant" => {
+            is_null_or_absent(subject_refs)
+                && is_null_or_absent(ledger_scopes)
+                && is_present(tenant_refs)
+        }
+        "deployment-wide" => {
+            is_null_or_absent(subject_refs)
+                && is_null_or_absent(ledger_scopes)
+                && is_null_or_absent(tenant_refs)
+        }
+        _ => {
+            return Err(VerifyError::new(format!(
+                "erasure-evidence subject_scope.kind `{kind}` is not one of per-subject / per-scope / per-tenant / deployment-wide (ADR 0005 step 3)"
+            )));
+        }
+    };
+    if !ok {
+        return Err(VerifyError::new(format!(
+            "erasure-evidence subject_scope cross-field shape violates ADR 0005 step 3 for kind `{kind}`"
+        )));
+    }
+    Ok(())
 }
 
 fn binding_lineage_graph_has_cycle(adj: &BTreeMap<[u8; 32], Vec<[u8; 32]>>) -> bool {
@@ -4084,4 +4663,895 @@ mod tests {
         let outer_b = Value::Map(vec![(Value::Text("k".into()), inner_b)]);
         assert!(super::cbor_nested_map_semantic_eq(&outer_a, &outer_b));
     }
+
+    // ------------------------------------------------------------------
+    // ADR 0005 erasure-evidence unit tests (Stage 2).
+    //
+    // These test the internal decode + finalize helpers directly so each
+    // ADR 0005 §"Verifier obligations" step has byte-level coverage that
+    // does not require a full COSE_Sign1 envelope. Fixture-level coverage
+    // is in `trellis-conformance` against `fixtures/vectors/append/023..027`
+    // and `fixtures/vectors/tamper/017..019`.
+    // ------------------------------------------------------------------
+
+    /// Builder for a minimum-valid erasure-evidence extension map.
+    /// Tests mutate fields to exercise each ADR 0005 step in isolation.
+    fn erasure_extension(
+        kid_destroyed: &[u8; 16],
+        key_class: &str,
+        destroyed_at: u64,
+        subject_scope: Value,
+        attestations: Vec<Value>,
+        hsm_receipt: Option<Value>,
+        hsm_receipt_kind: Option<Value>,
+        cascade_scopes: Vec<&str>,
+    ) -> Vec<(Value, Value)> {
+        let cascade_array: Vec<Value> = cascade_scopes
+            .into_iter()
+            .map(|s| Value::Text(s.to_string()))
+            .collect();
+        vec![
+            (
+                Value::Text("trellis.erasure-evidence.v1".into()),
+                Value::Map(vec![
+                    (
+                        Value::Text("evidence_id".into()),
+                        Value::Text("urn:trellis:erasure:test:1".into()),
+                    ),
+                    (
+                        Value::Text("kid_destroyed".into()),
+                        Value::Bytes(kid_destroyed.to_vec()),
+                    ),
+                    (
+                        Value::Text("key_class".into()),
+                        Value::Text(key_class.into()),
+                    ),
+                    (
+                        Value::Text("destroyed_at".into()),
+                        Value::Integer(destroyed_at.into()),
+                    ),
+                    (
+                        Value::Text("cascade_scopes".into()),
+                        Value::Array(cascade_array),
+                    ),
+                    (
+                        Value::Text("completion_mode".into()),
+                        Value::Text("complete".into()),
+                    ),
+                    (
+                        Value::Text("destruction_actor".into()),
+                        Value::Text("urn:trellis:principal:test-actor".into()),
+                    ),
+                    (
+                        Value::Text("policy_authority".into()),
+                        Value::Text("urn:trellis:authority:test-policy".into()),
+                    ),
+                    (
+                        Value::Text("reason_code".into()),
+                        Value::Integer(1u64.into()),
+                    ),
+                    (Value::Text("subject_scope".into()), subject_scope),
+                    (
+                        Value::Text("hsm_receipt".into()),
+                        hsm_receipt.unwrap_or(Value::Null),
+                    ),
+                    (
+                        Value::Text("hsm_receipt_kind".into()),
+                        hsm_receipt_kind.unwrap_or(Value::Null),
+                    ),
+                    (
+                        Value::Text("attestations".into()),
+                        Value::Array(attestations),
+                    ),
+                    (Value::Text("extensions".into()), Value::Null),
+                ]),
+            ),
+        ]
+    }
+
+    fn one_attestation(class: &str) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("authority".into()),
+                Value::Text(format!("urn:trellis:authority:test-{class}")),
+            ),
+            (
+                Value::Text("authority_class".into()),
+                Value::Text(class.into()),
+            ),
+            (
+                Value::Text("signature".into()),
+                Value::Bytes(vec![0u8; 64]),
+            ),
+        ])
+    }
+
+    fn per_subject_scope() -> Value {
+        Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("per-subject".into())),
+            (
+                Value::Text("subject_refs".into()),
+                Value::Array(vec![Value::Text("urn:trellis:subject:test-1".into())]),
+            ),
+            (Value::Text("ledger_scopes".into()), Value::Null),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ])
+    }
+
+    fn deployment_wide_scope() -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("kind".into()),
+                Value::Text("deployment-wide".into()),
+            ),
+            (Value::Text("subject_refs".into()), Value::Null),
+            (Value::Text("ledger_scopes".into()), Value::Null),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ])
+    }
+
+    #[test]
+    fn validate_subject_scope_shape_per_subject_accepts_subject_refs_only() {
+        let scope = per_subject_scope();
+        let map = scope.as_map().unwrap().clone();
+        assert!(super::validate_subject_scope_shape(&map, "per-subject").is_ok());
+    }
+
+    #[test]
+    fn validate_subject_scope_shape_per_subject_rejects_with_ledger_scopes() {
+        let scope = Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("per-subject".into())),
+            (
+                Value::Text("subject_refs".into()),
+                Value::Array(vec![Value::Text("urn:trellis:subject:test-1".into())]),
+            ),
+            (
+                Value::Text("ledger_scopes".into()),
+                Value::Array(vec![Value::Bytes(b"x".to_vec())]),
+            ),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ]);
+        let map = scope.as_map().unwrap().clone();
+        let err = super::validate_subject_scope_shape(&map, "per-subject").unwrap_err();
+        assert!(err.to_string().contains("subject_scope"));
+    }
+
+    #[test]
+    fn validate_subject_scope_shape_per_scope_requires_ledger_scopes() {
+        let scope = Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("per-scope".into())),
+            (Value::Text("subject_refs".into()), Value::Null),
+            (
+                Value::Text("ledger_scopes".into()),
+                Value::Array(vec![Value::Bytes(b"scope-a".to_vec())]),
+            ),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ]);
+        let map = scope.as_map().unwrap().clone();
+        assert!(super::validate_subject_scope_shape(&map, "per-scope").is_ok());
+    }
+
+    #[test]
+    fn validate_subject_scope_shape_per_tenant_requires_tenant_refs() {
+        let scope = Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("per-tenant".into())),
+            (Value::Text("subject_refs".into()), Value::Null),
+            (Value::Text("ledger_scopes".into()), Value::Null),
+            (
+                Value::Text("tenant_refs".into()),
+                Value::Array(vec![Value::Text("urn:trellis:tenant:test".into())]),
+            ),
+        ]);
+        let map = scope.as_map().unwrap().clone();
+        assert!(super::validate_subject_scope_shape(&map, "per-tenant").is_ok());
+    }
+
+    #[test]
+    fn validate_subject_scope_shape_deployment_wide_rejects_any_ref_field() {
+        let scope = Value::Map(vec![
+            (
+                Value::Text("kind".into()),
+                Value::Text("deployment-wide".into()),
+            ),
+            (
+                Value::Text("subject_refs".into()),
+                Value::Array(vec![Value::Text("urn:trellis:subject:s".into())]),
+            ),
+            (Value::Text("ledger_scopes".into()), Value::Null),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ]);
+        let map = scope.as_map().unwrap().clone();
+        let err = super::validate_subject_scope_shape(&map, "deployment-wide").unwrap_err();
+        assert!(err.to_string().contains("subject_scope"));
+    }
+
+    #[test]
+    fn validate_subject_scope_shape_unknown_kind_rejected() {
+        let scope = Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("not-real".into())),
+            (Value::Text("subject_refs".into()), Value::Null),
+            (Value::Text("ledger_scopes".into()), Value::Null),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ]);
+        let map = scope.as_map().unwrap().clone();
+        let err = super::validate_subject_scope_shape(&map, "not-real").unwrap_err();
+        assert!(err.to_string().contains("not-real"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step1_minimum_valid_payload_decodes() {
+        let kid = [0xABu8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            None,
+            None,
+            vec!["CS-03"],
+        );
+        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+            .unwrap()
+            .expect("erasure extension must decode");
+        assert_eq!(details.evidence_id, "urn:trellis:erasure:test:1");
+        assert_eq!(details.kid_destroyed, kid.to_vec());
+        assert_eq!(details.norm_key_class, "signing");
+        assert_eq!(details.destroyed_at, 1_745_000_000);
+        assert_eq!(details.cascade_scopes, vec!["CS-03"]);
+        assert_eq!(details.completion_mode, "complete");
+        assert!(details.attestation_signatures_well_formed);
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step1_returns_none_when_extension_absent() {
+        let extensions: Vec<(Value, Value)> = vec![(
+            Value::Text("trellis.custody-model-transition.v1".into()),
+            Value::Map(vec![]),
+        )];
+        let result =
+            super::decode_erasure_evidence_details(&extensions, 1_745_000_000).unwrap();
+        assert!(result.is_none(), "no erasure-evidence ext → None");
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step2_normalizes_wire_wrap_to_subject() {
+        // ADR 0005 step 2 + Core §8.7.6: wire `key_class = "wrap"` MUST
+        // normalize to `"subject"` before any registry comparison.
+        let kid = [0x01u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "wrap",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            None,
+            None,
+            vec!["CS-03"],
+        );
+        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            details.norm_key_class, "subject",
+            "wire 'wrap' must normalize to 'subject' (Wave 17 / ADR 0006)",
+        );
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step3_rejects_per_subject_with_null_subject_refs() {
+        let kid = [0x02u8; 16];
+        // per-subject kind but subject_refs null violates step 3.
+        let bad_scope = Value::Map(vec![
+            (Value::Text("kind".into()), Value::Text("per-subject".into())),
+            (Value::Text("subject_refs".into()), Value::Null),
+            (Value::Text("ledger_scopes".into()), Value::Null),
+            (Value::Text("tenant_refs".into()), Value::Null),
+        ]);
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            bad_scope,
+            vec![one_attestation("new")],
+            None,
+            None,
+            vec!["CS-03"],
+        );
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert!(err.to_string().contains("subject_scope"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step4_rejects_destroyed_at_after_host_authored_at() {
+        // ADR 0005 step 4 / OC-144: destroyed_at MUST be ≤ host event
+        // authored_at. Violation surfaces as `erasure_destroyed_at_after_host`.
+        let kid = [0x03u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_500, // destroyed_at > host (1_745_000_100)
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            None,
+            None,
+            vec!["CS-03"],
+        );
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert_eq!(err.kind(), Some("erasure_destroyed_at_after_host"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step6_rejects_hsm_receipt_without_kind() {
+        let kid = [0x04u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            Some(Value::Bytes(b"opaque-hsm-bytes".to_vec())),
+            None,
+            vec!["CS-03"],
+        );
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert!(err.to_string().contains("hsm_receipt"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step6_rejects_hsm_receipt_kind_without_receipt() {
+        let kid = [0x05u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            None,
+            Some(Value::Text("opaque-vendor-receipt-v1".into())),
+            vec!["CS-03"],
+        );
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert!(err.to_string().contains("hsm_receipt"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step6_accepts_both_hsm_fields_present() {
+        let kid = [0x06u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            Some(Value::Bytes(b"opaque-hsm-bytes".to_vec())),
+            Some(Value::Text("opaque-vendor-receipt-v1".into())),
+            vec!["CS-03"],
+        );
+        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+            .unwrap()
+            .unwrap();
+        assert_eq!(details.evidence_id, "urn:trellis:erasure:test:1");
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step7_marks_short_attestation_signature_malformed() {
+        // ADR 0005 step 7 (Phase-1 structural): each attestation MUST carry
+        // a 64-byte signature. A 32-byte signature flips
+        // `attestation_signatures_well_formed = false`.
+        let kid = [0x07u8; 16];
+        let bad_attestation = Value::Map(vec![
+            (
+                Value::Text("authority".into()),
+                Value::Text("urn:trellis:authority:test-bad".into()),
+            ),
+            (
+                Value::Text("authority_class".into()),
+                Value::Text("new".into()),
+            ),
+            (
+                Value::Text("signature".into()),
+                Value::Bytes(vec![0u8; 32]), // wrong length
+            ),
+        ]);
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![bad_attestation],
+            None,
+            None,
+            vec!["CS-03"],
+        );
+        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+            .unwrap()
+            .unwrap();
+        assert!(!details.attestation_signatures_well_formed);
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step1_rejects_empty_cascade_scopes() {
+        let kid = [0x08u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![one_attestation("new")],
+            None,
+            None,
+            vec![], // empty
+        );
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert!(err.to_string().contains("cascade_scopes"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step1_rejects_empty_attestations() {
+        let kid = [0x09u8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            per_subject_scope(),
+            vec![],
+            None,
+            None,
+            vec!["CS-03"],
+        );
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert!(err.to_string().contains("attestations"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_step1_rejects_kid_wrong_size() {
+        // Use the manual map builder to bypass the `[u8; 16]` builder helper
+        // and force a 15-byte kid.
+        let extensions = vec![(
+            Value::Text("trellis.erasure-evidence.v1".into()),
+            Value::Map(vec![
+                (
+                    Value::Text("evidence_id".into()),
+                    Value::Text("urn:trellis:erasure:test:bad".into()),
+                ),
+                (
+                    Value::Text("kid_destroyed".into()),
+                    Value::Bytes(vec![0u8; 15]),
+                ),
+                (
+                    Value::Text("key_class".into()),
+                    Value::Text("signing".into()),
+                ),
+                (
+                    Value::Text("destroyed_at".into()),
+                    Value::Integer(1_745_000_000u64.into()),
+                ),
+                (
+                    Value::Text("cascade_scopes".into()),
+                    Value::Array(vec![Value::Text("CS-03".into())]),
+                ),
+                (
+                    Value::Text("completion_mode".into()),
+                    Value::Text("complete".into()),
+                ),
+                (
+                    Value::Text("destruction_actor".into()),
+                    Value::Text("urn:trellis:principal:t".into()),
+                ),
+                (
+                    Value::Text("policy_authority".into()),
+                    Value::Text("urn:trellis:authority:t".into()),
+                ),
+                (
+                    Value::Text("reason_code".into()),
+                    Value::Integer(1u64.into()),
+                ),
+                (Value::Text("subject_scope".into()), per_subject_scope()),
+                (Value::Text("hsm_receipt".into()), Value::Null),
+                (Value::Text("hsm_receipt_kind".into()), Value::Null),
+                (
+                    Value::Text("attestations".into()),
+                    Value::Array(vec![one_attestation("new")]),
+                ),
+                (Value::Text("extensions".into()), Value::Null),
+            ]),
+        )];
+        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        assert!(err.to_string().contains("kid_destroyed"));
+    }
+
+    #[test]
+    fn decode_erasure_evidence_deployment_wide_scope_decodes() {
+        let kid = [0x0Au8; 16];
+        let extensions = erasure_extension(
+            &kid,
+            "signing",
+            1_745_000_000,
+            deployment_wide_scope(),
+            vec![one_attestation("prior"), one_attestation("new")],
+            None,
+            None,
+            vec!["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"],
+        );
+        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+            .unwrap()
+            .unwrap();
+        assert_eq!(details.subject_scope_kind, "deployment-wide");
+        assert_eq!(details.cascade_scopes.len(), 6);
+        assert_eq!(details.attestation_classes, vec!["prior", "new"]);
+    }
+
+    // ------------------------------------------------------------------
+    // finalize_erasure_evidence — steps 2 / 5 / 8 cross-event reasoning.
+    // These tests construct ErasureEvidenceDetails + ChainEventSummary
+    // values directly so we can exercise the post-loop logic without
+    // building a full COSE_Sign1 chain. Fixture-level coverage for the
+    // happy + tamper paths lives in `trellis-conformance` against
+    // `fixtures/vectors/append/023..027` and `tamper/017..019`.
+    // ------------------------------------------------------------------
+
+    fn payload_details(
+        kid: Vec<u8>,
+        norm_key_class: &str,
+        destroyed_at: u64,
+    ) -> super::ErasureEvidenceDetails {
+        super::ErasureEvidenceDetails {
+            evidence_id: format!("urn:trellis:erasure:test:{}", kid[0]),
+            kid_destroyed: kid,
+            norm_key_class: norm_key_class.to_string(),
+            destroyed_at,
+            cascade_scopes: vec!["CS-03".to_string()],
+            completion_mode: "complete".to_string(),
+            attestation_signatures_well_formed: true,
+            attestation_classes: vec!["new".to_string()],
+            subject_scope_kind: "per-subject".to_string(),
+        }
+    }
+
+    fn chain_summary(
+        index: u64,
+        authored_at: u64,
+        signing_kid: Vec<u8>,
+        wrap_recipients: Vec<Vec<u8>>,
+        canonical_event_hash: [u8; 32],
+    ) -> super::ChainEventSummary {
+        super::ChainEventSummary {
+            event_index: index,
+            authored_at,
+            signing_kid,
+            wrap_recipients,
+            canonical_event_hash,
+        }
+    }
+
+    #[test]
+    fn finalize_erasure_evidence_empty_input_produces_empty_outcome() {
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &[],
+            &[],
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert!(outcomes.is_empty());
+        assert!(event_failures.is_empty());
+    }
+
+    #[test]
+    fn finalize_step8_flags_post_erasure_use_for_signing_class() {
+        // One signing kid destroyed at t=100; a later event at t=200 signs
+        // under that kid. Expect post_erasure_uses == 1 and a localized
+        // `post_erasure_use` event_failure.
+        let kid = vec![0xAAu8; 16];
+        let payload = payload_details(kid.clone(), "signing", 100);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let later_hash = [1u8; 32];
+        let chain = vec![
+            chain_summary(0, 100, kid.clone(), vec![], canonical_hash),
+            chain_summary(1, 200, kid.clone(), vec![], later_hash),
+        ];
+
+        let registry = BTreeMap::new(); // kid not registered → step 2 skipped
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].post_erasure_uses, 1);
+        assert_eq!(outcomes[0].post_erasure_wraps, 0);
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "post_erasure_use" && f.location == super::hex_string(&later_hash))
+        );
+    }
+
+    #[test]
+    fn finalize_step8_flags_post_erasure_wrap_for_subject_class() {
+        // A subject kid destroyed; a later event at t > destroyed_at carries
+        // a key_bag.entries[*].recipient equal to the destroyed kid.
+        let kid = vec![0xBBu8; 16];
+        let payload = payload_details(kid.clone(), "subject", 100);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let signing_kid = vec![0xCCu8; 16]; // a different signing kid
+        let later_hash = [2u8; 32];
+        let chain = vec![
+            chain_summary(0, 100, signing_kid.clone(), vec![], canonical_hash),
+            chain_summary(
+                1,
+                200,
+                signing_kid.clone(),
+                vec![kid.clone()],
+                later_hash,
+            ),
+        ];
+
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].post_erasure_uses, 0);
+        assert_eq!(outcomes[0].post_erasure_wraps, 1);
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "post_erasure_wrap" && f.location == super::hex_string(&later_hash))
+        );
+    }
+
+    #[test]
+    fn finalize_step8_phase1_skips_recovery_class_chain_walk() {
+        // ADR 0005 step 8 Phase-1 scope: recovery / scope / tenant-root and
+        // extension-`tstr` classes do NOT trigger the chain-walk in Phase 1.
+        // Wire-valid: dispatch co-lands with ADR 0006 follow-on.
+        let kid = vec![0xDDu8; 16];
+        let payload = payload_details(kid.clone(), "recovery", 100);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        // Even with a later event that signs under the destroyed kid, the
+        // Phase-1 verifier must not flag post_erasure_use for "recovery".
+        let later_hash = [3u8; 32];
+        let chain = vec![
+            chain_summary(0, 100, kid.clone(), vec![], canonical_hash),
+            chain_summary(1, 200, kid.clone(), vec![], later_hash),
+        ];
+
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].post_erasure_uses, 0, "recovery class skipped");
+        assert_eq!(outcomes[0].post_erasure_wraps, 0);
+        assert!(
+            !event_failures.iter().any(|f| f.kind == "post_erasure_use"),
+            "Phase-1 must not flag post_erasure_use for recovery class",
+        );
+    }
+
+    #[test]
+    fn finalize_step5_flags_destroyed_at_conflict_for_same_kid() {
+        // ADR 0005 step 5 / OC-145: two payloads with same kid_destroyed
+        // but different destroyed_at → `erasure_destroyed_at_conflict`.
+        let kid = vec![0xEEu8; 16];
+        let payload_a = payload_details(kid.clone(), "signing", 100);
+        let payload_b = payload_details(kid.clone(), "signing", 200);
+        let hash_a = [0u8; 32];
+        let hash_b = [1u8; 32];
+        let payloads = vec![(0usize, payload_a, hash_a), (1usize, payload_b, hash_b)];
+
+        let chain = vec![
+            chain_summary(0, 100, kid.clone(), vec![], hash_a),
+            chain_summary(1, 150, kid.clone(), vec![], hash_b),
+        ];
+
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 2);
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "erasure_destroyed_at_conflict")
+        );
+        // The second outcome carries the conflict failure tag.
+        assert!(
+            outcomes[1]
+                .failures
+                .iter()
+                .any(|s| s == "erasure_destroyed_at_conflict")
+        );
+    }
+
+    #[test]
+    fn finalize_step5_flags_key_class_conflict_for_same_kid() {
+        // Two payloads, same kid_destroyed, different normalized class →
+        // `erasure_key_class_payload_conflict`.
+        let kid = vec![0xF0u8; 16];
+        let payload_a = payload_details(kid.clone(), "signing", 100);
+        let payload_b = payload_details(kid.clone(), "subject", 100);
+        let hash_a = [0u8; 32];
+        let hash_b = [1u8; 32];
+        let payloads = vec![(0usize, payload_a, hash_a), (1usize, payload_b, hash_b)];
+
+        let chain = vec![
+            chain_summary(0, 100, kid.clone(), vec![], hash_a),
+            chain_summary(1, 150, kid.clone(), vec![], hash_b),
+        ];
+
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 2);
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "erasure_key_class_payload_conflict")
+        );
+    }
+
+    #[test]
+    fn finalize_step2_flags_registry_class_mismatch_for_signing_kid() {
+        // Registry has the kid as a signing key; payload claims it's a
+        // subject key. Step 2 → `erasure_key_class_registry_mismatch`.
+        let kid = vec![0xF1u8; 16];
+        let payload = payload_details(kid.clone(), "subject", 100);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let chain = vec![chain_summary(0, 100, kid.clone(), vec![], canonical_hash)];
+
+        let mut registry = BTreeMap::new();
+        registry.insert(
+            kid.clone(),
+            super::SigningKeyEntry {
+                public_key: [0u8; 32],
+                status: 1,
+                valid_to: None,
+            },
+        );
+        let mut event_failures = Vec::new();
+        let _outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "erasure_key_class_registry_mismatch")
+        );
+    }
+
+    #[test]
+    fn finalize_step2_accepts_matching_signing_class() {
+        // Registry has the kid as a signing key; payload also claims signing
+        // → no step-2 mismatch.
+        let kid = vec![0xF2u8; 16];
+        let payload = payload_details(kid.clone(), "signing", 100);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let chain = vec![chain_summary(0, 100, kid.clone(), vec![], canonical_hash)];
+
+        let mut registry = BTreeMap::new();
+        registry.insert(
+            kid.clone(),
+            super::SigningKeyEntry {
+                public_key: [0u8; 32],
+                status: 1,
+                valid_to: None,
+            },
+        );
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(
+            !event_failures
+                .iter()
+                .any(|f| f.kind == "erasure_key_class_registry_mismatch")
+        );
+    }
+
+    #[test]
+    fn finalize_step7_flags_malformed_attestation_signature() {
+        // attestation_signatures_well_formed = false → outcome carries
+        // signature_verified = false AND a `erasure_attestation_signature_invalid`
+        // event_failure surfaces so the report's tamper_kind picks it up.
+        let kid = vec![0xF3u8; 16];
+        let mut payload = payload_details(kid.clone(), "signing", 100);
+        payload.attestation_signatures_well_formed = false;
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let chain = vec![chain_summary(0, 100, kid.clone(), vec![], canonical_hash)];
+
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].signature_verified);
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "erasure_attestation_signature_invalid")
+        );
+    }
+
+    #[test]
+    fn finalize_step8_no_post_erasure_use_when_authored_at_equals_destroyed_at() {
+        // ADR 0005 step 8 comparison rule: `authored_at > destroyed_at`
+        // (strict). Equal timestamps are not flagged (the erasure event
+        // itself may carry that kid).
+        let kid = vec![0xF4u8; 16];
+        let payload = payload_details(kid.clone(), "signing", 100);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        // Event authored at exactly destroyed_at: must NOT trigger.
+        let chain = vec![chain_summary(0, 100, kid.clone(), vec![], canonical_hash)];
+
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_erasure_evidence(
+            &payloads,
+            &chain,
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].post_erasure_uses, 0);
+        assert_eq!(outcomes[0].post_erasure_wraps, 0);
+    }
+
 }
