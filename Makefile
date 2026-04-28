@@ -12,7 +12,7 @@ TRELLIS_PY_DIR = trellis-py
 SCRIPTS_DIR = scripts
 VECTORS_DIR = fixtures/vectors
 
-.PHONY: all help build test test-rust test-python test-scripts test-postgres check-specs check-specs-strict lint fmt clean
+.PHONY: all help build test test-rust test-python test-scripts test-postgres check-specs check-specs-strict check-verifier-isolation lint fmt clean
 
 all: build test
 
@@ -28,6 +28,7 @@ help:
 	@echo "  make test-postgres  Run trellis-store-postgres + parity integration tests (needs initdb/pg_ctl on PATH)"
 	@echo "  make check-specs    Run spec discipline and coverage lint"
 	@echo "  make check-specs-strict  Run check-specs + vector-renumbering guard (CI variant)"
+	@echo "  make check-verifier-isolation  Assert trellis-verify dep graph stays HPKE-clean (Core §16)"
 	@echo "  make lint           Run Rust clippy"
 	@echo "  make fmt            Check Rust formatting"
 	@echo "  make clean          Clean build artifacts"
@@ -37,7 +38,7 @@ build:
 	@echo "Building Rust workspace..."
 	$(CARGO) build --workspace
 
-test: test-rust test-python test-scripts check-specs
+test: test-rust test-python test-scripts check-specs check-verifier-isolation
 
 test-rust:
 	@echo "Running Rust tests..."
@@ -77,6 +78,15 @@ check-specs:
 check-specs-strict:
 	@echo "Running spec checks (strict, with renumbering guard)..."
 	TRELLIS_CHECK_RENUMBERING=1 $(PYTHON) $(SCRIPTS_DIR)/check-specs.py
+
+# Asserts `cargo tree -p trellis-verify` is HPKE-clean (no `hpke`,
+# `x25519-dalek`, `chacha20poly1305`, or `hkdf`). Core §16
+# (Verification Independence) requires the offline verifier path to
+# stay free of HPKE deps; ADR 0009 §"Architectural posture" explains
+# why the sibling-crate boundary is what enforces it. Runs in
+# `make test`; standalone for fast iteration during dep-graph work.
+check-verifier-isolation:
+	@bash $(SCRIPTS_DIR)/check-verifier-isolation.sh
 
 lint:
 	@echo "Running Rust clippy..."
