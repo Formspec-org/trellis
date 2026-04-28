@@ -323,7 +323,7 @@ Registered extension identifiers:
 | `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.signatureAffirmation` events; verifier obligations in §19. Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.intakeAccepted` events and optional paired `wos.kernel.caseCreated` events, carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; verifier obligations in §19. Reject-if-unknown-at-version. |
-| `ExportManifestPayload.extensions` | `trellis.export.certificates-of-completion.v1` | 1 | Binds optional `065-certificates-of-completion.cbor` via `catalog_digest` (SHA-256 of the catalog bytes under `trellis-content-v1`). Chain-derived catalog over admitted `trellis.certificate-of-completion.v1` events; entry shape per ADR 0007 §"Export manifest catalog". Catalog is performance convenience for auditor UX; exporters who omit it are conformant. Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.certificates-of-completion.v1` | 1 | Binds optional `065-certificates-of-completion.cbor` via `catalog_digest` (bare SHA-256 over the catalog member bytes — same hash construction as the four sibling catalogs `trellis.export.attachments.v1`, `trellis.export.signature-affirmations.v1`, `trellis.export.intake-handoffs.v1`, `trellis.export.erasure-evidence.v1`). Chain-derived catalog over admitted `trellis.certificate-of-completion.v1` events; entry shape per ADR 0007 §"Export manifest catalog". Catalog is performance convenience for auditor UX; exporters who omit it are conformant. Reject-if-unknown-at-version. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
@@ -1639,6 +1639,23 @@ VERIFY(E) -> VerificationReport
         two events whose canonical certificate payloads differ, flip
         `integrity_verified = false` with `certificate_id_collision`
         (fail-closed; first-seen wins is non-normative).
+
+        **Phase-1 supported registries (maximalist-envelope discipline:
+        the gate is reserved, the population is empty in Phase 1).**
+        Until Phase-2+ activates extension paths, the registries
+        referenced above are normatively empty:
+
+        | Registry | Phase-1 contents | Phase-1 verifier behavior |
+        |---|---|---|
+        | `covered_claims` supported tags | `{ }` (empty) | Any non-empty `covered_claims` value flips `certificate_covered_claim_unknown`. The CDDL admits the field for forward-compatibility; runtime rejects it. |
+        | `workflow_status` extension strings (registered extensions to the CDDL literals `"completed"` / `"countersigned"` / `"notarized"` / `"partially-completed"`) | `{ }` (empty) | Any `workflow_status` value not equal to one of the four CDDL literals flips `certificate_enum_extension_unknown`. |
+        | `impact_level` extension strings (registered extensions to the CDDL literals `"low"` / `"moderate"` / `"high"` plus `null`) | `{ }` (empty) | Any non-null `impact_level` value not equal to one of the three CDDL literals flips `certificate_enum_extension_unknown`. |
+
+        New registry entries land via Companion / WOS append-only
+        registry amendments accompanied by a matrix-row update that
+        promotes the corresponding TR-CORE-147 verification surface to
+        cover the extension. Phase-1 reference verifiers MUST NOT
+        admit extension strings before such a registry amendment lands.
      3. Verify every `attestations[*].signature` under domain tag
         `trellis-transition-attestation-v1` (§9.8) — same domain shared
         with §A.5 posture-transition attestations and ADR 0005 erasure
@@ -1700,13 +1717,13 @@ VERIFY(E) -> VerificationReport
    Verifier obligations for the optional catalog mirror the §6.7
    catalog pattern (Attachment / Signature-Affirmation / Intake-Handoff /
    Erasure-Evidence): verify `catalog_digest` against the recomputed
-   SHA-256 of `065-certificates-of-completion.cbor` under
-   `trellis-content-v1` (§9.3); for each catalog entry require field-wise
-   agreement with exactly one in-chain certificate-of-completion event;
-   reject duplicates by `canonical_event_hash`. Mismatch is a localizable
-   failure with code `certificate_catalog_digest_mismatch`. The catalog
-   is performance convenience for auditor UX; exporters who omit it
-   are conformant.
+   bare SHA-256 of `065-certificates-of-completion.cbor` (no domain tag,
+   matching the four sibling catalogs); for each catalog entry require
+   field-wise agreement with exactly one in-chain certificate-of-completion
+   event; reject duplicates by `canonical_event_hash`. Mismatch is a
+   localizable failure with code `certificate_catalog_digest_mismatch`.
+   The catalog is performance convenience for auditor UX; exporters
+   who omit it are conformant.
 
    Traceability: **TR-CORE-146** (registered extension + domain tag),
    **TR-CORE-147** (chain-summary invariants + covered_claims registry +
