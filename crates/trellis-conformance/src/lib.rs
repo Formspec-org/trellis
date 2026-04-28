@@ -51,6 +51,15 @@ mod tests {
 
     fn assert_fixture_matches(root: &Path) {
         let manifest = manifest_for(root);
+        // F6 — deprecated tombstones preserve the `<op>/NNN` prefix for the
+        // R16 pre-merge guard but carry no replayable bytes; skip them.
+        if manifest
+            .get("status")
+            .and_then(toml::Value::as_str)
+            == Some("deprecated")
+        {
+            return;
+        }
         let op = manifest
             .get("op")
             .and_then(toml::Value::as_str)
@@ -119,7 +128,12 @@ mod tests {
 
         let actual = package.to_zip_bytes().unwrap();
         let expected_zip = fs::read(root.join(path_field(expected, "zip"))).unwrap();
-        assert_eq!(actual, expected_zip);
+        assert_eq!(
+            actual,
+            expected_zip,
+            "export ZIP mismatch at {}",
+            root.display()
+        );
     }
 
     fn assert_verify_fixture_matches(root: &Path, manifest: &toml::Value) {

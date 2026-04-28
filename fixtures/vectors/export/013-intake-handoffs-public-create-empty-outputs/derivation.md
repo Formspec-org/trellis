@@ -1,4 +1,4 @@
-# Derivation — `export/009-intake-handoffs-public-create-empty-outputs`
+# Derivation — `export/013-intake-handoffs-public-create-empty-outputs`
 
 This fixture mirrors `export/007-intake-handoffs-public-create`, but the
 embedded WOS `intakeAccepted` and `caseCreated` records carry empty `outputs`

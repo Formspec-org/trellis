@@ -40,8 +40,8 @@ APPEND_022 = ROOT / "append" / "022-wos-case-created-public-intake"
 OUT_EXPORT_007 = ROOT / "export" / "007-intake-handoffs-public-create"
 OUT_EXPORT_008 = ROOT / "export" / "008-intake-handoffs-workflow-attach"
 OUT_VERIFY_015 = ROOT / "verify" / "015-export-007-intake-response-hash-mismatch"
-OUT_EXPORT_009 = ROOT / "export" / "009-intake-handoffs-public-create-empty-outputs"
-OUT_VERIFY_016 = ROOT / "verify" / "016-export-009-intake-empty-outputs"
+OUT_EXPORT_013 = ROOT / "export" / "013-intake-handoffs-public-create-empty-outputs"
+OUT_VERIFY_016 = ROOT / "verify" / "016-export-013-intake-empty-outputs"
 OUT_TAMPER_015 = ROOT / "tamper" / "015-intake-handoff-catalog-digest-mismatch"
 
 TAG_TRELLIS_EVENT_V1 = "trellis-event-v1"
@@ -1135,15 +1135,15 @@ Response bytes.
     )
 
     build_export(
-        out_dir=OUT_EXPORT_009,
-        export_id="export/009-intake-handoffs-public-create-empty-outputs",
+        out_dir=OUT_EXPORT_013,
+        export_id="export/013-intake-handoffs-public-create-empty-outputs",
         description="Two-event ADR 0073 export carrying a public Formspec handoff and the admitted WOS intake records with empty outputs arrays. The package is structurally valid, but the WOS payloads are semantically invalid for Trellis intake verification.",
         scope=append_021_empty["scope"],
         generated_at=GENERATED_AT_PUBLIC + 100,
         checkpoint_timestamp=CHECKPOINT_TIMESTAMP_PUBLIC + 100,
         events=[append_021_empty["event_bytes"], append_022_empty["event_bytes"]],
         registry_version="x-trellis-test/registry-intake-v1",
-        readme_title="export/009-intake-handoffs-public-create-empty-outputs",
+        readme_title="export/013-intake-handoffs-public-create-empty-outputs",
         readme_body=(
             "Negative ADR 0073 export fixture. `063-intake-handoffs.cbor` still\n"
             "binds the same Formspec handoff and canonical Response bytes, but the\n"
@@ -1154,8 +1154,8 @@ Response bytes.
         manifest_extensions={EXTENSION_KEY: {"intake_catalog_digest": sha256(public_empty_catalog)}},
     )
     write_text(
-        OUT_EXPORT_009 / "derivation.md",
-        """# Derivation — `export/009-intake-handoffs-public-create-empty-outputs`
+        OUT_EXPORT_013 / "derivation.md",
+        """# Derivation — `export/013-intake-handoffs-public-create-empty-outputs`
 
 This fixture mirrors `export/007-intake-handoffs-public-create`, but the
 embedded WOS `intakeAccepted` and `caseCreated` records carry empty `outputs`
@@ -1167,14 +1167,14 @@ verification must reject the payloads before catalog matching.
     OUT_VERIFY_016.mkdir(parents=True, exist_ok=True)
     write_bytes(
         OUT_VERIFY_016 / "input-export.zip",
-        (OUT_EXPORT_009 / "expected-export.zip").read_bytes(),
+        (OUT_EXPORT_013 / "expected-export.zip").read_bytes(),
     )
     write_text(
         OUT_VERIFY_016 / "manifest.toml",
-        '''id          = "verify/016-export-009-intake-empty-outputs"
+        '''id          = "verify/016-export-013-intake-empty-outputs"
 op          = "verify"
 status      = "active"
-description = """Negative verify vector for the ADR 0073 intake-handoff export. Starts from `export/009-intake-handoffs-public-create-empty-outputs`, which keeps the archive structurally valid but emits WOS `intakeAccepted` and `caseCreated` payloads with empty `outputs` arrays so intake verification must fail during payload parsing."""
+description = """Negative verify vector for the ADR 0073 intake-handoff export. Starts from `export/013-intake-handoffs-public-create-empty-outputs`, which keeps the archive structurally valid but emits WOS `intakeAccepted` and `caseCreated` payloads with empty `outputs` arrays so intake verification must fail during payload parsing."""
 
 [coverage]
 tr_core = ["TR-CORE-067"]
@@ -1195,9 +1195,9 @@ document = "derivation.md"
     )
     write_text(
         OUT_VERIFY_016 / "derivation.md",
-        """# Derivation — `verify/016-export-009-intake-empty-outputs`
+        """# Derivation — `verify/016-export-013-intake-empty-outputs`
 
-This fixture starts from `export/009-intake-handoffs-public-create-empty-outputs`.
+This fixture starts from `export/013-intake-handoffs-public-create-empty-outputs`.
 The archive is structurally sound, but Trellis intake verification must reject
 the first admitted WOS payload because `outputs` is empty on the
 `intakeAccepted` record.

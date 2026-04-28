@@ -1,27 +1,5 @@
-id          = "export/009-intake-handoffs-public-create-empty-outputs"
-op          = "export"
-status      = "active"
-description = """Two-event ADR 0073 export carrying a public Formspec handoff and the admitted WOS intake records with empty outputs arrays. The package is structurally valid, but the WOS payloads are semantically invalid for Trellis intake verification."""
-
-[coverage]
-tr_core = [
-    "TR-CORE-006",
-    "TR-CORE-062",
-    "TR-CORE-063",
-    "TR-CORE-064",
-    "TR-CORE-065",
-    "TR-CORE-067",
-    "TR-CORE-110",
-    "TR-CORE-134",
-]
-tr_op = ["TR-OP-122"]
-
-[inputs]
-ledger_state = "input-ledger-state.cbor"
-
-[expected]
-zip        = "expected-export.zip"
-zip_sha256 = "e81057cfe5b4a922bb68e151ece0cf33ba4b051676f54a018b10761a20e5c7df"
-
-[derivation]
-document = "derivation.md"
+id            = "export/009-intake-handoffs-public-create-empty-outputs"
+op            = "export"
+status        = "deprecated"
+deprecated_at = "2026-04-28"
+description   = """Renumbered to `export/013-intake-handoffs-public-create-empty-outputs` during Wave 21 close-commit (ADR 0005 erasure-evidence Stage 4-C). Slot `export/009` was reassigned to `export/009-erasure-evidence-inline` per ADR 0005 *Fixture plan*, while slots `export/010..012` are reserved by ADR 0007 cert-of-completion (`export/010`) and ADR 0008 interop-sidecar lock-off scaffolds (`export/011`, `export/012`). The active intake-handoffs vector lives at `export/013-intake-handoffs-public-create-empty-outputs`. This tombstone preserves the `export/009` prefix per `scripts/check-vector-renumbering.py` (R16); deprecated vectors are excluded from Rust + Python conformance replay and from coverage / invariant audits per `scripts/check-specs.py` F6."""

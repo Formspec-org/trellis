@@ -286,9 +286,16 @@ def run_all(vectors_root: Path) -> tuple[int, int, list[str]]:
     total = 0
     for op in ("append", "export", "verify", "tamper", "projection", "shred"):
         for d in _vector_dirs(vectors_root, op):
-            total += 1
+            # F6 — deprecated tombstones preserve the `<op>/NNN` prefix for the
+            # R16 pre-merge guard but carry no replayable bytes; skip them.
             try:
                 manifest = _load_manifest(d)
+            except FileNotFoundError:
+                continue
+            if manifest.get("status") == "deprecated":
+                continue
+            total += 1
+            try:
                 mop = manifest.get("op")
                 if mop != op:
                     failures.append(f"{d}: manifest op {mop!r} != dir op {op!r}")
