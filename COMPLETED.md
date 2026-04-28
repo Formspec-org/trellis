@@ -18,6 +18,53 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 19 (2026-04-27) — AEAD nonce determinism (item #37)
+
+Closes item #37 from the TODO. Lands deterministic ChaCha20-Poly1305 nonce
+derivation for PayloadInline so that structurally identical retries with
+the same idempotency_key produce byte-identical ciphertext.
+
+- Core #9.4 pins the Phase-1 derivation:
+  nonce = HKDF-SHA256(salt = dCBOR(idempotency_key), ikm =
+  SHA-256(plaintext_payload), info = "trellis-payload-nonce-v1",
+  length = 12). #9.4 prose binds the nonce to both idempotency identity
+  (cross-key collision prevention) and exact payload content (same-key
+  different-payload silent divergence prevention).
+
+- Core #17.3 no-op retry clause updated to reference
+  "post-dCBOR task canonicalization and post-#9.4 deterministic AEAD nonce".
+
+- Rust helper trellis-types::derive_payload_nonce implements the #9.4
+  construction with hkdf crate; 2 unit tests (determinism + perturbation).
+  Payload_NONCE_DOMAIN duplicate removed; Payload_NONCE_INFO is the
+  single source of truth. encode_uint direct unit test restored.
+
+  - trellis-conformance vector_dirs tightened to skip directories with
+  manifest.toml - safely handles incomplete WIP tamper trees.
+
+  - Fixture append/041-aead-retry-determinism with real 
+  ChaCha20-Poly1305 + HPKE suite-1 wrap; generator script + key material.
+
+  - TR-CORE-144 matrix row added (wording corrected post-review to match
+  #9.4 salt/ikm/info construction, not an earlier draft's 
+  AuthorEventHashPreimage-based wording).
+
+  - TODO.md reindexed PLN mappings (0347->0368), added signature-stack
+  cluster paragraph, expanded items #4/#10, added backlog items #36-#40,
+  marked #37 CLOSED Wave 19.
+
+Verification:
+- cargo test --workspace clean (0 failures).
+- cargo clippy -p trellis-types --tests -D warnings clean.
+- python3 scripts/check-specs.py clean.
+- trellis-py G-5: 34 passed.
+
+NEEDS_CONTEXT: none. The construction is self-contained; no callee crates 
+consume derive_payload_nonce yet - the helper lands ahead of full 
+append-path wiring.
+
+---
+
 ### Wave 18 (2026-04-27) — Crypto-erasure evidence Stage 1 spec deltas (item #3 partial)
 
 Lands the spec-side foundation of ADR 0005 (cryptographic-erasure
@@ -446,7 +493,7 @@ from the Wave 16 HPKE review (commit `0c1573d`, approve-with-suggestions)
 as one change train. Architecture sound; this train closes the
 dep-pin / production-footgun / verifier-isolation drift in one wave so
 the HPKE substrate is a stable foundation for ADR 0005 (item #3, Wave
-18+) and the Phase-2+ adapters in TODO items #19–#22.
+18+) and the Phase-2+ adapters in TODO items #19-#22.
 
 - **Pin all crypto deps exact** (`0ac4261`). Byte-exact reproducibility
   for `append/004-hpke-wrapped-inline` flows through `chacha20poly1305`,
