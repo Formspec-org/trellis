@@ -18,6 +18,112 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 21 (2026-04-28) — ADR 0005 erasure-evidence Stages 2-5 close (item #3) — closes PLN-0312
+
+Closes item #3 from the TODO. Lands the byte-frozen surface plus the
+verifier-side, fixture-side, CLI-side, and matrix-promotion deltas that
+ADR 0005 *Cryptographic erasure evidence* requires for end-to-end Phase-1
+conformance. **This commit train closes parent `PLN-0312` (foundational
+crypto execution bundle) entirely** — the bundle has no remaining row.
+
+Stage history:
+
+- Stage 1 (spec deltas: Companion #20.6, Core #6.7 + #19, matrix rows,
+  `tamper_kind` enum pre-declaration) closed Wave 18 via `9b3d3e4`.
+- Stages 2-3 + 4-A (Rust 10-step verifier, Python parity, positive
+  corpus `append/023..027`) closed Wave 19 via `586de5e` / `53fc25c` /
+  `dd408b6` (rate-limited mid-Stage-4).
+- Stages 4-B / 4-C / 5 plus follow-on verifier deltas closed Wave 21
+  in the 9-commit train below.
+
+Wave 21 commit train:
+
+- Slot collision resolution (`refactor(fixtures)`). Renames
+  `export/009-intake-handoffs-public-create-empty-outputs` →
+  `export/013-...` so ADR 0005 Stage 4-C lands at `export/009-erasure-
+  evidence-inline` (the named slot in the ADR *Fixture plan*) without
+  pushing item #4's `export/010` cert-of-completion reservation. Sibling
+  `verify/016-export-009-...` renamed to `verify/016-export-013-...`
+  (slug change only; verify/016 prefix preserved). R16 lifecycle marker
+  per `scripts/check-vector-renumbering.py`: deprecated tombstone manifest
+  preserves the `export/009` prefix; F6 (check-specs.py) excludes
+  deprecated tombstones from coverage / invariant audits. Conformance
+  harnesses (Rust + Python) skip `status = "deprecated"` vectors.
+  Generator `gen_intake_export_007.py` retargets paths and
+  embedded export-id strings; `expected-export.zip` regenerated to
+  reflect the renamed `098-README.md`; `zip_sha256` updated.
+
+- Rust verifier extension (`feat(verify)`). New
+  `parse_erasure_evidence_export_extension` +
+  `verify_erasure_evidence_catalog` plumbed through `verify_export_zip`;
+  step-8 chain-walk activates for `signing` + `subject` key classes
+  (post_erasure_use / post_erasure_wrap typed failures). Pairs
+  with the existing 10-step erasure verifier landed Wave 19.
+
+- Python parity (`feat(py-verify)`). G-5 stranger-test parity per ADR
+  0004 — `_parse_erasure_evidence_export_extension`,
+  `_parse_erasure_catalog_entries`, `_verify_erasure_evidence_catalog`,
+  step-8 chain-walk extension. `python3 -m trellis_py.conformance` 88/0/0
+  on the expanded corpus.
+
+- Tamper vectors (`test(fixtures)`). Three new negative vectors:
+  `tamper/017-erasure-post-use` (signing kid used after destruction —
+  TR-CORE-018/030/035 + TR-OP-107),
+  `tamper/018-erasure-post-wrap` (subject kid wrapped after destruction
+  — same coverage), `tamper/019-erasure-catalog-digest-mismatch`
+  (manifest digest disagrees with `064-erasure-evidence.cbor` —
+  TR-CORE-061).
+
+- Export bundle + generator (`test(fixtures)`).
+  `fixtures/vectors/export/009-erasure-evidence-inline/` — single genesis
+  `trellis.erasure-evidence.v1` event pinned to `tamper/017` event 0,
+  optional `064-erasure-evidence.cbor` catalog, manifest extension
+  `trellis.export.erasure-evidence.v1`. Coverage:
+  TR-CORE-006/062/063/064/065/110/134 + TR-OP-105/106. Generator
+  `_generator/gen_export_009_erasure_evidence.py` (432 lines) emits
+  both this bundle and `tamper/019`'s input ZIP.
+
+- CLI Stage 5 (`feat(cli)`). `trellis-cli erase-key --help` prints the
+  ADR 0005 flag contract (`--evidence-id` / `--kid` / `--key-class` /
+  `--subject-scope[/-refs]` / `--cascade-scopes` / `--reason-code` /
+  `--policy-authority` / `--destruction-actor` / `--attestation-key` /
+  `--hsm-receipt[-kind]` / `--completion-mode`). Phase-1 stub error path
+  on invocation; KMS destruction + ledger-append are deployment-shaped.
+
+- Companion #27.1 prose (`docs(spec)`). One paragraph above #27.2
+  inventories the byte-authoritative offline-verifier obligations:
+  `append/023..027` positive corpus, `tamper/017..019` negatives,
+  `export/009-erasure-evidence-inline` catalog. Anchors against Core
+  #19 step 6b + Core #18.2 export-manifest catalog discipline.
+
+- Matrix promotion (`docs(matrix)`). TR-OP-105 (Companion #20.6.2 /
+  Attestation shape) and TR-OP-107 (Companion #20.6.3 OC-142 / step-8
+  chain-walk) promoted from `prose` → `test-vector`. TR-OP-106 / 108 /
+  109 / 113 unchanged in this wave — their promotions gate on follow-on
+  tamper vectors per ADR 0005 *Fixture plan*.
+
+- TODO #3 strikethrough + this entry (`docs(wave)`).
+
+Verification:
+- `cargo test --workspace` clean.
+- `python3 scripts/check-specs.py` clean (R13 tamper_kind enum, R19
+  reason-code parity, F6 lifecycle fields, R4/R5 coverage all green).
+- `TRELLIS_CHECK_RENUMBERING=1 python3 scripts/check-specs.py` clean
+  (R16 strict — deprecated tombstone at `export/009` preserves the
+  prefix).
+- `python3 -m trellis_py.conformance` 88/0/0 (G-5 stranger gate; +4
+  vectors landed this wave).
+- `python3 -m pytest scripts/` 162/0.
+- `python3 -m pytest trellis-py/` 34/0.
+
+NEEDS_CONTEXT: none. ADR 0005 §"Open questions / follow-ups" residue
+(LAK rotation interaction, `hsm_receipt_kind` registry, legal-hold-
+coupled erasure lint, multi-operator quorum) tracked at TODO #15.
+TR-OP-106 / 109 / 113 follow-on tamper vectors tracked under ADR 0005
+*Fixture plan* and will land per the *Open questions* gates.
+
+---
+
 ### Wave 20 (2026-04-27) — Interop sidecar reservation (item #18)
 
 Closes item #18 from the TODO. Lands Phase-1 reservation of the interop

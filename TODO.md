@@ -72,13 +72,13 @@ integrity artifact for ESIGN/UETA), **#8** + **#9** (WOS-T4 + ADR 0073
 shared-fixture residue), **#10** (identity attestation, supersedes
 PLN-0310 → PLN-0381), **#21** (c2pa-manifest adapter — layers the
 certificate onto the presentation PDF), **#36** (user-content
-Attestation primitive — Trellis ADR 0010, parent PLN-0379), **#37**
-(AEAD nonce determinism — silent-bug class on signed-event retry,
-parent PLN-0383), **#38** (`custody-hook-encoding.md` v1.0 — the
-four-field append wire surface that carries `producer_signature`,
-parent PLN-0385), **#39** (external recipient lifecycle — recipients
-of signed events; access events, parent PLN-0382), **#40** (tenant-
-scope export — bundles include signed events, parent PLN-0392).
+Attestation primitive — Trellis ADR 0010, parent PLN-0379), ~~**#37**
+(AEAD nonce determinism — closed Wave 19, parent PLN-0383)~~, **#38**
+(`custody-hook-encoding.md` v1.0 — the four-field append wire surface
+that carries `producer_signature`, parent PLN-0385), **#39** (external
+recipient lifecycle — recipients of signed events; access events,
+parent PLN-0382), **#40** (tenant-scope export — bundles include
+signed events, parent PLN-0392).
 The integrity artifact is Trellis's; the semantics are WOS's; both
 compose under PLN-0379 + PLN-0380. Parent stack closure cluster
 spans PLN-0379..0398: open-contract closure (0379-0385), engineering
@@ -118,25 +118,24 @@ consume amended responses once those stacks land.
    Core §9.4. See [`COMPLETED.md`](COMPLETED.md) Wave 17 entry. Renumbering
    of items #3..#29 deferred to the wave's final landing pass.
 
-3. **Crypto-erasure evidence — Stages 2-5** — **M–L**, continuation.
+3. ~~**Crypto-erasure evidence — Stages 2-5**~~ — **CLOSED Wave 21, 2026-04-28.**
     Stage 1 (spec deltas: Companion §20.6, Core §6.7/§19, matrix rows,
-    `tamper_kind` enum pre-declaration) closed Wave 18 via commit `9b3d3e4`;
-    see [`COMPLETED.md`](COMPLETED.md) Wave 18 entry. Remaining work:
-    + [ ] **Rust verifier:** 10-step checklist (ADR 0005 steps 1–10) in
-      `crates/trellis-verify/`, Phase-1 chain-walk scoped to `signing` +
-      `subject` kids per ADR step-8 bound.
-    + [ ] **Python parity:** `trellis-py/` G-5 cross-check for erasure
-      evidence decode and validator composition.
-    + [ ] **Fixture vectors:** `append/023..027`, `tamper/017..019`,
-      `export/009` (renumber — intake-handoff currently holds `009`) /
-      catalog `064-erasure-evidence.cbor`. Stage 4 corpus lands with
-      matrix `Verification = prose → test-vector` promotion lockstep.
-    + [ ] **CLI:** `trellis-cli erase-key` scaffolding + integration.
-    + [ ] **Companion §27:** test extensions for §27.3 / §27.7 erasure-
-      evidence verifier paths.
-
-    *Bundle pointer:* remaining work is the last open row in parent
-    **PLN-0312** (foundational crypto execution bundle).
+    `tamper_kind` enum pre-declaration) closed Wave 18 via `9b3d3e4`.
+    Stages 2-3 + 4-A landed Wave 19 via `586de5e` / `53fc25c` / `dd408b6`.
+    Stages 4-B / 4-C / 5 plus the working-tree verifier + Python-parity
+    follow-on landed Wave 21 in a 9-commit train: slot collision
+    resolution (`refactor(fixtures): renumber export/009 intake-handoffs
+    → export/013` + R16 deprecated tombstone at slot 009), Rust verifier
+    erasure-export-catalog cross-check + step-8 chain-walk extension,
+    Python parity, tamper vectors `append/017..019`, export bundle
+    `export/009-erasure-evidence-inline` + 432-line generator, CLI
+    `erase-key` Phase-1 stub, Companion §27.1 verifier-surface prose,
+    and matrix promotion (TR-OP-105 / TR-OP-107 prose → `test-vector`;
+    TR-OP-106 / TR-OP-108 / TR-OP-109 / TR-OP-113 stay `prose` /
+    `declaration-doc-check` per ADR 0005 *Fixture plan* follow-on).
+    See [`COMPLETED.md`](COMPLETED.md) Wave 21 entry.
+    *Bundle pointer:* **this closes parent `PLN-0312` entirely** —
+    the foundational crypto execution bundle has no remaining row.
 
 4. **Certificate-of-completion composition — execute per ADR 0007** — **M**.
    [ADR 0007](thoughts/adr/0007-certificate-of-completion-composition.md):
