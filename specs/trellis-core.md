@@ -312,6 +312,7 @@ Registered extension identifiers:
 | `EventPayload.extensions` | `trellis.erasure-evidence.v1` | 1 | Cryptographic-erasure evidence record per ADR 0005; payload shape `ErasureEvidencePayload` (ADR 0005 §"Wire shape" / Companion §20.6.2). Verifier obligations in §19 (extension processing for erasure evidence; the 10-step checklist is enumerated in ADR 0005 §"Verifier obligations"). Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.staff-view-decision-binding.v1` | 1 | Staff-view decision-binding record carrying the §15.2 `Watermark` seen by the adjudicator for a rights-impacting decision; payload shape `StaffViewDecisionBinding`. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.evidence-attachment-binding.v1` | 1 | Evidence attachment-binding record from ADR 0072 / Formspec Respondent Ledger §6.9. `PayloadExternal` names the attachment ciphertext bytes; this extension carries the binding metadata. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.certificate-of-completion.v1` | 1 | Certificate-of-completion record per ADR 0007: binds a presentation artifact (PDF or HTML) to the underlying signing chain via ADR 0072 attachment lineage and `signing_events` digests. Payload shape `CertificateOfCompletionPayload` (ADR 0007 §"Wire shape"). Verifier obligations in §19 step 6c. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
 | `EventPayload.extensions` | `trellis.external_anchor.v1` | 2 | Per-event external anchor reference (e.g., OpenTimestamps). |
 | `EventHeader.extensions` | `trellis.witness_signature.v1` | 4 | Transparency-witness cosignature slot. |
@@ -322,6 +323,7 @@ Registered extension identifiers:
 | `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.signatureAffirmation` events; verifier obligations in §19. Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.intakeAccepted` events and optional paired `wos.kernel.caseCreated` events, carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; verifier obligations in §19. Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.certificates-of-completion.v1` | 1 | Binds optional `065-certificates-of-completion.cbor` via `catalog_digest` (SHA-256 of the catalog bytes under `trellis-content-v1`). Chain-derived catalog over admitted `trellis.certificate-of-completion.v1` events; entry shape per ADR 0007 §"Export manifest catalog". Catalog is performance convenience for auditor UX; exporters who omit it are conformant. Reject-if-unknown-at-version. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
@@ -805,6 +807,7 @@ Phase 1 reserves these domain tags. An implementation MUST NOT use any of these 
 - `trellis-merkle-interior-v1` — Merkle interior-node hash (§11.3)
 - `trellis-posture-declaration-v1` — Posture-declaration document digest referenced from custody-model and disclosure-profile Posture-transition events (§6.7 registered extensions; Companion §10)
 - `trellis-transition-attestation-v1` — Posture-transition attestation signature preimage `dCBOR([transition_id, effective_at, authority_class])` per Companion A.5 `Attestation` shared rule
+- `trellis-presentation-artifact-v1` — SHA-256 preimage for `PresentationArtifact.content_hash` carried by `trellis.certificate-of-completion.v1` events (ADR 0007). Domain-separates the rendered PDF / HTML bytes from event-payload, content, checkpoint, and Merkle-tree hashing.
 
 ---
 
@@ -1608,6 +1611,112 @@ VERIFY(E) -> VerificationReport
    `erasure_evidence_catalog_digest_mismatch`. The catalog is performance
    convenience for auditor UX; exporters who omit it are conformant.
 
+6c. Certificate-of-completion processing. For each event e whose
+   EventPayload.extensions carries `trellis.certificate-of-completion.v1`
+   (§6.7; payload shape ADR 0007 §"Wire shape"): the verifier MUST execute
+   the **8-step certificate-of-completion checklist** defined normatively
+   in ADR 0007 §"Verifier obligations". The checklist is reproduced here
+   as an enumeration so the prose section is self-contained; the ADR
+   remains the byte-authoritative source if prose drifts.
+     1. Decode the payload against the ADR 0007 CDDL. Mismatch is a
+        structure failure for that event (recorded in report.event_failures).
+     2. Validate the chain-summary invariants:
+        `signer_count == len(signing_events)`,
+        `len(signer_display) == len(signing_events)`, and each
+        `signer_display[i].principal_ref` equals the principal on
+        `signing_events[i]`. Any mismatch flips
+        `integrity_verified = false` with localizable failure
+        `certificate_chain_summary_mismatch`. If `covered_claims` is
+        non-empty, every tag MUST be in the verifier's supported tag
+        registry for this release; unknown tags flip
+        `integrity_verified = false` with `certificate_covered_claim_unknown`.
+        For `workflow_status` and `impact_level`, any string value not
+        among the CDDL-enumerated literals MUST appear in the
+        Companion / WOS append-only registry; otherwise flip
+        `integrity_verified = false` with
+        `certificate_enum_extension_unknown`. After decoding all
+        certificate events in scope, if the same `certificate_id` labels
+        two events whose canonical certificate payloads differ, flip
+        `integrity_verified = false` with `certificate_id_collision`
+        (fail-closed; first-seen wins is non-normative).
+     3. Verify every `attestations[*].signature` under domain tag
+        `trellis-transition-attestation-v1` (§9.8) — same domain shared
+        with §A.5 posture-transition attestations and ADR 0005 erasure
+        evidence. Invalid signature flips `integrity_verified = false`
+        with `attestation_insufficient` (existing code reused).
+     4. Resolve `presentation_artifact.attachment_id` via the ADR 0072
+        attachment-binding lineage. A conformant Phase-1 export that
+        includes this certificate event MUST ship resolvable attachment
+        bytes for that id; if resolution fails (bytes missing from the
+        bundle though the binding requires them), record
+        `attachment_resolved = false` and append
+        `presentation_artifact_attachment_missing` to the outcome's
+        failures list — distinct from a successful resolve followed by
+        hash mismatch. After bytes are resolved, recompute SHA-256 over
+        the artifact bytes under domain tag
+        `trellis-presentation-artifact-v1` (§9.8) and confirm it equals
+        `presentation_artifact.content_hash`; mismatch flips
+        `integrity_verified = false` with
+        `presentation_artifact_content_mismatch`.
+     5. Resolve every `signing_events[i]` digest against the chain.
+        Each MUST be a chain-present `SignatureAffirmation` event (or
+        WOS equivalent registered in §6.7 — currently
+        `wos.kernel.signatureAffirmation`). Missing or wrong-type
+        events flip `integrity_verified = false` with
+        `signing_event_unresolved`.
+     6. Validate temporal consistency: every
+        `signer_display[i].signed_at` MUST exactly equal the resolved
+        `SignatureAffirmation` header's `authored_at` for
+        `signing_events[i]` (uint seconds; Phase-1 exact equality, no
+        skew slack). Mismatch flips `integrity_verified = false` with
+        `signing_event_timestamp_mismatch`.
+     7. Validate `chain_summary.response_ref` when non-null: it MUST
+        equal the Formspec canonical-response-hash carried on the linked
+        `SignatureAffirmation` payload / `authoredSignatures` binding
+        for that ceremony — one digest, not an unconstrained search
+        across authoring events. Mismatch flips
+        `integrity_verified = false` with `response_ref_mismatch`.
+     8. Accumulate outcomes into a new
+        `report.certificates_of_completion` array parallel to
+        `report.posture_transitions` and `report.erasure_evidence`.
+        Each entry carries `certificate_id`, `completed_at`,
+        `signer_count`, `attachment_resolved`,
+        `all_signing_events_resolved`, `chain_summary_consistent`,
+        `failures` (array of localizable failure codes).
+
+   `integrity_verified = false` if any certificate-of-completion entry
+   has `chain_summary_consistent = false`, `attachment_resolved = false`,
+   any unresolved or wrong-type signing event, any attestation failure
+   from step 3, or any step 6–7 failure. Rendering-drift checks
+   (re-rendering from `template_id` + chain data) are NOT required in
+   Phase 1; adopters that want stronger binding publish `template_id`
+   + `template_hash` and rebuild at verification time as a stretch
+   check.
+
+   **Optional manifest catalog (`trellis.export.certificates-of-completion.v1`).**
+   When an export contains certificate-of-completion events, the
+   manifest MAY include the catalog extension shaped per ADR 0007
+   §"Export manifest catalog" (binding `065-certificates-of-completion.cbor`).
+   Verifier obligations for the optional catalog mirror the §6.7
+   catalog pattern (Attachment / Signature-Affirmation / Intake-Handoff /
+   Erasure-Evidence): verify `catalog_digest` against the recomputed
+   SHA-256 of `065-certificates-of-completion.cbor` under
+   `trellis-content-v1` (§9.3); for each catalog entry require field-wise
+   agreement with exactly one in-chain certificate-of-completion event;
+   reject duplicates by `canonical_event_hash`. Mismatch is a localizable
+   failure with code `certificate_catalog_digest_mismatch`. The catalog
+   is performance convenience for auditor UX; exporters who omit it
+   are conformant.
+
+   Traceability: **TR-CORE-146** (registered extension + domain tag),
+   **TR-CORE-147** (chain-summary invariants + covered_claims registry +
+   workflow_status / impact_level enum extension + certificate_id
+   collision), **TR-CORE-148** (presentation_artifact attachment lineage
+   + content-hash recompute), **TR-CORE-149** (signing_events resolution
+   + signed_at timestamp equivalence), **TR-CORE-150** (response_ref
+   canonical-response-hash equivalence), **TR-CORE-151** (optional
+   `trellis.export.certificates-of-completion.v1` manifest catalog).
+
 **Attachment manifest (optional, stack ADR 0072).** If `ExportManifestPayload.extensions` carries `trellis.export.attachments.v1` (§6.7), the verifier MUST:
 
      a. Require the archive member `061-attachments.cbor` (§18.2).
@@ -1661,7 +1770,11 @@ VERIFY(E) -> VerificationReport
        inclusion proofs, consistency proofs, and every available ciphertext hash valid
        AND report.omitted_payload_checks is empty
        AND no entry in report.posture_transitions has continuity_verified = false
-       AND no entry in report.posture_transitions has attestations_verified = false.
+       AND no entry in report.posture_transitions has attestations_verified = false
+       AND no entry in report.erasure_evidence has signature_verified = false,
+           post_erasure_uses > 0, or post_erasure_wraps > 0
+       AND no entry in report.certificates_of_completion has chain_summary_consistent = false,
+           attachment_resolved = false, or all_signing_events_resolved = false.
 
      readability_verified =
        every payload required by the export scope was decrypted and schema-validated
@@ -1671,21 +1784,48 @@ VERIFY(E) -> VerificationReport
     readability_verified, failures, warnings, and omitted_payload_checks.
 ```
 
-Implementations record attachment-manifest failures (the optional ADR 0072 step above), signature-affirmation catalog failures (the optional `trellis.export.signature-affirmations.v1` step above), and intake-handoff catalog failures (the optional `trellis.export.intake-handoffs.v1` step above) in `report.event_failures` together with per-event failures from step 4; all such kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty.
+Implementations record attachment-manifest failures (the optional ADR 0072 step above), signature-affirmation catalog failures (the optional `trellis.export.signature-affirmations.v1` step above), intake-handoff catalog failures (the optional `trellis.export.intake-handoffs.v1` step above), erasure-evidence catalog failures (the optional `trellis.export.erasure-evidence.v1` step above per ADR 0005), and certificate-of-completion catalog failures (the optional `trellis.export.certificates-of-completion.v1` step above per ADR 0007) in `report.event_failures` together with per-event failures from step 4; all such kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty.
 
 The verifier's output is a structured report enumerating every integrity observation. The overall convenience boolean MAY be computed as all three booleans true, but implementations MUST expose the three booleans independently. A package that omits ciphertext bytes can still be structurally verified, but it cannot claim payload integrity or readability were verified offline for the omitted payloads.
 
 ```cddl
 VerificationReport = {
-  structure_verified:   bool,
-  integrity_verified:   bool,
-  readability_verified: bool,
-  event_failures:       [* VerificationFailure],
-  checkpoint_failures:  [* VerificationFailure],
-  proof_failures:       [* VerificationFailure],
-  posture_transitions:  [* PostureTransitionOutcome],
-  omitted_payload_checks: [* OmittedPayloadCheck],
-  warnings:             [* tstr],
+  structure_verified:         bool,
+  integrity_verified:         bool,
+  readability_verified:       bool,
+  event_failures:             [* VerificationFailure],
+  checkpoint_failures:        [* VerificationFailure],
+  proof_failures:             [* VerificationFailure],
+  posture_transitions:        [* PostureTransitionOutcome],
+  erasure_evidence:           [* ErasureEvidenceOutcome],
+  certificates_of_completion: [* CertificateOfCompletionOutcome],
+  omitted_payload_checks:     [* OmittedPayloadCheck],
+  warnings:                   [* tstr],
+}
+
+ErasureEvidenceOutcome = {
+  evidence_id:           tstr,   ; from the erasure-evidence event payload
+  event_index:           uint,   ; position in the events array
+  kid_destroyed:         bstr,
+  destroyed_at:          uint,
+  cascade_scopes:        [* tstr],
+  completion_mode:       tstr,
+  signature_verified:    bool,
+  post_erasure_uses:     uint,
+  post_erasure_wraps:    uint,
+  cascade_violations:    [* tstr],
+  failures:              [* tstr],
+}
+
+CertificateOfCompletionOutcome = {
+  certificate_id:                tstr,   ; from the certificate event payload
+  event_index:                   uint,   ; position in the events array
+  completed_at:                  uint,
+  signer_count:                  uint,
+  attachment_resolved:           bool,
+  all_signing_events_resolved:   bool,
+  chain_summary_consistent:      bool,
+  failures:                      [* tstr],
 }
 
 VerificationFailure = {
@@ -1741,6 +1881,16 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `post_erasure_use` | 6b step 8 | A canonical event with `authored_at > destroyed_at` is signed under the destroyed `kid` (within `norm_key_class ∈ {"signing", "subject"}` Phase-1 scope). |
 | `post_erasure_wrap` | 6b step 8 | A canonical event with `authored_at > destroyed_at` carries a `key_bag.entries` row wrapped under the destroyed `kid` (within `norm_key_class ∈ {"signing", "subject"}` Phase-1 scope). |
 | `erasure_evidence_catalog_digest_mismatch` | 6b optional catalog | `064-erasure-evidence.cbor` digest does not match the manifest's `trellis.export.erasure-evidence.v1` binding (ADR 0005 §"Export manifest catalog"). |
+| `certificate_chain_summary_mismatch` | 6c step 2 | A `trellis.certificate-of-completion.v1` event's `chain_summary` violates `signer_count == len(signing_events)`, `len(signer_display) == len(signing_events)`, or per-index `signer_display[i].principal_ref == principal(signing_events[i])` (ADR 0007 §"Verifier obligations" step 2). |
+| `certificate_covered_claim_unknown` | 6c step 2 | A `chain_summary.covered_claims` tag is not in the verifier's supported tag registry for this release (ADR 0007 §"Verifier obligations" step 2). |
+| `certificate_enum_extension_unknown` | 6c step 2 | A `chain_summary.workflow_status` or `chain_summary.impact_level` extension string is not registered in the Companion / WOS append-only registry (ADR 0007 §"Verifier obligations" step 2). |
+| `certificate_id_collision` | 6c step 2 | Two `trellis.certificate-of-completion.v1` events in scope share `certificate_id` but disagree on canonical certificate payload (ADR 0007 §"Verifier obligations" step 2; fail-closed). |
+| `presentation_artifact_attachment_missing` | 6c step 4 | `presentation_artifact.attachment_id` cannot be resolved through the ADR 0072 attachment-binding lineage (bytes missing though the binding requires them). Distinct from `presentation_artifact_content_mismatch`. |
+| `presentation_artifact_content_mismatch` | 6c step 4 | Resolved presentation-artifact bytes recompute under `trellis-presentation-artifact-v1` (§9.8) to a digest that does not equal `presentation_artifact.content_hash`. |
+| `signing_event_unresolved` | 6c step 5 | A `signing_events[i]` digest does not resolve to a chain-present `SignatureAffirmation` event (or WOS equivalent registered in §6.7). |
+| `signing_event_timestamp_mismatch` | 6c step 6 | A `signer_display[i].signed_at` does not exactly equal the resolved `SignatureAffirmation` header's `authored_at` (Phase-1 exact equality, uint seconds). |
+| `response_ref_mismatch` | 6c step 7 | `chain_summary.response_ref` is non-null but does not equal the Formspec canonical-response-hash carried on the linked `SignatureAffirmation`. |
+| `certificate_catalog_digest_mismatch` | 6c optional catalog | `065-certificates-of-completion.cbor` digest does not match the manifest's `trellis.export.certificates-of-completion.v1` binding (ADR 0007 §"Export manifest catalog"). |
 | `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` is non-empty in Phase 1 (ADR 0008 ISC-04 / ADR 0003 lock-off). |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.

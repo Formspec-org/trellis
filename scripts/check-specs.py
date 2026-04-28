@@ -89,6 +89,20 @@ TAMPER_KIND_ENUM = frozenset({
     "post_erasure_use",
     "post_erasure_wrap",
     "erasure_evidence_catalog_digest_mismatch",
+    # Certificate-of-completion (Core §19.1 / §19 step 6c; ADR 0007). Phase-1
+    # reserved enum values; corpus vectors land in the ADR 0007 execution
+    # train (TODO item #4). The corpus is a subset of the enum, so
+    # reserved-without-fixture is allowed.
+    "certificate_chain_summary_mismatch",
+    "certificate_covered_claim_unknown",
+    "certificate_enum_extension_unknown",
+    "certificate_id_collision",
+    "presentation_artifact_attachment_missing",
+    "presentation_artifact_content_mismatch",
+    "signing_event_unresolved",
+    "signing_event_timestamp_mismatch",
+    "response_ref_mismatch",
+    "certificate_catalog_digest_mismatch",
     "interop_sidecar_phase_1_locked",  # ADR 0008 Phase-1 lock-off.
 })
 
