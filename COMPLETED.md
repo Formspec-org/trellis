@@ -18,6 +18,67 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 23 (2026-04-28) — ADR 0010 user-content-attestation primitive (item #1) — closes PLN-0379
+
+Sequenced sibling to ADR 0007 (Wave 22). Lands the byte-level primitive
+`trellis.user-content-attestation.v1` — the cryptographic anchor a user
+(non-operator) signs to attest to in-chain content with a declared
+`signing_intent` URI. Distinct from Companion §A.5 operator-actor Attestation
+(distinct domain tag `trellis-user-content-attestation-v1`). WOS-side
+meaning ratifies in parallel via PLN-0380 (`wos-spec` SHAs `d7d6845..026eac8`).
+
+Train (`b1b23ce..74cd52d`, 6 commits):
+- ADR 0010 (~265 lines) authored with 11-vector fixture plan + 9-step
+  verifier obligations.
+- Spec amendments — Core §6.7 registration, §9.8 domain tag, §19 step 6d,
+  §28 CDDL append, matrix TR-CORE-152..157, Companion §6.4 user-vs-operator
+  reminder.
+- Rust verifier extension — `UserContentAttestationDetails` + `Outcome`,
+  decode + finalize (steps 3-9), `decode_identity_attestation_subject`
+  via `EventPayload.extensions[event_type]["subject"]`.
+- Positive `append/036..039` (minimal / multi-attestor / without-identity /
+  stand-alone). `_generator/gen_append_036_to_039.py`.
+- Negative `tamper/028..034` (sig-invalid / chain-position-mismatch /
+  identity-unresolved / identity-subject-mismatch / identity-temporal-
+  inversion / intent-malformed / key-not-active).
+- Python parity (`trellis-py/src/trellis_py/verify.py`, 478 lines added).
+- Matrix TR-CORE-152..156 promoted `prose → test-vector`; TR-CORE-157
+  stays `prose` (idempotency-collision + operator-as-attestor lint-only).
+
+Counts: G-4 clean; G-5 95 → **106**; pytest 57 (no new cases — corpus
+serves as integration test); check-specs clean.
+
+Two design fixes during the train (the craftsman dispatch hit a usage
+limit mid-train; pickup audit caught both):
+
+1. **Step-2 deferred-failure pattern.** ADR 0010 step 2 (intra-payload
+   invariants — `intent_malformed` / `timestamp_mismatch`) flips
+   `integrity_verified = false` only — NOT a structure failure. The
+   decoder previously bubbled `Err(VerifyError::with_kind(...))` and
+   the fatal-decode path flipped `readability_verified = false`,
+   contradicting the ADR. Refactored to a `step_2_failure: Option<&'static str>`
+   marker on `UserContentAttestationDetails`; finalize raises it as an
+   `event_failure` and skips remaining per-event checks. Manifest at
+   `tamper/033-uca-intent-malformed` + generator updated to match.
+2. **De-monkeypatching.** Phase-1 fixture corpus minted bare
+   `trellis.user-identity-attestation.v1` for identity events — unregistered
+   in Core §6.7 and lint-warned by check-specs. Renamed to
+   `x-trellis-test/identity-attestation/v1` (the §6.7 + §10.6 reserved
+   test prefix). Dropped the dead-code `PLN_0381_CANDIDATE_IDENTITY_EVENT_TYPE`
+   constant + admit branch (speculative admission of unratified
+   `wos.identity.attested.v1`). Matrix TR-CORE-154 prose updated.
+
+Residue: TR-CORE-157 (idempotency-collision + operator-as-attestor)
+follow-on tampers if a corpus gap surfaces; TODO item #5
+(rotation-grace `Rotating` admission) extends step 6 when ratified;
+PLN-0381 ratification adds canonical `wos.identity.*` branch in a single
+edit to `is_identity_attestation_event_type`. Open finding flagged but
+out-of-scope: `is_operator_uri` hardcodes `urn:{trellis,wos}:operator:`
+prefixes — works today, would land properly via a Companion §6.4
+amendment naming the convention.
+
+---
+
 ### Wave 22 (2026-04-28) — ADR 0007 certificate-of-completion close (item #4)
 
 Closes the corpus + downstream surfaces for `trellis.certificate-of-completion.v1`
