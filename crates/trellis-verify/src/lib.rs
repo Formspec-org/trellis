@@ -44,6 +44,46 @@ const CERTIFICATE_EXPORT_EXTENSION: &str = "trellis.export.certificates-of-compl
 /// ADR 0007 §9.8 / Core §9 — domain-separation tag for the SHA-256 preimage
 /// covering rendered presentation-artifact bytes (PDF / HTML).
 const PRESENTATION_ARTIFACT_DOMAIN: &str = "trellis-presentation-artifact-v1";
+/// ADR 0010 §6.7 registration — `EventPayload.extensions` slot for
+/// user-content-attestation records. Per-attestation inline shape per
+/// `UserContentAttestationPayload` in Core §28 (CDDL) / ADR 0010 §"Wire shape".
+const USER_CONTENT_ATTESTATION_EVENT_EXTENSION: &str = "trellis.user-content-attestation.v1";
+/// ADR 0010 §9.8 / Core §9 — domain-separation tag for the Ed25519 signature
+/// preimage carried by `UserContentAttestationPayload.signature`. Distinct
+/// from `trellis-transition-attestation-v1` so a wrongly-typed user-content
+/// attestation cannot cross-validate against the operator-actor
+/// posture-transition family (and vice versa). Per ADR 0010 §"Verifier
+/// obligations" step 5 the inner preimage is `dCBOR([attestation_id,
+/// attested_event_hash, attested_event_position, attestor,
+/// identity_attestation_ref, signing_intent, attested_at])`.
+const USER_CONTENT_ATTESTATION_DOMAIN: &str = "trellis-user-content-attestation-v1";
+/// Phase-1 deployment-local identity-attestation event-type convention. Per
+/// ADR 0010 open question 1, the parent-repo identity-attestation stack ADR
+/// (PLN-0381) ratifies the `wos.identity.*` namespace for `IdentityAttestation`
+/// events. Until that lands, this verifier admits any event whose
+/// `event_type` matches one of the values in [`identity_attestation_event_type`]
+/// (`==` match against the deployment-local fixture convention or against
+/// the PLN-0381 candidate naming). Deployment operators register their own
+/// identity-attestation extension under Core §6.7; this constant exists to
+/// keep the Phase-1 fixture corpus self-resolvable without forcing a §6.7
+/// amendment ahead of PLN-0381.
+const PHASE_1_DEPLOYMENT_LOCAL_IDENTITY_EVENT_TYPE: &str =
+    "trellis.user-identity-attestation.v1";
+/// PLN-0381 candidate naming for the parent-repo identity-attestation stack
+/// ADR. Admitted alongside the deployment-local convention so that vectors
+/// authored under either naming verify cleanly. When PLN-0381 ratifies, the
+/// canonical string lands in Core §6.7 and this constant can collapse.
+const PLN_0381_CANDIDATE_IDENTITY_EVENT_TYPE: &str = "wos.identity.attested.v1";
+/// Operator URI scheme convention for the Phase-1 Companion §6.4 enforcement
+/// of step 8 (operator-as-attestor forbidden in user-content-attestation
+/// `attestor` slots). The `urn:trellis:operator:` prefix is the fixture
+/// corpus's stand-in for a real operator-principal registry; deployments
+/// substitute their canonical operator-URI scheme. Recognized prefixes here
+/// are the conservative Phase-1 set; lint enforcement tightens before
+/// deployment per ADR 0010 §"Adversary model" "operator masquerading as
+/// user" mitigation.
+const OPERATOR_URI_PREFIX_TRELLIS: &str = "urn:trellis:operator:";
+const OPERATOR_URI_PREFIX_WOS: &str = "urn:wos:operator:";
 /// Domain separation tag for transition-attestation preimages (Core §9.8).
 /// Shared verbatim between §A.5 posture transitions and ADR 0005 erasure
 /// evidence; Phase-1 verifier checks structural shape (`signature` is 64
@@ -142,6 +182,27 @@ pub struct CertificateOfCompletionOutcome {
     pub failures: Vec<String>,
 }
 
+/// Outcome for one ADR 0010 user-content-attestation verification (Core
+/// §19 step 6d). One entry per `trellis.user-content-attestation.v1`
+/// payload in scope, in chain order. `chain_position_resolved` /
+/// `identity_resolved` / `signature_verified` / `key_active` are the four
+/// booleans that participate in the §19 step-9 integrity fold per ADR
+/// 0010 §"Verifier obligations" step 9; `failures` localizes the concrete
+/// tamper kinds (`user_content_attestation_*`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserContentAttestationOutcome {
+    pub attestation_id: String,
+    pub attested_event_hash: [u8; 32],
+    pub attestor: String,
+    pub signing_intent: String,
+    pub event_index: u64,
+    pub chain_position_resolved: bool,
+    pub identity_resolved: bool,
+    pub signature_verified: bool,
+    pub key_active: bool,
+    pub failures: Vec<String>,
+}
+
 /// Verification report for the current Phase-1 runtime.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VerificationReport {
@@ -154,6 +215,10 @@ pub struct VerificationReport {
     pub posture_transitions: Vec<PostureTransitionOutcome>,
     pub erasure_evidence: Vec<ErasureEvidenceOutcome>,
     pub certificates_of_completion: Vec<CertificateOfCompletionOutcome>,
+    /// ADR 0010 user-content-attestation outcomes (Core §19 step 6d
+    /// step 9). One entry per `trellis.user-content-attestation.v1`
+    /// payload in scope, in chain order.
+    pub user_content_attestations: Vec<UserContentAttestationOutcome>,
     pub warnings: Vec<String>,
 }
 
@@ -171,6 +236,7 @@ impl VerificationReport {
             posture_transitions: Vec::new(),
             erasure_evidence: Vec::new(),
             certificates_of_completion: Vec::new(),
+            user_content_attestations: Vec::new(),
             warnings: vec![warning],
         }
     }
@@ -182,6 +248,7 @@ impl VerificationReport {
         posture_transitions: Vec<PostureTransitionOutcome>,
         erasure_evidence: Vec<ErasureEvidenceOutcome>,
         certificates_of_completion: Vec<CertificateOfCompletionOutcome>,
+        user_content_attestations: Vec<UserContentAttestationOutcome>,
         warnings: Vec<String>,
     ) -> Self {
         let posture_ok = posture_transitions.iter().all(|outcome| {
@@ -212,6 +279,19 @@ impl VerificationReport {
                 && outcome.attachment_resolved
                 && outcome.all_signing_events_resolved
         });
+        // ADR 0010 §"Verifier obligations" step 9 (Global integrity —
+        // user-content-attestation slice): outcome with any of
+        // `chain_position_resolved = false`, `identity_resolved = false`,
+        // `signature_verified = false`, or `key_active = false` flips
+        // integrity. Step-7 (id_collision) and step-8 (operator-in-user-slot)
+        // failures already land in `event_failures` and gate via the
+        // `event_failures.is_empty()` predicate.
+        let user_content_attestation_ok = user_content_attestations.iter().all(|outcome| {
+            outcome.chain_position_resolved
+                && outcome.identity_resolved
+                && outcome.signature_verified
+                && outcome.key_active
+        });
 
         Self {
             structure_verified: true,
@@ -220,7 +300,8 @@ impl VerificationReport {
                 && proof_failures.is_empty()
                 && posture_ok
                 && erasure_ok
-                && certificate_ok,
+                && certificate_ok
+                && user_content_attestation_ok,
             readability_verified: true,
             event_failures,
             checkpoint_failures,
@@ -228,6 +309,7 @@ impl VerificationReport {
             posture_transitions,
             erasure_evidence,
             certificates_of_completion,
+            user_content_attestations,
             warnings,
         }
     }
@@ -1117,6 +1199,17 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             outcome.chain_summary_consistent
                 && outcome.attachment_resolved
                 && outcome.all_signing_events_resolved
+        })
+        // ADR 0010 §"Verifier obligations" step 9 fold — user-content
+        // attestation outcomes flip integrity when chain-position binding,
+        // identity resolution, signature verification, or key-state check
+        // failed. Step-7 collision and step-8 operator-in-user-slot
+        // failures already land in `event_failures` above.
+        && report.user_content_attestations.iter().all(|outcome| {
+            outcome.chain_position_resolved
+                && outcome.identity_resolved
+                && outcome.signature_verified
+                && outcome.key_active
         });
     report.readability_verified = true;
     report
@@ -1171,6 +1264,20 @@ struct EventDetails {
     /// [`finalize_certificates_of_completion`] from the caller after every
     /// event is decoded.
     certificate: Option<CertificateDetails>,
+    /// Decoded ADR 0010 user-content-attestation payload, populated when
+    /// `EventPayload.extensions["trellis.user-content-attestation.v1"]` is
+    /// present. `None` for non-attestation events. The decoder runs ADR 0010
+    /// §"Verifier obligations" step 1 (CDDL decode) and step 2 partial
+    /// (`signing_intent` URI well-formedness, `attested_at == authored_at`)
+    /// inline; structural failures surface as `Err` `VerifyError` from
+    /// `decode_user_content_attestation_payload` with typed kinds via
+    /// `VerifyError::with_kind`. Cross-event steps 3 (chain-position
+    /// resolution), 4 (identity resolution), 5 (signature verification),
+    /// 6 (key-state check), 7 (collision detection), 8 (operator-in-user-slot
+    /// enforcement), and 9 (outcome accumulation) run in
+    /// [`finalize_user_content_attestations`] from the caller after every
+    /// event is decoded.
+    user_content_attestation: Option<UserContentAttestationDetails>,
     /// Wrap recipients from `key_bag.entries[*].recipient`. Bytes copied
     /// verbatim from the wire so step 8 can compare against `kid_destroyed`
     /// (a `bstr .size 16`) for `post_erasure_wrap` detection. Empty when
@@ -1386,6 +1493,44 @@ struct ChainSummaryDetails {
     /// fixture corpus.
     #[allow(dead_code)]
     covered_claims: Vec<String>,
+}
+
+/// Decoded `trellis.user-content-attestation.v1` payload (ADR 0010 §"Wire
+/// shape" / Core §28 CDDL `UserContentAttestationPayload`). Mirrors the
+/// shape used by `trellis_py.verify.UserContentAttestationDetails`. The
+/// fields land directly in [`UserContentAttestationOutcome`] after
+/// cross-event finalization in [`finalize_user_content_attestations`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UserContentAttestationDetails {
+    attestation_id: String,
+    attested_event_hash: [u8; 32],
+    attested_event_position: u64,
+    attestor: String,
+    /// `None` only when the deployment Posture Declaration in force at
+    /// `attested_at` declares `admit_unverified_user_attestations: true`.
+    /// Default REQUIRED non-null per ADR 0010 §"Field semantics"; step 4
+    /// (identity resolution) gates on the resolved Posture Declaration
+    /// field, surfacing `user_content_attestation_identity_required` when
+    /// admission is missing.
+    identity_attestation_ref: Option<[u8; 32]>,
+    signing_intent: String,
+    attested_at: u64,
+    /// 64-byte detached Ed25519 signature over `dCBOR([attestation_id,
+    /// attested_event_hash, attested_event_position, attestor,
+    /// identity_attestation_ref, signing_intent, attested_at])` under domain
+    /// tag `trellis-user-content-attestation-v1` (Core §9.8). Decoder
+    /// validates structural shape; crypto verification runs in finalize step 5.
+    signature: [u8; 64],
+    /// Core §8 KeyEntry kid (16 bytes; per the Rust-byte-authority
+    /// reconciliation noted in Core §28 — the ADR 0010 prose draft used
+    /// `tstr` informally but the canonical taxonomy is the 16-byte digest
+    /// of `dCBOR(suite_id) || pubkey_raw`). Resolved against the
+    /// signing-key registry in finalize step 6.
+    signing_kid: Vec<u8>,
+    /// Canonical preimage that step 5 hashes against
+    /// `USER_CONTENT_ATTESTATION_DOMAIN`. Pre-computed at decode time so
+    /// the finalize pass can re-verify without re-encoding.
+    canonical_preimage: Vec<u8>,
 }
 
 /// Decoded `SignerDisplayEntry` (ADR 0007 §"Wire shape").
@@ -1657,6 +1802,18 @@ fn verify_event_set_with_classes(
     // §"Verifier obligations" Phase-1 minimal-genesis posture.
     let mut certificate_payloads: Vec<(usize, CertificateDetails, [u8; 32])> = Vec::new();
 
+    // ADR 0010 user-content-attestation finalization input. `(event_index,
+    // UserContentAttestationDetails, canonical_event_hash)` tuples —
+    // same shape as `erasure_payloads` / `certificate_payloads`. Per-event
+    // CDDL decode + signing_intent URI well-formedness + attested_at-equals-
+    // authored_at run inline at decode time; the post-loop pass cross-
+    // references against the chain to run steps 3 (chain-position resolution),
+    // 4 (identity resolution), 5 (signature verification), 6 (key-state
+    // check), 7 (collision detection), 8 (operator-in-user-slot enforcement),
+    // and 9 (outcome accumulation).
+    let mut user_content_attestation_payloads:
+        Vec<(usize, UserContentAttestationDetails, [u8; 32])> = Vec::new();
+
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
             Some(entry) => entry,
@@ -1846,6 +2003,10 @@ fn verify_event_set_with_classes(
         if let Some(certificate) = details.certificate.clone() {
             certificate_payloads.push((index, certificate, details.canonical_event_hash));
         }
+        if let Some(uca) = details.user_content_attestation.clone() {
+            user_content_attestation_payloads
+                .push((index, uca, details.canonical_event_hash));
+        }
 
         if let Some(transition) = details.transition {
             let mut outcome = PostureTransitionOutcome {
@@ -1950,6 +2111,16 @@ fn verify_event_set_with_classes(
         &mut event_failures,
     );
 
+    // ADR 0010 user-content-attestation finalization (Core §19 step 6d
+    // steps 3 / 4 / 5 / 6 / 7 / 8 / 9 cross-event reasoning).
+    let user_content_attestations = finalize_user_content_attestations(
+        &user_content_attestation_payloads,
+        events,
+        registry,
+        posture_declaration,
+        &mut event_failures,
+    );
+
     VerificationReport::from_integrity_state(
         event_failures,
         Vec::new(),
@@ -1957,6 +2128,7 @@ fn verify_event_set_with_classes(
         posture_transitions,
         erasure_evidence,
         certificates_of_completion,
+        user_content_attestations,
         Vec::new(),
     )
 }
@@ -2540,15 +2712,16 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         }
     };
 
-    let (transition, attachment_binding, erasure, certificate) =
+    let (transition, attachment_binding, erasure, certificate, user_content_attestation) =
         match map_lookup_optional_map(payload_map, "extensions")? {
             Some(extensions) => (
                 decode_transition_details(extensions)?,
                 decode_attachment_binding_details(extensions)?,
                 decode_erasure_evidence_details(extensions, authored_at)?,
                 decode_certificate_payload(extensions)?,
+                decode_user_content_attestation_payload(extensions, authored_at)?,
             ),
-            None => (None, None, None, None),
+            None => (None, None, None, None, None),
         };
     let wrap_recipients = decode_key_bag_recipients(payload_map)?;
 
@@ -2567,6 +2740,7 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         attachment_binding,
         erasure,
         certificate,
+        user_content_attestation,
         wrap_recipients,
     })
 }
@@ -3063,6 +3237,556 @@ fn decode_certificate_payload(
         workflow_ref,
         attestation_signatures_well_formed,
     }))
+}
+
+/// Decodes the optional `trellis.user-content-attestation.v1` extension
+/// payload and runs ADR 0010 §"Verifier obligations" step 1 (CDDL decode)
+/// and step 2 partial (`signing_intent` URI well-formedness;
+/// `attested_at == envelope.authored_at` exact equality) inline. Cross-event
+/// steps 3 (chain-position resolution), 4 (identity resolution),
+/// 5 (signature verification), 6 (key-state check), 7 (collision detection),
+/// 8 (operator-in-user-slot enforcement), and 9 (outcome accumulation) run
+/// in [`finalize_user_content_attestations`] after every event has been
+/// decoded.
+///
+/// Per-event invariants enforced here:
+/// - `attested_at == host EventHeader.authored_at` (uint exact equality;
+///   `user_content_attestation_timestamp_mismatch`)
+/// - `signing_intent` is a syntactically valid URI per RFC 3986
+///   (`user_content_attestation_intent_malformed`)
+/// - structural CDDL shape per Core §28 / ADR 0010 §"Wire shape"
+fn decode_user_content_attestation_payload(
+    extensions: &[(Value, Value)],
+    host_authored_at: u64,
+) -> Result<Option<UserContentAttestationDetails>, VerifyError> {
+    let Some(extension_value) =
+        map_lookup_optional_value(extensions, USER_CONTENT_ATTESTATION_EVENT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value.as_map().ok_or_else(|| {
+        VerifyError::new("user-content-attestation extension is not a map")
+    })?;
+
+    let attestation_id = map_lookup_text(extension_map, "attestation_id")?;
+    let attested_event_hash =
+        bytes_array(&map_lookup_fixed_bytes(extension_map, "attested_event_hash", 32)?);
+    let attested_event_position = map_lookup_u64(extension_map, "attested_event_position")?;
+    let attestor = map_lookup_text(extension_map, "attestor")?;
+    let identity_attestation_ref =
+        map_lookup_optional_fixed_bytes(extension_map, "identity_attestation_ref", 32)?
+            .map(|bytes| bytes_array(&bytes));
+    let signing_intent = map_lookup_text(extension_map, "signing_intent")?;
+    let attested_at = map_lookup_u64(extension_map, "attested_at")?;
+    let signature_bytes = map_lookup_fixed_bytes(extension_map, "signature", 64)?;
+    let signature: [u8; 64] = signature_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| VerifyError::new("user-content-attestation signature is not 64 bytes"))?;
+    let signing_kid = map_lookup_fixed_bytes(extension_map, "signing_kid", 16)?;
+
+    // Step 2 partial — `attested_at` MUST exactly equal envelope `authored_at`
+    // (uint seconds; no skew slack per ADR 0010 §"Field semantics"
+    // `attested_at` clause).
+    if attested_at != host_authored_at {
+        return Err(VerifyError::with_kind(
+            format!(
+                "user-content-attestation `attested_at` ({attested_at}) does not equal envelope `authored_at` ({host_authored_at}); ADR 0010 §\"Verifier obligations\" step 2 requires exact equality"
+            ),
+            "user_content_attestation_timestamp_mismatch",
+        ));
+    }
+
+    // Step 2 partial — `signing_intent` MUST be a syntactically valid URI per
+    // RFC 3986. Trellis verifies syntactic validity only; semantic validity
+    // (legal-effect class registry membership) lives at the WOS Signature
+    // Profile layer + jurisdiction registry per ADR 0010 §"Field semantics"
+    // `signing_intent` clause.
+    if !is_syntactically_valid_uri(&signing_intent) {
+        return Err(VerifyError::with_kind(
+            format!(
+                "user-content-attestation `signing_intent` ({signing_intent:?}) is not a syntactically valid URI per RFC 3986; ADR 0010 §\"Verifier obligations\" step 2"
+            ),
+            "user_content_attestation_intent_malformed",
+        ));
+    }
+
+    let canonical_preimage = compute_user_content_attestation_preimage(
+        &attestation_id,
+        &attested_event_hash,
+        attested_event_position,
+        &attestor,
+        identity_attestation_ref.as_ref(),
+        &signing_intent,
+        attested_at,
+    );
+
+    Ok(Some(UserContentAttestationDetails {
+        attestation_id,
+        attested_event_hash,
+        attested_event_position,
+        attestor,
+        identity_attestation_ref,
+        signing_intent,
+        attested_at,
+        signature,
+        signing_kid,
+        canonical_preimage,
+    }))
+}
+
+/// Builds the dCBOR signature preimage for a user-content attestation per
+/// ADR 0010 §"Wire shape": `dCBOR([attestation_id, attested_event_hash,
+/// attested_event_position, attestor, identity_attestation_ref,
+/// signing_intent, attested_at])`. Pre-computed at decode time so the
+/// finalize pass can re-verify without re-encoding. The encoded array is
+/// then domain-separated under `trellis-user-content-attestation-v1`
+/// (Core §9.8) inside [`verify_user_content_attestation_signature`].
+fn compute_user_content_attestation_preimage(
+    attestation_id: &str,
+    attested_event_hash: &[u8; 32],
+    attested_event_position: u64,
+    attestor: &str,
+    identity_attestation_ref: Option<&[u8; 32]>,
+    signing_intent: &str,
+    attested_at: u64,
+) -> Vec<u8> {
+    let identity_value = match identity_attestation_ref {
+        Some(digest) => Value::Bytes(digest.to_vec()),
+        None => Value::Null,
+    };
+    let array = Value::Array(vec![
+        Value::Text(attestation_id.to_owned()),
+        Value::Bytes(attested_event_hash.to_vec()),
+        Value::Integer(attested_event_position.into()),
+        Value::Text(attestor.to_owned()),
+        identity_value,
+        Value::Text(signing_intent.to_owned()),
+        Value::Integer(attested_at.into()),
+    ]);
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(&array, &mut buf)
+        .expect("ciborium serialization to a Vec cannot fail");
+    buf
+}
+
+/// Minimal RFC 3986 syntactic URI check used for ADR 0010 §"Verifier
+/// obligations" step 2 `signing_intent` validation. Per the ADR, Trellis
+/// owns the bytes and WOS owns the meaning — we verify syntactic validity
+/// only (scheme present, well-formed). The check accepts:
+///   - a non-empty `scheme` per RFC 3986 §3.1
+///     (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`)
+///   - followed by a `:` separator
+///   - followed by any non-empty remainder (the Phase-1 reference verifier
+///     does not validate the URI body shape; deployment-side lint
+///     tightens this when intent registries ratify per PLN-0380).
+///
+/// Returns `false` for empty strings, missing `:`, empty schemes, schemes
+/// starting with a non-ALPHA character, or schemes containing characters
+/// outside the RFC 3986 `scheme` production. URIs without an authority
+/// component (e.g. `urn:trellis:intent:notarial`) are admitted.
+fn is_syntactically_valid_uri(value: &str) -> bool {
+    let Some((scheme, rest)) = value.split_once(':') else {
+        return false;
+    };
+    if scheme.is_empty() || rest.is_empty() {
+        return false;
+    }
+    let mut chars = scheme.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+    chars.all(|c| {
+        c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.'
+    })
+}
+
+/// Companion §6.4 operator-URI prefix check used for ADR 0010 §"Verifier
+/// obligations" step 8 (`user_content_attestation_operator_in_user_slot`).
+/// The Phase-1 verifier checks against the conservative
+/// `urn:trellis:operator:` and `urn:wos:operator:` prefixes; deployments
+/// substitute or extend this list via deployment-local lint per the ADR
+/// 0010 §"Adversary model" "operator masquerading as user" mitigation.
+fn is_operator_uri(value: &str) -> bool {
+    value.starts_with(OPERATOR_URI_PREFIX_TRELLIS)
+        || value.starts_with(OPERATOR_URI_PREFIX_WOS)
+}
+
+/// Phase-1 identity-attestation event-type admission. Per ADR 0010 open
+/// question 1, this expands to `wos.identity.*` once PLN-0381 ratifies;
+/// until then, deployment-local extension types are admitted. The Phase-1
+/// reference verifier accepts the deployment-local fixture convention
+/// (`trellis.user-identity-attestation.v1`) AND the PLN-0381 candidate
+/// naming (`wos.identity.attested.v1`) so vectors authored under either
+/// scheme verify cleanly.
+fn is_identity_attestation_event_type(event_type: &str) -> bool {
+    event_type == PHASE_1_DEPLOYMENT_LOCAL_IDENTITY_EVENT_TYPE
+        || event_type == PLN_0381_CANDIDATE_IDENTITY_EVENT_TYPE
+}
+
+/// Reads `admit_unverified_user_attestations` from a Posture Declaration's
+/// dCBOR bytes. Per ADR 0010 §"Field semantics" `identity_attestation_ref`
+/// clause and Core §28 CDDL, the field is OPTIONAL with a `false` default.
+/// Returns `false` when the bytes don't decode as a map, or the field is
+/// absent / null / not a bool — failing-closed to the default-required
+/// posture so a malformed Posture Declaration cannot silently relax the
+/// identity-required gate.
+fn parse_admit_unverified_user_attestations(bytes: &[u8]) -> bool {
+    let Ok(value) = decode_value(bytes) else {
+        return false;
+    };
+    let Some(map) = value.as_map() else {
+        return false;
+    };
+    matches!(
+        map_lookup_optional_value(map, "admit_unverified_user_attestations"),
+        Some(Value::Bool(true))
+    )
+}
+
+/// Resolves the subject of a chain-present identity-attestation event.
+/// The Phase-1 deployment-local convention (mirrored in the fixture
+/// corpus) is to put the subject URI at `EventPayload.extensions["<id>"]`'s
+/// inner `"subject"` field, where `<id>` is the event_type of the
+/// identity-attestation extension. Returns `Some(subject)` when
+/// resolvable, `None` when the event payload doesn't carry the field
+/// (that surfaces as `user_content_attestation_identity_subject_mismatch`
+/// at the call site since the requested attestor cannot match an
+/// unresolvable subject).
+fn parse_identity_attestation_subject(payload_bytes: &[u8], event_type: &str) -> Option<String> {
+    let value = decode_value(payload_bytes).ok()?;
+    let payload_map = value.as_map()?;
+    let extensions = map_lookup_optional_map(payload_map, "extensions").ok()??;
+    let identity_value = map_lookup_optional_value(extensions, event_type)?;
+    let identity_map = identity_value.as_map()?;
+    map_lookup_text(identity_map, "subject").ok()
+}
+
+/// Verifies the Ed25519 signature on a user-content-attestation payload
+/// per ADR 0010 §"Verifier obligations" step 5. Re-hashes the
+/// pre-computed `canonical_preimage` under domain tag
+/// `trellis-user-content-attestation-v1` (Core §9.8) and verifies under
+/// the public key resolved from `signing_kid`. Returns `Ok(true)` on
+/// successful verification, `Ok(false)` on signature failure (caller
+/// flips `signature_verified = false`), and `Err` on `signing_kid`
+/// resolution failure (caller flips `key_active = false` with
+/// `user_content_attestation_key_not_active`).
+fn verify_user_content_attestation_signature(
+    details: &UserContentAttestationDetails,
+    public_key: &[u8; 32],
+) -> bool {
+    let signed_hash = domain_separated_sha256(
+        USER_CONTENT_ATTESTATION_DOMAIN,
+        &details.canonical_preimage,
+    );
+    let signature = Signature::from_bytes(&details.signature);
+    let Ok(verifying_key) = VerifyingKey::from_bytes(public_key) else {
+        return false;
+    };
+    verifying_key.verify(&signed_hash, &signature).is_ok()
+}
+
+/// ADR 0010 §"Verifier obligations" cross-event finalization. Step 1 + step 2
+/// partial (CDDL + intra-payload invariants) run in
+/// [`decode_user_content_attestation_payload`]; this pass runs steps 3
+/// (chain-position resolution), 4 (identity resolution), 5 (signature
+/// verification), 6 (key-state check), 7 (collision detection), 8
+/// (operator-in-user-slot enforcement), and 9 (outcome accumulation).
+///
+/// **Posture Declaration handling.** Step 4's null-admission gate reads
+/// `admit_unverified_user_attestations` from the Posture Declaration in
+/// force at `attested_at`. The verifier passes the bytes through; absent
+/// declaration defaults to `false` (REQUIRED non-null, fails-closed).
+///
+/// **Phase-1 identity-attestation taxonomy.** Step 4 admits any chain-
+/// present event whose `event_type` matches
+/// [`is_identity_attestation_event_type`] — the fixture-corpus
+/// deployment-local naming or the PLN-0381 candidate string. Resolved
+/// event's `ledger_scope` MUST match the attestation's; `sequence` MUST
+/// be strictly less than `attested_event_position`; payload subject
+/// MUST equal `attestor`.
+fn finalize_user_content_attestations(
+    payloads: &[(usize, UserContentAttestationDetails, [u8; 32])],
+    events: &[ParsedSign1],
+    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
+    posture_declaration: Option<&[u8]>,
+    event_failures: &mut Vec<VerificationFailure>,
+) -> Vec<UserContentAttestationOutcome> {
+    if payloads.is_empty() {
+        return Vec::new();
+    }
+
+    // Build chain lookups. `event_by_hash` resolves chain-present events
+    // by their canonical_event_hash (step 3: `attested_event_hash` lookup).
+    // `event_by_position` resolves by `(scope, sequence)` so step 3 can
+    // verify position-binding consistency. Both indexed once.
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    let mut event_by_position: BTreeMap<(Vec<u8>, u64), EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            event_by_hash
+                .entry(details.canonical_event_hash)
+                .or_insert_with(|| details.clone());
+            event_by_position
+                .entry((details.scope.clone(), details.sequence))
+                .or_insert(details);
+        }
+    }
+
+    // Step 7 collision detection. Two events sharing `attestation_id` with
+    // disagreeing canonical payload fail closed. Use the same load-bearing
+    // fields ADR 0010 §"Field semantics" `attestation_id` clause names as
+    // collision-indicative: every signed field on the payload (excluding the
+    // signature itself, which by construction differs whenever any signed
+    // field differs).
+    let mut id_to_canonical: BTreeMap<String, &UserContentAttestationDetails> = BTreeMap::new();
+    let mut id_collision_reported: BTreeSet<String> = BTreeSet::new();
+    for (_index, payload, canonical_hash) in payloads {
+        match id_to_canonical.entry(payload.attestation_id.clone()) {
+            Entry::Vacant(slot) => {
+                slot.insert(payload);
+            }
+            Entry::Occupied(slot) => {
+                let prior = *slot.get();
+                let differs = prior.attested_event_hash != payload.attested_event_hash
+                    || prior.attested_event_position != payload.attested_event_position
+                    || prior.attestor != payload.attestor
+                    || prior.identity_attestation_ref != payload.identity_attestation_ref
+                    || prior.signing_intent != payload.signing_intent
+                    || prior.attested_at != payload.attested_at;
+                if differs && id_collision_reported.insert(payload.attestation_id.clone()) {
+                    event_failures.push(VerificationFailure::new(
+                        "user_content_attestation_id_collision",
+                        hex_string(canonical_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut outcomes: Vec<UserContentAttestationOutcome> = Vec::with_capacity(payloads.len());
+
+    for (index, payload, canonical_hash) in payloads {
+        let mut outcome = UserContentAttestationOutcome {
+            attestation_id: payload.attestation_id.clone(),
+            attested_event_hash: payload.attested_event_hash,
+            attestor: payload.attestor.clone(),
+            signing_intent: payload.signing_intent.clone(),
+            event_index: *index as u64,
+            chain_position_resolved: true,
+            identity_resolved: true,
+            signature_verified: true,
+            key_active: true,
+            failures: Vec::new(),
+        };
+
+        // Step 8 — operator-in-user-slot enforcement. Companion §6.4
+        // operator URIs MUST NOT appear in `attestor` slots of
+        // user-content-attestation events.
+        if is_operator_uri(&payload.attestor) {
+            outcome
+                .failures
+                .push("user_content_attestation_operator_in_user_slot".into());
+            event_failures.push(VerificationFailure::new(
+                "user_content_attestation_operator_in_user_slot",
+                hex_string(canonical_hash),
+            ));
+        }
+
+        // Step 3 — chain-position resolution. `attested_event_position` MUST
+        // resolve to a chain-present event in scope whose
+        // `canonical_event_hash` equals `attested_event_hash`. To find the
+        // host scope we use the attestation event's own scope (caller is
+        // expected to feed events from one ledger; cross-scope lookup is
+        // out of step 3's scope).
+        //
+        // We recover the attestation event's scope from `event_by_hash`
+        // because `payloads` doesn't carry scope alongside the attestation
+        // canonical hash directly; the chain-loop already populated that
+        // index above.
+        let attestation_scope = event_by_hash
+            .get(canonical_hash)
+            .map(|d| d.scope.clone())
+            .unwrap_or_default();
+        let host_lookup_key = (attestation_scope, payload.attested_event_position);
+        match event_by_position.get(&host_lookup_key) {
+            Some(host) if host.canonical_event_hash == payload.attested_event_hash => {}
+            Some(_) | None => {
+                outcome.chain_position_resolved = false;
+                outcome
+                    .failures
+                    .push("user_content_attestation_chain_position_mismatch".into());
+                event_failures.push(VerificationFailure::new(
+                    "user_content_attestation_chain_position_mismatch",
+                    hex_string(canonical_hash),
+                ));
+            }
+        }
+
+        // Step 4 — identity resolution.
+        if let Some(identity_ref) = payload.identity_attestation_ref {
+            // Non-null path: resolve to a chain-present event of a
+            // registered identity-attestation event type, scope match,
+            // sequence-strictly-less-than-attested_event_position, subject
+            // equals attestor.
+            match event_by_hash.get(&identity_ref) {
+                None => {
+                    outcome.identity_resolved = false;
+                    outcome
+                        .failures
+                        .push("user_content_attestation_identity_unresolved".into());
+                    event_failures.push(VerificationFailure::new(
+                        "user_content_attestation_identity_unresolved",
+                        hex_string(&identity_ref),
+                    ));
+                }
+                Some(identity_event) => {
+                    if !is_identity_attestation_event_type(&identity_event.event_type) {
+                        outcome.identity_resolved = false;
+                        outcome
+                            .failures
+                            .push("user_content_attestation_identity_unresolved".into());
+                        event_failures.push(VerificationFailure::new(
+                            "user_content_attestation_identity_unresolved",
+                            hex_string(&identity_ref),
+                        ));
+                    } else {
+                        // Scope match check. The attestation's scope (from
+                        // `event_by_hash`) must equal the identity event's.
+                        let attestation_scope_for_identity = event_by_hash
+                            .get(canonical_hash)
+                            .map(|d| d.scope.clone())
+                            .unwrap_or_default();
+                        if identity_event.scope != attestation_scope_for_identity {
+                            outcome.identity_resolved = false;
+                            outcome
+                                .failures
+                                .push("user_content_attestation_identity_unresolved".into());
+                            event_failures.push(VerificationFailure::new(
+                                "user_content_attestation_identity_unresolved",
+                                hex_string(&identity_ref),
+                            ));
+                        } else if identity_event.sequence >= payload.attested_event_position {
+                            // Temporal precedence: identity proof MUST
+                            // strictly precede the attestation.
+                            outcome.identity_resolved = false;
+                            outcome
+                                .failures
+                                .push("user_content_attestation_identity_temporal_inversion".into());
+                            event_failures.push(VerificationFailure::new(
+                                "user_content_attestation_identity_temporal_inversion",
+                                hex_string(&identity_ref),
+                            ));
+                        } else {
+                            // Subject match check — read the resolved event's
+                            // payload (inline only for Phase-1; external
+                            // payload-blob path can extend later) and compare
+                            // its `subject` field against the attestor.
+                            let subject = match &identity_event.payload_ref {
+                                PayloadRef::Inline(bytes) => parse_identity_attestation_subject(
+                                    bytes,
+                                    &identity_event.event_type,
+                                ),
+                                PayloadRef::External => None,
+                            };
+                            match subject {
+                                Some(s) if s == payload.attestor => {}
+                                _ => {
+                                    outcome.identity_resolved = false;
+                                    outcome.failures.push(
+                                        "user_content_attestation_identity_subject_mismatch".into(),
+                                    );
+                                    event_failures.push(VerificationFailure::new(
+                                        "user_content_attestation_identity_subject_mismatch",
+                                        hex_string(&identity_ref),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Null path: deployment Posture Declaration MUST declare
+            // `admit_unverified_user_attestations: true`. Default-required
+            // (false / absent / malformed declaration) flips
+            // `user_content_attestation_identity_required`.
+            let admitted = posture_declaration
+                .map(parse_admit_unverified_user_attestations)
+                .unwrap_or(false);
+            if !admitted {
+                outcome.identity_resolved = false;
+                outcome
+                    .failures
+                    .push("user_content_attestation_identity_required".into());
+                event_failures.push(VerificationFailure::new(
+                    "user_content_attestation_identity_required",
+                    hex_string(canonical_hash),
+                ));
+            }
+        }
+
+        // Step 6 — key-state check (run BEFORE step 5 so a wrong-class /
+        // wrong-state kid surfaces its own failure code rather than masking
+        // as a signature failure).
+        let key_entry = registry.get(&payload.signing_kid);
+        let key_active = match key_entry {
+            None => false,
+            Some(entry) => {
+                // Phase-1 SigningKeyEntry status: 0 = Active, 1 = Rotating,
+                // 2 = Retired, 3 = Revoked. Per ADR 0010 §"Verifier
+                // obligations" step 6, only `Active` is admitted until the
+                // rotation-grace overlap ratifies (open question 4 / TODO #5).
+                // Note: the registry decoder normalizes Phase-1 lifecycle
+                // to status integers per Core §8 SigningKeyStatus.
+                let active = entry.status == 0;
+                let valid_to_ok = entry
+                    .valid_to
+                    .map(|valid_to| payload.attested_at <= valid_to)
+                    .unwrap_or(true);
+                active && valid_to_ok
+            }
+        };
+        if !key_active {
+            outcome.key_active = false;
+            outcome
+                .failures
+                .push("user_content_attestation_key_not_active".into());
+            event_failures.push(VerificationFailure::new(
+                "user_content_attestation_key_not_active",
+                hex_string(canonical_hash),
+            ));
+        }
+
+        // Step 5 — signature verification under
+        // `trellis-user-content-attestation-v1`. Skipped when `key_active =
+        // false` because we have no public key; the verifier reports
+        // `key_not_active` and downstream tooling treats that as the
+        // dominant failure (no need to redundantly flag
+        // `signature_invalid`).
+        if let Some(entry) = key_entry
+            && key_active
+        {
+            let ok = verify_user_content_attestation_signature(payload, &entry.public_key);
+            if !ok {
+                outcome.signature_verified = false;
+                outcome
+                    .failures
+                    .push("user_content_attestation_signature_invalid".into());
+                event_failures.push(VerificationFailure::new(
+                    "user_content_attestation_signature_invalid",
+                    hex_string(canonical_hash),
+                ));
+            }
+        }
+
+        outcomes.push(outcome);
+    }
+
+    outcomes
 }
 
 /// ADR 0005 step 3 — validates the cross-field shape of `subject_scope`
@@ -7385,4 +8109,439 @@ mod tests {
         );
     }
 
+    // ---------------------------------------------------------------
+    // ADR 0010 user-content-attestation focused unit tests.
+    // Mirrors the certificate-of-completion test pattern: decode is
+    // covered by passing a CBOR map directly to
+    // `decode_user_content_attestation_payload`; finalize is covered
+    // by building `UserContentAttestationDetails` test fixtures and
+    // running `finalize_user_content_attestations` against synthetic
+    // chain context. Byte-level vector parity rides the
+    // `append/036..039` + `tamper/028..034` corpus.
+    // ---------------------------------------------------------------
+
+    fn user_content_details_for_test(
+        attestation_id: &str,
+        attestor: &str,
+        signing_intent: &str,
+        attested_at: u64,
+        signing_kid: Vec<u8>,
+        identity_attestation_ref: Option<[u8; 32]>,
+    ) -> super::UserContentAttestationDetails {
+        let attested_event_hash = [0xAAu8; 32];
+        let attested_event_position = 0;
+        let canonical_preimage = super::compute_user_content_attestation_preimage(
+            attestation_id,
+            &attested_event_hash,
+            attested_event_position,
+            attestor,
+            identity_attestation_ref.as_ref(),
+            signing_intent,
+            attested_at,
+        );
+        super::UserContentAttestationDetails {
+            attestation_id: attestation_id.to_string(),
+            attested_event_hash,
+            attested_event_position,
+            attestor: attestor.to_string(),
+            identity_attestation_ref,
+            signing_intent: signing_intent.to_string(),
+            attested_at,
+            signature: [0u8; 64],
+            signing_kid,
+            canonical_preimage,
+        }
+    }
+
+    #[test]
+    fn is_syntactically_valid_uri_admits_urn() {
+        // Trellis owns the bytes; WOS owns the meaning. URN-style intent
+        // URIs (no authority) must pass the syntactic check.
+        assert!(super::is_syntactically_valid_uri("urn:trellis:intent:notarial-attestation"));
+        assert!(super::is_syntactically_valid_uri("urn:wos:signature-intent:applicant-affirmation"));
+        assert!(super::is_syntactically_valid_uri("https://example.invalid/intent/witness"));
+    }
+
+    #[test]
+    fn is_syntactically_valid_uri_rejects_malformed() {
+        // ADR 0010 §"Verifier obligations" step 2 — malformed URI flips
+        // `user_content_attestation_intent_malformed`.
+        assert!(!super::is_syntactically_valid_uri(""));
+        assert!(!super::is_syntactically_valid_uri("no-colon"));
+        assert!(!super::is_syntactically_valid_uri(":empty-scheme"));
+        assert!(!super::is_syntactically_valid_uri("scheme-only:"));
+        assert!(!super::is_syntactically_valid_uri("9digit-start:rest"));
+        assert!(!super::is_syntactically_valid_uri("bad space:rest"));
+    }
+
+    #[test]
+    fn is_operator_uri_detects_companion_6_4_prefixes() {
+        // ADR 0010 §"Verifier obligations" step 8 — operator URIs forbidden
+        // in `attestor` slot. Phase-1 conservative prefixes are
+        // `urn:trellis:operator:` and `urn:wos:operator:`.
+        assert!(super::is_operator_uri("urn:trellis:operator:test-deployment"));
+        assert!(super::is_operator_uri("urn:wos:operator:agency-of-record"));
+        // User principal URIs MUST pass.
+        assert!(!super::is_operator_uri("urn:trellis:principal:applicant-001"));
+        assert!(!super::is_operator_uri("urn:wos:user:notary-002"));
+        assert!(!super::is_operator_uri(""));
+    }
+
+    #[test]
+    fn parse_admit_unverified_user_attestations_defaults_false() {
+        // Empty bytes / non-map / absent field all default to `false`
+        // (REQUIRED non-null posture). Critical fail-closed property:
+        // a malformed Posture Declaration cannot silently relax the gate.
+        assert!(!super::parse_admit_unverified_user_attestations(&[]));
+        assert!(!super::parse_admit_unverified_user_attestations(&[0x40])); // bstr, not a map
+        // Map without the field → false.
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(
+            &Value::Map(vec![(Value::Text("provider_readable".into()), Value::Bool(true))]),
+            &mut buf,
+        )
+        .unwrap();
+        assert!(!super::parse_admit_unverified_user_attestations(&buf));
+    }
+
+    #[test]
+    fn parse_admit_unverified_user_attestations_admits_explicit_true() {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(
+            &Value::Map(vec![(
+                Value::Text("admit_unverified_user_attestations".into()),
+                Value::Bool(true),
+            )]),
+            &mut buf,
+        )
+        .unwrap();
+        assert!(super::parse_admit_unverified_user_attestations(&buf));
+    }
+
+    #[test]
+    fn finalize_uca_flags_operator_in_user_slot() {
+        // ADR 0010 §"Verifier obligations" step 8.
+        let payload = user_content_details_for_test(
+            "uca-test-1",
+            "urn:trellis:operator:bad-actor",
+            "urn:trellis:intent:applicant",
+            1_776_900_000,
+            vec![0xC0u8; 16],
+            Some([0xBBu8; 32]),
+        );
+        let canonical_hash = [0xDD; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_user_content_attestations(
+            &payloads,
+            &[],
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(
+            outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "user_content_attestation_operator_in_user_slot")
+        );
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "user_content_attestation_operator_in_user_slot")
+        );
+    }
+
+    #[test]
+    fn finalize_uca_flags_identity_required_when_posture_default() {
+        // ADR 0010 §"Verifier obligations" step 4 null-admission gate.
+        // Default posture (no Posture Declaration / `admit_unverified_*`
+        // absent) MUST flip `user_content_attestation_identity_required`
+        // when `identity_attestation_ref` is null.
+        let payload = user_content_details_for_test(
+            "uca-required-1",
+            "urn:trellis:principal:applicant",
+            "urn:trellis:intent:applicant",
+            1_776_900_000,
+            vec![0xC0u8; 16],
+            None, // ← null identity ref triggers step 4 null path
+        );
+        let canonical_hash = [0xDD; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_user_content_attestations(
+            &payloads,
+            &[],
+            &registry,
+            None, // no Posture Declaration → default required
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].identity_resolved);
+        assert!(
+            outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "user_content_attestation_identity_required")
+        );
+    }
+
+    #[test]
+    fn finalize_uca_admits_null_identity_when_posture_permits() {
+        // ADR 0010 §"Verifier obligations" step 4 null-admission gate.
+        // Posture Declaration with `admit_unverified_user_attestations: true`
+        // permits null `identity_attestation_ref` without flipping integrity.
+        let payload = user_content_details_for_test(
+            "uca-permitted-1",
+            "urn:trellis:principal:applicant",
+            "urn:trellis:intent:applicant",
+            1_776_900_000,
+            vec![0xC0u8; 16],
+            None,
+        );
+        let canonical_hash = [0xDD; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+
+        // Build a minimal Posture Declaration with the admit flag true.
+        let mut posture_bytes = Vec::new();
+        ciborium::ser::into_writer(
+            &Value::Map(vec![(
+                Value::Text("admit_unverified_user_attestations".into()),
+                Value::Bool(true),
+            )]),
+            &mut posture_bytes,
+        )
+        .unwrap();
+
+        let outcomes = super::finalize_user_content_attestations(
+            &payloads,
+            &[],
+            &registry,
+            Some(&posture_bytes),
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        // No identity-required failure under permissive posture.
+        assert!(
+            !outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "user_content_attestation_identity_required")
+        );
+    }
+
+    #[test]
+    fn finalize_uca_flags_key_not_active_for_unregistered_kid() {
+        // ADR 0010 §"Verifier obligations" step 6 — kid not in registry =
+        // not Active. The Phase-1 verifier flips
+        // `user_content_attestation_key_not_active`.
+        let payload = user_content_details_for_test(
+            "uca-no-key",
+            "urn:trellis:principal:applicant",
+            "urn:trellis:intent:applicant",
+            1_776_900_000,
+            vec![0xC0u8; 16],
+            Some([0xBBu8; 32]),
+        );
+        let canonical_hash = [0xDD; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+        let registry = BTreeMap::new(); // ← empty registry
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_user_content_attestations(
+            &payloads,
+            &[],
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].key_active);
+        assert!(
+            outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "user_content_attestation_key_not_active")
+        );
+    }
+
+    #[test]
+    fn finalize_uca_id_collision_detected_on_disagreeing_payloads() {
+        // ADR 0010 §"Verifier obligations" step 7 — two events sharing
+        // `attestation_id` with disagreeing canonical payload fail closed.
+        let mut a = user_content_details_for_test(
+            "uca-dup-1",
+            "urn:trellis:principal:applicant",
+            "urn:trellis:intent:applicant",
+            1_776_900_000,
+            vec![0xC0u8; 16],
+            Some([0xBBu8; 32]),
+        );
+        let mut b = a.clone();
+        // Mutate an inner field so the canonical payloads disagree.
+        b.attested_at = 1_776_900_999;
+        // Canonical preimages must reflect the divergence.
+        a.canonical_preimage = super::compute_user_content_attestation_preimage(
+            &a.attestation_id,
+            &a.attested_event_hash,
+            a.attested_event_position,
+            &a.attestor,
+            a.identity_attestation_ref.as_ref(),
+            &a.signing_intent,
+            a.attested_at,
+        );
+        b.canonical_preimage = super::compute_user_content_attestation_preimage(
+            &b.attestation_id,
+            &b.attested_event_hash,
+            b.attested_event_position,
+            &b.attestor,
+            b.identity_attestation_ref.as_ref(),
+            &b.signing_intent,
+            b.attested_at,
+        );
+
+        let payloads = vec![
+            (0usize, a, [0xCC; 32]),
+            (1usize, b, [0xCD; 32]),
+        ];
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        super::finalize_user_content_attestations(
+            &payloads,
+            &[],
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "user_content_attestation_id_collision"),
+            "step 7 must flag id_collision for disagreeing payloads",
+        );
+    }
+
+    #[test]
+    fn finalize_uca_no_collision_when_byte_identical() {
+        // ADR 0010 §"Field semantics" `attestation_id` clause: idempotent
+        // re-emission with byte-identical canonical payload MUST NOT flip.
+        let a = user_content_details_for_test(
+            "uca-same",
+            "urn:trellis:principal:applicant",
+            "urn:trellis:intent:applicant",
+            1_776_900_000,
+            vec![0xC0u8; 16],
+            Some([0xBBu8; 32]),
+        );
+        let b = a.clone();
+        let payloads = vec![
+            (0usize, a, [0xCC; 32]),
+            (1usize, b, [0xCD; 32]),
+        ];
+        let registry = BTreeMap::new();
+        let mut event_failures = Vec::new();
+        super::finalize_user_content_attestations(
+            &payloads,
+            &[],
+            &registry,
+            None,
+            &mut event_failures,
+        );
+        assert!(
+            !event_failures
+                .iter()
+                .any(|f| f.kind == "user_content_attestation_id_collision"),
+            "byte-identical re-emission must not flip id_collision",
+        );
+    }
+
+    #[test]
+    fn decode_uca_payload_rejects_timestamp_skew() {
+        // ADR 0010 §"Verifier obligations" step 2 — `attested_at` MUST
+        // exactly equal envelope `authored_at`.
+        let kid_bytes: Vec<u8> = vec![0xC0u8; 16];
+        let extension_value = Value::Map(vec![
+            (Value::Text("attestation_id".into()), Value::Text("uca-skew-1".into())),
+            (Value::Text("attested_event_hash".into()), Value::Bytes(vec![0xAA; 32])),
+            (Value::Text("attested_event_position".into()), Value::Integer(0u64.into())),
+            (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
+            (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
+            (Value::Text("signing_intent".into()), Value::Text("urn:trellis:intent:applicant".into())),
+            (Value::Text("attested_at".into()), Value::Integer(1_776_900_000u64.into())),
+            (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
+            (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes)),
+        ]);
+        let extensions = vec![(
+            Value::Text(super::USER_CONTENT_ATTESTATION_EVENT_EXTENSION.into()),
+            extension_value,
+        )];
+        // Host envelope authored_at differs from payload attested_at.
+        let result = super::decode_user_content_attestation_payload(&extensions, 1_776_900_999);
+        let err = result.expect_err("skew must surface as VerifyError");
+        assert_eq!(err.kind(), Some("user_content_attestation_timestamp_mismatch"));
+    }
+
+    #[test]
+    fn decode_uca_payload_rejects_malformed_intent_uri() {
+        let kid_bytes: Vec<u8> = vec![0xC0u8; 16];
+        let extension_value = Value::Map(vec![
+            (Value::Text("attestation_id".into()), Value::Text("uca-bad-intent".into())),
+            (Value::Text("attested_event_hash".into()), Value::Bytes(vec![0xAA; 32])),
+            (Value::Text("attested_event_position".into()), Value::Integer(0u64.into())),
+            (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
+            (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
+            (Value::Text("signing_intent".into()), Value::Text("not-a-uri".into())),
+            (Value::Text("attested_at".into()), Value::Integer(1_776_900_000u64.into())),
+            (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
+            (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes)),
+        ]);
+        let extensions = vec![(
+            Value::Text(super::USER_CONTENT_ATTESTATION_EVENT_EXTENSION.into()),
+            extension_value,
+        )];
+        let result = super::decode_user_content_attestation_payload(&extensions, 1_776_900_000);
+        let err = result.expect_err("malformed URI must surface as VerifyError");
+        assert_eq!(err.kind(), Some("user_content_attestation_intent_malformed"));
+    }
+
+    #[test]
+    fn decode_uca_payload_returns_none_when_extension_absent() {
+        let extensions: Vec<(Value, Value)> = vec![];
+        let decoded = super::decode_user_content_attestation_payload(&extensions, 0)
+            .expect("absent extension is not an error");
+        assert!(decoded.is_none());
+    }
+
+    #[test]
+    fn decode_uca_payload_succeeds_with_well_formed_input() {
+        let kid_bytes: Vec<u8> = vec![0xC0u8; 16];
+        let extension_value = Value::Map(vec![
+            (Value::Text("attestation_id".into()), Value::Text("uca-ok-1".into())),
+            (Value::Text("attested_event_hash".into()), Value::Bytes(vec![0xAA; 32])),
+            (Value::Text("attested_event_position".into()), Value::Integer(0u64.into())),
+            (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
+            (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
+            (Value::Text("signing_intent".into()), Value::Text("urn:trellis:intent:applicant".into())),
+            (Value::Text("attested_at".into()), Value::Integer(1_776_900_000u64.into())),
+            (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
+            (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes.clone())),
+        ]);
+        let extensions = vec![(
+            Value::Text(super::USER_CONTENT_ATTESTATION_EVENT_EXTENSION.into()),
+            extension_value,
+        )];
+        let decoded = super::decode_user_content_attestation_payload(&extensions, 1_776_900_000)
+            .expect("well-formed payload decodes")
+            .expect("extension is present");
+        assert_eq!(decoded.attestation_id, "uca-ok-1");
+        assert_eq!(decoded.attestor, "urn:trellis:principal:applicant");
+        assert_eq!(decoded.attested_event_position, 0);
+        assert_eq!(decoded.signing_kid, kid_bytes);
+        assert_eq!(decoded.signature.len(), 64);
+        assert!(!decoded.canonical_preimage.is_empty());
+    }
 }

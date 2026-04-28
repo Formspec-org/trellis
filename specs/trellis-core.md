@@ -2707,6 +2707,13 @@ PostureDeclaration = {
   external_anchor_name:     tstr / null,
   recovery_without_user:    bool,
   metadata_leakage_summary: tstr,
+  ; ADR 0010 §"Field semantics" `identity_attestation_ref` clause:
+  ; default REQUIRED non-null. Operators that admit unverified user
+  ; attestations (notarial cases, public-comment intake without identity
+  ; proof) opt in by setting this field true. Field is OPTIONAL on the
+  ; wire; a verifier reading a Posture Declaration that omits the field
+  ; MUST treat it as `false` (default-required posture).
+  ? admit_unverified_user_attestations: bool,
 }
 
 ; --- Watermark --------------------------------------------------------
@@ -2765,7 +2772,12 @@ UserContentAttestationPayload = {
                                                    ;   attested_event_hash, attested_event_position,
                                                    ;   attestor, identity_attestation_ref, signing_intent,
                                                    ;   attested_at]) under tag trellis-user-content-attestation-v1
-  signing_kid:              tstr,                  ; §8 KeyEntry signing-class kid; MUST be Active at attested_at
+  signing_kid:              kid,                   ; §8 KeyEntry signing-class kid (bstr .size 16);
+                                                   ; MUST be Active (or Rotating per ratified rotation grace)
+                                                   ; at attested_at; per ADR 0004 byte-authority reconciled
+                                                   ; against Rust types — ADR 0010 prose draft used `tstr`
+                                                   ; informally but every other kid slot in the envelope is
+                                                   ; the 16-byte digest of `dCBOR(suite_id) || pubkey_raw`.
   extensions:               { * tstr => any } / null,
 }
 ```
