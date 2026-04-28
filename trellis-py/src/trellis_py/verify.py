@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import cbor2
-from cbor2 import CBORTag
+from cbor2 import CBORDecodeError, CBORTag
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from trellis_py.codec import (
@@ -1780,7 +1780,8 @@ def _parse_admit_unverified_user_attestations(declaration_bytes: bytes) -> bool:
     Mirrors Rust `parse_admit_unverified_user_attestations`."""
     try:
         value = cbor2.loads(declaration_bytes)
-    except Exception:
+    except CBORDecodeError:
+        # Malformed posture CBOR → fail-closed (treat as absent / false).
         return False
     if not isinstance(value, dict):
         return False
@@ -4155,6 +4156,15 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
             and o.attachment_resolved
             and o.all_signing_events_resolved
             for o in report.certificates_of_completion
+        )
+        # ADR 0010 §19 step 9 fold — matches Rust `verify_export_zip` tail
+        # (`lib.rs`) so export integrity stays aligned with genesis-path logic.
+        and all(
+            o.chain_position_resolved
+            and o.identity_resolved
+            and o.signature_verified
+            and o.key_active
+            for o in report.user_content_attestations
         )
     )
     report.readability_verified = True
