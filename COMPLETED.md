@@ -20,276 +20,72 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ### Wave 22 (2026-04-28) — ADR 0007 certificate-of-completion close (item #4)
 
-Closes item #4 from the TODO. Lands the corpus + downstream surfaces that
-ADR 0007 *Certificate-of-completion composition* requires for end-to-end
-conformance — the integrity artifact for ESIGN / UETA compliance, with
-WOS-side semantics and parent ESIGN/DocuSign gates closing on their own
-clocks.
+Closes the corpus + downstream surfaces for `trellis.certificate-of-completion.v1`
+— the integrity artifact for ESIGN/UETA. Spec deltas + Rust verifier landed
+Waves 18-21; Wave 22 closes vectors, Python parity, CLI, reference template.
 
-Spec deltas + Rust verifier surface landed Waves 18-21 (commits `f968663`
-/ `517ec5e` / `d0043de` / `97c2082` / `c1613b2` / `00b6303` / `1cc5320`):
-Core §6.7 event registry rows + §9.8 `trellis-presentation-artifact-v1`
-domain tag + §19 step 6c 8-step verifier checklist; Companion §27.1
-verifier-surface paragraph; matrix TR-CORE-146..151 + TR-OP-131/132
-(prose-state); Rust `decode_certificate_payload` /
-`finalize_certificates_of_completion` /
-`parse_certificate_export_extension` / `verify_certificate_catalog` /
-`verify_certificate_attachment_lineage` plus `CertificateOfCompletionOutcome`
-on `VerificationReport` (21 unit tests).
+Train (`c84dd52..7052427`, 8 commits):
+- Positive `append/028..030` (PDF-minimal / dual-signer-with-template /
+  HTML-template-bound). `_generator/gen_append_028_to_030.py`.
+- Ledger tampers `021/023/025/026` (signer-count / attestation-truncation /
+  HTML-missing-template-hash / id-collision).
+- Verifier fix `c9f46cc`: `cert_events` keyed by global `event_index`
+  (Vec→BTreeMap). Single-event tests had masked the bug.
+- Export `export/010-certificate-of-completion-inline` + `065` catalog +
+  tampers `020/022/024` (content-hash / signing-event-unresolved /
+  response-ref-mismatch).
+- Python parity (`trellis-py/src/trellis_py/verify.py` + 23 pytest cases).
+- `trellis-cli seal-completion --help` stub (mirrors `erase-key`).
+- Reference HTML template at `reference/certificate-of-completion/template-v1/`.
+- Matrix: TR-CORE-146..151 → `test-vector`; TR-OP-131 stays `prose`; TR-OP-132
+  stays `declaration-doc-check`.
 
-Wave 22 commit train (8 commits):
+Counts: G-4 clean; G-5 84 → **95**; pytest 34 → 57; check-specs clean.
 
-- Positive corpus + generator (`feat(fixtures)` `c84dd52`).
-  `fixtures/vectors/append/028..030/` — three positive vectors:
-  `028` minimal single-signer PDF (no template), `029` dual-signer PDF
-  with `template_id` + `template_hash` + `case_ref` + `workflow_status =
-  "countersigned"` + `impact_level = "moderate"`, `030` single-signer
-  HTML with required `template_hash` (exercises ADR 0007 §"Field
-  semantics" HTML-binding rule). Each vector ships
-  `presentation-artifact.bin` (deterministic 64-byte content under
-  `trellis-presentation-artifact-v1` domain). 432-line generator
-  `_generator/gen_append_028_to_030.py` mirrors the
-  `gen_append_023_to_027.py` pattern (dCBOR helpers, COSE_Sign1
-  construction, attestation building).
+Pushback worth keeping: `tamper/021` and `tamper/025` surface as
+`structure_verified = false` (CDDL decode rejects via
+`VerificationReport::fatal`, not the typical structure-true/integrity-false
+shape). `tamper/023` uses signature *truncation* (64→63 bytes), not byte-flip
+— Phase-1 verifier is structural-only.
 
-- Ledger-only tamper corpus (`feat(fixtures)` `55dbe90`).
-  Four negatives anchored on positive bases:
-  `tamper/021-cert-signer-count-mismatch` (`signer_count` 2 vs.
-  `signing_events` length 2; CDDL decode catches as fatal-shape
-  `certificate_chain_summary_mismatch`), `tamper/023-cert-attestation-
-  malformed` (signature truncated 64 → 63 bytes — Phase-1 verifier is
-  structural-only so byte-flip alone leaves
-  `attestation_signatures_well_formed = true`; truncation is the
-  operative path), `tamper/025-cert-html-missing-template-hash` (HTML
-  presentation with `template_hash = null` — fatal-shape CDDL reject),
-  `tamper/026-cert-certificate-id-collision` (chain carries two
-  certificate events sharing `certificate_id` with byte-different
-  payloads — fail-closed integrity violation per Core §19 step 6c step
-  2). `expected.report.structure_verified = false` for `021` and `025`
-  reflects fatal-shape decode-time rejection — the wire reality of
-  CDDL-level mismatches surfacing through `VerificationReport::fatal`.
-
-- Verifier multi-event-chain indexing fix (`fix(verify)` `c9f46cc`).
-  `verify_certificate_attachment_lineage` was indexing the filtered
-  `cert_events: Vec<EventDetails>` by the outcome's *global*
-  `event_index`. The 21 prior unit tests all use single-event genesis
-  fixtures (`event_index = 0`) that masked the bug; `export/010` (chain
-  `[binding, sigaff, cert]` → `event_index = 2`) hits it directly. Fix:
-  `cert_events: BTreeMap<usize, EventDetails>` keyed on global index.
-  Distinct commit because it's a behavioral change to previously-landed
-  Rust code, not a new fixture.
-
-- Export bundle + ledger-with-attachment tampers (`feat(fixtures)`
-  `ebd4ea9`).
-  `fixtures/vectors/export/010-certificate-of-completion-inline/` —
-  three-event chain `[attachment_binding, signature_affirmation,
-  certificate_of_completion]` with the certificate's `attachment_id`
-  resolving via ADR 0072 lineage and `signing_events[0]` resolving to
-  the affirmation. Inline ciphertext at `060-payloads/<content_hash>.bin`,
-  populated `065-certificates-of-completion.cbor` catalog under manifest
-  extension `trellis.export.certificates-of-completion.v1`, `expected-
-  export.zip` byte-exact. Generator `_generator/gen_export_010_
-  certificate_of_completion.py` mirrors the `gen_export_009_erasure_
-  evidence.py` 432-line pattern. Three additional tampers on this base:
-  `tamper/020-cert-content-hash-mismatch` (artifact bytes match but
-  recorded `content_hash` flipped), `tamper/022-cert-signing-event-
-  unresolved` (signing_events[0] digest no longer resolves to any
-  chain-present SignatureAffirmation), `tamper/024-cert-response-ref-
-  mismatch` (`chain_summary.response_ref` no longer equals the bound
-  canonical-response-hash on the linked SignatureAffirmation).
-
-- Python parity (`feat(verify-py)` `4e8d602`). G-5 stranger-test parity
-  per ADR 0004 — `parse_certificate_export_extension`,
-  `verify_certificate_catalog`, `decode_certificate_payload`,
-  `finalize_certificates_of_completion`,
-  `verify_certificate_attachment_lineage` mirroring the Rust API in
-  `trellis-py/src/trellis_py/verify.py`. 23 new pytest cases at
-  `trellis-py/tests/test_certificate_of_completion.py`. `python3 -m
-  trellis_py.conformance` 84/0/0 → **95/0/0** on the expanded corpus
-  (11 new live vectors).
-
-- CLI stub (`feat(cli)` `0e0de2a`). `trellis-cli seal-completion --help`
-  prints the ADR 0007 §"Operator workflow" flag contract
-  (`--workflow-ref` / `--case-ref` / `--response-ref` / `--signing-events`
-  / `--signer-display` / `--workflow-status` / `--impact-level` /
-  `--template-id` / `--presentation-artifact` / `--media-type` /
-  `--attestation-key`). Phase-1 stub error path on invocation; KMS
-  integration + chain append + attachment-binding emission are
-  deployment-shaped. Mirrors `erase-key` precedent.
-
-- Reference HTML template (`docs(reference)` `f967f49`).
-  `reference/certificate-of-completion/template-v1/` — `template.html`
-  (single-file print-stylesheet HTML with `{certificate_id}` /
-  `{completed_at}` / signer-table placeholders), `template.css` (print
-  stylesheet), `README.md` (declares `template_id =
-  "trellis.reference.certificate-of-completion.v1"` + computed
-  `template_hash` hex + usage notes), `template_hash.txt` (bare hex
-  SHA-256 of `template.html` for tooling). Non-normative per ADR 0007
-  §"Reference template" — single-file HTML chosen because HTML→PDF
-  pipelines (Chromium headless, WeasyPrint) are more deterministic than
-  native PDF authoring.
-
-- Matrix promotion (`docs(matrix)` `7052427`). Six rows promoted from
-  `prose` → `test-vector`:
-  TR-CORE-146 (registered extension + domain tag — anchors
-  `append/028..030` + `tamper/023`),
-  TR-CORE-147 (chain-summary invariants + certificate_id collision —
-  anchors `tamper/021` + `tamper/026`),
-  TR-CORE-148 (presentation artifact attachment lineage + content-hash
-  recompute — anchors `export/010` + `tamper/020`),
-  TR-CORE-149 (signing_events resolution + signed_at timestamp
-  equivalence — anchors `export/010` + `tamper/022`),
-  TR-CORE-150 (response_ref canonical-response-hash equivalence —
-  anchors `export/010` + `tamper/024`),
-  TR-CORE-151 (optional `trellis.export.certificates-of-completion.v1`
-  manifest catalog — anchors `export/010`).
-  TR-OP-131 retains `prose` posture (HTML-binding rule cited in
-  `tamper/025` fixture coverage); TR-OP-132 retains
-  `declaration-doc-check` posture per matrix design (Posture
-  Declaration enumerates per-deployment counter-signature policy).
-
-- TODO #4 strikethrough + this entry (`docs(wave)`).
-
-Verification:
-- `cargo test --workspace` clean (72 in `trellis-verify`, 6 in
-  `trellis-cli`, 9 in `trellis-conformance`, plus the rest of the tree).
-- `cargo test -p trellis-conformance` 0 failures (G-4 byte-replay
-  oracle).
-- `python3 -m trellis_py.conformance` **95/0/0** (G-5 stranger gate;
-  84 live vectors + 11 new = 95).
-- `python3 -m pytest trellis-py/` 57/0 (34 prior + 23 new in
-  `test_certificate_of_completion.py`).
-- `python3 scripts/check-specs.py` clean (only unrelated key-entry-class
-  warnings).
-
-NEEDS_CONTEXT: none. ADR 0007 §"Open questions and downstream ADR
-slots" residue (template-rendering-drift checks under
-`template_id` + `template_hash`, dual-attestation policy enumeration
-under Posture Declaration narrative, c2pa-manifest binding) lives in
-distinct future ADR slots — TODO item #21 (c2pa-manifest adapter) +
-the Posture-Declaration narrative work in TR-OP-132. TR-OP-131
-promotion to `test-vector` gates on a future fixture that pivots
-through the operator-emit side rather than the verifier-decode side.
-
-Pushback notes from the implementing dispatch:
-- 8-commit train, not the planned 7. The verifier indexing fix
-  (`c9f46cc`) earned its own commit because it's a behavioral change
-  to landed Rust code, distinct from the new fixture work it enables.
-- `tamper/023` uses signature truncation (64 → 63 bytes) rather than a
-  byte-flip, because the Phase-1 verifier is structural-only and
-  byte-flip on a 64-byte signature still keeps
-  `attestation_signatures_well_formed = true`.
-- `tamper/021` and `tamper/025` both surface as fatal-shape
-  (`structure_verified = false`) because CDDL-level mismatches hit
-  decode-time rejection through `VerificationReport::fatal`, not the
-  typical `structure_verified = true / integrity_verified = false`
-  shape.
+Residue: c2pa-manifest binding tracks at TODO item #2 (post-resort);
+TR-OP-131 vector-promotion gates on an operator-emit-side fixture.
 
 ---
 
 ### Wave 21 (2026-04-28) — ADR 0005 erasure-evidence Stages 2-5 close (item #3) — closes PLN-0312
 
-Closes item #3 from the TODO. Lands the byte-frozen surface plus the
-verifier-side, fixture-side, CLI-side, and matrix-promotion deltas that
-ADR 0005 *Cryptographic erasure evidence* requires for end-to-end Phase-1
-conformance. **This commit train closes parent `PLN-0312` (foundational
-crypto execution bundle) entirely** — the bundle has no remaining row.
+Closes the verifier + fixture + CLI + matrix deltas for ADR 0005
+*Cryptographic erasure evidence*. **Closes parent `PLN-0312` entirely.**
 
-Stage history:
+Stage history: Stage 1 spec deltas Wave 18 (`9b3d3e4`); Stages 2-3 + 4-A
+(Rust 10-step verifier, Python parity, `append/023..027`) Wave 19
+(`586de5e..dd408b6`); Stages 4-B / 4-C / 5 + follow-on Wave 21 (9-commit
+train).
 
-- Stage 1 (spec deltas: Companion #20.6, Core #6.7 + #19, matrix rows,
-  `tamper_kind` enum pre-declaration) closed Wave 18 via `9b3d3e4`.
-- Stages 2-3 + 4-A (Rust 10-step verifier, Python parity, positive
-  corpus `append/023..027`) closed Wave 19 via `586de5e` / `53fc25c` /
-  `dd408b6` (rate-limited mid-Stage-4).
-- Stages 4-B / 4-C / 5 plus follow-on verifier deltas closed Wave 21
-  in the 9-commit train below.
+Wave 21 train highlights:
+- Slot collision: `export/009-intake-handoffs-...` renumbered to
+  `export/013-...` so ADR 0005 Stage 4-C takes `export/009-erasure-
+  evidence-inline`. R16 deprecated tombstone preserves the prefix; both
+  conformance harnesses skip `status = "deprecated"`.
+- Rust verifier: `parse_erasure_evidence_export_extension` +
+  `verify_erasure_evidence_catalog`; step-8 chain-walk for `signing` +
+  `subject` key classes (`post_erasure_use` / `post_erasure_wrap` typed
+  failures).
+- Python parity at G-5 84/0/0.
+- Tampers `017/018/019` (post-use / post-wrap / catalog-digest mismatch).
+- Export `export/009-erasure-evidence-inline` + 432-line generator.
+- `trellis-cli erase-key --help` ADR 0005 flag contract.
+- Companion §27.1 verifier-surface paragraph.
+- Matrix: TR-OP-105 + TR-OP-107 → `test-vector`. TR-OP-106 / 108 / 109 /
+  113 stay `prose` / `declaration-doc-check` per ADR 0005 *Fixture plan*.
 
-Wave 21 commit train:
+Counts: cargo workspace clean; G-5 84/0/0; pytest scripts 162/0;
+trellis-py 34/0; check-specs clean (incl. `TRELLIS_CHECK_RENUMBERING=1`).
 
-- Slot collision resolution (`refactor(fixtures)`). Renames
-  `export/009-intake-handoffs-public-create-empty-outputs` →
-  `export/013-...` so ADR 0005 Stage 4-C lands at `export/009-erasure-
-  evidence-inline` (the named slot in the ADR *Fixture plan*) without
-  pushing item #4's `export/010` cert-of-completion reservation. Sibling
-  `verify/016-export-009-...` renamed to `verify/016-export-013-...`
-  (slug change only; verify/016 prefix preserved). R16 lifecycle marker
-  per `scripts/check-vector-renumbering.py`: deprecated tombstone manifest
-  preserves the `export/009` prefix; F6 (check-specs.py) excludes
-  deprecated tombstones from coverage / invariant audits. Conformance
-  harnesses (Rust + Python) skip `status = "deprecated"` vectors.
-  Generator `gen_intake_export_007.py` retargets paths and
-  embedded export-id strings; `expected-export.zip` regenerated to
-  reflect the renamed `098-README.md`; `zip_sha256` updated.
-
-- Rust verifier extension (`feat(verify)`). New
-  `parse_erasure_evidence_export_extension` +
-  `verify_erasure_evidence_catalog` plumbed through `verify_export_zip`;
-  step-8 chain-walk activates for `signing` + `subject` key classes
-  (post_erasure_use / post_erasure_wrap typed failures). Pairs
-  with the existing 10-step erasure verifier landed Wave 19.
-
-- Python parity (`feat(py-verify)`). G-5 stranger-test parity per ADR
-  0004 — `_parse_erasure_evidence_export_extension`,
-  `_parse_erasure_catalog_entries`, `_verify_erasure_evidence_catalog`,
-  step-8 chain-walk extension. `python3 -m trellis_py.conformance` 84/0/0
-  on the expanded corpus.
-
-- Tamper vectors (`test(fixtures)`). Three new negative vectors:
-  `tamper/017-erasure-post-use` (signing kid used after destruction —
-  TR-CORE-018/030/035 + TR-OP-107),
-  `tamper/018-erasure-post-wrap` (subject kid wrapped after destruction
-  — same coverage), `tamper/019-erasure-catalog-digest-mismatch`
-  (manifest digest disagrees with `064-erasure-evidence.cbor` —
-  TR-CORE-061).
-
-- Export bundle + generator (`test(fixtures)`).
-  `fixtures/vectors/export/009-erasure-evidence-inline/` — single genesis
-  `trellis.erasure-evidence.v1` event pinned to `tamper/017` event 0,
-  optional `064-erasure-evidence.cbor` catalog, manifest extension
-  `trellis.export.erasure-evidence.v1`. Coverage:
-  TR-CORE-006/062/063/064/065/110/134 + TR-OP-105/106. Generator
-  `_generator/gen_export_009_erasure_evidence.py` (432 lines) emits
-  both this bundle and `tamper/019`'s input ZIP.
-
-- CLI Stage 5 (`feat(cli)`). `trellis-cli erase-key --help` prints the
-  ADR 0005 flag contract (`--evidence-id` / `--kid` / `--key-class` /
-  `--subject-scope[/-refs]` / `--cascade-scopes` / `--reason-code` /
-  `--policy-authority` / `--destruction-actor` / `--attestation-key` /
-  `--hsm-receipt[-kind]` / `--completion-mode`). Phase-1 stub error path
-  on invocation; KMS destruction + ledger-append are deployment-shaped.
-
-- Companion #27.1 prose (`docs(spec)`). One paragraph above #27.2
-  inventories the byte-authoritative offline-verifier obligations:
-  `append/023..027` positive corpus, `tamper/017..019` negatives,
-  `export/009-erasure-evidence-inline` catalog. Anchors against Core
-  #19 step 6b + Core #18.2 export-manifest catalog discipline.
-
-- Matrix promotion (`docs(matrix)`). TR-OP-105 (Companion #20.6.2 /
-  Attestation shape) and TR-OP-107 (Companion #20.6.3 OC-142 / step-8
-  chain-walk) promoted from `prose` → `test-vector`. TR-OP-106 / 108 /
-  109 / 113 unchanged in this wave — their promotions gate on follow-on
-  tamper vectors per ADR 0005 *Fixture plan*.
-
-- TODO #3 strikethrough + this entry (`docs(wave)`).
-
-Verification:
-- `cargo test --workspace` clean.
-- `python3 scripts/check-specs.py` clean (R13 tamper_kind enum, R19
-  reason-code parity, F6 lifecycle fields, R4/R5 coverage all green).
-- `TRELLIS_CHECK_RENUMBERING=1 python3 scripts/check-specs.py` clean
-  (R16 strict — deprecated tombstone at `export/009` preserves the
-  prefix).
-- `python3 -m trellis_py.conformance` 84/0/0 (G-5 stranger gate;
-  85 manifests minus 1 deprecated tombstone = 84 live vectors).
-- `python3 -m pytest scripts/` 162/0.
-- `python3 -m pytest trellis-py/` 34/0.
-
-NEEDS_CONTEXT: none. ADR 0005 §"Open questions / follow-ups" residue
-(LAK rotation interaction, `hsm_receipt_kind` registry, legal-hold-
-coupled erasure lint, multi-operator quorum) tracked at TODO #15.
-TR-OP-106 / 109 / 113 follow-on tamper vectors tracked under ADR 0005
-*Fixture plan* and will land per the *Open questions* gates.
+Residue: ADR 0005 *Open questions* (LAK rotation, `hsm_receipt_kind`,
+legal-hold-coupled erasure lint, multi-operator quorum) tracked at
+TODO #15.
 
 ---
 
@@ -727,68 +523,6 @@ Verification: `cargo test --workspace` clean (0 failures);
 `python3 -m trellis_py.conformance` clean (71 vectors, 0 failures);
 `python3 -m unittest scripts.test_check_specs` clean (155);
 `python3 scripts/check-specs.py` clean (`Trellis spec checks passed.`).
-
-NEEDS_CONTEXT: none.
-
-### Wave 18 (2026-04-27) — Reason-code parity lint (item #34)
-
-Closes item #34 from the post-Wave-17 TODO. Generalizes Wave 15's R13
-`tamper_kind` corpus-vs-table parity discipline to the three Phase-1
-ReasonCode families: Companion §A.5.1 (Custody-Model Transition),
-Companion §A.5.2 (Disclosure-Profile Transition), and ADR 0005
-§"Reason codes" (Erasure-Evidence; Companion §20.6.1 once promoted).
-Closes the gap that let item #29's Wave-15 BLOCKER drift land
-undetected — every `(family, code, name)` triple in fixture
-derivations and generators now has to agree with its family's
-registered table or the lint fires loud.
-
-- **R19 `check_reason_code_corpus_parity` in `scripts/check-specs.py`.**
-  Parses each table from spec markdown into `{family: {code: name}}`,
-  walks every `derivation.md` under `fixtures/vectors/` and every
-  `gen_*.py` under `fixtures/vectors/_generator/`, detects family
-  by the first canonical marker (`CustodyModelTransitionPayload` /
-  `DisclosureProfileTransitionPayload` / `ErasureEvidencePayload` and
-  their event-type tags), and reports each disagreement with file +
-  family + (annotated, registered) triple. Three annotation forms
-  caught: derivation table-row form, derivation body-prose form,
-  generator comment (`REASON_CODE = <int>  # <name>`).
-
-- **Family-ambiguous diagnostic.** A file annotating reason codes
-  without naming any registered family marker is also rejected — the
-  drift surface Core §6.9 cares about includes "author wrote a code
-  without anchoring which family it belongs to."
-
-- **TDD evidence.** `scripts/test_check_specs.py::TestReasonCodeCorpusParity`
-  adds 12 cases: 3 table-parser smoke tests, 8 synthetic-injection
-  cases (positive aligned, drift, unregistered code, family-ambiguous,
-  body-prose form, generator-comment form, code-255-Other-floor OK +
-  fail, files-without-reason-code-skipped), 1 live-corpus parity
-  (`test_real_corpus_parity_via_table_authority`, mirroring R13's
-  `test_real_corpus_is_clean`). All synthetic tests use stub tables
-  via the `tables=` kwarg so test bodies do not depend on the live
-  corpus state.
-
-- **Matrix discipline.** TR-CORE-069 (Core §6.9 ReasonCode Registry,
-  added Wave 15) Notes column updated to register R19 enforcement and
-  cite the corpus-vs-table parity surface. `Verification = spec-cross-ref`
-  unchanged — the lint is a meta-check across the corpus, not per-vector
-  evidence; per-vector `tr_core` declarations would be a manifest-touch
-  cascade (every transition + erasure fixture). Mirrors the R13 ↔
-  TR-CORE-068 pattern (R13 lint cited in Notes, fixtures carry the
-  TR-OP claims).
-
-- **Sibling-coordination.** Lean-(b) per the brief: waited for
-  item #29's §A.5.2 renumber to land before committing, so R19's
-  `test_real_corpus_parity_via_table_authority` is GREEN at landing
-  rather than a brief CI-red window. The lint detected exactly four
-  drift sites pre-#29 (`append/008/derivation.md`,
-  `tamper/016/derivation.md`, `gen_append_008.py`, `gen_tamper_016.py`);
-  post-#29 the corpus is clean.
-
-Verification: `cargo test --workspace` clean (0 failures across all
-crates); `python3 scripts/test_check_specs.py` clean (155 prior + 12
-new = 167 covered); `python3 scripts/check-specs.py` clean
-(`Trellis spec checks passed.`).
 
 NEEDS_CONTEXT: none.
 
@@ -1611,26 +1345,6 @@ Design at [`thoughts/specs/2026-04-18-trellis-g2-invariant-audit-paths.md`](thou
 Hybrid classification; 11 byte-testable, 4 non-byte-only, 5 hybrid
 invariants. No authoring tasks — Stream A closes when G-2 audit sign-off
 lands.
-
----
-
-## Wave 6 tail checklist (all closed in Wave 8 unless noted)
-
-- (a) [x] Core §9.4 HPKE freshness + §6.4 AEAD pin → unblocks `append/004`.
-  Landed `ee57780`.
-- (b) [x] Core §6.7 `trellis.staff-view-decision-binding.v1` + §19
-  step 4.k + §28 Appendix A CDDL → retroactively satisfies
-  `projection/005`. Landed `ee57780`.
-- (c) [x] Reconcile `tamper_kind` enum. Landed `fd54232`.
-- (d) [x] Lint-refactor commits 5 (R9-R10) + 6 (R11). Landed `b0f114d`.
-- (e) [x] G-3 `append/` residue batch. Landed Wave 7 `964716c`
-  (`append/009-signing-key-revocation`).
-- (g) [x] Review checkpoints — Wave 7 semi-formal-review cycle run on the
-  residue batch (background opus agent); REQUEST CHANGES verdict with
-  1 blocker + 2 warnings fixed in-patch (`4ae9d3c`, `f69f9e4`).
-
-**(f) Stream E Respondent Ledger ↔ Trellis binding — still open**; see
-[`TODO.md`](TODO.md).
 
 ---
 

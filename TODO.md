@@ -425,21 +425,16 @@ architectural debt. Nothing is released.
 
 ## State lives in
 
-This TODO points at work. State lives elsewhere.
-
 | What | Where |
 |---|---|
-| Gate status, evidence SHAs | [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) |
-| Principles + format ADRs | [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md) |
-| Trellis-local ADRs | [`thoughts/adr/`](thoughts/adr/) — 0001-0004 (foundational principles + format), 0005 (crypto-erasure evidence), 0006 (key-class taxonomy), 0007 (cert-of-completion), 0008 (interop sidecar discipline), 0009 (HPKE crate selection) |
-| Closed work (waves, sprints) | [`COMPLETED.md`](COMPLETED.md) |
-| Strategy, product arc, invariants | [`thoughts/product-vision.md`](thoughts/product-vision.md) |
-| In-flight design docs | [`thoughts/specs/`](thoughts/specs/) |
-| Fixture corpus (ground truth) | `fixtures/vectors/` |
-| Rust reference implementation | `crates/` — `cargo test --workspace` |
-| Python cross-check (G-5 harness) | `trellis-py/` — `python -m trellis_py.conformance` |
-| Lint + test green | `python3 scripts/check-specs.py && python3 -m pytest scripts/ && cargo test --workspace` |
+| Phase 1 ratification record (closed) | [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) |
+| Trellis ADRs | [`thoughts/adr/`](thoughts/adr/) |
+| Closed work | [`COMPLETED.md`](COMPLETED.md) |
+| Stack vision (Trellis section §XI) | [`../VISION.md`](../VISION.md) |
+| In-flight designs | [`thoughts/specs/`](thoughts/specs/) |
+| Fixture corpus | `fixtures/vectors/` |
+| Rust reference impl | `crates/` (workspace root: `../Cargo.toml`) |
+| Python cross-check (G-5) | `trellis-py/` |
+| Green check | `python3 scripts/check-specs.py && cargo test --workspace && python -m trellis_py.conformance` |
 
-When a TODO grows into a spec-sized effort, move the substance to
-[`thoughts/specs/`](thoughts/specs/) and replace the entry with a pointer.
-When an item lands, move it to [`COMPLETED.md`](COMPLETED.md).
+Spec-sized work: move substance to [`thoughts/specs/`](thoughts/specs/), keep a pointer here. Landed work: move to [`COMPLETED.md`](COMPLETED.md).
