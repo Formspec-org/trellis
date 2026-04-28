@@ -1640,31 +1640,32 @@ VERIFY(E) -> VerificationReport
         `integrity_verified = false` with `certificate_id_collision`
         (fail-closed; first-seen wins is non-normative).
 
-        **Phase-1 supported registries (maximalist-envelope discipline:
-        the gate is reserved, the population is empty in Phase 1).**
-        Until Phase-2+ activates extension paths, the registries
-        referenced above are normatively empty:
+        **Supported registries.** The registries referenced above are
+        normatively empty. The CDDL `tstr` escapes on `workflow_status`,
+        `impact_level`, and the `covered_claims` array exist for
+        forward-compatibility — the wire admits the slot — but the
+        runtime rejects:
 
-        | Registry | Phase-1 contents | Phase-1 verifier behavior |
+        | Registry | Contents | Verifier behavior |
         |---|---|---|
-        | `covered_claims` supported tags | `{ }` (empty) | Any non-empty `covered_claims` value flips `certificate_covered_claim_unknown`. The CDDL admits the field for forward-compatibility; runtime rejects it. |
+        | `covered_claims` supported tags | `{ }` (empty) | Any non-empty `covered_claims` value flips `certificate_covered_claim_unknown`. |
         | `workflow_status` extension strings (registered extensions to the CDDL literals `"completed"` / `"countersigned"` / `"notarized"` / `"partially-completed"`) | `{ }` (empty) | Any `workflow_status` value not equal to one of the four CDDL literals flips `certificate_enum_extension_unknown`. |
         | `impact_level` extension strings (registered extensions to the CDDL literals `"low"` / `"moderate"` / `"high"` plus `null`) | `{ }` (empty) | Any non-null `impact_level` value not equal to one of the three CDDL literals flips `certificate_enum_extension_unknown`. |
 
         New registry entries land via Companion / WOS append-only
         registry amendments accompanied by a matrix-row update that
         promotes the corresponding TR-CORE-147 verification surface to
-        cover the extension. Phase-1 reference verifiers MUST NOT
-        admit extension strings before such a registry amendment lands.
+        cover the extension. Verifiers MUST NOT admit extension strings
+        before such a registry amendment lands.
      3. Verify every `attestations[*].signature` under domain tag
         `trellis-transition-attestation-v1` (§9.8) — same domain shared
         with §A.5 posture-transition attestations and ADR 0005 erasure
         evidence. Invalid signature flips `integrity_verified = false`
         with `attestation_insufficient` (existing code reused).
      4. Resolve `presentation_artifact.attachment_id` via the ADR 0072
-        attachment-binding lineage. A conformant Phase-1 export that
-        includes this certificate event MUST ship resolvable attachment
-        bytes for that id; if resolution fails (bytes missing from the
+        attachment-binding lineage. A conformant export that includes
+        this certificate event MUST ship resolvable attachment bytes
+        for that id; if resolution fails (bytes missing from the
         bundle though the binding requires them), record
         `attachment_resolved = false` and append
         `presentation_artifact_attachment_missing` to the outcome's
@@ -1684,8 +1685,8 @@ VERIFY(E) -> VerificationReport
      6. Validate temporal consistency: every
         `signer_display[i].signed_at` MUST exactly equal the resolved
         `SignatureAffirmation` header's `authored_at` for
-        `signing_events[i]` (uint seconds; Phase-1 exact equality, no
-        skew slack). Mismatch flips `integrity_verified = false` with
+        `signing_events[i]` (uint seconds; exact equality, no skew
+        slack). Mismatch flips `integrity_verified = false` with
         `signing_event_timestamp_mismatch`.
      7. Validate `chain_summary.response_ref` when non-null: it MUST
         equal the Formspec canonical-response-hash carried on the linked
@@ -1705,10 +1706,9 @@ VERIFY(E) -> VerificationReport
    has `chain_summary_consistent = false`, `attachment_resolved = false`,
    any unresolved or wrong-type signing event, any attestation failure
    from step 3, or any step 6–7 failure. Rendering-drift checks
-   (re-rendering from `template_id` + chain data) are NOT required in
-   Phase 1; adopters that want stronger binding publish `template_id`
-   + `template_hash` and rebuild at verification time as a stretch
-   check.
+   (re-rendering from `template_id` + chain data) are NOT required;
+   adopters that want stronger binding publish `template_id` +
+   `template_hash` and rebuild at verification time as a stretch check.
 
    **Optional manifest catalog (`trellis.export.certificates-of-completion.v1`).**
    When an export contains certificate-of-completion events, the
@@ -1910,7 +1910,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `presentation_artifact_attachment_missing` | 6c step 4 | `presentation_artifact.attachment_id` cannot be resolved through the ADR 0072 attachment-binding lineage (bytes missing though the binding requires them). Distinct from `presentation_artifact_content_mismatch`. |
 | `presentation_artifact_content_mismatch` | 6c step 4 | Resolved presentation-artifact bytes recompute under `trellis-presentation-artifact-v1` (§9.8) to a digest that does not equal `presentation_artifact.content_hash`. |
 | `signing_event_unresolved` | 6c step 5 | A `signing_events[i]` digest does not resolve to a chain-present `SignatureAffirmation` event (or WOS equivalent registered in §6.7). |
-| `signing_event_timestamp_mismatch` | 6c step 6 | A `signer_display[i].signed_at` does not exactly equal the resolved `SignatureAffirmation` header's `authored_at` (Phase-1 exact equality, uint seconds). |
+| `signing_event_timestamp_mismatch` | 6c step 6 | A `signer_display[i].signed_at` does not exactly equal the resolved `SignatureAffirmation` header's `authored_at` (uint seconds, exact equality). |
 | `response_ref_mismatch` | 6c step 7 | `chain_summary.response_ref` is non-null but does not equal the Formspec canonical-response-hash carried on the linked `SignatureAffirmation`. |
 | `certificate_catalog_digest_mismatch` | 6c optional catalog | `065-certificates-of-completion.cbor` digest does not match the manifest's `trellis.export.certificates-of-completion.v1` binding (ADR 0007 §"Export manifest catalog"). |
 | `certificate_catalog_invalid` | 6c optional catalog | `065-certificates-of-completion.cbor` is malformed (CBOR decode failure, missing required fields, or `entry_count` disagrees with actual rows). |
