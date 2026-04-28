@@ -39,7 +39,7 @@ For an offline verifier reading an export bundle from a shut-down vendor, option
 
 Trellis already registers posture-change events via `EventPayload.extensions` (Core §6.7 Extension Registry). Custody-model transitions (`trellis.custody-model-transition.v1`) and disclosure-profile transitions (`trellis.disclosure-profile-transition.v1`) both ride this seam. A `trellis.erasure-evidence.v1` event fits the same mold: it is a canonical, signed, chain-visible claim about an operator-policy event, and it composes with the existing verifier loop (Core §19 extension processing alongside posture transitions; normative checklist in this ADR §Verifier obligations).
 
-The extension-slot approach carries Phase 1 ⊂ Phase 3 superset preservation (invariant #10) for free: no envelope change, no wire break, no ADR 0003 violation.
+The extension-slot approach carries the envelope-superset preservation (invariant #10) for free: no envelope change, no wire break, no ADR 0003 violation.
 
 ## Wire shape
 
@@ -50,7 +50,7 @@ ErasureEvidencePayload = {
   evidence_id:           tstr,                                ; stable within ledger_scope
   kid_destroyed:         bstr .size 16,                       ; MUST be 16 bytes (Core §8.3 width). When the key is
                                                               ; registered (ADR 0006 `KeyEntry`), bytes MUST match
-                                                              ; that row's kid; Phase-1 opaque HPKE recipients MAY
+                                                              ; that row's kid; opaque HPKE recipients MAY
                                                               ; use operator-scoped ids not in the registry (§Field semantics)
   key_class:             "signing" / "subject" / "wrap" /     ; ADR 0006 kinds; "subject" = normative wrap/subject class
                          "recovery" / "scope" / "tenant-root" / tstr,   ; "wrap" = deprecated synonym for "subject"
@@ -91,12 +91,12 @@ SubjectScope = {
 ### Field semantics
 
 - **`evidence_id`** — operator-minted stable identifier. Enables idempotent re-emission across retries and cross-reference from audit reports.
-- **`kid_destroyed`** — the 16-byte identifier for the destroyed key material. **ADR 0006 registry:** when the material is listed in the export's unified `KeyEntry` array, `kid_destroyed` MUST equal that row's `kid`, and `key_class` MUST match that row's `kind` after normalizing `"wrap"` → `"subject"` (see **this ADR step 2**). **Phase-1 opaque HPKE path:** when the recipient is not yet registered as a `subject` kid (Core §9.4), operators MAY use an operator-scoped opaque 16-byte value not present in the registry; the verifier skips registry-bind in step 2 but still runs **this ADR step 8** chain consistency for `norm_key_class ∈ {"signing", "subject"}` (see step 8 Phase-1 scope).
+- **`kid_destroyed`** — the 16-byte identifier for the destroyed key material. **ADR 0006 registry:** when the material is listed in the export's unified `KeyEntry` array, `kid_destroyed` MUST equal that row's `kid`, and `key_class` MUST match that row's `kind` after normalizing `"wrap"` → `"subject"` (see **this ADR step 2**). **Opaque HPKE path:** when the recipient is not yet registered as a `subject` kid (Core §9.4), operators MAY use an operator-scoped opaque 16-byte value not present in the registry; the verifier skips registry-bind in step 2 but still runs **this ADR step 8** chain consistency for `norm_key_class ∈ {"signing", "subject"}` (see step 8 scope).
 - **`key_class`** — aligned with ADR 0006 `KeyEntry.kind` for reserved classes (`signing`, `subject`, `recovery`, `scope`, `tenant-root`; extension `tstr` per registry). Operators MUST emit `"subject"` (not `"wrap"`) for subject-class wrap keys when authoring new material; wire `"wrap"` remains **deprecated** interop only — verifiers MUST normalize `"wrap"` → `"subject"` before registry comparison and before dispatching verifier logic. Enum carries a `tstr` escape for registry extension.
 - **`cascade_scopes`** — a non-empty list of cascade classes the operator **attests were addressed for this destruction emission** (subset of Appendix A.7, plus registry-appended `tstr` values per OC-141). This does **not** relax OC-77: the purge cascade for a conforming erasure still MUST eventually reach every A.7 class where plaintext or plaintext-derived material exists for the destroyed key’s scope. The field is **per-event execution accounting** (what was cascaded by the time this evidence was signed), not a claim that one row in the chain equals the entire OC-77 universe. Use `completion_mode` (`in-progress`, `best-effort`) when work is intentionally incomplete; declaring scopes not yet cascaded is a signed over-claim detectable by auditors and (when O-3 lint lands) by machinery.
-- **`completion_mode`** — records the cascade state at emission time. Phase-1 operators should emit `"complete"` or `"in-progress"`. `"best-effort"` is reserved for environments where the operator cannot prove cascade completion (e.g., third-party cache-invalidation API without a signed receipt) and opts to attest partial execution rather than silently over-claim.
+- **`completion_mode`** — records the cascade state at emission time. Operators should emit `"complete"` or `"in-progress"`. `"best-effort"` is reserved for environments where the operator cannot prove cascade completion (e.g., third-party cache-invalidation API without a signed receipt) and opts to attest partial execution rather than silently over-claim.
 - **`subject_scope`** — describes what the destroyed key protected. **`per-subject` / `per-scope` / `per-tenant`:** exactly one of `subject_refs`, `ledger_scopes`, or `tenant_refs` MUST be non-null and MUST match `kind`. **`deployment-wide`:** all three MUST be null (no ref list on a whole-deployment destruction). Verifier SHALL validate per **this ADR step 3**.
-- **`hsm_receipt`** — opaque bytes from the KMS/HSM confirming key destruction. Verifier does NOT parse these in Phase 1 — they are operator-supplied evidence for post-hoc human review. `hsm_receipt_kind` tags the format (e.g., `"aws-kms-audit-v1"`, `"pkcs11-destruction-receipt-v1"`); the Phase-1 verifier only checks the null-consistency rule. Values of `hsm_receipt_kind` are **append-only registry strings** (Companion §20 or Core §6.7 follow-on table — same discipline as `CascadeScope`'s `tstr` escape); Phase-1 MAY use a single catch-all such as `"opaque-vendor-receipt-v1"` until the vendor registry in Open questions §2 lands.
+- **`hsm_receipt`** — opaque bytes from the KMS/HSM confirming key destruction. Verifier does NOT parse these — they are operator-supplied evidence for post-hoc human review. `hsm_receipt_kind` tags the format (e.g., `"aws-kms-audit-v1"`, `"pkcs11-destruction-receipt-v1"`); the verifier only checks the null-consistency rule. Values of `hsm_receipt_kind` are **append-only registry strings** (Companion §20 or Core §6.7 follow-on table — same discipline as `CascadeScope`'s `tstr` escape); operators MAY use a single catch-all such as `"opaque-vendor-receipt-v1"` until the vendor registry in Open questions §2 lands.
 - **`attestations`** — at least one attestation required. Operators SHOULD require dual attestation for destruction events that affect data shared across governance boundaries (analogous to the A.5.3 step 4 dual-attestation rule for Widening / Orthogonal posture changes). Specific attestation-count rules per `reason_code` are registered per deployment in the Posture Declaration.
 
 ### Reason codes (registered, extensible)
@@ -110,7 +110,7 @@ SubjectScope = {
 | 5 | `key-compromise-mitigation` (destruction as part of incident response) |
 | 255 | `Other` — rationale documented in Posture Declaration narrative |
 
-This table is the Erasure-Evidence family's entry under the **Core §6.9 ReasonCode Registry** — append-only, family-local. The numeric values 1–5 here are not interchangeable with the same numeric values in the Custody-Model Transition family (Companion §A.5.1) or the Disclosure-Profile Posture-Transition family (Companion §A.5.2); cross-family reinterpretation is forbidden. Code `255 = Other` is the only cross-family invariant per Core §6.9. When this ADR's behavior promotes into Companion §20 (TODO sequence item #8), the table moves with it; the Core §6.9 anchor stays unchanged. Traceability: **TR-OP-104**, with Companion §20.6.1 as the Phase-1 Companion-side reservation.
+This table is the Erasure-Evidence family's entry under the **Core §6.9 ReasonCode Registry** — append-only, family-local. The numeric values 1–5 here are not interchangeable with the same numeric values in the Custody-Model Transition family (Companion §A.5.1) or the Disclosure-Profile Posture-Transition family (Companion §A.5.2); cross-family reinterpretation is forbidden. Code `255 = Other` is the only cross-family invariant per Core §6.9. When this ADR's behavior promotes into Companion §20 (TODO sequence item #8), the table moves with it; the Core §6.9 anchor stays unchanged. Traceability: **TR-OP-104**, with Companion §20.6.1 as the Companion-side anchor.
 
 
 ## Event-type registration (Core §6.7)
@@ -143,17 +143,17 @@ A conforming verifier processing an export bundle containing `trellis.erasure-ev
 7. **Verify** every `attestations[*].signature` under `trellis-transition-attestation-v1` domain separation (shared with A.5.3). Invalid signature flips `integrity_verified = false` per Core §19 step 9.
 8. **Cross-check chain consistency for the destroyed kid:**
    - For each distinct `kid_destroyed`, let `destroyed_at` be the **single** agreed value from step 5 (after step 5 succeeds, the value is unique per kid). Let `norm_key_class` be as computed in step 2 for that payload group (all payloads in a `kid_destroyed` group MUST agree on `key_class` after normalization — if wire `key_class` differs across the group, treat as structure failure **`erasure_key_class_payload_conflict`**).
-   - **When to run the two checks below:** If `norm_key_class` is **`signing`** or **`subject`**, perform both bullets. If `norm_key_class` is `recovery`, `scope`, `tenant-root`, or an extension `tstr`, the Phase-1 reference verifier **does not** apply these two checks (wire-valid; subtree / class dispatch **co-lands with ADR 0006** milestone — extend **this ADR step 8** or add a dedicated walk).
+   - **When to run the two checks below:** If `norm_key_class` is **`signing`** or **`subject`**, perform both bullets. If `norm_key_class` is `recovery`, `scope`, `tenant-root`, or an extension `tstr`, the reference verifier **does not** apply these two checks (wire-valid; subtree / class dispatch **co-lands with ADR 0006** milestone — extend **this ADR step 8** or add a dedicated walk).
    - **Comparison rule:** “After destruction” means canonical event **`authored-at` > `destroyed_at`** (strict inequality so an event emitted in the same second as `destroyed_at` is still allowed if `authored_at` equals `destroyed_at`; the erasure event itself may carry that kid until a future spec tightens this). Verifiers MAY additionally warn when `authored-at` equals `destroyed_at` on a non-erasure event that still uses the kid, for operator hygiene.
    - For every canonical event in the chain with `authored-at` > `destroyed_at` whose COSE_Sign1 protected header `kid` equals `kid_destroyed`: mark **`post_erasure_use`**. Localizable failure per Core §19 step 6.
    - For every canonical event in the chain with `authored-at` > `destroyed_at` whose `key_bag.entries` contains an entry wrapped under `kid_destroyed`: mark **`post_erasure_wrap`**. Also localizable.
 
-   **Phase-1 scope note:** `norm_key_class = "subject"` covers subject-class HPKE wrap keys (including wire label `"wrap"`). Chain **position** does not override `authored-at` for these inequalities; if monotonic chain order and timestamps disagree, normative behavior follows Core’s existing timestamp semantics for verification (this ADR does not introduce a parallel ordering axis).
+   **Scope note:** `norm_key_class = "subject"` covers subject-class HPKE wrap keys (including wire label `"wrap"`). Chain **position** does not override `authored-at` for these inequalities; if monotonic chain order and timestamps disagree, normative behavior follows Core’s existing timestamp semantics for verification (this ADR does not introduce a parallel ordering axis).
 9. **Cross-check cascade scope against export contents:**
-   - For each `CascadeScope` entry declared, if the export bundle contains derived artifacts corresponding to that scope (e.g., CS-01 projections in `070-projections/`, CS-03 snapshots in `080-snapshots/`), check that those artifacts do NOT decode the destroyed key's material. Detection is best-effort in Phase 1 (full lint is deferred to the O-3 projection-discipline infrastructure); Phase-1 verifier MAY emit a warning if it cannot perform the check for a given scope.
+   - For each `CascadeScope` entry declared, if the export bundle contains derived artifacts corresponding to that scope (e.g., CS-01 projections in `070-projections/`, CS-03 snapshots in `080-snapshots/`), check that those artifacts do NOT decode the destroyed key's material. Detection is best-effort (full lint is deferred to the O-3 projection-discipline infrastructure); the verifier MAY emit a warning if it cannot perform the check for a given scope.
 10. **Accumulate outcomes** into a new `VerificationReport.erasure_evidence` array, parallel to `posture_transitions`. Each entry carries: `evidence_id`, `kid_destroyed`, `destroyed_at`, `cascade_scopes`, `completion_mode`, `signature_verified`, `post_erasure_uses` (count), `post_erasure_wraps` (count), `cascade_violations` (array of scope + artifact refs), `failures` (array of localizable failure codes).
 
-`integrity_verified = false` if any erasure-evidence entry has `signature_verified = false`, `post_erasure_uses > 0`, or `post_erasure_wraps > 0`, or if **this ADR steps 1–6** produced a structure failure for any erasure payload (includes CDDL decode, **`erasure_key_class_registry_mismatch`** / **`erasure_key_class_payload_conflict`**, `subject_scope`, `destroyed_at` vs host time, `erasure_destroyed_at_conflict`, and HSM receipt null-consistency). Cascade violations surface as warnings in Phase 1 (subject to O-3 evolution); `integrity_verified` folding for cascade violations is deferred to a Phase-2 follow-on.
+`integrity_verified = false` if any erasure-evidence entry has `signature_verified = false`, `post_erasure_uses > 0`, or `post_erasure_wraps > 0`, or if **this ADR steps 1–6** produced a structure failure for any erasure payload (includes CDDL decode, **`erasure_key_class_registry_mismatch`** / **`erasure_key_class_payload_conflict`**, `subject_scope`, `destroyed_at` vs host time, `erasure_destroyed_at_conflict`, and HSM receipt null-consistency). Cascade violations surface as warnings (subject to O-3 evolution); `integrity_verified` folding for cascade violations is deferred to the O-3 follow-on.
 
 ## Export manifest catalog (optional, mirrors signature-affirmations)
 
@@ -219,7 +219,7 @@ Separation-of-concerns note: destroying the key without emitting the evidence is
 - **OC-77** unchanged.
 - **OC-78** promoted from SHOULD-adjacent guidance to normative: every cryptographic erasure performed by the Operator MUST be accompanied by a canonical `trellis.erasure-evidence.v1` event per this ADR. The Posture Declaration continues to document policy scope; the event records execution.
 - **New OC-141 (MUST)** — every cascade-scope entry declared in an `ErasureEvidencePayload` MUST be one of (a) a value registered in Appendix A.7 or (b) a registry-appended future identifier per the append-only convention. Emitting free-text scope identifiers is non-conformant. *(Numbering uses OC-141, not OC-79: Companion already assigns OC-79..OC-81 in §20.6 to rejection / admissibility taxonomy — reusing those ids would silently rebind traceability rows.)*
-- **New OC-142 (MUST)** — for every canonical event with `authored-at` > `destroyed_at` (where `destroyed_at` is the single agreed value per `kid_destroyed` after **this ADR step 5**), the operator MUST NOT sign under that kid and MUST NOT emit a key-bag entry wrapped under that kid, **within the Phase-1 verifier surfaces enforced by this ADR step 8** when `norm_key_class ∈ {"signing", "subject"}` (signing `kid` + `key_bag` wraps). Emit-side obligation pairs with verify-side **this ADR step 8**. *(Subtree obligations for other classes follow ADR 0006.)*
+- **New OC-142 (MUST)** — for every canonical event with `authored-at` > `destroyed_at` (where `destroyed_at` is the single agreed value per `kid_destroyed` after **this ADR step 5**), the operator MUST NOT sign under that kid and MUST NOT emit a key-bag entry wrapped under that kid, **within the verifier surfaces enforced by this ADR step 8** when `norm_key_class ∈ {"signing", "subject"}` (signing `kid` + `key_bag` wraps). Emit-side obligation pairs with verify-side **this ADR step 8**. *(Subtree obligations for other classes follow ADR 0006.)*
 - **New OC-143 (SHOULD)** — operators SHOULD require dual attestation (prior + new) for erasure events with `reason_code ∈ {3, 5}` (legal order, compromise mitigation) and for `subject_scope.kind ∈ {per-tenant, deployment-wide}`. The specific policy is declared per deployment in the Posture Declaration.
 - **New OC-144 (MUST)** — each `ErasureEvidencePayload`’s `destroyed_at` MUST be ≤ the `authored-at` of the canonical event that carries the extension (same rule as **this ADR step 4**).
 - **New OC-145 (MUST)** — for any fixed `kid_destroyed`, every `trellis.erasure-evidence.v1` payload in the ledger scope MUST carry the same `destroyed_at` (no contradictory destruction instants). Pairs with **this ADR step 5**.
@@ -227,7 +227,7 @@ Separation-of-concerns note: destroying the key without emitting the evidence is
 
 ## Fixture plan
 
-Minimum Phase-1 fixture set (landed alongside the Rust implementation):
+Minimum fixture set (landed alongside the Rust implementation):
 
 | Vector | Purpose | Cascade scopes | Subject scope |
 |---|---|---|---|
@@ -250,13 +250,13 @@ Follow-on fixtures (per-scope erasure, third-party HSM-receipt-kind variants) de
 What this design catches:
 
 - **Accidental post-erasure use.** An operator destroys a key, then mistakenly signs a new event under it (or wraps a new payload under it). The verifier's chain-consistency check flags `post_erasure_use` / `post_erasure_wrap` and fails integrity.
-- **Partial-cascade claims.** An operator who cascades only CS-03 (snapshots) but declares CS-01..CS-06 is making a signed false claim. An auditor with cascade-check infrastructure can detect the discrepancy. Phase-1 check is best-effort; deep check rides O-3 evolution.
+- **Partial-cascade claims.** An operator who cascades only CS-03 (snapshots) but declares CS-01..CS-06 is making a signed false claim. An auditor with cascade-check infrastructure can detect the discrepancy. The current check is best-effort; deep check rides O-3 evolution.
 - **Unsigned destruction claims.** A destruction declared only in the Posture Declaration narrative is not an `ErasureEvidencePayload`; a verifier treats it as absent. This is the failure mode option A had; option B promotes it to a structured claim.
 
 What this design does NOT catch:
 
-- **Hidden backups.** An operator who backs up the wrap key before destroying the on-record copy can still decrypt ciphertext. No cryptographic artifact proves that no copy exists. This requires external controls (HSM-receipt cross-audits, multi-operator quorum, regulatory audit). The `hsm_receipt` field carries opaque evidence for post-hoc human review; Phase-1 does not automate this.
-- **Collusion between destruction-actor and policy-authority.** The attestation structure assumes the signing authorities have independent incentives. If both are compromised, the signed claim is false but appears valid. Mitigation rides ADR 0006 (typed registry + class dispatch) and multi-operator quorum Phase-4 work.
+- **Hidden backups.** An operator who backs up the wrap key before destroying the on-record copy can still decrypt ciphertext. No cryptographic artifact proves that no copy exists. This requires external controls (HSM-receipt cross-audits, multi-operator quorum, regulatory audit). The `hsm_receipt` field carries opaque evidence for post-hoc human review; the verifier does not automate this.
+- **Collusion between destruction-actor and policy-authority.** The attestation structure assumes the signing authorities have independent incentives. If both are compromised, the signed claim is false but appears valid. Mitigation rides ADR 0006 (typed registry + class dispatch) and the multi-operator quorum follow-on.
 - **Off-chain exports of plaintext prior to destruction.** If the operator decrypted plaintext into an out-of-scope system (e.g., a vendor analytics tool) before destroying the key, the plaintext persists in that system and Trellis has no record. This is a WOS governance concern (authorization for out-of-scope decryption) and a deployment policy concern; Trellis records the destruction of the protecting key, not the absence of plaintext elsewhere.
 
 ## Alternatives considered
@@ -273,30 +273,30 @@ Rejected because:
 
 ### Option C — destruction as a sidecar document (not considered load-bearing)
 
-Emit erasure evidence as a sidecar manifest outside the canonical event chain (similar to Posture Declarations in Companion §11). Rejected in Phase-1 scoping because:
+Emit erasure evidence as a sidecar manifest outside the canonical event chain (similar to Posture Declarations in Companion §11). Rejected because:
 
 - Sidecar documents do not participate in chain ordering; the `destroyed_at` timestamp is not chain-relatively anchored. Accidental re-use detection (**this ADR step 8**) cannot run.
 - Idempotency / ordering / signature-affirmation semantics are already established for the extension-slot pattern (`trellis.custody-model-transition.v1`, `trellis.signature-affirmations`). A sidecar model introduces a parallel wire grammar without earning its keep.
 
 ## Phase alignment
 
-- **Phase 1 envelope compatibility.** The entire wire shape rides `EventPayload.extensions["trellis.erasure-evidence.v1"]`. No envelope change required (invariant #10 preserved; ADR 0003 honored).
-- **Phase 1 runtime.** The ADR is runtime-eligible in Phase 1. Phase-1 adopters (SBA PoC) who perform retention-expired erasure (reason_code 1) or subject-requested erasure (reason_code 2) MUST emit per this ADR.
-- **Phase-2 evolution.** The `key_class` field accepts registry-appended values; ADR 0006 is the design anchor for reserved literals and `kid` lookup. Multi-operator quorum (Phase-4) extends `attestations` without wire change.
-- **Phase-3 case-ledger composition.** Erasure evidence events compose into case ledgers identically to other `trellis.*` extension events. No special-casing.
+- **Envelope compatibility.** The entire wire shape rides `EventPayload.extensions["trellis.erasure-evidence.v1"]`. No envelope change required (invariant #10 preserved; ADR 0003 honored).
+- **Runtime composes immediately.** The ADR is runtime-eligible. Adopters (SBA PoC) who perform retention-expired erasure (reason_code 1) or subject-requested erasure (reason_code 2) MUST emit per this ADR.
+- **Forward-compat surfaces.** The `key_class` field accepts registry-appended values; ADR 0006 is the design anchor for reserved literals and `kid` lookup. Multi-operator quorum extends `attestations` without wire change when federation lands.
+- **Case-ledger composition.** Erasure evidence events compose into case ledgers identically to other `trellis.*` extension events. No special-casing.
 
 ## Open questions / follow-ups
 
-1. **Interaction with `LedgerServiceWrapEntry` rotation (Core §8.6).** When the LAK rotates, existing wrap entries re-wrap under the new key. An erasure-evidence event destroying an LAK-rotation predecessor must specify whether cascade includes rotating-out the affected entries. Follow-on: add a `"re-wrap-required"` cascade mode or a companion "LAK rotation coupled to erasure" recipe. Not Phase-1.
-2. **HSM-receipt format registry.** The `hsm_receipt_kind` identifier needs a small registry (AWS KMS, PKCS#11, GCP KMS, Azure Key Vault, HSM-vendor-specific). Registry-append-only; empty in Phase-1 beyond an `"opaque-vendor-receipt-v1"` catch-all.
-3. **Per-scope erasure of legal-hold-protected events.** Legal hold (Companion §20.6) prevents retention-expired destruction while the hold is in force. The ADR does not prohibit erasure-evidence emission under legal hold, but operators should treat this as a governance violation; a Phase-2 lint rule SHOULD detect it.
-4. **Multi-operator quorum.** Companion §26 Phase-4 work covers witness / federation. Erasure evidence for cross-operator shared keys (e.g., a federated trust anchor) needs a quorum-of-N attestation shape; the current 1+ attestation requirement is a Phase-1 lower bound.
+1. **Interaction with `LedgerServiceWrapEntry` rotation (Core §8.6).** When the LAK rotates, existing wrap entries re-wrap under the new key. An erasure-evidence event destroying an LAK-rotation predecessor must specify whether cascade includes rotating-out the affected entries. Follow-on: add a `"re-wrap-required"` cascade mode or a companion "LAK rotation coupled to erasure" recipe. Lands when the first live LAK rotation touches an erasure-cascade-bearing subject.
+2. **HSM-receipt format registry.** The `hsm_receipt_kind` identifier needs a small registry (AWS KMS, PKCS#11, GCP KMS, Azure Key Vault, HSM-vendor-specific). Registry-append-only; currently empty beyond an `"opaque-vendor-receipt-v1"` catch-all.
+3. **Per-scope erasure of legal-hold-protected events.** Legal hold (Companion §20.6) prevents retention-expired destruction while the hold is in force. The ADR does not prohibit erasure-evidence emission under legal hold, but operators should treat this as a governance violation; a follow-on lint rule SHOULD detect it.
+4. **Multi-operator quorum.** Companion §26 witness / federation work covers cross-operator trust anchors. Erasure evidence for cross-operator shared keys (e.g., a federated trust anchor) needs a quorum-of-N attestation shape; the current 1+ attestation requirement is the lower bound.
 
 ## Cross-references
 
 - **ADR 0006** — `KeyEntry` / `kind` taxonomy; unified export key registry; `unknown_key_class` vs `integrity_verified` (capability gap) when extension kinds are referenced.
 - **STACK.md end-state commitments:** #1 (independent verification), #5 (custody-honest privacy). This ADR's signed claim shape + chain cross-check is the mechanism by which #5's "what verifiers can still prove" obligation becomes provable offline.
-- **Invariant #10** (Phase 1 envelope IS Phase 3 case-ledger event): the extension-slot approach preserves this; no wire break.
+- **Invariant #10** (envelope is the same shape across composition tiers): the extension-slot approach preserves this; no wire break.
 - **Companion §20 rewrite** deltas above.
 - **Companion Appendix A.5** `Attestation` reused; no new attestation shape.
 - **Companion Appendix A.7** cascade-scope enumeration referenced normatively; extended non-breakingly via `tstr` escape.

@@ -2,9 +2,9 @@
 
 Forward-looking tactical work only. Priority = `Importance × Debt`; size tags are
 scheduling hints, never priority inputs. Work runs concurrently where
-prerequisites allow, under the accepted Phase-1 principles/ADR posture
-and the ratified `v1.0.0` Core + Operational Companion surface. State,
-history, and gate tracking live elsewhere (see bottom).
+prerequisites allow, under the accepted principles/ADR posture and the
+ratified `v1.0.0` Core + Operational Companion surface. State, history,
+and gate tracking live elsewhere (see bottom).
 
 Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (multi-session).
 
@@ -14,10 +14,12 @@ Size: **XS** (≤1h) · **S** (≤1 session) · **M** (≤3 sessions) · **L** (
 
 [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md)
 holds 7 accepted principles and 4 decided ADRs: **DAG envelope with
-length-1 Phase-1 runtime** (ADR 0001), **list-form anchors with
-single-anchor deployment default** (ADR 0002), **§22/§24 reservations held
-in the envelope but MUST NOT populate in Phase 1** (ADR 0003), **Rust is
-byte authority with Python retained as cross-check** (ADR 0004).
+length-1 runtime** (ADR 0001), **list-form anchors with single-anchor
+deployment default** (ADR 0002), **§22/§24 reservations held in the
+envelope but `MUST NOT populate`** (ADR 0003), **Rust is byte authority
+with Python retained as cross-check** (ADR 0004). (The historical
+filename retains the `phase-1-mvp` slug; the prose vocabulary is
+deprecated.)
 
 Gate status: **accepted and ratified into `v1.0.0`**. Work below executes
 against this posture.
@@ -30,8 +32,8 @@ this file; closed work lives in [`COMPLETED.md`](COMPLETED.md) and
 is tagged, but nothing is released and no production records exist.
 Economic model: coding, time, and compute are cheap; architectural tech
 debt we'd have to unwind later is the only expensive cost. If an
-architectural change to the Phase-1 wire shape, verification contract,
-or export layout prevents future debt, make it and retag. The revision
+architectural change to the wire shape, verification contract, or
+export layout prevents future debt, make it and retag. The revision
 window is not closed — only real adopters can close it, and there are
 none yet.
 
@@ -62,7 +64,7 @@ hardening + `append_event_in_tx`) is the **Trellis-side** half of the composed
 reference-server write path. **WOS-side** work is the
 `wos-server-eventstore-postgres` adapter (parent **PLN-0332**) gated by
 **PLN-0368** — see [`wos-spec/crates/wos-server/TODO.md`](../wos-spec/crates/wos-server/TODO.md)
-Phase 4 + **WS-095** (embedded / `trellis-store-memory` for single-process).
++ **WS-095** (embedded / `trellis-store-memory` for single-process).
 Trellis crate owners: keep `append_event_in_tx` and migration discipline stable
 for that composition; no new Trellis TODO row unless a gap blocks the adapter.
 
@@ -100,7 +102,7 @@ consume amended responses once those stacks land.
    Registry" → "Key Registry"; §8.7 unified `KeyEntry` taxonomy with
    five classes (`signing` / `tenant-root` / `scope` / `subject` /
    `recovery`) + extension `tstr` escape; legacy `SigningKeyEntry`
-   retained byte-stable so Phase-1 v1.0.0 corpus does not regenerate;
+   retained byte-stable so the v1.0.0 corpus does not regenerate;
    verifiers dispatch on top-level `kind` presence. ADR 0005
    `"wrap"` → `"subject"` reconciliation landed in §8.7.6. **Vector
    corpus** (`append/031..035` + `tamper/023..025`) landed in the same
@@ -129,7 +131,7 @@ consume amended responses once those stacks land.
     erasure-export-catalog cross-check + step-8 chain-walk extension,
     Python parity, tamper vectors `append/017..019`, export bundle
     `export/009-erasure-evidence-inline` + 432-line generator, CLI
-    `erase-key` Phase-1 stub, Companion §27.1 verifier-surface prose,
+    `erase-key` initial stub, Companion §27.1 verifier-surface prose,
     and matrix promotion (TR-OP-105 / TR-OP-107 prose → `test-vector`;
     TR-OP-106 / TR-OP-108 / TR-OP-109 / TR-OP-113 stay `prose` /
     `declaration-doc-check` per ADR 0005 *Fixture plan* follow-on).
@@ -211,32 +213,29 @@ consume amended responses once those stacks land.
     (Respondent Ledger offline-authoring profile + chain semantics).
 
 12. **ADR 0066 execution — amendment / supersession / rescission / correction**
-    — **L**, phased across Phase 1 + Phase 4.
+    — **L**.
     *Lands after parent accepts ADR 0066.* Canonical ADR:
     [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
     WOS checklist: [`../wos-spec/TODO.md#adr-0066-exec-checklist`](../wos-spec/TODO.md#adr-0066-exec-checklist).
-    Parent backlog: **PLN-0055** (Phase 1), **PLN-0056** (Phase 4),
-    **PLN-0050** (`ResponseCorrection` linkage shape), **PLN-0051**
+    Parent backlog: **PLN-0055**, **PLN-0056**, **PLN-0050**
+    (`ResponseCorrection` linkage shape), **PLN-0051**
     (supersession-start linkage).
-    **Phase 1 (correction, amendment, rescission on one chain):**
-    + [ ] Reserve `supersedes_chain_id` in the envelope header (Core + CDDL)
-      under ADR 0003 **MUST NOT populate** lint discipline.
-    + [ ] Vectors: `append/011-correction`, `append/012-amendment`,
-      `append/013-rescission` under `fixtures/vectors/append/`.
+    + [ ] Envelope header carries `supersedes_chain_id` (Core + CDDL); for
+      genesis events on a non-superseding chain it is null.
+    + [ ] Single-chain vectors: `append/011-correction`,
+      `append/012-amendment`, `append/013-rescission` under
+      `fixtures/vectors/append/`.
     + [ ] Verifier **D-3:** correction-preservation (original + corrected
-      field values in report output when a correction-shaped event is in
-      scope); rescission-terminality (any determination after
-      `DeterminationRescinded` on the same chain → integrity violation).
-    + [ ] Core §17 / §19 prose + any export-manifest hooks needed for Phase-1
-      verifier inputs (coordinate with Formspec `ResponseCorrection` and WOS
-      payload shapes as they land).
-    **Phase 4 (supersession runtime + cross-chain bundle):**
-    + [ ] Activate `supersedes_chain_id` population when the phase gate opens.
-    + [ ] Verifier **D-3 chain-linkage:** superseding header cites predecessor
-      checkpoint hash with byte equality.
-    + [ ] Normative **`supersession-graph.json`** at bundle root; verifier BFS
-      over `head_chain_id` / `predecessors`; **cycles = integrity failure**
-      (ADR default — note open Q2 alternative: linear-only Phase 1).
+      field values in report output); rescission-terminality (any
+      determination after `DeterminationRescinded` on the same chain →
+      integrity violation); chain-linkage (superseding header cites
+      predecessor checkpoint hash with byte equality).
+    + [ ] Core §17 / §19 prose + export-manifest hooks for verifier inputs
+      (coordinate with Formspec `ResponseCorrection` + WOS payload shapes).
+    + [ ] Cross-chain: normative `supersession-graph.json` at bundle root;
+      verifier BFS over `head_chain_id` / `predecessors`; cycles =
+      integrity failure (ADR default — note open Q2 alternative:
+      linear-only).
     + [ ] Optional predecessor chain members in export bundle (ADR D-4).
 
 13. **ADR 0067 execution — statutory clocks** — **M**.
@@ -260,7 +259,7 @@ consume amended responses once those stacks land.
       `016-clock-elapsed`, `017-clock-paused-resumed` (+ matching export/verify
       corpus hooks as needed for byte-identity CI).
 
-14. **`trellis.external_anchor.v1` priority interaction** — **S**, Phase 2.
+14. **`trellis.external_anchor.v1` priority interaction** — **S**.
     *Lands when external anchoring opens.* O-5 posture-transition events
     may want higher anchor priority in deployments with external-anchor
     chains. Anchor substrate is adapter-tier per the DI-first
@@ -272,7 +271,7 @@ consume amended responses once those stacks land.
     transition priority when multiple adapters attest), declared in the
     Posture Declaration.
 
-15. **ADR 0005 follow-ons (erasure evidence)** — **M–L**, phased.
+15. **ADR 0005 follow-ons (erasure evidence)** — **M–L**.
     Four open questions from
     [`thoughts/adr/0005-crypto-erasure-evidence.md`](thoughts/adr/0005-crypto-erasure-evidence.md)
     §"Open questions / follow-ups":
@@ -282,24 +281,25 @@ consume amended responses once those stacks land.
     (2) `hsm_receipt_kind` format registry; lands with the second
     deployment adopter on a different HSM vendor.
     (3) Legal-hold-coupled erasure lint (OC-78 vs §20.6 conflict
-    detection); Phase 2.
-    (4) Multi-operator quorum attestation shape; Phase 4 federation.
+    detection).
+    (4) Multi-operator quorum attestation shape — co-lands with the
+    first federated deployment.
 
-16. **Disclosure-profile scope granularity (per-case)** — **M**, Phase 3.
-    *Lands when Phase-3 case-ledger composition opens.* Companion A.5.2
+16. **Disclosure-profile scope granularity (per-case)** — **M**.
+    *Lands when case-ledger composition opens.* Companion A.5.2
     reserves an `extensions` slot for per-case refinement; current
     semantics are deployment-scope only.
 
-17. **Case ledger + agency log semantic definitions** — **M**, Phase 4.
-    *Lands with Phase-4 scoping.* Core §22 case ledger composes sealed
-    response-ledger heads with WOS governance events; Core §24 agency
-    log is the operator-maintained log of case-ledger heads. Envelope
-    hooks stay reserved under ADR 0003 and `MUST NOT populate` in Phase
-    1 until this lands.
+17. **Case ledger + agency log semantic definitions** — **M**.
+    *Lands when case-ledger / agency-log scoping opens.* Core §22
+    case ledger composes sealed response-ledger heads with WOS
+    governance events; Core §24 agency log is the operator-maintained
+    log of case-ledger heads. Envelope hooks stay reserved under
+    ADR 0003 and `MUST NOT populate` until this lands.
 
 18. ~~**Interop sidecar reservation — execute per ADR 0008**~~ — **CLOSED Wave 20, 2026-04-27.**
     Core §18.3a gains `interop_sidecars` field with `InteropSidecarEntry`
-    CDDL; Phase-1 lock-off prose; TR-CORE-145 matrix row.
+    CDDL; lock-off prose; TR-CORE-145 matrix row.
     `trellis-verify` rejects non-empty `interop_sidecars` with
     `interop_sidecar_phase_1_locked` fatal failure. Fixtures:
     `export/011-interop-sidecars-absent` (canonical positive, absent),
@@ -310,7 +310,7 @@ consume amended responses once those stacks land.
     `deny.toml` cargo-deny config reserves ecosystem-lib ban list.
     `scripts/check-specs.py` TAMPER_KIND_ENUM extended.
 
-19. **`scitt-receipt` adapter — execute per ADR 0008** — **M**, Phase 2+.
+19. **`scitt-receipt` adapter — execute per ADR 0008** — **M**.
     *Lands when SCITT Architecture draft reaches WG Last Call OR a
     concrete adopter requires SCITT-compatible checkpoint receipts,
     whichever fires first.* Implements `trellis-interop-scitt` against
@@ -318,11 +318,11 @@ consume amended responses once those stacks land.
     = 1` (semantic-alignment mode). Re-signs the SCITT signed statement
     with a distinct SCITT-issuer key managed by the operator's SCITT
     service (not the checkpoint COSE signer). Unlocks the `scitt-receipt`
-    kind in the Phase-1 verifier's registry; adds round-trip byte-exact
+    kind in the verifier's registry; adds round-trip byte-exact
     vectors per kind. Follow-up: `derivation_version = 2` when SCITT
     adopts a byte-conformance profile.
 
-20. **`vc-jose-cose-event` adapter — execute per ADR 0008** — **M**, Phase 2+.
+20. **`vc-jose-cose-event` adapter — execute per ADR 0008** — **M**.
     *Lands when an SSI-native adopter (deployment that standardizes on
     W3C VC 2.0 event envelopes) shows up.* Implements
     `trellis-interop-vc` per ADR 0008 §"Registry" illustrative VC shape.
@@ -331,19 +331,19 @@ consume amended responses once those stacks land.
     the Posture-Declaration binding for ISC-08 payload-disclosure
     honesty per event kind. Unlocks the `vc-jose-cose-event` kind.
 
-21. **`c2pa-manifest` adapter — execute with ADR 0007** — **M**, Phase 2+.
-    *Co-lands with ADR 0007 implementation sequencing step 9
-    (reference template).* Implements `trellis-interop-c2pa` per
-    ADR 0008 §"Registry"; layers C2PA manifest emission on the
-    reference HTML-to-PDF pipeline so the presentation artifact ships
-    with a `trellis.certificate-of-completion.v1` assertion pinning
+21. **`c2pa-manifest` adapter — execute with ADR 0007** — **M**.
+    *Co-lands with ADR 0007 reference-template work.* Implements
+    `trellis-interop-c2pa` per ADR 0008 §"Registry"; layers C2PA
+    manifest emission on the reference HTML-to-PDF pipeline so the
+    presentation artifact ships with a
+    `trellis.certificate-of-completion.v1` assertion pinning
     `certificate_id`, `canonical_event_hash`,
     `presentation_artifact.content_hash`, signer `kid`, and canonical
     COSE_Sign1 digest. Requires C2PA assertion-label registration (may
     need C2PA coalition membership step per ADR 0008 open question 3).
     Unlocks the `c2pa-manifest` kind.
 
-22. **`did-key-view` adapter — execute with item #1 (ADR 0006)** — **XS**, Phase 2+.
+22. **`did-key-view` adapter — execute with item #1 (ADR 0006)** — **XS**.
     *Co-lands with ADR 0006 `KeyEntry` migration (item #1 above).*
     Implements `trellis-interop-did` per ADR 0008 §"Registry" — a
     one-way labeling view mapping each signing-class `kid` to its
@@ -389,7 +389,7 @@ consume amended responses once those stacks land.
 24. **ADR 0068 execution — tenant in envelope and verifier** — **M**.
     *Lands after parent accepts ADR 0068 (gated on parent **PLN-0004**,
     **PLN-0011**, **PLN-0013**, **PLN-0015** — tenant grammar, ID scope,
-    actor identity, identity-vs-pin split).* Phase-1 envelope already
+    actor identity, identity-vs-pin split).* Envelope already
     reserves capacity under ADR 0003; activation is the runtime + verifier
     + vector work. Parent backlog: **PLN-0002**, **PLN-0009**, **PLN-0023**
     (tenant portion), **PLN-0030**.
@@ -400,22 +400,19 @@ consume amended responses once those stacks land.
     + [ ] Vectors: `tamper/0NN-tenant-mismatch`, `tamper/0NN-tenant-missing`,
       plus the cross-tenant export-bundle rejection case.
 
-25. **ADR 0071 execution — `CaseOpenPin` reservation and migration transitions**
-    — **M–L**, phased across Phase 1 + Phase 4.
+25. **ADR 0071 execution — `CaseOpenPin` and migration transitions**
+    — **M–L**.
     *Lands after parent accepts ADR 0071 (gated on parent **PLN-0019**
     authoritative wire home + **PLN-0095** wire encoding decision).*
     Coordinates with WOS `MigrationPinChanged` shape (parent **PLN-0021**)
     and ops guardrails (parent **PLN-0027**). Parent backlog: **PLN-0023**
     (envelope/verifier obligations — pin portion), **PLN-0026**
     (cross-version replay determinism vectors).
-    **Phase 1 (reservation only):**
-    + [ ] Reserve `caseOpenPin` slot in envelope header (Core + CDDL)
-      under ADR 0003 **MUST NOT populate** lint discipline; verifier
-      rejects populated value with `case_open_pin_phase_1_locked`.
-    **Phase 4 (activation, co-lands with item #12 Phase 4):**
-    + [ ] Activate `caseOpenPin` population at the phase gate.
+    + [ ] `caseOpenPin` slot in envelope header (Core + CDDL); populated
+      on case-open events.
     + [ ] Verifier: pin immutability unless `MigrationPinChanged` anchors
-      a transition; phase-lineage compatibility across prior envelope phases.
+      a transition; envelope-version-lineage compatibility across prior
+      versions.
     + [ ] Vectors: pin-set, pin-mutation-rejected, valid-pin-transition
       under `MigrationPinChanged`.
 
@@ -567,16 +564,16 @@ consume amended responses once those stacks land.
     — **M–L**, **signature-stack**.
     *Coordinates parent **PLN-0379** (parent renumbered ADR reference
     to 0010 after the Wave 18 #31 collision was surfaced — HPKE
-    crate-selection spike took 0009 via commit `0576ccd`).* Phase-1
-    envelope reservation + Phase-2 activation per ADR 0001-0004
-    maximalist-envelope discipline: CDDL §28 entry; new §9.8 domain-
-    separation tag; binding proof to host event (chain position);
-    reference to IdentityAttestation; `signing_intent` as URI (Trellis
-    owns bytes, WOS owns meaning per parent **PLN-0380**). Distinct
-    from existing Companion App A.5 Attestation (custody / disclosure
-    / erasure). Mirror ADR 0007 precedent: ~300 lines + 11 vectors +
-    verifier-obligation update. Composes with item #4 (cert-of-completion)
-    for full DocuSign-100% parity per VISION §X.
+    crate-selection spike took 0009 via commit `0576ccd`).* Adds the
+    user-content Attestation envelope per ADR 0001-0004 maximalist
+    discipline: CDDL §28 entry; new §9.8 domain-separation tag; binding
+    proof to host event (chain position); reference to IdentityAttestation;
+    `signing_intent` as URI (Trellis owns bytes, WOS owns meaning per
+    parent **PLN-0380**). Distinct from existing Companion App A.5
+    Attestation (custody / disclosure / erasure). Mirror ADR 0007
+    precedent: ~300 lines + 11 vectors + verifier-obligation update.
+    Composes with item #4 (cert-of-completion) for full DocuSign-100%
+    parity per VISION §X.
     + [ ] Author `thoughts/adr/0010-user-content-attestation-primitive.md`.
     + [ ] CDDL §28 + §9.8 domain-separation tag.
     + [ ] Verifier-obligation update (chain-position binding,
@@ -665,15 +662,14 @@ Core + Companion are at `1.0.0`, and the release tag is cut at close-out.
 
 ## Tagged baseline
 
-`v1.0.0` describes a coherent Phase-1 snapshot: a second implementation,
-written from [`specs/trellis-core.md`](specs/trellis-core.md) +
+`v1.0.0` describes a coherent snapshot of what's built: a second
+implementation, written from [`specs/trellis-core.md`](specs/trellis-core.md) +
 [`specs/trellis-operational-companion.md`](specs/trellis-operational-companion.md) +
 [`specs/trellis-agreement.md`](specs/trellis-agreement.md) alone,
 byte-matches every vector in `fixtures/vectors/`, and all ratification gates
 in [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md)
-are closed. Phase 2–4 are out of scope for this snapshot; follow-on work
-below may revisit Phase-1 surface when doing so prevents architectural
-debt. Nothing here is released.
+are closed. Future work below may revisit any surface in this snapshot
+when doing so prevents architectural debt. Nothing here is released.
 
 ---
 
@@ -685,7 +681,7 @@ This TODO points at work. State lives elsewhere — fetch it when you need it.
 |---|---|---|
 | Gate status, evidence SHAs | [`ratification/ratification-checklist.md`](ratification/ratification-checklist.md) | open the file |
 | Principles + format ADRs | [`thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md`](thoughts/adr/0001-0004-phase-1-mvp-principles-and-format-adrs.md) | open the file |
-| Trellis-local ADRs | [`thoughts/adr/`](thoughts/adr/) | `ls thoughts/adr/` — 0001-0004 (Phase-1 principles + format ADRs), 0005 (crypto-erasure evidence), 0006 (key-class taxonomy), 0007 (certificate-of-completion composition) |
+| Trellis-local ADRs | [`thoughts/adr/`](thoughts/adr/) | `ls thoughts/adr/` — 0001-0004 (foundational principles + format ADRs; filename retains historical `phase-1-mvp` slug), 0005 (crypto-erasure evidence), 0006 (key-class taxonomy), 0007 (certificate-of-completion composition) |
 | Closed work (waves, sprints, streams) | [`COMPLETED.md`](COMPLETED.md) | open the file |
 | Strategy, product arc, invariants | [`thoughts/product-vision.md`](thoughts/product-vision.md) | open the file |
 | In-flight design docs | [`thoughts/specs/`](thoughts/specs/) | `ls thoughts/specs/` — G-3 fixture system design (active lint contract); 2026-04-24 HPKE + anchor-substrate spikes; new work lands here before promotion to `thoughts/adr/` or `thoughts/archive/specs/` |
