@@ -1300,6 +1300,8 @@ A witness attestation MUST NOT be presented as a canonical append attestation. T
 
 Trellis Core vectors validate byte-level behavior: encoding, hashing, signing, chain construction, checkpoint format, export-package assembly, offline verification. An implementation passing every Core vector is byte-conformant. This section defines what an implementation MUST additionally demonstrate to claim operational conformance.
 
+**Erasure-evidence verifier surface (ADR 0005 / Core §19 (Verification Algorithm) step 6b).** Core fixture corpus rows `append/023..027` (positive `trellis.erasure-evidence.v1` hosts), `tamper/017..019` (`post_erasure_use`, `post_erasure_wrap`, and export-catalog digest mismatch), and `export/009-erasure-evidence-inline` (optional `064-erasure-evidence.cbor` catalog under `trellis.export.erasure-evidence.v1`) are the byte-authoritative offline checks that a Phase-1 verifier implements ADR 0005 steps 1–10 together with the export-manifest catalog discipline in Core §18 (Export Package Layout) §18.2. Companion OC-135 cascade tests in §27.3 remain a distinct obligation; these vectors pin the chain-level and export-level erasure-evidence obligations that feed cascade completeness arguments.
+
 ### 27.2 Projection Rebuild Tests
 
 **OC-134 (MUST).** An implementation claiming OP-2 or higher MUST pass a projection-rebuild test suite that exercises:
