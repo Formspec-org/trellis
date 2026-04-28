@@ -34,6 +34,16 @@ const SIGNATURE_EXPORT_EXTENSION: &str = "trellis.export.signature-affirmations.
 const INTAKE_EXPORT_EXTENSION: &str = "trellis.export.intake-handoffs.v1";
 const ERASURE_EVIDENCE_EVENT_EXTENSION: &str = "trellis.erasure-evidence.v1";
 const ERASURE_EVIDENCE_EXPORT_EXTENSION: &str = "trellis.export.erasure-evidence.v1";
+/// ADR 0007 §6.7 registration — `EventPayload.extensions` slot for
+/// certificate-of-completion records. Per-certificate inline shape per
+/// `CertificateOfCompletionPayload` in ADR 0007 §"Wire shape".
+const CERTIFICATE_EVENT_EXTENSION: &str = "trellis.certificate-of-completion.v1";
+/// ADR 0007 §"Export manifest catalog" — optional manifest extension binding
+/// `065-certificates-of-completion.cbor`.
+const CERTIFICATE_EXPORT_EXTENSION: &str = "trellis.export.certificates-of-completion.v1";
+/// ADR 0007 §9.8 / Core §9 — domain-separation tag for the SHA-256 preimage
+/// covering rendered presentation-artifact bytes (PDF / HTML).
+const PRESENTATION_ARTIFACT_DOMAIN: &str = "trellis-presentation-artifact-v1";
 /// Domain separation tag for transition-attestation preimages (Core §9.8).
 /// Shared verbatim between §A.5 posture transitions and ADR 0005 erasure
 /// evidence; Phase-1 verifier checks structural shape (`signature` is 64
@@ -113,6 +123,25 @@ pub struct ErasureEvidenceOutcome {
     pub failures: Vec<String>,
 }
 
+/// Outcome for one ADR 0007 certificate-of-completion verification (Core
+/// §19 step 6c). One entry per `trellis.certificate-of-completion.v1`
+/// payload in scope, in chain order. `attachment_resolved` /
+/// `all_signing_events_resolved` / `chain_summary_consistent` are the three
+/// booleans that participate in the §19 step-9 integrity fold; `failures`
+/// localizes the concrete tamper kinds (e.g.
+/// `signing_event_unresolved`, `presentation_artifact_content_mismatch`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CertificateOfCompletionOutcome {
+    pub certificate_id: String,
+    pub event_index: u64,
+    pub completed_at: u64,
+    pub signer_count: u64,
+    pub attachment_resolved: bool,
+    pub all_signing_events_resolved: bool,
+    pub chain_summary_consistent: bool,
+    pub failures: Vec<String>,
+}
+
 /// Verification report for the current Phase-1 runtime.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VerificationReport {
@@ -124,6 +153,7 @@ pub struct VerificationReport {
     pub proof_failures: Vec<VerificationFailure>,
     pub posture_transitions: Vec<PostureTransitionOutcome>,
     pub erasure_evidence: Vec<ErasureEvidenceOutcome>,
+    pub certificates_of_completion: Vec<CertificateOfCompletionOutcome>,
     pub warnings: Vec<String>,
 }
 
@@ -140,6 +170,7 @@ impl VerificationReport {
             proof_failures: Vec::new(),
             posture_transitions: Vec::new(),
             erasure_evidence: Vec::new(),
+            certificates_of_completion: Vec::new(),
             warnings: vec![warning],
         }
     }
@@ -150,6 +181,7 @@ impl VerificationReport {
         proof_failures: Vec<VerificationFailure>,
         posture_transitions: Vec<PostureTransitionOutcome>,
         erasure_evidence: Vec<ErasureEvidenceOutcome>,
+        certificates_of_completion: Vec<CertificateOfCompletionOutcome>,
         warnings: Vec<String>,
     ) -> Self {
         let posture_ok = posture_transitions.iter().all(|outcome| {
@@ -168,6 +200,18 @@ impl VerificationReport {
                 && outcome.post_erasure_uses == 0
                 && outcome.post_erasure_wraps == 0
         });
+        // ADR 0007 §"Verifier obligations" + Core §19 step 9 fold: a
+        // certificate-of-completion outcome with `chain_summary_consistent =
+        // false`, `attachment_resolved = false`, or
+        // `all_signing_events_resolved = false` flips integrity. Step-3
+        // attestation failures and step-6/7 timestamp / response_ref
+        // failures already land in `event_failures` so they gate via the
+        // `event_failures.is_empty()` predicate.
+        let certificate_ok = certificates_of_completion.iter().all(|outcome| {
+            outcome.chain_summary_consistent
+                && outcome.attachment_resolved
+                && outcome.all_signing_events_resolved
+        });
 
         Self {
             structure_verified: true,
@@ -175,13 +219,15 @@ impl VerificationReport {
                 && checkpoint_failures.is_empty()
                 && proof_failures.is_empty()
                 && posture_ok
-                && erasure_ok,
+                && erasure_ok
+                && certificate_ok,
             readability_verified: true,
             event_failures,
             checkpoint_failures,
             proof_failures,
             posture_transitions,
             erasure_evidence,
+            certificates_of_completion,
             warnings,
         }
     }
@@ -645,6 +691,22 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     } {
         verify_erasure_evidence_catalog(&archive, &events, &extension, &mut report);
     }
+    // ADR 0007 §"Verifier obligations" step 4 — export-bundle context
+    // resolves attachment lineage + recomputes content hash. Runs
+    // unconditionally so certificate events that travel without the
+    // optional manifest catalog still get step-4 enforcement.
+    verify_certificate_attachment_lineage(&events, &payload_blobs, &mut report);
+    if let Some(extension) = match parse_certificate_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                "manifest_payload_invalid",
+                format!("certificate export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_certificate_catalog(&archive, &events, &extension, &mut report);
+    }
     for failure in &mut report.event_failures {
         if failure.kind == "scope_mismatch" {
             failure.location = format!("manifest-scope/{}", failure.location);
@@ -1039,6 +1101,22 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             outcome.continuity_verified
                 && outcome.declaration_resolved
                 && outcome.attestations_verified
+        })
+        // ADR 0005 step 10 fold — mirrors `from_integrity_state` so the
+        // export-bundle path computes integrity identically to the
+        // genesis path.
+        && report.erasure_evidence.iter().all(|outcome| {
+            outcome.signature_verified
+                && outcome.post_erasure_uses == 0
+                && outcome.post_erasure_wraps == 0
+        })
+        // ADR 0007 §"Verifier obligations" + Core §19 step 9 fold —
+        // certificate-of-completion outcomes flip integrity when chain
+        // summary, attachment lineage, or signing-event resolution failed.
+        && report.certificates_of_completion.iter().all(|outcome| {
+            outcome.chain_summary_consistent
+                && outcome.attachment_resolved
+                && outcome.all_signing_events_resolved
         });
     report.readability_verified = true;
     report
@@ -1079,6 +1157,20 @@ struct EventDetails {
     /// step 7 (attestation), and step 8 (chain consistency) run from the
     /// caller after collecting all events.
     erasure: Option<ErasureEvidenceDetails>,
+    /// Decoded ADR 0007 certificate-of-completion payload, populated when
+    /// `EventPayload.extensions["trellis.certificate-of-completion.v1"]` is
+    /// present. `None` for non-certificate events. The decoder runs ADR 0007
+    /// §"Verifier obligations" step 1 (CDDL decode + per-event invariants
+    /// `signer_count == len(signing_events)`, `len(signer_display) ==
+    /// len(signing_events)`, HTML→`template_hash` non-null) inline; structural
+    /// failures bubble up via `VerifyError`, with cross-summary invariant
+    /// failures tagged `certificate_chain_summary_mismatch`. Steps 2 (per-index
+    /// principal-ref / id-collision), 3 (attestation crypto — Phase-2),
+    /// 4 (attachment lineage), 5 (signing-event resolution), 6 (timestamp
+    /// equivalence), 7 (response_ref equivalence) run in
+    /// [`finalize_certificates_of_completion`] from the caller after every
+    /// event is decoded.
+    certificate: Option<CertificateDetails>,
     /// Wrap recipients from `key_bag.entries[*].recipient`. Bytes copied
     /// verbatim from the wire so step 8 can compare against `kid_destroyed`
     /// (a `bstr .size 16`) for `post_erasure_wrap` detection. Empty when
@@ -1211,6 +1303,107 @@ struct ErasureEvidenceDetails {
     subject_scope_kind: String,
 }
 
+/// Decoded `trellis.certificate-of-completion.v1` payload (ADR 0007 §"Wire
+/// shape"). Carries the inputs needed for cross-event finalization (step 5
+/// signing-event resolution; step 6 temporal equivalence; step 7 response
+/// hash) and the report-level fields surfaced through
+/// [`CertificateOfCompletionOutcome`]. CDDL decode + chain-summary
+/// invariants (steps 1 and 2) run in [`decode_certificate_payload`]; step 3
+/// (attestation crypto) shape-checks at decode time and crypto-verification
+/// is deferred to Phase 2+ — see [`TRANSITION_ATTESTATION_DOMAIN`].
+#[derive(Clone, Debug)]
+struct CertificateDetails {
+    certificate_id: String,
+    /// Reserved for §6.4 operator obligations; Phase-1 verifier captures the
+    /// field but does not gate on its presence beyond the CDDL shape.
+    #[allow(dead_code)]
+    case_ref: Option<String>,
+    completed_at: u64,
+    presentation_artifact: PresentationArtifactDetails,
+    chain_summary: ChainSummaryDetails,
+    /// `signing_events[i]` digests in workflow order. Step 5 resolves each
+    /// to a chain-present `wos.kernel.signatureAffirmation` event.
+    signing_events: Vec<[u8; 32]>,
+    /// Opaque to Trellis verification per ADR 0007 §"Field semantics";
+    /// captured for completeness, not gated.
+    #[allow(dead_code)]
+    workflow_ref: Option<String>,
+    /// Phase-1 contract: every attestation row has structural shape
+    /// (64-byte signature; valid `authority_class`). Crypto-verification
+    /// of the Ed25519 signature itself is deferred to Phase-2+ alongside
+    /// the posture-transition + erasure flows — see
+    /// [`TRANSITION_ATTESTATION_DOMAIN`]. Maps to step-3 contract; surfaces
+    /// via the existing `attestation_insufficient` failure code.
+    attestation_signatures_well_formed: bool,
+}
+
+/// Decoded `PresentationArtifact` map (ADR 0007 §"Wire shape").
+#[derive(Clone, Debug)]
+struct PresentationArtifactDetails {
+    content_hash: [u8; 32],
+    media_type: String,
+    /// Reserved for the §"Adversary model" artifact-swap detection extension;
+    /// Phase-1 captures but does not gate beyond CDDL shape.
+    #[allow(dead_code)]
+    byte_length: u64,
+    /// Step-4 attachment lineage resolution is parameterized on this id.
+    attachment_id: String,
+    /// Reserved for the optional template-rendering-drift stretch check
+    /// (ADR 0007 §"Field semantics"); Phase-1 verifier captures but does not
+    /// re-render.
+    #[allow(dead_code)]
+    template_id: Option<String>,
+    /// Reserved for the optional template-rendering-drift stretch check;
+    /// Phase-1 enforces the CDDL invariant that HTML media type carries a
+    /// non-null template_hash but does not recompute.
+    #[allow(dead_code)]
+    template_hash: Option<[u8; 32]>,
+}
+
+/// Decoded `ChainSummary` map (ADR 0007 §"Wire shape").
+#[derive(Clone, Debug)]
+struct ChainSummaryDetails {
+    signer_count: u64,
+    /// Per-signer display rows; step 2 invariant
+    /// `len(signer_display) == len(signing_events)` enforced at decode.
+    signer_display: Vec<SignerDisplayDetails>,
+    response_ref: Option<[u8; 32]>,
+    /// Wire `workflow_status` value; CDDL admits the four enum literals
+    /// plus registered extension `tstr`. Phase-1 reference verifier
+    /// admits any `tstr` shape; deep registry-membership rides
+    /// `certificate_enum_extension_unknown` evolution alongside WOS
+    /// signature-profile registry plumbing.
+    #[allow(dead_code)]
+    workflow_status: String,
+    /// Wire `impact_level` value or null; same registry-deferral posture
+    /// as `workflow_status`.
+    #[allow(dead_code)]
+    impact_level: Option<String>,
+    /// Operator-asserted cross-check tag set; empty / absent means the
+    /// default §"Verifier obligations" check set applies. Phase-1
+    /// reference verifier admits any `tstr` and surfaces unknown tags via
+    /// `certificate_covered_claim_unknown` evolution alongside the §19.1
+    /// fixture corpus.
+    #[allow(dead_code)]
+    covered_claims: Vec<String>,
+}
+
+/// Decoded `SignerDisplayEntry` (ADR 0007 §"Wire shape").
+#[derive(Clone, Debug)]
+struct SignerDisplayDetails {
+    principal_ref: String,
+    /// Operator-rendered display name; not strict-compared per ADR 0007
+    /// §"Field semantics" (verifier surfaces gross mismatch only).
+    #[allow(dead_code)]
+    display_name: String,
+    /// Operator-supplied display role; reserved for surfaced summary.
+    #[allow(dead_code)]
+    display_role: Option<String>,
+    /// Step 6 inputs: MUST exactly equal the resolved SignatureAffirmation
+    /// header `authored_at` for `signing_events[i]`.
+    signed_at: u64,
+}
+
 #[derive(Clone, Debug)]
 struct AttachmentExportExtension {
     manifest_digest: [u8; 32],
@@ -1258,6 +1451,31 @@ struct ErasureEvidenceCatalogEntryRow {
     completion_mode: String,
     cascade_scopes: Vec<String>,
     subject_scope_kind: String,
+}
+
+/// Optional `trellis.export.certificates-of-completion.v1` manifest extension
+/// (ADR 0007 §"Export manifest catalog"). Mirror of
+/// [`ErasureEvidenceExportExtension`].
+#[derive(Clone, Debug)]
+struct CertificateExportExtension {
+    catalog_ref: String,
+    catalog_digest: [u8; 32],
+    entry_count: u64,
+}
+
+/// One row in `065-certificates-of-completion.cbor` (ADR 0007 §"Export
+/// manifest catalog" — `CertificateOfCompletionCatalogEntry`). Mirrors
+/// [`ErasureEvidenceCatalogEntryRow`]; binds canonical certificate event
+/// metadata for auditor-UX cross-check.
+#[derive(Clone, Debug)]
+struct CertificateCatalogEntryRow {
+    canonical_event_hash: [u8; 32],
+    certificate_id: String,
+    completed_at: u64,
+    signer_count: u64,
+    media_type: String,
+    attachment_id: String,
+    workflow_status: String,
 }
 
 #[derive(Clone, Debug)]
@@ -1427,6 +1645,17 @@ fn verify_event_set_with_classes(
     //   post_erasure_wrap.
     let mut erasure_payloads: Vec<(usize, ErasureEvidenceDetails, [u8; 32])> = Vec::new();
     let mut chain_summaries: Vec<ChainEventSummary> = Vec::with_capacity(events.len());
+
+    // ADR 0007 certificate-of-completion finalization input. `(event_index,
+    // CertificateDetails, canonical_event_hash)` tuples — same shape as
+    // `erasure_payloads`. The post-loop pass cross-references against the
+    // chain to run steps 2 (id collision), 5 (signing-event resolution),
+    // 6 (timestamp equivalence), and 7 (response_ref equivalence). Step 4
+    // (attachment lineage + content recompute) requires payload-blob access
+    // and runs in the export-bundle path only; the genesis-append path
+    // marks `attachment_resolved = true` and `failures = []` per ADR 0007
+    // §"Verifier obligations" Phase-1 minimal-genesis posture.
+    let mut certificate_payloads: Vec<(usize, CertificateDetails, [u8; 32])> = Vec::new();
 
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
@@ -1614,6 +1843,9 @@ fn verify_event_set_with_classes(
         if let Some(erasure) = details.erasure.clone() {
             erasure_payloads.push((index, erasure, details.canonical_event_hash));
         }
+        if let Some(certificate) = details.certificate.clone() {
+            certificate_payloads.push((index, certificate, details.canonical_event_hash));
+        }
 
         if let Some(transition) = details.transition {
             let mut outcome = PostureTransitionOutcome {
@@ -1707,12 +1939,24 @@ fn verify_event_set_with_classes(
         &mut event_failures,
     );
 
+    // ADR 0007 certificate-of-completion finalization (steps 2 / 5 / 6 / 7 /
+    // 8 cross-event reasoning). Step 4 (attachment lineage + content
+    // recompute) defers to the export-bundle path; the genesis-append path
+    // accumulates outcomes with `attachment_resolved = true` so the §19
+    // step-9 fold doesn't false-positive on minimal-genesis fixtures.
+    let certificates_of_completion = finalize_certificates_of_completion(
+        &certificate_payloads,
+        events,
+        &mut event_failures,
+    );
+
     VerificationReport::from_integrity_state(
         event_failures,
         Vec::new(),
         Vec::new(),
         posture_transitions,
         erasure_evidence,
+        certificates_of_completion,
         Vec::new(),
     )
 }
@@ -1914,6 +2158,258 @@ fn finalize_erasure_evidence(
     outcomes
 }
 
+/// ADR 0007 §"Verifier obligations" cross-event finalization. Step 1 runs
+/// in [`decode_certificate_payload`] (CDDL + per-event chain-summary
+/// invariants); this pass runs steps 2 (id collision + workflow_status /
+/// impact_level / covered_claims registry — Phase-1 admit-any-tstr posture),
+/// 5 (signing-event resolution), 6 (timestamp equivalence), 7 (response_ref
+/// equivalence), and 8 (outcome accumulation).
+///
+/// **Phase-1 chain-context posture.** Step 5 / 6 / 7 require the full event
+/// list to resolve `signing_events[i]` digests against in-chain
+/// `wos.kernel.signatureAffirmation` events. The genesis-append code paths
+/// (`verify_single_event` / `verify_tampered_ledger`) frequently pass a
+/// minimal `events` slice that does not include the referenced signing
+/// events; in that case `signing_event_unresolved` would false-positive on
+/// vectors whose contract is "this one event decodes". Posture: when an
+/// event in `events` matches a `signing_events[i]` digest, run the cross
+/// checks; when it does not, accumulate the outcome with
+/// `all_signing_events_resolved = false` ONLY if the export-bundle context
+/// is in scope. The export-bundle path runs the full `verify_event_set_with_classes`
+/// over all events, so chain context is complete and step 5 / 6 / 7 are
+/// authoritative there. Step 4 (attachment lineage) is wholly deferred to
+/// the export-bundle path — see [`verify_certificate_attachment_lineage`].
+///
+/// Step 2 covered_claims / workflow_status / impact_level enum-extension
+/// gating: per ADR 0007 §"Field semantics" Phase-1 reference verifier
+/// admits any registered `tstr` shape; deep registry-membership rides
+/// follow-on milestones alongside WOS signature-profile registry plumbing.
+/// `certificate_covered_claim_unknown` and `certificate_enum_extension_unknown`
+/// reserve their tamper_kind in §19.1 for that evolution.
+fn finalize_certificates_of_completion(
+    payloads: &[(usize, CertificateDetails, [u8; 32])],
+    events: &[ParsedSign1],
+    event_failures: &mut Vec<VerificationFailure>,
+) -> Vec<CertificateOfCompletionOutcome> {
+    if payloads.is_empty() {
+        return Vec::new();
+    }
+
+    // Build a (canonical_event_hash → EventDetails) lookup once. Reused for
+    // step 5 (signing-event resolution), step 6 (timestamp equivalence),
+    // and step 7 (response_ref equivalence).
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            event_by_hash.entry(details.canonical_event_hash).or_insert(details);
+        }
+    }
+
+    // Step 2 first sub-clause (per-index principal_ref equivalence) requires
+    // the resolved SignatureAffirmation event's payload to extract its
+    // declared principal. Phase-1 reference verifier reads the payload's
+    // `data.signerId` field per the WOS-T4 record shape (mirror of what
+    // `parse_signature_affirmation_record` reads in the catalog path).
+    // When `signing_events[i]` is unresolvable in this `events` slice, skip
+    // the per-index comparison (recorded as `signing_event_unresolved` in
+    // step 5 instead of double-flagging here).
+
+    // Step 2 second sub-clause: certificate_id collision detection across
+    // the certificate event set in scope. "Differ" is canonical-payload
+    // disagreement; for the Phase-1 reference verifier we compare
+    // `(content_hash, signing_events, signer_count, completed_at,
+    // workflow_status)` because those are the load-bearing fields that
+    // ADR 0007 §"Field semantics" identifies as collision-indicative.
+    let mut id_to_canonical: BTreeMap<String, &CertificateDetails> = BTreeMap::new();
+    let mut id_collision_reported: BTreeSet<String> = BTreeSet::new();
+    for (_index, payload, canonical_hash) in payloads {
+        match id_to_canonical.entry(payload.certificate_id.clone()) {
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                slot.insert(payload);
+            }
+            std::collections::btree_map::Entry::Occupied(slot) => {
+                let prior = *slot.get();
+                let differs = prior.presentation_artifact.content_hash
+                    != payload.presentation_artifact.content_hash
+                    || prior.signing_events != payload.signing_events
+                    || prior.chain_summary.signer_count != payload.chain_summary.signer_count
+                    || prior.completed_at != payload.completed_at
+                    || prior.chain_summary.workflow_status
+                        != payload.chain_summary.workflow_status;
+                if differs && id_collision_reported.insert(payload.certificate_id.clone()) {
+                    event_failures.push(VerificationFailure::new(
+                        "certificate_id_collision",
+                        hex_string(canonical_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut outcomes: Vec<CertificateOfCompletionOutcome> = Vec::with_capacity(payloads.len());
+
+    for (index, payload, canonical_hash) in payloads {
+        let mut outcome = CertificateOfCompletionOutcome {
+            certificate_id: payload.certificate_id.clone(),
+            event_index: *index as u64,
+            completed_at: payload.completed_at,
+            signer_count: payload.chain_summary.signer_count,
+            // Step 4 (attachment lineage + content recompute) is the
+            // export-bundle path's responsibility. Genesis-append context:
+            // mark `attachment_resolved = true` so the §19 step-9 fold
+            // doesn't false-positive on minimal-genesis fixtures. The
+            // export-bundle path overrides this via
+            // `verify_certificate_attachment_lineage`.
+            attachment_resolved: true,
+            all_signing_events_resolved: true,
+            chain_summary_consistent: true,
+            failures: Vec::new(),
+        };
+
+        // Step 3 (Phase-1 structural attestation contract): if any row was
+        // malformed at decode time, surface as `attestation_insufficient`
+        // (existing code reused per ADR 0007 §"Verifier obligations" step 3).
+        // Crypto verification rides Phase-2+.
+        if !payload.attestation_signatures_well_formed {
+            outcome.chain_summary_consistent = false;
+            outcome.failures.push("attestation_insufficient".into());
+            event_failures.push(VerificationFailure::new(
+                "attestation_insufficient",
+                hex_string(canonical_hash),
+            ));
+        }
+
+        // Steps 5 / 6 / 7 — each `signing_events[i]` digest cross-checked
+        // against the chain. When the slice does not carry the referenced
+        // event, treat it as unresolvable (export-bundle context) — the
+        // export-bundle path is the authoritative caller because it carries
+        // the full chain. Genesis-append context lacks chain visibility;
+        // see the docstring on this fn.
+        for (i, signing_event_hash) in payload.signing_events.iter().enumerate() {
+            let resolved = event_by_hash.get(signing_event_hash);
+            let Some(target) = resolved else {
+                outcome.all_signing_events_resolved = false;
+                outcome.failures.push("signing_event_unresolved".into());
+                event_failures.push(VerificationFailure::new(
+                    "signing_event_unresolved",
+                    hex_string(signing_event_hash),
+                ));
+                continue;
+            };
+            // Step 5: event_type MUST be wos.kernel.signatureAffirmation
+            // (or other registered SignatureAffirmation equivalent per Core
+            // §6.7; only the WOS form is registered in Phase-1).
+            if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
+                outcome.all_signing_events_resolved = false;
+                outcome.failures.push("signing_event_unresolved".into());
+                event_failures.push(VerificationFailure::new(
+                    "signing_event_unresolved",
+                    hex_string(signing_event_hash),
+                ));
+                continue;
+            }
+            // Step 6: signed_at MUST equal authored_at (uint exact, no skew).
+            let display = &payload.chain_summary.signer_display[i];
+            if display.signed_at != target.authored_at {
+                outcome.chain_summary_consistent = false;
+                outcome.failures.push("signing_event_timestamp_mismatch".into());
+                event_failures.push(VerificationFailure::new(
+                    "signing_event_timestamp_mismatch",
+                    hex_string(signing_event_hash),
+                ));
+            }
+        }
+
+        // Step 7: when `chain_summary.response_ref` is non-null, lookup the
+        // resolved SignatureAffirmation event's payload and compare its
+        // `data.formspecResponseRef` digest. The reference verifier reads
+        // inline payloads (Phase-1 minimal-genesis posture); external
+        // payloads via `payload_blobs` ride the export-bundle path.
+        if let Some(response_ref) = payload.chain_summary.response_ref {
+            // Pick the first signing event as the canonical link target —
+            // ADR 0007 §"Field semantics" `response_ref` clause: "the same
+            // digest bound by SignatureAffirmation / authoredSignatures for
+            // that ceremony" — Phase-1 ties `response_ref` to the ceremony
+            // (one ceremony per certificate); we cross-check against every
+            // resolved SignatureAffirmation and require at least one match
+            // (operator MAY co-bind multiple SignatureAffirmation events
+            // for the same ceremony per §"Field semantics" `signing_events`
+            // clause "order is workflow order").
+            let mut matched = false;
+            let mut had_resolvable_response = false;
+            for signing_event_hash in &payload.signing_events {
+                let Some(target) = event_by_hash.get(signing_event_hash) else {
+                    continue;
+                };
+                if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
+                    continue;
+                }
+                let payload_bytes = match &target.payload_ref {
+                    PayloadRef::Inline(bytes) => bytes.clone(),
+                    PayloadRef::External => continue,
+                };
+                let Ok(record) = parse_signature_affirmation_record(&payload_bytes) else {
+                    continue;
+                };
+                let Ok(record_response_hash) = parse_sha256_text(&record.formspec_response_ref) else {
+                    // The record's `formspecResponseRef` is per ADR 0007 a
+                    // sha256: digest text. If it doesn't parse, surface as
+                    // a response_ref_mismatch — the certificate claims a
+                    // hash that has no comparable digest on the chain side.
+                    continue;
+                };
+                had_resolvable_response = true;
+                if record_response_hash == response_ref {
+                    matched = true;
+                    break;
+                }
+            }
+            if had_resolvable_response && !matched {
+                outcome.chain_summary_consistent = false;
+                outcome.failures.push("response_ref_mismatch".into());
+                event_failures.push(VerificationFailure::new(
+                    "response_ref_mismatch",
+                    hex_string(canonical_hash),
+                ));
+            }
+        }
+
+        // Step 2 (per-index principal_ref equivalence) — when the signing
+        // event is resolvable AND its inline payload decodes, compare the
+        // declared principal on the SignatureAffirmation against the
+        // certificate's signer_display row.
+        for (i, signing_event_hash) in payload.signing_events.iter().enumerate() {
+            let Some(target) = event_by_hash.get(signing_event_hash) else {
+                continue;
+            };
+            if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
+                continue;
+            }
+            let payload_bytes = match &target.payload_ref {
+                PayloadRef::Inline(bytes) => bytes.clone(),
+                PayloadRef::External => continue,
+            };
+            let Ok(record) = parse_signature_affirmation_record(&payload_bytes) else {
+                continue;
+            };
+            let display = &payload.chain_summary.signer_display[i];
+            if display.principal_ref != record.signer_id {
+                outcome.chain_summary_consistent = false;
+                outcome.failures.push("certificate_chain_summary_mismatch".into());
+                event_failures.push(VerificationFailure::new(
+                    "certificate_chain_summary_mismatch",
+                    hex_string(canonical_hash),
+                ));
+                break;
+            }
+        }
+
+        outcomes.push(outcome);
+    }
+
+    outcomes
+}
+
 fn parse_sign1_array(bytes: &[u8]) -> Result<Vec<ParsedSign1>, VerifyError> {
     let value = decode_value(bytes)?;
     let items = value
@@ -2044,15 +2540,16 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         }
     };
 
-    let (transition, attachment_binding, erasure) = match map_lookup_optional_map(payload_map, "extensions")?
-    {
-        Some(extensions) => (
-            decode_transition_details(extensions)?,
-            decode_attachment_binding_details(extensions)?,
-            decode_erasure_evidence_details(extensions, authored_at)?,
-        ),
-        None => (None, None, None),
-    };
+    let (transition, attachment_binding, erasure, certificate) =
+        match map_lookup_optional_map(payload_map, "extensions")? {
+            Some(extensions) => (
+                decode_transition_details(extensions)?,
+                decode_attachment_binding_details(extensions)?,
+                decode_erasure_evidence_details(extensions, authored_at)?,
+                decode_certificate_payload(extensions)?,
+            ),
+            None => (None, None, None, None),
+        };
     let wrap_recipients = decode_key_bag_recipients(payload_map)?;
 
     Ok(EventDetails {
@@ -2069,6 +2566,7 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         transition,
         attachment_binding,
         erasure,
+        certificate,
         wrap_recipients,
     })
 }
@@ -2371,6 +2869,202 @@ fn decode_erasure_evidence_details(
     }))
 }
 
+/// Decodes the optional `trellis.certificate-of-completion.v1` extension
+/// payload and runs ADR 0007 §"Verifier obligations" step 1 (CDDL decode +
+/// per-event chain-summary invariants) inline. Cross-event steps 2 (id
+/// collision), 4 (attachment lineage), 5 (signing-event resolution),
+/// 6 (timestamp equivalence), 7 (response_ref equivalence) run in
+/// [`finalize_certificates_of_completion`] after every event has been decoded.
+///
+/// Per-event invariants enforced here:
+/// - `signer_count == len(signing_events)` (ADR 0007 §"Verifier obligations"
+///   step 2 first clause; `certificate_chain_summary_mismatch`)
+/// - `len(signer_display) == len(signing_events)` (same step; same kind)
+/// - HTML media type carries non-null `template_hash` (ADR 0007 §"Wire shape"
+///   `PresentationArtifact.template_hash`; emitted as a structure failure via
+///   the generic `malformed_cose` kind because §19.1 has no dedicated
+///   tamper_kind for this case)
+fn decode_certificate_payload(
+    extensions: &[(Value, Value)],
+) -> Result<Option<CertificateDetails>, VerifyError> {
+    let Some(extension_value) = map_lookup_optional_value(extensions, CERTIFICATE_EVENT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("certificate-of-completion extension is not a map"))?;
+
+    let certificate_id = map_lookup_text(extension_map, "certificate_id")?;
+    let case_ref = map_lookup_optional_text(extension_map, "case_ref")?;
+    let completed_at = map_lookup_u64(extension_map, "completed_at")?;
+
+    // PresentationArtifact decode.
+    let pa_value = map_lookup_optional_value(extension_map, "presentation_artifact")
+        .ok_or_else(|| VerifyError::new("certificate `presentation_artifact` is missing"))?;
+    let pa_map = pa_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("certificate `presentation_artifact` is not a map"))?;
+    let pa_content_hash = bytes_array(&map_lookup_fixed_bytes(pa_map, "content_hash", 32)?);
+    let pa_media_type = map_lookup_text(pa_map, "media_type")?;
+    let pa_byte_length = map_lookup_u64(pa_map, "byte_length")?;
+    let pa_attachment_id = map_lookup_text(pa_map, "attachment_id")?;
+    let pa_template_id = map_lookup_optional_text(pa_map, "template_id")?;
+    let pa_template_hash = map_lookup_optional_fixed_bytes(pa_map, "template_hash", 32)?
+        .map(|bytes| bytes_array(&bytes));
+    // ADR 0007 §"Wire shape" `PresentationArtifact.template_hash`: when
+    // `media_type = "text/html"`, `template_hash` MUST be non-null even when
+    // `template_id` is null. §19.1 has no dedicated tamper_kind for this
+    // case; surface as a generic structure failure via `malformed_cose`
+    // (consistent with other CDDL-shape failures at decode time).
+    if pa_media_type == "text/html" && pa_template_hash.is_none() {
+        return Err(VerifyError::with_kind(
+            "certificate presentation_artifact: media_type=text/html requires template_hash to be non-null (ADR 0007 §Wire shape)",
+            "malformed_cose",
+        ));
+    }
+
+    // ChainSummary decode + per-event invariants.
+    let cs_value = map_lookup_optional_value(extension_map, "chain_summary")
+        .ok_or_else(|| VerifyError::new("certificate `chain_summary` is missing"))?;
+    let cs_map = cs_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("certificate `chain_summary` is not a map"))?;
+    let signer_count = map_lookup_u64(cs_map, "signer_count")?;
+    let signer_display_array = map_lookup_array(cs_map, "signer_display")?;
+    if signer_display_array.is_empty() {
+        return Err(VerifyError::new(
+            "certificate `chain_summary.signer_display` MUST be non-empty (ADR 0007 §Wire shape)",
+        ));
+    }
+    let mut signer_display = Vec::with_capacity(signer_display_array.len());
+    for entry in signer_display_array {
+        let entry_map = entry
+            .as_map()
+            .ok_or_else(|| VerifyError::new("signer_display entry is not a map"))?;
+        let principal_ref = map_lookup_text(entry_map, "principal_ref")?;
+        let display_name = map_lookup_text(entry_map, "display_name")?;
+        let display_role = map_lookup_optional_text(entry_map, "display_role")?;
+        let signed_at = map_lookup_u64(entry_map, "signed_at")?;
+        signer_display.push(SignerDisplayDetails {
+            principal_ref,
+            display_name,
+            display_role,
+            signed_at,
+        });
+    }
+    let response_ref = map_lookup_optional_fixed_bytes(cs_map, "response_ref", 32)?
+        .map(|bytes| bytes_array(&bytes));
+    let workflow_status = map_lookup_text(cs_map, "workflow_status")?;
+    let impact_level = map_lookup_optional_text(cs_map, "impact_level")?;
+    let covered_claims_value = map_lookup_optional_value(cs_map, "covered_claims");
+    let covered_claims = match covered_claims_value {
+        Some(Value::Array(items)) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                let tag = item.as_text().ok_or_else(|| {
+                    VerifyError::new("certificate covered_claims entry is not text")
+                })?;
+                out.push(tag.to_string());
+            }
+            out
+        }
+        Some(Value::Null) | None => Vec::new(),
+        Some(_) => {
+            return Err(VerifyError::new(
+                "certificate `chain_summary.covered_claims` is not an array",
+            ));
+        }
+    };
+
+    // signing_events decode.
+    let signing_events_array = map_lookup_array(extension_map, "signing_events")?;
+    if signing_events_array.is_empty() {
+        return Err(VerifyError::new(
+            "certificate `signing_events` MUST be non-empty (ADR 0007 §Wire shape)",
+        ));
+    }
+    let mut signing_events = Vec::with_capacity(signing_events_array.len());
+    for digest_value in signing_events_array {
+        let bytes = digest_value
+            .as_bytes()
+            .ok_or_else(|| VerifyError::new("signing_events entry is not a byte string"))?;
+        let digest: [u8; 32] = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| VerifyError::new("signing_events entry is not 32 bytes"))?;
+        signing_events.push(digest);
+    }
+
+    // ADR 0007 §"Verifier obligations" step 2 first invariant: per-event
+    // shape (signer_count == len(signing_events) AND len(signer_display) ==
+    // len(signing_events)). Mismatch flips integrity via the
+    // `certificate_chain_summary_mismatch` tamper_kind.
+    if signer_count as usize != signing_events.len()
+        || signer_display.len() != signing_events.len()
+    {
+        return Err(VerifyError::with_kind(
+            format!(
+                "certificate chain_summary invariant violated: signer_count={}, signing_events={}, signer_display={} (ADR 0007 §Verifier obligations step 2)",
+                signer_count,
+                signing_events.len(),
+                signer_display.len()
+            ),
+            "certificate_chain_summary_mismatch",
+        ));
+    }
+
+    let workflow_ref = map_lookup_optional_text(extension_map, "workflow_ref")?;
+
+    // Step 3 (Phase-1 structural): every attestation row carries a 64-byte
+    // signature and a recognized `authority_class`. Crypto-verification of
+    // the Ed25519 signature itself rides Phase-2+ — same posture as the
+    // existing posture-transition + erasure flows.
+    let attestations = map_lookup_array(extension_map, "attestations")?;
+    if attestations.is_empty() {
+        return Err(VerifyError::new(
+            "certificate `attestations` MUST be non-empty (ADR 0007 §Wire shape)",
+        ));
+    }
+    let mut attestation_signatures_well_formed = true;
+    for entry in attestations {
+        let entry_map = entry
+            .as_map()
+            .ok_or_else(|| VerifyError::new("attestation entry is not a map"))?;
+        let _class = map_lookup_text(entry_map, "authority_class")?;
+        let signature = map_lookup_bytes(entry_map, "signature")?;
+        if signature.len() != 64 {
+            attestation_signatures_well_formed = false;
+        }
+        let _authority = map_lookup_text(entry_map, "authority")?;
+    }
+
+    Ok(Some(CertificateDetails {
+        certificate_id,
+        case_ref,
+        completed_at,
+        presentation_artifact: PresentationArtifactDetails {
+            content_hash: pa_content_hash,
+            media_type: pa_media_type,
+            byte_length: pa_byte_length,
+            attachment_id: pa_attachment_id,
+            template_id: pa_template_id,
+            template_hash: pa_template_hash,
+        },
+        chain_summary: ChainSummaryDetails {
+            signer_count,
+            signer_display,
+            response_ref,
+            workflow_status,
+            impact_level,
+            covered_claims,
+        },
+        signing_events,
+        workflow_ref,
+        attestation_signatures_well_formed,
+    }))
+}
+
 /// ADR 0005 step 3 — validates the cross-field shape of `subject_scope`
 /// based on `kind`.
 fn validate_subject_scope_shape(
@@ -2603,6 +3297,39 @@ fn parse_intake_export_extension(
             "intake_catalog_digest",
             32,
         )?),
+    }))
+}
+
+/// Parses the optional `trellis.export.certificates-of-completion.v1`
+/// manifest extension (ADR 0007 §"Export manifest catalog"). Mirror of
+/// [`parse_erasure_evidence_export_extension`].
+fn parse_certificate_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<CertificateExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) = map_lookup_optional_value(extensions, CERTIFICATE_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("certificate export extension is not a map"))?;
+    let catalog_ref = map_lookup_text(extension_map, "catalog_ref")?;
+    if !catalog_ref.chars().all(|c| c.is_ascii()) {
+        return Err(VerifyError::new(
+            "certificate export extension catalog_ref must be ASCII (ZIP member path)",
+        ));
+    }
+    Ok(Some(CertificateExportExtension {
+        catalog_ref,
+        catalog_digest: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "catalog_digest",
+            32,
+        )?),
+        entry_count: map_lookup_u64(extension_map, "entry_count")?,
     }))
 }
 
@@ -3183,6 +3910,296 @@ fn verify_erasure_evidence_catalog(
             report.event_failures.push(VerificationFailure::new(
                 "erasure_evidence_catalog_mismatch",
                 hex_string(&row.canonical_event_hash),
+            ));
+        }
+    }
+}
+
+/// Decodes `065-certificates-of-completion.cbor` (ADR 0007 §"Export manifest
+/// catalog" — `CertificateOfCompletionCatalogEntry`). Mirror of
+/// [`parse_erasure_catalog_entries`].
+fn parse_certificate_catalog_entries(
+    catalog_bytes: &[u8],
+) -> Result<Vec<CertificateCatalogEntryRow>, VerifyError> {
+    let value = decode_value(catalog_bytes)?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| VerifyError::new("certificate catalog root is not an array"))?;
+    entries
+        .iter()
+        .map(|entry| {
+            let map = entry
+                .as_map()
+                .ok_or_else(|| VerifyError::new("certificate catalog entry is not a map"))?;
+            Ok(CertificateCatalogEntryRow {
+                canonical_event_hash: bytes_array(&map_lookup_fixed_bytes(
+                    map,
+                    "canonical_event_hash",
+                    32,
+                )?),
+                certificate_id: map_lookup_text(map, "certificate_id")?,
+                completed_at: map_lookup_u64(map, "completed_at")?,
+                signer_count: map_lookup_u64(map, "signer_count")?,
+                media_type: map_lookup_text(map, "media_type")?,
+                attachment_id: map_lookup_text(map, "attachment_id")?,
+                workflow_status: map_lookup_text(map, "workflow_status")?,
+            })
+        })
+        .collect()
+}
+
+/// Field-wise agreement check between a catalog row and the in-chain
+/// certificate event's decoded payload. Mirror of
+/// [`erasure_catalog_row_matches_details`].
+fn certificate_catalog_row_matches_details(
+    row: &CertificateCatalogEntryRow,
+    details: &EventDetails,
+) -> bool {
+    let Some(certificate) = details.certificate.as_ref() else {
+        return false;
+    };
+    if row.canonical_event_hash != details.canonical_event_hash {
+        return false;
+    }
+    if row.certificate_id != certificate.certificate_id {
+        return false;
+    }
+    if row.completed_at != certificate.completed_at {
+        return false;
+    }
+    if row.signer_count != certificate.chain_summary.signer_count {
+        return false;
+    }
+    if row.media_type != certificate.presentation_artifact.media_type {
+        return false;
+    }
+    if row.attachment_id != certificate.presentation_artifact.attachment_id {
+        return false;
+    }
+    if row.workflow_status != certificate.chain_summary.workflow_status {
+        return false;
+    }
+    true
+}
+
+/// Verifies the optional `065-certificates-of-completion.cbor` catalog
+/// (ADR 0007 §"Export manifest catalog" / Core §19 step 6c optional catalog).
+/// Mirror of [`verify_erasure_evidence_catalog`].
+fn verify_certificate_catalog(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    extension: &CertificateExportExtension,
+    report: &mut VerificationReport,
+) {
+    let member_name = extension.catalog_ref.as_str();
+    let Some(catalog_bytes) = archive.members.get(member_name) else {
+        report.event_failures.push(VerificationFailure::new(
+            "missing_certificate_catalog",
+            member_name.to_string(),
+        ));
+        return;
+    };
+    // Catalog digest under `trellis-content-v1` (Core §19 step 6c optional
+    // catalog clause; same domain tag as the existing catalog patterns —
+    // re-verified via raw SHA-256 since `sha256_bytes` covers the
+    // bare-bytes path that the manifest's binding uses).
+    let actual_digest = sha256_bytes(catalog_bytes);
+    if actual_digest.as_slice() != extension.catalog_digest.as_slice() {
+        report.event_failures.push(VerificationFailure::new(
+            "certificate_catalog_digest_mismatch",
+            member_name.to_string(),
+        ));
+    }
+
+    let entries = match parse_certificate_catalog_entries(catalog_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                "certificate_catalog_invalid",
+                format!("{member_name}/{error}"),
+            ));
+            return;
+        }
+    };
+
+    if entries.len() as u64 != extension.entry_count {
+        report.event_failures.push(VerificationFailure::new(
+            "certificate_catalog_invalid",
+            format!("{member_name}/entry_count"),
+        ));
+    }
+
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            match event_by_hash.entry(details.canonical_event_hash) {
+                Entry::Vacant(slot) => {
+                    slot.insert(details);
+                }
+                Entry::Occupied(_) => {
+                    report.event_failures.push(VerificationFailure::new(
+                        "export_events_duplicate_canonical_hash",
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_hashes = BTreeSet::new();
+    for row in &entries {
+        if !seen_hashes.insert(row.canonical_event_hash) {
+            report.event_failures.push(VerificationFailure::new(
+                "certificate_catalog_duplicate_event",
+                hex_string(&row.canonical_event_hash),
+            ));
+        }
+    }
+
+    for row in &entries {
+        let Some(details) = event_by_hash.get(&row.canonical_event_hash) else {
+            report.event_failures.push(VerificationFailure::new(
+                "certificate_catalog_event_unresolved",
+                hex_string(&row.canonical_event_hash),
+            ));
+            continue;
+        };
+        // Per Core §6.7 the certificate-of-completion event's `event_type`
+        // mirrors the extension key. Mirrors how the erasure-evidence
+        // catalog cross-checks `details.event_type ==
+        // ERASURE_EVIDENCE_EVENT_EXTENSION`.
+        if details.event_type != CERTIFICATE_EVENT_EXTENSION {
+            report.event_failures.push(VerificationFailure::new(
+                "certificate_catalog_event_type_mismatch",
+                hex_string(&row.canonical_event_hash),
+            ));
+            continue;
+        }
+        if !certificate_catalog_row_matches_details(row, details) {
+            report.event_failures.push(VerificationFailure::new(
+                "certificate_catalog_mismatch",
+                hex_string(&row.canonical_event_hash),
+            ));
+        }
+    }
+}
+
+/// ADR 0007 §"Verifier obligations" step 4 — attachment lineage resolution
+/// + content-hash recompute. Runs in the export-bundle path because it
+/// requires the attachment-binding lineage (ADR 0072) and the payload
+/// blobs map. For each in-scope certificate event:
+///
+/// - resolve `presentation_artifact.attachment_id` via the chain's
+///   `trellis.evidence-attachment-binding.v1` events;
+/// - recover the bound attachment bytes from `payload_blobs`;
+/// - recompute SHA-256 over the bytes under domain tag
+///   `trellis-presentation-artifact-v1` (§9.8) and confirm it equals
+///   `presentation_artifact.content_hash`.
+///
+/// Failure surfaces: `presentation_artifact_attachment_missing` (lineage
+/// unresolvable / bytes absent) — distinct from
+/// `presentation_artifact_content_mismatch` (lineage resolved, hash
+/// disagrees). Both flip `outcome.attachment_resolved` for the §19 step-9
+/// fold; the dominant tamper_kind is the most-specific available.
+fn verify_certificate_attachment_lineage(
+    events: &[ParsedSign1],
+    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
+    report: &mut VerificationReport,
+) {
+    if report.certificates_of_completion.is_empty() {
+        return;
+    }
+
+    // Build (attachment_id → AttachmentBindingDetails + EventDetails) map.
+    // ADR 0072 lineage: a certificate's `presentation_artifact.attachment_id`
+    // must map to exactly one binding event whose extension carries the
+    // matching `attachment_id`. Phase-1 lineage resolution is the latest
+    // binding for that id (forward-walk; `prior_binding_hash` chain not
+    // material for content-hash recompute — the latest binding IS the bound
+    // bytes by definition).
+    let mut binding_by_attachment_id: BTreeMap<String, (AttachmentBindingDetails, [u8; 32])> =
+        BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            if let Some(binding) = &details.attachment_binding {
+                binding_by_attachment_id.insert(
+                    binding.attachment_id.clone(),
+                    (binding.clone(), details.content_hash),
+                );
+            }
+        }
+    }
+
+    // Build (canonical_event_hash → EventDetails) map for certificate
+    // events to recover each certificate's payload (we only have the
+    // outcome's `event_index` + `certificate_id` here).
+    let cert_events: Vec<EventDetails> = events
+        .iter()
+        .filter_map(|event| decode_event_details(event).ok())
+        .filter(|details| details.certificate.is_some())
+        .collect();
+
+    for outcome in report.certificates_of_completion.iter_mut() {
+        let Some(details) = cert_events.get(outcome.event_index as usize) else {
+            // Index out of range — the underlying event vector changed
+            // shape between collection and lineage check. Treat as
+            // unresolvable; do not mask with attachment_resolved=true.
+            outcome.attachment_resolved = false;
+            outcome
+                .failures
+                .push("presentation_artifact_attachment_missing".into());
+            report.event_failures.push(VerificationFailure::new(
+                "presentation_artifact_attachment_missing",
+                outcome.certificate_id.clone(),
+            ));
+            continue;
+        };
+        let canonical_hash_hex = hex_string(&details.canonical_event_hash);
+        let Some(certificate) = details.certificate.as_ref() else {
+            continue;
+        };
+
+        let Some((binding, _binding_payload_hash)) =
+            binding_by_attachment_id.get(&certificate.presentation_artifact.attachment_id)
+        else {
+            outcome.attachment_resolved = false;
+            outcome
+                .failures
+                .push("presentation_artifact_attachment_missing".into());
+            report.event_failures.push(VerificationFailure::new(
+                "presentation_artifact_attachment_missing",
+                canonical_hash_hex,
+            ));
+            continue;
+        };
+
+        // Resolve attachment bytes via `payload_blobs` keyed on
+        // `binding.payload_content_hash` (the content_hash of the binding
+        // event's payload, which is the ADR 0072 mechanism for naming the
+        // ciphertext member in `060-payloads/<digest>.bin`).
+        let Some(attachment_bytes) = payload_blobs.get(&binding.payload_content_hash) else {
+            outcome.attachment_resolved = false;
+            outcome
+                .failures
+                .push("presentation_artifact_attachment_missing".into());
+            report.event_failures.push(VerificationFailure::new(
+                "presentation_artifact_attachment_missing",
+                canonical_hash_hex,
+            ));
+            continue;
+        };
+
+        // Recompute content hash under `trellis-presentation-artifact-v1`
+        // and compare with `presentation_artifact.content_hash`.
+        let recomputed = domain_separated_sha256(PRESENTATION_ARTIFACT_DOMAIN, attachment_bytes);
+        if recomputed != certificate.presentation_artifact.content_hash {
+            outcome.attachment_resolved = false;
+            outcome
+                .failures
+                .push("presentation_artifact_content_mismatch".into());
+            report.event_failures.push(VerificationFailure::new(
+                "presentation_artifact_content_mismatch",
+                canonical_hash_hex,
             ));
         }
     }
@@ -5802,6 +6819,561 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].post_erasure_uses, 0);
         assert_eq!(outcomes[0].post_erasure_wraps, 0);
+    }
+
+    // ------------------------------------------------------------------
+    // ADR 0007 certificate-of-completion unit tests (Step 2).
+    //
+    // These exercise the internal decode + finalize + manifest-extension
+    // helpers directly, mirroring the ADR 0005 test layout above. Fixture
+    // coverage for the wire-corpus paths lands in the ADR 0007 execution
+    // train under fixtures/vectors/append/028..030, tamper/020..026, and
+    // export/010 in subsequent commits.
+    // ------------------------------------------------------------------
+
+    fn certificate_attestation(class: &str) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("authority".into()),
+                Value::Text(format!("urn:trellis:authority:test-{class}")),
+            ),
+            (
+                Value::Text("authority_class".into()),
+                Value::Text(class.into()),
+            ),
+            (
+                Value::Text("signature".into()),
+                Value::Bytes(vec![0u8; 64]),
+            ),
+        ])
+    }
+
+    fn presentation_artifact_value(
+        media_type: &str,
+        attachment_id: &str,
+        template_hash: Option<Value>,
+    ) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("content_hash".into()),
+                Value::Bytes(vec![0xCAu8; 32]),
+            ),
+            (
+                Value::Text("media_type".into()),
+                Value::Text(media_type.into()),
+            ),
+            (Value::Text("byte_length".into()), Value::Integer(1024u64.into())),
+            (
+                Value::Text("attachment_id".into()),
+                Value::Text(attachment_id.into()),
+            ),
+            (Value::Text("template_id".into()), Value::Null),
+            (
+                Value::Text("template_hash".into()),
+                template_hash.unwrap_or(Value::Null),
+            ),
+        ])
+    }
+
+    fn signer_display_value(principal_ref: &str, signed_at: u64) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("principal_ref".into()),
+                Value::Text(principal_ref.into()),
+            ),
+            (
+                Value::Text("display_name".into()),
+                Value::Text("Test Signer".into()),
+            ),
+            (Value::Text("display_role".into()), Value::Null),
+            (Value::Text("signed_at".into()), Value::Integer(signed_at.into())),
+        ])
+    }
+
+    fn chain_summary_value(
+        signer_count: u64,
+        signer_displays: Vec<Value>,
+        response_ref: Value,
+        workflow_status: &str,
+    ) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("signer_count".into()),
+                Value::Integer(signer_count.into()),
+            ),
+            (
+                Value::Text("signer_display".into()),
+                Value::Array(signer_displays),
+            ),
+            (Value::Text("response_ref".into()), response_ref),
+            (
+                Value::Text("workflow_status".into()),
+                Value::Text(workflow_status.into()),
+            ),
+            (Value::Text("impact_level".into()), Value::Null),
+            (Value::Text("covered_claims".into()), Value::Array(vec![])),
+        ])
+    }
+
+    fn certificate_extension(
+        signing_event_digests: Vec<[u8; 32]>,
+        signer_count: u64,
+        signer_displays: Vec<Value>,
+        media_type: &str,
+        template_hash: Option<Value>,
+        response_ref: Value,
+    ) -> Vec<(Value, Value)> {
+        let signing_events = signing_event_digests
+            .into_iter()
+            .map(|d| Value::Bytes(d.to_vec()))
+            .collect::<Vec<_>>();
+        vec![(
+            Value::Text("trellis.certificate-of-completion.v1".into()),
+            Value::Map(vec![
+                (
+                    Value::Text("certificate_id".into()),
+                    Value::Text("urn:trellis:cert:test:1".into()),
+                ),
+                (Value::Text("case_ref".into()), Value::Null),
+                (
+                    Value::Text("completed_at".into()),
+                    Value::Integer(1_745_100_000u64.into()),
+                ),
+                (
+                    Value::Text("presentation_artifact".into()),
+                    presentation_artifact_value(media_type, "att-1", template_hash),
+                ),
+                (
+                    Value::Text("chain_summary".into()),
+                    chain_summary_value(
+                        signer_count,
+                        signer_displays,
+                        response_ref,
+                        "completed",
+                    ),
+                ),
+                (
+                    Value::Text("signing_events".into()),
+                    Value::Array(signing_events),
+                ),
+                (Value::Text("workflow_ref".into()), Value::Null),
+                (
+                    Value::Text("attestations".into()),
+                    Value::Array(vec![certificate_attestation("new")]),
+                ),
+                (Value::Text("extensions".into()), Value::Null),
+            ]),
+        )]
+    }
+
+    #[test]
+    fn decode_certificate_step1_minimum_valid_payload_decodes() {
+        let signing_event = [0xAAu8; 32];
+        let extensions = certificate_extension(
+            vec![signing_event],
+            1,
+            vec![signer_display_value(
+                "urn:trellis:principal:applicant",
+                1_745_099_000,
+            )],
+            "application/pdf",
+            None,
+            Value::Null,
+        );
+        let details = super::decode_certificate_payload(&extensions)
+            .unwrap()
+            .expect("certificate extension must decode");
+        assert_eq!(details.certificate_id, "urn:trellis:cert:test:1");
+        assert_eq!(details.completed_at, 1_745_100_000);
+        assert_eq!(details.chain_summary.signer_count, 1);
+        assert_eq!(details.signing_events.len(), 1);
+        assert_eq!(details.signing_events[0], signing_event);
+        assert!(details.attestation_signatures_well_formed);
+    }
+
+    #[test]
+    fn decode_certificate_step1_returns_none_when_extension_absent() {
+        let extensions: Vec<(Value, Value)> = vec![(
+            Value::Text("trellis.custody-model-transition.v1".into()),
+            Value::Map(vec![]),
+        )];
+        let result = super::decode_certificate_payload(&extensions).unwrap();
+        assert!(result.is_none(), "no certificate ext → None");
+    }
+
+    #[test]
+    fn decode_certificate_rejects_signer_count_signing_events_mismatch() {
+        // ADR 0007 §"Verifier obligations" step 2 first invariant:
+        // signer_count MUST equal len(signing_events). Mismatch surfaces
+        // with kind `certificate_chain_summary_mismatch`.
+        let signing_event = [0xBBu8; 32];
+        let extensions = certificate_extension(
+            vec![signing_event], // len = 1
+            2,                   // claimed = 2
+            vec![signer_display_value(
+                "urn:trellis:principal:applicant",
+                1_745_099_000,
+            )],
+            "application/pdf",
+            None,
+            Value::Null,
+        );
+        let err = super::decode_certificate_payload(&extensions).unwrap_err();
+        assert_eq!(err.kind(), Some("certificate_chain_summary_mismatch"));
+    }
+
+    #[test]
+    fn decode_certificate_rejects_signer_display_signing_events_mismatch() {
+        // ADR 0007 §"Verifier obligations" step 2 second invariant:
+        // len(signer_display) MUST equal len(signing_events).
+        let signing_event = [0xCCu8; 32];
+        let extensions = certificate_extension(
+            vec![signing_event],
+            1,
+            vec![
+                signer_display_value("urn:trellis:principal:a", 1_745_099_000),
+                signer_display_value("urn:trellis:principal:b", 1_745_099_001),
+            ],
+            "application/pdf",
+            None,
+            Value::Null,
+        );
+        let err = super::decode_certificate_payload(&extensions).unwrap_err();
+        assert_eq!(err.kind(), Some("certificate_chain_summary_mismatch"));
+    }
+
+    #[test]
+    fn decode_certificate_rejects_html_with_null_template_hash() {
+        // ADR 0007 §"Wire shape" PresentationArtifact.template_hash:
+        // media_type=text/html requires non-null template_hash. §19.1 has no
+        // dedicated tamper_kind; surface as `malformed_cose` (CDDL-shape).
+        let signing_event = [0xDDu8; 32];
+        let extensions = certificate_extension(
+            vec![signing_event],
+            1,
+            vec![signer_display_value(
+                "urn:trellis:principal:applicant",
+                1_745_099_000,
+            )],
+            "text/html",
+            None, // template_hash null
+            Value::Null,
+        );
+        let err = super::decode_certificate_payload(&extensions).unwrap_err();
+        assert_eq!(err.kind(), Some("malformed_cose"));
+        assert!(err.to_string().contains("template_hash"));
+    }
+
+    #[test]
+    fn decode_certificate_accepts_html_with_template_hash() {
+        let signing_event = [0xEEu8; 32];
+        let extensions = certificate_extension(
+            vec![signing_event],
+            1,
+            vec![signer_display_value(
+                "urn:trellis:principal:applicant",
+                1_745_099_000,
+            )],
+            "text/html",
+            Some(Value::Bytes(vec![0xABu8; 32])),
+            Value::Null,
+        );
+        let details = super::decode_certificate_payload(&extensions)
+            .unwrap()
+            .unwrap();
+        assert!(details.presentation_artifact.template_hash.is_some());
+    }
+
+    #[test]
+    fn decode_certificate_rejects_empty_signing_events() {
+        // ADR 0007 §"Wire shape" `signing_events: [+ digest]` — non-empty
+        // required. The CDDL also marks `signer_display: [+ ...]`; the
+        // decoder catches the signer_display arity first because the
+        // chain-summary nested map decodes before the top-level
+        // signing_events array. Either way, an empty signing-events
+        // payload is rejected with a recognizable error.
+        let signing_event = [0x99u8; 32];
+        // Build an extension with one signer_display row (so we get past
+        // the signer_display empty check) and an empty signing_events
+        // array — exercises only the signing_events arity guard.
+        let mut extensions = certificate_extension(
+            vec![signing_event],
+            0,
+            vec![signer_display_value("urn:trellis:principal:a", 1)],
+            "application/pdf",
+            None,
+            Value::Null,
+        );
+        let inner_map = extensions[0].1.as_map_mut().unwrap();
+        for (key, value) in inner_map.iter_mut() {
+            if key.as_text() == Some("signing_events") {
+                *value = Value::Array(vec![]);
+            }
+        }
+        let err = super::decode_certificate_payload(&extensions).unwrap_err();
+        assert!(err.to_string().contains("signing_events"), "{err}");
+    }
+
+    #[test]
+    fn decode_certificate_rejects_empty_attestations() {
+        // Reuse the certificate_extension helper but mutate the
+        // attestations array to empty after construction.
+        let signing_event = [0xF0u8; 32];
+        let mut extensions = certificate_extension(
+            vec![signing_event],
+            1,
+            vec![signer_display_value(
+                "urn:trellis:principal:applicant",
+                1_745_099_000,
+            )],
+            "application/pdf",
+            None,
+            Value::Null,
+        );
+        // Drill into the certificate map's `attestations` array and empty it.
+        let inner_map = extensions[0].1.as_map_mut().unwrap();
+        for (key, value) in inner_map.iter_mut() {
+            if key.as_text() == Some("attestations") {
+                *value = Value::Array(vec![]);
+            }
+        }
+        let err = super::decode_certificate_payload(&extensions).unwrap_err();
+        assert!(err.to_string().contains("attestations"), "{err}");
+    }
+
+    #[test]
+    fn parse_certificate_export_extension_round_trip() {
+        // Build a minimum-valid manifest map carrying the optional
+        // `trellis.export.certificates-of-completion.v1` extension.
+        let catalog_digest = [0x12u8; 32];
+        let extension_value = Value::Map(vec![
+            (
+                Value::Text("catalog_ref".into()),
+                Value::Text("065-certificates-of-completion.cbor".into()),
+            ),
+            (
+                Value::Text("catalog_digest".into()),
+                Value::Bytes(catalog_digest.to_vec()),
+            ),
+            (
+                Value::Text("entry_count".into()),
+                Value::Integer(3u64.into()),
+            ),
+        ]);
+        let manifest_map = vec![(
+            Value::Text("extensions".into()),
+            Value::Map(vec![(
+                Value::Text("trellis.export.certificates-of-completion.v1".into()),
+                extension_value,
+            )]),
+        )];
+        let extension = super::parse_certificate_export_extension(&manifest_map)
+            .unwrap()
+            .expect("extension must round-trip");
+        assert_eq!(extension.catalog_ref, "065-certificates-of-completion.cbor");
+        assert_eq!(extension.catalog_digest, catalog_digest);
+        assert_eq!(extension.entry_count, 3);
+    }
+
+    #[test]
+    fn parse_certificate_export_extension_returns_none_when_absent() {
+        let manifest_map: Vec<(Value, Value)> = vec![];
+        let extension = super::parse_certificate_export_extension(&manifest_map).unwrap();
+        assert!(extension.is_none());
+    }
+
+    fn certificate_details_for_test(
+        certificate_id: &str,
+        signing_events: Vec<[u8; 32]>,
+        signer_count: u64,
+    ) -> super::CertificateDetails {
+        let signer_displays = signing_events
+            .iter()
+            .enumerate()
+            .map(|(i, _)| super::SignerDisplayDetails {
+                principal_ref: format!("urn:trellis:principal:test-{i}"),
+                display_name: "Test".to_string(),
+                display_role: None,
+                signed_at: 1_745_099_000 + i as u64,
+            })
+            .collect();
+        super::CertificateDetails {
+            certificate_id: certificate_id.to_string(),
+            case_ref: None,
+            completed_at: 1_745_100_000,
+            presentation_artifact: super::PresentationArtifactDetails {
+                content_hash: [0u8; 32],
+                media_type: "application/pdf".to_string(),
+                byte_length: 1024,
+                attachment_id: format!("att-{certificate_id}"),
+                template_id: None,
+                template_hash: None,
+            },
+            chain_summary: super::ChainSummaryDetails {
+                signer_count,
+                signer_display: signer_displays,
+                response_ref: None,
+                workflow_status: "completed".to_string(),
+                impact_level: None,
+                covered_claims: Vec::new(),
+            },
+            signing_events,
+            workflow_ref: None,
+            attestation_signatures_well_formed: true,
+        }
+    }
+
+    #[test]
+    fn finalize_certificates_accumulates_outcome_per_event() {
+        // ADR 0007 §"Verifier obligations" step 8: every certificate event
+        // contributes one outcome to `report.certificates_of_completion`.
+        // Genesis-context (events slice empty) → step 4 stays
+        // `attachment_resolved = true`; steps 5/6/7 don't fire because the
+        // signing-event digests don't resolve in an empty slice (recorded
+        // as `signing_event_unresolved` per step 5).
+        let signing_event = [0x55u8; 32];
+        let payload = certificate_details_for_test("cert-1", vec![signing_event], 1);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &[],
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].certificate_id, "cert-1");
+        assert_eq!(outcomes[0].signer_count, 1);
+        assert_eq!(outcomes[0].completed_at, 1_745_100_000);
+        // Empty events slice → unresolvable signing event → step 5 flags.
+        assert!(!outcomes[0].all_signing_events_resolved);
+        assert!(
+            outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "signing_event_unresolved")
+        );
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "signing_event_unresolved")
+        );
+    }
+
+    #[test]
+    fn finalize_certificates_flags_id_collision_for_disagreeing_payloads() {
+        // ADR 0007 §"Verifier obligations" step 2 second sub-clause:
+        // duplicate certificate_id with disagreeing canonical payload →
+        // `certificate_id_collision`.
+        let signing_event_a = [0x60u8; 32];
+        let signing_event_b = [0x61u8; 32];
+        let payload_a = certificate_details_for_test("cert-collision", vec![signing_event_a], 1);
+        // Same id, different signing_events digest → collision.
+        let payload_b = certificate_details_for_test("cert-collision", vec![signing_event_b], 1);
+        let hash_a = [0u8; 32];
+        let hash_b = [1u8; 32];
+        let payloads = vec![(0usize, payload_a, hash_a), (1usize, payload_b, hash_b)];
+
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &[],
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 2);
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "certificate_id_collision"),
+            "step 2 second sub-clause: duplicate certificate_id with disagreeing payload",
+        );
+    }
+
+    #[test]
+    fn finalize_certificates_no_id_collision_when_payloads_agree() {
+        // Two identical payloads under the same id → first-seen wins, no
+        // collision flagged.
+        let signing_event = [0x70u8; 32];
+        let payload_a = certificate_details_for_test("cert-twin", vec![signing_event], 1);
+        let payload_b = certificate_details_for_test("cert-twin", vec![signing_event], 1);
+        let hash_a = [0u8; 32];
+        let hash_b = [1u8; 32];
+        let payloads = vec![(0usize, payload_a, hash_a), (1usize, payload_b, hash_b)];
+
+        let mut event_failures = Vec::new();
+        let _outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &[],
+            &mut event_failures,
+        );
+        assert!(
+            !event_failures
+                .iter()
+                .any(|f| f.kind == "certificate_id_collision")
+        );
+    }
+
+    #[test]
+    fn finalize_certificates_flags_attestation_when_signature_malformed() {
+        // ADR 0007 §"Verifier obligations" step 3 (Phase-1 structural):
+        // attestation row with malformed signature flips
+        // `chain_summary_consistent = false` and emits
+        // `attestation_insufficient`.
+        let signing_event = [0x80u8; 32];
+        let mut payload = certificate_details_for_test("cert-bad-att", vec![signing_event], 1);
+        payload.attestation_signatures_well_formed = false;
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &[],
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].chain_summary_consistent);
+        assert!(
+            outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "attestation_insufficient")
+        );
+        assert!(
+            event_failures
+                .iter()
+                .any(|f| f.kind == "attestation_insufficient")
+        );
+    }
+
+    #[test]
+    fn finalize_certificates_genesis_path_marks_attachment_resolved_true() {
+        // Phase-1 minimal-genesis posture: the genesis-append code paths
+        // (verify_single_event / verify_tampered_ledger) lack chain
+        // visibility for attachment lineage. Step 4 defers to the
+        // export-bundle path, so the genesis-path outcome must NOT
+        // false-positive on `attachment_resolved`.
+        let signing_event = [0x90u8; 32];
+        let payload = certificate_details_for_test("cert-genesis", vec![signing_event], 1);
+        let canonical_hash = [0u8; 32];
+        let payloads = vec![(0usize, payload, canonical_hash)];
+
+        let mut event_failures = Vec::new();
+        let outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &[],
+            &mut event_failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(outcomes[0].attachment_resolved);
+        assert!(
+            !outcomes[0]
+                .failures
+                .iter()
+                .any(|f| f == "presentation_artifact_attachment_missing"),
+            "Phase-1 genesis path must not emit attachment-missing failures",
+        );
     }
 
 }
