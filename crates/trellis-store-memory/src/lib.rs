@@ -65,9 +65,19 @@ impl<'a> MemoryTransaction<'a> {
     }
 
     /// Commits buffered events to the underlying store.
-    pub fn commit(mut self) {
+    ///
+    /// Returns `Result<(), Infallible>` for parity with
+    /// `postgres::Transaction::commit() -> Result<(), postgres::Error>`:
+    /// cross-store generic test bodies can share `tx.commit()?` across both
+    /// adapters. The `Infallible` arm encodes statically that this in-memory
+    /// path cannot fail; callers can `.unwrap()` or `?`-chain identically.
+    ///
+    /// # Errors
+    /// Never fails. The `Result` shape is for parity only.
+    pub fn commit(mut self) -> Result<(), Infallible> {
         self.store.events.extend(std::mem::take(&mut self.buffered));
         self.committed = true;
+        Ok(())
     }
 }
 
@@ -200,7 +210,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tx.buffered_len(), 1);
-        tx.commit();
+        tx.commit().unwrap();
         assert_eq!(store.events().len(), 1);
     }
 
@@ -218,6 +228,29 @@ mod tests {
             // Drop without commit — events MUST NOT land.
         }
         assert!(store.events().is_empty(), "uncommitted tx leaked events");
+    }
+
+    /// Pins the parity rationale for the `Result<(), Infallible>` return:
+    /// a generic test body can `?`-chain `tx.commit()` and the shape works
+    /// against both this adapter and `trellis-store-postgres` whose
+    /// `Transaction::commit` returns `Result<(), postgres::Error>`.
+    #[test]
+    fn commit_supports_question_mark_chaining() {
+        fn drive(store: &mut MemoryStore) -> Result<(), Infallible> {
+            let mut tx = store.begin();
+            append_event_in_tx(
+                &mut tx,
+                &StoredEvent::new(b"scope".to_vec(), 0, vec![0x01], vec![0x02]),
+                None,
+            )
+            .unwrap();
+            tx.commit()?;
+            Ok(())
+        }
+
+        let mut store = MemoryStore::new();
+        drive(&mut store).unwrap();
+        assert_eq!(store.events().len(), 1);
     }
 
     #[test]
