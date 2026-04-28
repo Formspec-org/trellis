@@ -1,0 +1,25 @@
+id          = "tamper/017-erasure-post-use"
+op          = "tamper"
+status      = "active"
+description = """ADR 0005 step-8 chain-walk tamper: `trellis.erasure-evidence.v1` declares the issuer signing `kid` destroyed (`key_class = signing`), then a later event is signed under that same kid with `authored_at > destroyed_at`. Well-formed COSE; semantic failure is `post_erasure_use` with `integrity_verified = false`. Generator: `_generator/gen_tamper_017_to_018.py`."""
+
+[coverage]
+tr_core = ["TR-CORE-018", "TR-CORE-030", "TR-CORE-035"]
+tr_op = ["TR-OP-107"]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "post_erasure_use"
+failing_event_id     = "fde5712aa169c6689d97628c2435e4229d828c5a31ca577cf2c12f3635052ee8"
+
+idempotency_key = "tamper-erasure-post-use-017"
+
+[derivation]
+document = "derivation.md"

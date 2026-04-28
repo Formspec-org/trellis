@@ -1,0 +1,19 @@
+id          = "tamper/019-erasure-catalog-digest-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Mutates `064-erasure-evidence.cbor` after manifest signing so `trellis.export.erasure-evidence.v1.catalog_digest` fails (ADR 0005 export catalog pattern)."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "erasure_evidence_catalog_digest_mismatch"
+
+[derivation]
+document = "derivation.md"

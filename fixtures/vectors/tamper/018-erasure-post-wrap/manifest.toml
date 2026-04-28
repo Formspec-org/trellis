@@ -1,0 +1,25 @@
+id          = "tamper/018-erasure-post-wrap"
+op          = "tamper"
+status      = "active"
+description = """ADR 0005 step-8 tamper: erasure declares an opaque subject `kid_destroyed` destroyed, then a later event carries `key_bag.entries[*].recipient` equal to that kid with `authored_at > destroyed_at`. Triggers `post_erasure_wrap`. Generator: `_generator/gen_tamper_017_to_018.py`."""
+
+[coverage]
+tr_core = ["TR-CORE-018", "TR-CORE-030", "TR-CORE-035"]
+tr_op = ["TR-OP-107"]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "post_erasure_wrap"
+failing_event_id     = "fbf9d93dddf1c62e40e0d5538f4a41256dfa1e83f62f534b8c41b930f8bca0f9"
+
+idempotency_key = "tamper-erasure-post-wrap-018"
+
+[derivation]
+document = "derivation.md"
