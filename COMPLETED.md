@@ -18,6 +18,111 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 18 (2026-04-27) — Crypto-erasure evidence Stage 1 spec deltas (item #3 partial)
+
+Lands the spec-side foundation of ADR 0005 (cryptographic-erasure
+evidence) into the ratified Phase-1 surface. Stages 2-5 (Rust verifier,
+Python parity, vectors, CLI, §27 tests) remain open under item #3 —
+this is an intentional partial closure per the Wave 18 scout-strategy
+directive (M-L scope, sibling-coordination chaos, foundation-first
+landing pattern).
+
+- **Item #3 Stage 1 — Companion §20.6 + Core §6.7 + Core §6.9 + Core
+  §19 step 6b + Core §19.1 enum + matrix rows.** Single commit
+  `9b3d3e4` lands:
+  - **Companion §20.6** retitled "Documentation and Evidence";
+    OC-78 promoted from conditional to "every cryptographic erasure MUST
+    be accompanied by a canonical `trellis.erasure-evidence.v1` event";
+    §20.6.1 promoted from "ReasonCode Reservation" to "ReasonCode Table"
+    (codes 1-5 + 255 landed); §20.6.2 cites ADR 0005 §"Wire shape" as
+    byte-authoritative for the `ErasureEvidencePayload` CDDL plus reuses
+    the §A.5 `Attestation` rule under
+    `trellis-transition-attestation-v1`; §20.6.3 carries six new MUSTs +
+    one SHOULD: OC-141 (`cascade_scopes` registry), OC-142 (post-erasure
+    sign/wrap forbidden — Phase-1 scope `signing` + `subject` per ADR
+    0005 step-8 bound), OC-143 (SHOULD dual attestation for
+    `reason_code ∈ {3, 5}` or `subject_scope.kind ∈ {per-tenant,
+    deployment-wide}`), OC-144 (`destroyed_at` ≤ host event
+    `authored_at`), OC-145 (single `destroyed_at` per `kid_destroyed`),
+    OC-146 (`key_class` registry-bind under ADR 0006 `KeyEntry`;
+    `wrap`→`subject` normalization reused from Wave 17).
+
+  - **Core §6.7** registers `trellis.erasure-evidence.v1` in the
+    `EventPayload.extensions` table (Phase 1, reject-if-unknown-at-version).
+  - **Core §6.9** retargets the Erasure-Evidence row from
+    "ADR 0005 §Reason codes (Companion §20 once promoted)" to
+    "Companion §20.6.1 (mirrored in ADR 0005)".
+  - **Core §19** new step 6b enumerates the 10-step erasure-evidence
+    verifier checklist verbatim (anchored on ADR 0005 §"Verifier
+    obligations" as byte-authoritative); Phase-1 chain-walk scope (step
+    8) is `norm_key_class ∈ {"signing", "subject"}`; other classes
+    co-land with ADR 0006 follow-ons. Optional manifest catalog
+    pattern (`trellis.export.erasure-evidence.v1` binding
+    `064-erasure-evidence.cbor`) mirrors the §6.7 catalog discipline.
+  - **Core §19.1 `tamper_kind` enum** appended with seven
+    erasure-evidence rows (`erasure_key_class_registry_mismatch`,
+    `erasure_key_class_payload_conflict`,
+    `erasure_destroyed_at_after_host`, `erasure_destroyed_at_conflict`,
+    `post_erasure_use`, `post_erasure_wrap`,
+    `erasure_evidence_catalog_digest_mismatch`). Mirrored in
+    `scripts/check-specs.py` `TAMPER_KIND_ENUM`. Per §19.1's existing
+    rule the enum is allowed to be a superset of the tamper corpus, so
+    reserving these without immediate fixtures is conformant — corpus
+    lands with Stage 4.
+  - **Matrix §2.11**: TR-OP-104 retargeted (table now in Companion
+    §20.6.1, not "reserved"); seven new rows TR-OP-105..109 +
+    TR-OP-113 + TR-OP-114 bind each Companion OC-141..146 + the
+    §20.6.2 schema-conformance rule. All rows carry
+    `Verification = prose` (or `declaration-doc-check` for the
+    SHOULD-grade OC-143) until the corpus + Rust verifier land — Notes
+    column flags the test-vector promotion path. ULCOMP-R-159..168
+    legacy mapping row updated to include the new TR-OP rows.
+
+- **TDD discipline note.** Stage 1 is spec-only; the §19 step 6b
+  10-step checklist is normative prose backed by ADR 0005's existing
+  byte-authoritative §"Verifier obligations". The `tamper_kind` enum
+  values are pre-declared (allowed by R13 corpus-subset rule) so that
+  Stage 4 vectors can reference them without further enum amendments
+  in the same change train. Lint (`scripts/check-specs.py`) and pytest
+  (`scripts/test_check_specs.py`) both clean post-commit.
+
+- **Stages 2-5 escalated as open work in item #3.** Detailed sub-bullet
+  list lives under [`TODO.md`](TODO.md) item #3 with explicit handles
+  for: Rust verifier 10-step checklist (`crates/trellis-core/` +
+  `crates/trellis-verify/`), Python parity (`trellis-py/`), nine
+  fixture vectors (`append/023..027` + `tamper/017..019` +
+  `export/009-erasure-evidence-inline` + manifest catalog
+  `064-erasure-evidence.cbor`), CLI (`trellis-cli erase-key`),
+  Companion §27.3 / §27.7 test extensions, and the matrix-row
+  promotion lockstep. **Numbering note (escalated):** the existing
+  `export/009-intake-handoffs-public-create-empty-outputs` occupies
+  vector slot `export/009`; Stage 4 renumbers the intake-handoff
+  vector forward or selects the next free slot, gated by the
+  pre-merge renumbering guard.
+
+- **Sibling-coordination friction.** Wave 18 ran six scouts in
+  parallel, three of which (items #29, #30, #34) shared
+  `specs/trellis-operational-companion.md` and
+  `specs/trellis-requirements-matrix.md` with this item. The race
+  protocol (commit logical chunks; rebase before push) held — Stage
+  1's commit landed without conflict despite repeated index-wipe
+  events from concurrent commits. Stages 2-5 should land in a quieter
+  wave or with explicit serialization to avoid recurring the
+  pattern.
+
+Verification (Stage 1 only):
+
+- `python3 scripts/check-specs.py` clean (heading-label discipline +
+  TR-OP-* coverage + R13 tamper-kind corpus-subset all green).
+- `python3 -m pytest scripts/test_check_specs.py -q` clean (155).
+- `cargo check --workspace` clean.
+- `cd trellis-py && python3 -m pytest -q` clean (4).
+
+NEEDS_CONTEXT: none for Stage 1; Stages 2-5 carry the explicit handles
+under item #3 with no architectural ambiguity. The primary cost is
+mechanical breadth (generators × 9 vectors + parallel runtimes) rather
+than design uncertainty.
+
 ### Wave 18 (2026-04-27) — `trellis-store-postgres` review follow-ups (item #32)
 
 Closes item #32 from the post-Wave-17 TODO. Lands the three
@@ -205,6 +310,70 @@ Verification: `cargo test --workspace` clean (0 failures across all
 crates); `python3 scripts/test_check_specs.py` clean (155 prior + 12
 new = 167 covered); `python3 scripts/check-specs.py` clean
 (`Trellis spec checks passed.`).
+
+NEEDS_CONTEXT: none.
+
+### Wave 18 (2026-04-27) — Companion §A.5.2 reason-code renumber (Wave 15 BLOCKER, item #29)
+
+Reconciles the Wave 15 BLOCKER where Companion §A.5.2 seeded
+`code 4 = audience-scope-change` but four committed disclosure-profile
+fixture artifacts (`append/008-disclosure-profile-transition-a-to-b`,
+`tamper/016-disclosure-profile-from-mismatch`, plus their two generators)
+emit `reason_code = 4` annotated `governance-policy-change`. Per the
+seed's own kill-criterion ("freezes at first runtime use") and the
+no-runtime-users state, owner picked path (a): renumber A.5.2 to mirror
+A.5.1, fixtures byte-stable, prose locks. Co-lands with sibling-scout
+#34's R19 corpus-vs-table parity lint above (sibling-#34 entry's
+`Trellis spec checks passed.` referenced this entry's pre-state via
+"two pre-existing sibling-scout #34 failures gate on item #29" — this
+entry closes that gate).
+
+- **§A.5.2 renumbered to mirror A.5.1.** New table:
+  `1 = initial-deployment-correction` (= A.5.1),
+  `2 = audience-scope-change` (disclosure-only — A.5.1 code 2 is
+  custody-only),
+  `3 = disclosure-policy-realignment` (disclosure-only — A.5.1 code 3 is
+  custody-only),
+  `4 = governance-policy-change` (= A.5.1; matches the four fixtures),
+  `5 = legal-order-compelling-transition` (= A.5.1),
+  `255 = Other` (cross-family invariant, Core §6.9). Codes whose meaning
+  is shared across families now share their numeric value (1, 4, 5);
+  disclosure-only codes (2, 3) fill A.5.1's custody-specific slots so
+  cross-family numeric collisions never carry a meaning-equivalent
+  reinterpretation.
+
+- **Pin note added.** §A.5.2 trailing paragraph closes with: "this seed
+  table locks at first runtime use per Core §6 (Event Format) §6.9
+  ReasonCode Registry governance — once a Phase-1 producer emits a
+  registered code on the wire, the (code, meaning) binding is
+  append-only; renumbering after first runtime use is a wire break."
+  Future seeders cannot reuse the "still pre-runtime" loophole.
+
+- **Fixture corpus byte-stable.** No fixture or generator was edited.
+  The four annotated artifacts already emitted `reason_code = 4`
+  annotated `governance-policy-change`; the renumbered table now agrees.
+  `append/008` and `tamper/016` byte hashes unchanged.
+
+- **TDD evidence — sibling #34's R19 parity lint transitions RED→GREEN.**
+  Sibling-scout #34 (Wave 18 parity-lint, entry above) authored R19
+  expecting it to fail at HEAD until this BLOCKER lands. Pre-renumber:
+  R19 fired on the four §A.5.2 disclosure-profile artifacts (the two
+  failures sibling #30 noted as out-of-scope and sibling #34's own
+  Verification block recorded). Post-renumber (this commit): R19
+  passes (`scripts/check-specs.py` exit 0, "Trellis spec checks
+  passed.") Canonical Red-Green-Refactor: parity oracle and spec
+  reconciliation land as one wave.
+
+- **Matrix discipline.** TR-OP-046 prose names neither specific codes
+  nor specific (code, meaning) pairs — it is a meta-rule about
+  per-family registry mechanics under Core §6.9. No matrix update
+  required.
+
+Verification: `cargo test --workspace` clean (0 failures);
+`cd trellis-py && python3 -m pytest -q` clean (4);
+`python3 -m trellis_py.conformance` clean (71 vectors, 0 failures);
+`python3 -m unittest scripts.test_check_specs` clean (155);
+`python3 scripts/check-specs.py` clean (`Trellis spec checks passed.`).
 
 NEEDS_CONTEXT: none.
 

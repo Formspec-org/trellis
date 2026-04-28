@@ -492,14 +492,18 @@ consume amended responses once those stacks land.
     TR-CORE-049 demoted to `Verification = prose` per ADR 0006
     *Fixture plan* (unknown-`kind` corner deferred to follow-on row).
 
-34. **Reason-code parity lint** — **XS**.
-    *From Wave 15 review F1 follow-up.* Wave 15's `tamper_kind` enum
-    has a corpus-vs-table parity test (`test_enum_matches_corpus`) that
-    fires when the enum drifts from the corpus. ReasonCode tables
-    (A.5.1, A.5.2, ADR 0005 erasure-evidence) have no equivalent —
-    item #30's drift would have fired statically. Add a corpus-vs-table
-    parity lint per ReasonCode family. XS once item #30 lands the
-    table-side reconciliation.
+34. ~~**Reason-code parity lint**~~ — **CLOSED Wave 18, 2026-04-27.**
+    `scripts/check-specs.py` rule R19 (`check_reason_code_corpus_parity`)
+    walks every `derivation.md` under `fixtures/vectors/` and every
+    `gen_*.py` generator, parses Companion §A.5.1 / §A.5.2 / ADR 0005
+    reason-code tables as source of truth, and rejects any
+    `(family, code, annotated-name)` triple that disagrees with the
+    table. Mirrors Wave 15's R13 `tamper_kind` parity discipline.
+    Anchored at TR-CORE-069 (Core §6.9 ReasonCode Registry). 12 unit
+    tests cover positive, drift, unregistered-code, family-ambiguous,
+    cross-family integer-collision, body-prose form, generator-comment
+    form, code-255-Other-floor, and live-corpus parity. Co-lands with
+    sibling item #29's §A.5.2 table reconciliation.
 
 35. **Stack-level security disclosure policy** — **S**, stack-coordination.
     *Coordinates parent **PLN-0308**.* Trellis is in the security
