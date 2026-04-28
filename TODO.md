@@ -418,18 +418,22 @@ consume amended responses once those stacks land.
       cross-check; cross-stack three-way agreement (WOS spec + Trellis
       verifier + reference adapter).
 
-29. **Wave 15 BLOCKER — Companion §A.5.2 reason-code corpus reconciliation** — **XS**.
-    *From Wave 15 review (2026-04-27).* Companion §A.5.2 seeded
-    `code 4 = audience-scope-change`, but committed disclosure-profile
-    fixtures (`append/008-disclosure-profile-transition-a-to-b/derivation.md:50`,
-    `tamper/016-disclosure-profile-from-mismatch/derivation.md:55`, both
-    generators) emit `reason_code=4` annotated as `governance-policy-change`
-    (which the new table puts at code 2). Spec ↔ fixture prose disagree
-    at HEAD. Owner picks: (a) renumber A.5.2 to mirror A.5.1 and reshuffle
-    codes 2/4 — fixtures unchanged, prose locks at first runtime use per
-    the seed's own kill-criterion; (b) update four fixture annotations +
-    generator comments to `audience-scope-change`. (a) is more honest
-    given Phase-1 SBA PoC pins these. Co-lands with item #35 (parity lint).
+29. ~~**Wave 15 BLOCKER — Companion §A.5.2 reason-code corpus reconciliation**~~ — **CLOSED Wave 18, 2026-04-27.**
+    Path (a) executed: §A.5.2 renumbered to mirror §A.5.1. Code 4 =
+    `governance-policy-change` (matches the four committed disclosure-
+    profile fixture artifacts and A.5.1 code 4); codes 2 / 3 hold the
+    disclosure-only meanings (`audience-scope-change`,
+    `disclosure-policy-realignment`) in A.5.1's custody-specific slots so
+    meaning-equivalent transitions across families share numeric value;
+    `255 = Other` cross-family invariant intact. Trailing paragraph adds
+    a "locks at first runtime use" pin note per Core §6 (Event Format)
+    §6.9 governance discipline. Fixtures byte-stable. Spec renumber
+    landed via sibling-train commit `9b3d3e4`; sibling-scout #34's R19
+    corpus-vs-table parity lint
+    (`scripts/check-specs.py::check_reason_code_corpus_parity`) +
+    `TestReasonCodeCorpusParity::test_real_corpus_parity_via_table_authority`
+    transitioned RED→GREEN as the renumber landed. See
+    [`COMPLETED.md`](COMPLETED.md) Wave 18 §A.5.2 entry.
 
 30. ~~**Wave 15 follow-up — R15 temporal-in-force enforcement**~~ — **CLOSED Wave 18, 2026-04-27.**
     Picked option (a): extended R15 to assert the predecessor's half-open

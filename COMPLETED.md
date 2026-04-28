@@ -377,6 +377,68 @@ Verification: `cargo test --workspace` clean (0 failures);
 
 NEEDS_CONTEXT: none.
 
+### Wave 18 (2026-04-27) — Reason-code parity lint (item #34)
+
+Closes item #34 from the post-Wave-17 TODO. Generalizes Wave 15's R13
+`tamper_kind` corpus-vs-table parity discipline to the three Phase-1
+ReasonCode families: Companion §A.5.1 (Custody-Model Transition),
+Companion §A.5.2 (Disclosure-Profile Transition), and ADR 0005
+§"Reason codes" (Erasure-Evidence; Companion §20.6.1 once promoted).
+Closes the gap that let item #29's Wave-15 BLOCKER drift land
+undetected — every `(family, code, name)` triple in fixture
+derivations and generators now has to agree with its family's
+registered table or the lint fires loud.
+
+- **R19 `check_reason_code_corpus_parity` in `scripts/check-specs.py`.**
+  Parses each table from spec markdown into `{family: {code: name}}`,
+  walks every `derivation.md` under `fixtures/vectors/` and every
+  `gen_*.py` under `fixtures/vectors/_generator/`, detects family
+  by the first canonical marker (`CustodyModelTransitionPayload` /
+  `DisclosureProfileTransitionPayload` / `ErasureEvidencePayload` and
+  their event-type tags), and reports each disagreement with file +
+  family + (annotated, registered) triple. Three annotation forms
+  caught: derivation table-row form, derivation body-prose form,
+  generator comment (`REASON_CODE = <int>  # <name>`).
+
+- **Family-ambiguous diagnostic.** A file annotating reason codes
+  without naming any registered family marker is also rejected — the
+  drift surface Core §6.9 cares about includes "author wrote a code
+  without anchoring which family it belongs to."
+
+- **TDD evidence.** `scripts/test_check_specs.py::TestReasonCodeCorpusParity`
+  adds 12 cases: 3 table-parser smoke tests, 8 synthetic-injection
+  cases (positive aligned, drift, unregistered code, family-ambiguous,
+  body-prose form, generator-comment form, code-255-Other-floor OK +
+  fail, files-without-reason-code-skipped), 1 live-corpus parity
+  (`test_real_corpus_parity_via_table_authority`, mirroring R13's
+  `test_real_corpus_is_clean`). All synthetic tests use stub tables
+  via the `tables=` kwarg so test bodies do not depend on the live
+  corpus state.
+
+- **Matrix discipline.** TR-CORE-069 (Core §6.9 ReasonCode Registry,
+  added Wave 15) Notes column updated to register R19 enforcement and
+  cite the corpus-vs-table parity surface. `Verification = spec-cross-ref`
+  unchanged — the lint is a meta-check across the corpus, not per-vector
+  evidence; per-vector `tr_core` declarations would be a manifest-touch
+  cascade (every transition + erasure fixture). Mirrors the R13 ↔
+  TR-CORE-068 pattern (R13 lint cited in Notes, fixtures carry the
+  TR-OP claims).
+
+- **Sibling-coordination.** Lean-(b) per the brief: waited for
+  item #29's §A.5.2 renumber to land before committing, so R19's
+  `test_real_corpus_parity_via_table_authority` is GREEN at landing
+  rather than a brief CI-red window. The lint detected exactly four
+  drift sites pre-#29 (`append/008/derivation.md`,
+  `tamper/016/derivation.md`, `gen_append_008.py`, `gen_tamper_016.py`);
+  post-#29 the corpus is clean.
+
+Verification: `cargo test --workspace` clean (0 failures across all
+crates); `python3 scripts/test_check_specs.py` clean (155 prior + 12
+new = 167 covered); `python3 scripts/check-specs.py` clean
+(`Trellis spec checks passed.`).
+
+NEEDS_CONTEXT: none.
+
 ### Wave 17 (2026-04-27) — Key-class taxonomy execution (ADR 0006)
 
 Closes item #1 from the post-Wave-15 TODO. Lands the unified `KeyEntry`
