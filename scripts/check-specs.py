@@ -2284,6 +2284,254 @@ def check_verify_report_consistency(
                 )
 
 
+def reason_code_tables(text_companion: str | None = None, text_adr: str | None = None) -> dict[str, dict[int, str]]:
+    """Parse reason-code tables for the three Phase-1 ReasonCode families.
+
+    Returns ``{family: {code: registered_name}}`` keyed by:
+      - ``"custody-model"``         — Companion §A.5.1
+      - ``"disclosure-profile"``    — Companion §A.5.2
+      - ``"erasure-evidence"``      — ADR 0005 §"Reason codes" (Companion §20 once promoted)
+
+    Each table row in spec markdown follows the form::
+
+        | <code>   | `<registered-name>` (...optional gloss...) |
+
+    The parser anchors on the section heading (``A.5.1`` / ``A.5.2`` / the ADR
+    heading ``Reason codes``) and consumes consecutive ``| <int> | ... |`` rows
+    until the table ends.
+
+    The ``text_companion`` / ``text_adr`` kwargs are test hooks — the regular
+    callsite reads from disk via ``SPECS`` / ``REAL_ROOT``.
+    """
+    if text_companion is None:
+        text_companion = read(SPECS / "trellis-operational-companion.md")
+    if text_adr is None:
+        adr_path = REAL_ROOT / "thoughts" / "adr" / "0005-crypto-erasure-evidence.md"
+        text_adr = read(adr_path) if adr_path.exists() else ""
+
+    tables: dict[str, dict[int, str]] = {
+        "custody-model": {},
+        "disclosure-profile": {},
+        "erasure-evidence": {},
+    }
+
+    # Match a single table row of the form:  | <int> | `<name>`(...) |
+    row_re = re.compile(
+        r"^\|\s*(\d+)\s*\|\s*`([a-zA-Z0-9-]+)`",
+        re.MULTILINE,
+    )
+
+    def _parse_table_after(text: str, heading_re: re.Pattern[str], family: str) -> None:
+        m = heading_re.search(text)
+        if not m:
+            return
+        # Limit row scan to the section between this heading and the next ``###``
+        # / ``##`` heading or end of text — prevents matching unrelated tables.
+        end_re = re.compile(r"^#{1,3}\s", re.MULTILINE)
+        end_match = end_re.search(text, m.end())
+        slice_end = end_match.start() if end_match else len(text)
+        section = text[m.end():slice_end]
+        for row in row_re.finditer(section):
+            code = int(row.group(1))
+            name = row.group(2)
+            tables[family][code] = name
+
+    # Companion §A.5.1 custody-model — the row "Reason codes (registered, ...)"
+    # heading is plain text, not a markdown header; anchor on the literal phrase
+    # to scope the row scan.
+    a51_heading = re.compile(
+        r"^### A\.5\.1 Custody-Model Transition.*?Reason codes \(registered",
+        re.MULTILINE | re.DOTALL,
+    )
+    _parse_table_after(text_companion, a51_heading, "custody-model")
+
+    a52_heading = re.compile(
+        r"^### A\.5\.2 Disclosure-Profile.*?Reason codes \(registered",
+        re.MULTILINE | re.DOTALL,
+    )
+    _parse_table_after(text_companion, a52_heading, "disclosure-profile")
+
+    # ADR 0005 §"Reason codes (registered, extensible)".
+    adr_heading = re.compile(
+        r"^### Reason codes \(registered, extensible\)",
+        re.MULTILINE,
+    )
+    _parse_table_after(text_adr, adr_heading, "erasure-evidence")
+
+    return tables
+
+
+# Family-detection markers in derivation.md / generator source. The lint maps
+# each derivation/generator file to a single family by the first family marker
+# that appears; ambiguous cases (multiple families in one file) are diagnosed.
+_FAMILY_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("custody-model",      ("CustodyModelTransitionPayload", "Appendix A.5.1", "trellis.custody-model-transition.v1")),
+    ("disclosure-profile", ("DisclosureProfileTransitionPayload", "Appendix A.5.2", "trellis.disclosure-profile-transition.v1")),
+    ("erasure-evidence",   ("ErasureEvidencePayload", "trellis.erasure-evidence.v1", "ADR 0005")),
+)
+
+
+def _detect_reason_code_family(blob: str) -> str | None:
+    """Return the family name whose marker appears first in ``blob``, or None."""
+    earliest: tuple[int, str] | None = None
+    for family, markers in _FAMILY_MARKERS:
+        for marker in markers:
+            idx = blob.find(marker)
+            if idx == -1:
+                continue
+            if earliest is None or idx < earliest[0]:
+                earliest = (idx, family)
+    return earliest[1] if earliest is not None else None
+
+
+# Match a derivation.md table row of the form:
+#     | `reason_code` | `<int>` (<name-with-dashes>) | ...
+# OR an inline body form:
+#     `reason_code = <int>` (`<name-with-dashes>` ...)
+# OR a generator comment of the form:
+#     REASON_CODE = <int>                     # <name-with-dashes>
+_DERIVATION_TABLE_RE = re.compile(
+    r"`reason_code`\s*\|\s*`?(\d+)`?\s*\(\s*`?([a-zA-Z0-9-]+)`?",
+)
+_DERIVATION_BODY_RE = re.compile(
+    r"`reason_code\s*=\s*(\d+)`\s*\(\s*`([a-zA-Z0-9-]+)`",
+)
+_GENERATOR_COMMENT_RE = re.compile(
+    r"^\s*REASON_CODE\s*=\s*(\d+)\s*#\s*([a-zA-Z0-9-]+)",
+    re.MULTILINE,
+)
+# A.5.1 / A.5.2 prose-form citations like "registered in A.5.1 reason-code table"
+# are used as supporting context but not as a (code, name) source.
+
+
+def check_reason_code_corpus_parity(
+    errors: list[str],
+    *,
+    derivation_files: list[tuple[Path, str]] | None = None,
+    generator_files: list[tuple[Path, str]] | None = None,
+    tables: dict[str, dict[int, str]] | None = None,
+) -> None:
+    """R19 — every fixture-side ``reason_code`` annotation MUST agree with
+    the registered table for its family (Core §6.9 + Companion §A.5.1 / §A.5.2
+    + ADR 0005 §"Reason codes").
+
+    ReasonCode tables are per-family registries under Core §6.9 — Custody-Model
+    Transition (Companion §A.5.1), Disclosure-Profile Transition (Companion
+    §A.5.2), Erasure Evidence (ADR 0005, Phase-1 home). The tables are the
+    authority; fixture annotations are the dependent corpus. Drift between the
+    two would silently bifurcate the wire — a verifier reading the table sees
+    one meaning, a fixture-author reading the derivation sees another.
+
+    The lint mirrors Wave 15's R13 ``tamper_kind`` corpus-vs-table parity
+    check: closed under the same authoring discipline (table-first, fixture-
+    second, with matrix updates moving with the table). Closes the gap that
+    let TODO item #29's drift (§A.5.2 codes vs. fixture annotations) land
+    Wave 15 undetected.
+
+    Algorithm:
+      1. Parse the three tables from spec markdown into
+         ``{family: {code: registered_name}}``.
+      2. Walk every ``derivation.md`` under ``fixtures/vectors/`` and every
+         ``gen_*.py`` under ``fixtures/vectors/_generator/`` whose source
+         names a registered family marker.
+      3. For each ``(code, annotated_name)`` pair found in a file, look up
+         the table for the file's detected family. Annotation MUST match
+         the registered name exactly. Any divergence — mismatch, unregistered
+         code, ambiguous family — is a lint failure naming the file, the
+         family, the (code, annotated, registered) triple, and the table
+         section.
+      4. The ``255 = Other`` cross-family invariant per Core §6.9 is enforced
+         transparently: code ``255`` MUST be ``Other`` (or ``other`` — table
+         storage normalizes by lowercased compare; we report the registered
+         spelling).
+
+    Test hooks: ``derivation_files`` / ``generator_files`` accept lists of
+    ``(path, contents)`` tuples; ``tables`` accepts a pre-built family registry.
+    Default callsite reads from disk.
+    """
+    if tables is None:
+        tables = reason_code_tables()
+
+    def _walk_default_derivations() -> list[tuple[Path, str]]:
+        out: list[tuple[Path, str]] = []
+        for path in sorted(FIXTURES.rglob("derivation.md")):
+            try:
+                out.append((path, path.read_text(encoding="utf-8")))
+            except OSError:
+                continue
+        return out
+
+    def _walk_default_generators() -> list[tuple[Path, str]]:
+        out: list[tuple[Path, str]] = []
+        gen_root = FIXTURES / "_generator"
+        if not gen_root.exists():
+            return out
+        for path in sorted(gen_root.glob("gen_*.py")):
+            try:
+                out.append((path, path.read_text(encoding="utf-8")))
+            except OSError:
+                continue
+        return out
+
+    deriv = derivation_files if derivation_files is not None else _walk_default_derivations()
+    gens  = generator_files  if generator_files  is not None else _walk_default_generators()
+
+    def _check_blob(path: Path, blob: str, *, source_label: str, patterns: list[re.Pattern[str]]) -> None:
+        family = _detect_reason_code_family(blob)
+        # Find every (code, name) pair in this file. If there are any pairs
+        # but no detectable family, that itself is a lint failure — the file
+        # is annotating reason codes without anchoring which family they belong
+        # to, which is exactly the drift surface the lint exists to catch.
+        pairs: list[tuple[int, str]] = []
+        for pat in patterns:
+            for m in pat.finditer(blob):
+                pairs.append((int(m.group(1)), m.group(2)))
+        if not pairs:
+            return
+        rel = relpath(path)
+        if family is None:
+            errors.append(
+                f"{rel}: {source_label} cites reason_code {pairs!r} but the "
+                f"file does not name a registered family (custody-model / "
+                f"disclosure-profile / erasure-evidence) — Core §6.9 forbids "
+                f"family-ambiguous reason-code annotations"
+            )
+            return
+        registry = tables.get(family, {})
+        if not registry:
+            errors.append(
+                f"{rel}: {source_label} family={family!r} but the registry "
+                f"table is empty — could not parse the source-of-truth table "
+                f"(Companion §A.5.x / ADR 0005)"
+            )
+            return
+        for code, annotated in pairs:
+            registered = registry.get(code)
+            if registered is None:
+                errors.append(
+                    f"{rel}: {source_label} cites reason_code={code} "
+                    f"({annotated!r}) but family {family!r} has no code "
+                    f"{code} registered (Core §6.9 — verifiers MUST reject "
+                    f"unregistered codes)"
+                )
+                continue
+            if annotated.lower() != registered.lower():
+                errors.append(
+                    f"{rel}: {source_label} reason_code={code} annotated as "
+                    f"{annotated!r} but family {family!r} table registers "
+                    f"code {code} = {registered!r} "
+                    f"(Companion §A.5.1 / §A.5.2 / ADR 0005)"
+                )
+
+    derivation_patterns = [_DERIVATION_TABLE_RE, _DERIVATION_BODY_RE]
+    generator_patterns  = [_GENERATOR_COMMENT_RE]
+
+    for path, blob in deriv:
+        _check_blob(path, blob, source_label="derivation", patterns=derivation_patterns)
+    for path, blob in gens:
+        _check_blob(path, blob, source_label="generator", patterns=generator_patterns)
+
+
 def check_key_entry_phase_1_class_lint(warnings: list[str]) -> None:
     """R18 — Core §8.7.4 Phase-1 lint discipline.
 
@@ -2393,6 +2641,7 @@ def main() -> int:
     check_vector_renumbering(errors)
     check_tamper_kind_enum(errors)
     check_hpke_ephemeral_uniqueness(errors)
+    check_reason_code_corpus_parity(errors)
     check_key_entry_phase_1_class_lint(warnings)
     check_verify_report_consistency(errors)
 
