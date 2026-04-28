@@ -394,12 +394,24 @@ fn extract_dsn_host(dsn: &str) -> Option<String> {
         // <user[:pass]@>host[:port]/<dbname>?<params>
         let after_auth = rest.rsplit_once('@').map(|(_, h)| h).unwrap_or(rest);
         let host_port = after_auth.split(['/', '?']).next().unwrap_or("");
-        let host = host_port
-            .rsplit_once(':')
-            .map(|(h, _)| h)
-            .unwrap_or(host_port);
-        let stripped = host.trim_start_matches('[').trim_end_matches(']');
-        return Some(stripped.to_string());
+        // Bracketed IPv6 hosts: `[::1]` or `[::1]:5432`. The bracketed
+        // substring is the host; anything after `]:` is the port. A naive
+        // `rsplit_once(':')` would slice the literal IPv6 internally
+        // (e.g. `[::1]` -> host=`[:`, port=`1]`).
+        let host = if let Some(after_open) = host_port.strip_prefix('[') {
+            match after_open.split_once(']') {
+                Some((ipv6, _rest)) => ipv6,
+                // Mismatched bracket — fall back to the whole substring; the
+                // loopback classifier will reject anything non-trivial.
+                None => host_port,
+            }
+        } else {
+            host_port
+                .rsplit_once(':')
+                .map(|(h, _)| h)
+                .unwrap_or(host_port)
+        };
+        return Some(host.to_string());
     }
 
     let mut host: Option<String> = None;
@@ -760,6 +772,93 @@ mod tests {
         require_loopback_dsn("postgres://u:p@localhost/dbn").unwrap();
         // No host parameter → libpq local socket fallback — accepted.
         require_loopback_dsn("user=postgres dbname=postgres").unwrap();
+    }
+
+    /// Comma-separated host list: libpq supports multi-host failover, but the
+    /// classifier compares the literal value against loopback markers. A
+    /// list like `host=localhost,db.example.com` does NOT match `"localhost"`
+    /// exactly nor parse as an IP — so the gate rejects it. False-negative
+    /// (a list that *would* prefer `localhost` first is still rejected) is
+    /// the safe direction; production multi-host setups must use
+    /// `connect_with_tls`.
+    #[test]
+    fn require_loopback_dsn_rejects_comma_separated_host_list() {
+        // Two non-loopback names — obvious reject.
+        assert!(matches!(
+            require_loopback_dsn("host=a,b user=postgres")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
+        // First entry would be loopback if parsed individually — still rejected
+        // because the literal compare does not split on `,`. Conservative-correct.
+        assert!(matches!(
+            require_loopback_dsn("host=localhost,db.example.com user=postgres")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
+        assert!(matches!(
+            require_loopback_dsn("host=127.0.0.1,10.0.0.5 user=postgres")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
+    }
+
+    /// Empty-string `host=` is libpq's local-socket fallback (same as omitting
+    /// the parameter entirely). Accept it — the wire is the local AF_UNIX
+    /// socket per the existing comment in `is_loopback_host`.
+    #[test]
+    fn require_loopback_dsn_accepts_empty_host_value() {
+        require_loopback_dsn("host= user=postgres dbname=postgres").unwrap();
+        // Just `host=` with no other tokens.
+        require_loopback_dsn("host=").unwrap();
+    }
+
+    /// Relative-path "Unix socket" attempt — libpq's `host` parameter for a
+    /// socket directory is documented to be absolute. A relative path like
+    /// `tmp/sock` is not a loopback marker (does not start with `/`, is not
+    /// `localhost`, does not parse as an IP) — reject. libpq itself would
+    /// fail to dial, but the safety gate is "no cleartext on a wire" first;
+    /// rejecting at the constructor is the lowest-debt enforcement seam.
+    #[test]
+    fn require_loopback_dsn_rejects_relative_socket_paths() {
+        assert!(matches!(
+            require_loopback_dsn("host=relative/path user=postgres")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
+        assert!(matches!(
+            require_loopback_dsn("host=./sock user=postgres")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
+        assert!(matches!(
+            require_loopback_dsn("host=tmp user=postgres")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
+    }
+
+    /// Reaffirm IPv6 loopback acceptance in both DSN forms — kv-style
+    /// `host=::1` (already covered above) and URI-style `postgres://[::1]/dbn`.
+    /// Other IPv6 addresses (including documentation-only `2001:db8::1`)
+    /// remain rejected.
+    #[test]
+    fn require_loopback_dsn_handles_ipv6_loopback_in_both_dsn_forms() {
+        require_loopback_dsn("host=::1 user=postgres").unwrap();
+        require_loopback_dsn("postgres://u:p@[::1]:5432/dbn").unwrap();
+        require_loopback_dsn("postgresql://[::1]/dbn").unwrap();
+        assert!(matches!(
+            require_loopback_dsn("postgres://u:p@[2001:db8::1]/dbn")
+                .unwrap_err()
+                .kind(),
+            PostgresStoreErrorKind::UnsafeDsn
+        ));
     }
 
     #[test]
