@@ -101,6 +101,26 @@ CREATE TABLE IF NOT EXISTS trellis_schema_migrations (
         .map(|row| row.get::<_, i32>("version"))
         .collect::<std::collections::BTreeSet<_>>();
 
+    // Refuse-on-future-version guard. "Append-only migrations" is convention;
+    // at v3+ a binary that ships only v1+v2 must NOT silently re-skip and
+    // declare success against a database that has already seen v4. Compare
+    // the highest applied version against the highest declared version; if
+    // the database is ahead, the binary is stale — bail with a clear error
+    // so the operator rolls forward (or rolls back the database) rather than
+    // silently truncating schema awareness.
+    if let (Some(applied_max), Some(declared_max)) = (
+        applied.iter().max().copied(),
+        MIGRATIONS.iter().map(|(v, _)| *v).max(),
+    ) && applied_max > declared_max
+    {
+        return Err(PostgresStoreError::new(
+            PostgresStoreErrorKind::MigrationFailed,
+            format!(
+                "schema ahead of binary: database recorded migration v{applied_max} but this binary declares only v{declared_max}; refusing to apply"
+            ),
+        ));
+    }
+
     for (version, sql) in MIGRATIONS {
         if applied.contains(version) {
             continue;

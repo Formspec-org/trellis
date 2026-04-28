@@ -928,6 +928,45 @@ mod tests {
         assert_eq!(versions, vec![1, 2]);
     }
 
+    /// Refuse-on-future-version guard: if the database records a migration
+    /// version higher than anything this binary declares, `apply` MUST refuse
+    /// rather than silently no-op. "Append-only migrations" is convention;
+    /// this asserts the runtime surface that converts the convention into
+    /// a hard failure when an older binary connects to a forward-rolled
+    /// schema (e.g. during a botched rollback).
+    #[test]
+    fn migrations_refuse_when_schema_ahead_of_binary() {
+        let cluster = TestCluster::start();
+        // First connect lands the declared migrations cleanly.
+        let _bootstrap = PostgresStore::connect(&cluster.connection_string()).unwrap();
+
+        // Forge a future-version row so the next `apply` sees a schema ahead
+        // of MIGRATIONS' max declared version.
+        {
+            let mut probe = PostgresStore::connect(&cluster.connection_string()).unwrap();
+            probe
+                .client
+                .execute(
+                    "INSERT INTO trellis_schema_migrations (version) VALUES ($1)",
+                    &[&999_i32],
+                )
+                .unwrap();
+        }
+
+        // Reconnect — `migrations::apply` must refuse with MigrationFailed.
+        let err = PostgresStore::connect(&cluster.connection_string()).unwrap_err();
+        assert_eq!(err.kind(), PostgresStoreErrorKind::MigrationFailed);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("schema ahead of binary"),
+            "expected 'schema ahead of binary' in error message, got: {msg}"
+        );
+        assert!(
+            msg.contains("v999"),
+            "expected applied version v999 in error message, got: {msg}"
+        );
+    }
+
     #[test]
     fn idempotency_key_unique_index_rejects_duplicates() {
         let cluster = TestCluster::start();
