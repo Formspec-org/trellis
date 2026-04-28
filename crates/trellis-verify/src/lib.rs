@@ -4130,17 +4130,26 @@ fn verify_certificate_attachment_lineage(
         }
     }
 
-    // Build (canonical_event_hash → EventDetails) map for certificate
-    // events to recover each certificate's payload (we only have the
-    // outcome's `event_index` + `certificate_id` here).
-    let cert_events: Vec<EventDetails> = events
-        .iter()
-        .filter_map(|event| decode_event_details(event).ok())
-        .filter(|details| details.certificate.is_some())
-        .collect();
+    // Build (global event index → EventDetails) map for certificate
+    // events. The outcome's `event_index` is the GLOBAL position in `events`
+    // (set by `verify_event_set_with_classes` when it pushes to
+    // `certificate_payloads`), so we must index against the unfiltered
+    // event list — a previous filtered-collect-then-Vec::get(event_index)
+    // shape silently false-positived `presentation_artifact_attachment_missing`
+    // on multi-event chains where binding/sigaff events sit BEFORE the
+    // certificate (e.g. `[binding, sigaff, certificate]` → `event_index = 2`
+    // while a filtered cert-only Vec has length 1).
+    let mut cert_events_by_index: BTreeMap<usize, EventDetails> = BTreeMap::new();
+    for (index, event) in events.iter().enumerate() {
+        if let Ok(details) = decode_event_details(event) {
+            if details.certificate.is_some() {
+                cert_events_by_index.insert(index, details);
+            }
+        }
+    }
 
     for outcome in report.certificates_of_completion.iter_mut() {
-        let Some(details) = cert_events.get(outcome.event_index as usize) else {
+        let Some(details) = cert_events_by_index.get(&(outcome.event_index as usize)) else {
             // Index out of range — the underlying event vector changed
             // shape between collection and lineage check. Treat as
             // unresolvable; do not mask with attachment_resolved=true.
