@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Certificate of Completion</title>
+<link rel="stylesheet" href="template.css">
+</head>
+<body>
+<header class="reference-banner">
+  REFERENCE TEMPLATE — NON-NORMATIVE
+  <small>trellis.reference.certificate-of-completion.v1</small>
+</header>
+
+<main class="certificate">
+  <h1>Certificate of Completion</h1>
+
+  <section class="meta">
+    <dl>
+      <dt>Certificate ID</dt><dd>{{certificate_id}}</dd>
+      <dt>Completed at</dt><dd>{{completed_at_iso}}</dd>
+      <dt>Workflow status</dt><dd>{{workflow_status}}</dd>
+      <dt>Impact level</dt><dd>{{impact_level_or_dash}}</dd>
+      <dt>Case reference</dt><dd>{{case_ref_or_dash}}</dd>
+      <dt>Workflow execution</dt><dd>{{workflow_ref_or_dash}}</dd>
+      <dt>Response reference</dt><dd>{{response_ref_hex_or_dash}}</dd>
+    </dl>
+  </section>
+
+  <section class="signers">
+    <h2>Signers</h2>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Principal</th><th>Display name</th><th>Role</th><th>Signed at</th></tr>
+      </thead>
+      <tbody>
+        {{#each signer_display}}
+        <tr>
+          <td>{{@index_plus_one}}</td>
+          <td>{{principal_ref}}</td>
+          <td>{{display_name}}</td>
+          <td>{{display_role_or_dash}}</td>
+          <td>{{signed_at_iso}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="signing-events">
+    <h2>Signing event references</h2>
+    <p>The Trellis chain binds this certificate to the following <code>SignatureAffirmation</code> events. A verifier confirms each digest resolves to a chain-present event under the same <code>ledger_scope</code>.</p>
+    <ul class="hash-list">
+      {{#each signing_events}}
+      <li><code>{{this_hex}}</code></li>
+      {{/each}}
+    </ul>
+  </section>
+
+  <section class="presentation-binding">
+    <h2>Presentation artifact binding</h2>
+    <dl>
+      <dt>Artifact content hash</dt><dd><code>sha256:{{presentation_content_hash_hex}}</code></dd>
+      <dt>Media type</dt><dd>{{media_type}}</dd>
+      <dt>Byte length</dt><dd>{{byte_length}}</dd>
+      <dt>Attachment ID</dt><dd>{{attachment_id}}</dd>
+      <dt>Template ID</dt><dd>{{template_id_or_dash}}</dd>
+      <dt>Template hash</dt><dd>{{template_hash_hex_or_dash}}</dd>
+    </dl>
+    <p class="note">The hash above covers the bytes of THIS rendered presentation under domain tag <code>trellis-presentation-artifact-v1</code>. A verifier with both the export bundle and these bytes can recompute the digest and compare it to the value bound in the canonical certificate-of-completion event.</p>
+  </section>
+
+  <section class="attestations">
+    <h2>Attestations</h2>
+    <p>Operator and any counter-signers attest to this completion using <code>trellis-transition-attestation-v1</code> domain-separated signatures. Phase-1 verifiers check structural shape; Phase-2+ adds Ed25519 verification against the operator's authority registry.</p>
+    <ul class="hash-list">
+      {{#each attestations}}
+      <li><strong>{{authority_class}}</strong> &middot; {{authority}}</li>
+      {{/each}}
+    </ul>
+  </section>
+
+  <footer class="cert-footer">
+    <p>This rendering is a presentation of facts the Trellis chain proves. The chain is the authoritative record. A verifier with the export bundle, the canonical certificate-of-completion event, and these bytes can confirm: signer count matches the chain, signing events are all present and validly signed, the artifact hash above was bound at completion, and the workflow reached the claimed status.</p>
+    <p class="ref">Trellis ADR 0007 &middot; Core §6.7 / §9.8 / §19 step 6c &middot; Reference template v1 (non-normative).</p>
+  </footer>
+</main>
+
+</body>
+</html>
