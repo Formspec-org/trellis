@@ -1,0 +1,28 @@
+id          = "tamper/032-uca-identity-temporal-inversion"
+op          = "tamper"
+status      = "active"
+description = """ADR 0010 §"Verifier obligations" step 4 violation: resolved identity-attestation event's `sequence` is not strictly less than `attested_event_position`. Identity at seq 0; attested_event_position = 0; 0 ≥ 0. Verifier flips `identity_resolved = false` and emits `user_content_attestation_identity_temporal_inversion`. Adversary intent: establish identity AFTER the attestation the identity allegedly justifies."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-152",
+    "TR-CORE-154",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_identity_temporal_inversion"
+failing_event_id     = "0e89362621972cc804552746ee24ccb29c544308aad8d37e1e701095e6a1de07"
+
+[derivation]
+document = "derivation.md"

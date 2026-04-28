@@ -1,0 +1,28 @@
+id          = "tamper/031-uca-identity-subject-mismatch"
+op          = "tamper"
+status      = "active"
+description = """ADR 0010 §"Verifier obligations" step 4 violation: resolved identity-attestation event's payload subject (`urn:trellis:principal:somebody-else-031`) does not equal the attestation's `attestor` (`urn:trellis:principal:applicant-031`). Verifier flips `identity_resolved = false` and emits `user_content_attestation_identity_subject_mismatch`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-152",
+    "TR-CORE-154",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_identity_subject_mismatch"
+failing_event_id     = "6e7f4e3d8e18574a541d28a5ad99af919a2e7274959eef66398b1f0add5bf3bd"
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,28 @@
+id          = "tamper/029-uca-chain-position-mismatch"
+op          = "tamper"
+status      = "active"
+description = """ADR 0010 §"Verifier obligations" step 3 violation: `attested_event_position = 0` resolves to a chain-present event whose `canonical_event_hash` does not equal the attestation's `attested_event_hash` field. The verifier flips `chain_position_resolved = false` and emits `user_content_attestation_chain_position_mismatch`. Adversary intent: sign a hash without committing to its sequence (ADR 0010 §"Adversary model" wrong-position case)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-152",
+    "TR-CORE-153",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_chain_position_mismatch"
+failing_event_id     = "5211ed0ea7519e03f19e101e75fca79d4e70205a4921b9dcd06bc54127ffb827"
+
+[derivation]
+document = "derivation.md"

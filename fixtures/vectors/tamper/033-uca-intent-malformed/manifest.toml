@@ -1,0 +1,28 @@
+id          = "tamper/033-uca-intent-malformed"
+op          = "tamper"
+status      = "active"
+description = """ADR 0010 §"Verifier obligations" step 2 violation: `signing_intent` (`not-a-uri-just-some-string`) is not a syntactically valid URI per RFC 3986 (no scheme separator). Step 2 is an intra-payload-invariant check (post-CDDL-decode); flips `integrity_verified = false` only — `structure_verified` and `readability_verified` stay true. Verifier emits `user_content_attestation_intent_malformed`. Adversary intent: smuggle a non-URI intent label into a slot a downstream WOS verifier might rely on for legal-effect classification."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-152",
+    "TR-CORE-153",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_intent_malformed"
+failing_event_id     = "f062c08349cb038426a74b0f31f4cf80669d88cd6206c910ceaeb6359bc0c06b"
+
+[derivation]
+document = "derivation.md"

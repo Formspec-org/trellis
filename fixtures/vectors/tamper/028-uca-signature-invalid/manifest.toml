@@ -1,0 +1,28 @@
+id          = "tamper/028-uca-signature-invalid"
+op          = "tamper"
+status      = "active"
+description = """ADR 0010 §"Verifier obligations" step 5 violation: `UserContentAttestationPayload.signature` computed under `trellis-transition-attestation-v1` (the operator-actor posture-transition tag) instead of `trellis-user-content-attestation-v1`. The cross-family domain-separation rule rejects the signature; verifier emits `user_content_attestation_signature_invalid`. 3-event chain: [host(seq 0), identity(seq 1), uca(seq 2)]; steps 3 / 4 / 6 pass, step 5 fails."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-152",
+    "TR-CORE-155",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_signature_invalid"
+failing_event_id     = "4c5509336c14c71ae5737659644db87daebb1ffa8e6e5d7b19c2e7181fdae904"
+
+[derivation]
+document = "derivation.md"

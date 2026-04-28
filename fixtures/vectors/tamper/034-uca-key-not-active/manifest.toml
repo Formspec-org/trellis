@@ -1,0 +1,28 @@
+id          = "tamper/034-uca-key-not-active"
+op          = "tamper"
+status      = "active"
+description = """ADR 0010 §"Verifier obligations" step 6 violation: `signing_kid` resolves to a registry entry with `status = 2` (Retired). Only `Active` (status = 0) is admitted in Phase 1 (`Rotating` is reserved pending rotation-grace ratification per ADR 0010 open question 4 / TODO #5). The COSE envelope verifies (envelope path admits Retired for historical signatures), but the step-6 user-content-attestation key-state check flips `key_active = false` and emits `user_content_attestation_key_not_active`. Adversary intent: issue an attestation under a Retired kid (key-state evasion)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-152",
+    "TR-CORE-156",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_key_not_active"
+failing_event_id     = "92776371d61fd0bf6a7b2637185d7ec507e8f39988776ab1f0eb18c45819ace2"
+
+[derivation]
+document = "derivation.md"
