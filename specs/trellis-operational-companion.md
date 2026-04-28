@@ -812,18 +812,44 @@ Backups are governed by the Operator's retention and recovery policy; backups MU
 
 Traceability: TR-OP-004.
 
-### 20.6 Documentation
+### 20.6 Documentation and Evidence
 
-**OC-78 (MUST).** If an Operator uses cryptographic erasure or key destruction, its Posture Declaration MUST document:
+**OC-78 (MUST).** Every cryptographic erasure performed by the Operator MUST be accompanied by a canonical `trellis.erasure-evidence.v1` event per §20.6.2 below. The Posture Declaration documents *policy* — which content becomes irrecoverable, who retains access (if anyone, e.g. a sealed-access authority), what evidence of destruction is preserved, what metadata remains visible after destruction — and the canonical event records *execution* (which key was destroyed, when, under which cascade scopes, by which attesting authorities). Phase-1 adopters performing retention-expired erasure (`reason_code = 1`) or subject-requested erasure (`reason_code = 2`) MUST emit per §20.6.2; absence is a posture-honesty violation per §11.
 
-1. which content becomes irrecoverable,
-2. who retains access, if anyone (for example, a sealed-access authority),
-3. what evidence of destruction is preserved,
-4. what metadata remains visible after destruction.
+#### 20.6.1 Erasure-Evidence ReasonCode Table
 
-#### 20.6.1 Erasure-Evidence ReasonCode Reservation
+The `trellis.erasure-evidence.v1` event family (§20.6.2) carries a `reason_code: uint` field. The registered values for this family are:
 
-The `trellis.erasure-evidence.v1` event family carries a `reason_code: uint` field. The registered values for this family live with the event-shape definition — Phase-1 normative location is **ADR 0005 §"Reason codes"** (`thoughts/adr/0005-crypto-erasure-evidence.md`); these promote into Companion §20 as Trellis sequence item #4 (TODO row) executes. The table is append-only under the Core §6 (Event Format) §6.9 ReasonCode Registry discipline. The numeric values 1–5 in this family (`retention-expired`, `subject-requested-erasure`, `legal-order-compelling-erasure`, `operator-initiated-policy-change`, `key-compromise-mitigation`) are **not interchangeable** with the same numeric values in the custody-model Posture-transition family (§A.5.1) or the disclosure-profile Posture-transition family (§A.5.2); reinterpretation across families is forbidden. Code `255 = Other` is the only cross-family invariant. Traceability: **TR-OP-104**.
+| code | meaning |
+|---|---|
+| 1 | `retention-expired` (age-based policy fired) |
+| 2 | `subject-requested-erasure` (data-subject exercised an erasure right) |
+| 3 | `legal-order-compelling-erasure` |
+| 4 | `operator-initiated-policy-change` (e.g., dropping support for a data class) |
+| 5 | `key-compromise-mitigation` (destruction as part of incident response) |
+| 255 | `Other` — rationale documented in Posture Declaration narrative |
+
+This table is the Erasure-Evidence family's entry under the **Core §6 (Event Format) §6.9 ReasonCode Registry** — append-only, family-local. The numeric values 1–5 here are **not interchangeable** with the same numeric values in the custody-model Posture-transition family (§A.5.1) or the disclosure-profile Posture-transition family (§A.5.2); cross-family reinterpretation is forbidden. Code `255 = Other` is the only cross-family invariant per Core §6 (Event Format) §6.9. New codes append, never reinterpret prior values; deprecated codes retain their integer with a `deprecated` annotation. Traceability: **TR-OP-104**.
+
+#### 20.6.2 Erasure-Evidence Event Shape
+
+Each cryptographic erasure (OC-78) is recorded as a canonical event whose `EventPayload.extensions` (Core §6 (Event Format) §6.7) carries `trellis.erasure-evidence.v1` with the payload shape `ErasureEvidencePayload` defined normatively in **ADR 0005 §"Wire shape"** (`thoughts/adr/0005-crypto-erasure-evidence.md`). The CDDL pinned in that ADR is byte-authoritative for the wire shape; this section cites the ADR rather than restating CDDL so that the prose, the normative grammar, and the Rust/Python decoders cannot drift. The ADR's §"Field semantics" table accompanies that grammar with one paragraph per field. Fixture vectors live under `fixtures/vectors/append/023..027` (positive corpus) and `fixtures/vectors/tamper/017..019` (negative cases); export-bundle integration lives at `fixtures/vectors/export/009-erasure-evidence-inline` with optional manifest catalog `064-erasure-evidence.cbor` per Core §18 (Export Package Layout) §18.2 and verifier obligations in Core §19 (Verification Algorithm).
+
+The `Attestation` rule used by `ErasureEvidencePayload.attestations` is shared verbatim with §A.5 (Posture Transition Event Families) — same shape, same `trellis-transition-attestation-v1` domain separation (Core §9 (Hash Construction) §9.8), same dCBOR preimage. Verifier MUST process attestations under the same domain tag for both transition events and erasure-evidence events; introducing a second domain tag would be a wire break. Traceability: **TR-OP-105** (§20.6.2 schema-conformance row).
+
+#### 20.6.3 Erasure-Evidence Operator Obligations
+
+**OC-141 (MUST).** Every `cascade_scopes` entry declared in an `ErasureEvidencePayload` (§20.6.2) MUST be one of (a) a value registered in Appendix A.7 (`CS-01` … `CS-06`) or (b) an append-only registry-extension identifier per the same A.7 discipline. Emitting free-text scope identifiers is non-conformant. The field is per-event execution accounting (what was cascaded by the time this evidence was signed); it does not relax OC-77 — the operator's purge cascade for a conforming erasure still MUST eventually reach every A.7 class where plaintext or plaintext-derived material exists for the destroyed key's scope. Operators MAY use `completion_mode = "in-progress"` or `"best-effort"` when work is intentionally incomplete; declaring scopes not yet cascaded is a signed over-claim detectable by auditors and (under O-3 evolution) by machinery. Traceability: **TR-OP-106**.
+
+**OC-142 (MUST).** For every canonical event whose `authored_at` strictly exceeds the `destroyed_at` recorded for any `kid_destroyed` in chain order (where `destroyed_at` is the single agreed value per `kid_destroyed` after OC-145), within the **Phase-1 verifier surfaces enforced by ADR 0005 §"Verifier obligations" step 8** (i.e. `norm_key_class ∈ {"signing", "subject"}` after the `wrap`→`subject` normalization in step 2), the Operator MUST NOT sign that event under that kid AND MUST NOT emit a `key_bag.entries` row wrapped under that kid. This emit-side obligation pairs with the verify-side check; the Phase-1 verifier flags `post_erasure_use` and `post_erasure_wrap` respectively, both forcing `integrity_verified = false`. Subtree obligations for `recovery`, `scope`, `tenant-root`, and extension-`tstr` classes co-land with ADR 0006 milestones — out of Phase-1 scope here. Traceability: **TR-OP-107**.
+
+**OC-143 (SHOULD).** Operators SHOULD require dual attestation (one `prior` + one `new` per the §A.5 `Attestation.authority_class` rule) for erasure events whose `reason_code ∈ {3, 5}` (legal order, compromise mitigation) AND for erasure events whose `subject_scope.kind ∈ {per-tenant, deployment-wide}`. The specific policy is declared per deployment in the Posture Declaration; operators MAY register stricter rules per `reason_code` × `subject_scope.kind` combinations. Mirrors the §A.5.3 step 4 rule for Widening / Orthogonal posture changes — both axes treat governance-boundary-crossing as the dual-attestation trigger. Traceability: **TR-OP-108**.
+
+**OC-144 (MUST).** Each `ErasureEvidencePayload.destroyed_at` MUST be ≤ the `authored_at` of the canonical event that carries the extension (the *hosting event*). This pins the destruction claim to not-after the signed emission and forecloses the clock-skew game where a future-dated `destroyed_at` would vacuously forbid nothing under OC-142. Verifier check: ADR 0005 §"Verifier obligations" step 4. Violation is a structure failure (`erasure_destroyed_at_after_host`). Traceability: **TR-OP-109**.
+
+**OC-145 (MUST).** For any fixed `kid_destroyed` (byte-equal `bstr`), every `trellis.erasure-evidence.v1` payload in the same `ledger_scope` MUST carry the same `destroyed_at` value (integer equality). Rationale: one physical key has one destruction instant; legitimate retries and `completion_mode` updates re-use the same `destroyed_at` and typically the same `evidence_id`. Two payloads naming the same `kid_destroyed` with disagreeing `destroyed_at` are non-conformant — a structure failure with code `erasure_destroyed_at_conflict`. Distinct `evidence_id` values with identical `kid_destroyed` + identical `destroyed_at` are allowed (e.g., duplicate emission attempts); reporting tools SHOULD dedupe by `(kid_destroyed, destroyed_at)`. Verifier check: ADR 0005 §"Verifier obligations" step 5. Traceability: **TR-OP-113**.
+
+**OC-146 (MUST).** When `kid_destroyed` resolves to exactly one `KeyEntry` row (Core §8 (Key Registry) §8.7 / ADR 0006) in the export's unified key registry, the payload's `key_class` after `wrap`→`subject` normalization MUST equal that row's `kind` (text-string equality). When the export still uses the legacy flat `SigningKeyEntry` registry (no `KeyEntry` rows present) and `kid_destroyed` resolves there, the normalized `key_class` MUST be `"signing"`. Within a single `kid_destroyed` group of payloads, all members MUST agree on `key_class` after normalization (mismatch is `erasure_key_class_payload_conflict`). When `kid_destroyed` does not resolve to any registry row (Phase-1 opaque-HPKE recipients per ADR 0005 §"Field semantics"), registry-bind is skipped; the chain-consistency check still applies for `norm_key_class ∈ {"signing", "subject"}` per OC-142. Verifier check: ADR 0005 §"Verifier obligations" step 2. Traceability: **TR-OP-114**.
 
 ### 20.7 Legal Sufficiency
 
@@ -1580,13 +1606,13 @@ Reason codes (registered, extensible via registry append-only):
 | code | meaning |
 |---|---|
 | 1 | `initial-deployment-correction` |
-| 2 | `governance-policy-change` |
-| 3 | `legal-order-compelling-transition` |
-| 4 | `audience-scope-change` (e.g., adding or removing a downstream consumer class that changes disclosure-profile applicability) |
-| 5 | `disclosure-policy-realignment` (operator-initiated reclassification not driven by a governance order) |
+| 2 | `audience-scope-change` (e.g., adding or removing a downstream consumer class that changes disclosure-profile applicability; disclosure-only — A.5.1 code 2 is custody-only) |
+| 3 | `disclosure-policy-realignment` (operator-initiated reclassification not driven by a governance order; disclosure-only — A.5.1 code 3 is custody-only) |
+| 4 | `governance-policy-change` |
+| 5 | `legal-order-compelling-transition` |
 | 255 | `Other` (append-only catch-all; free-text rationale in Posture Declaration) |
 
-This table is the Disclosure-Profile Posture-Transition family's entry under the Core §6 (Event Format) §6.9 ReasonCode Registry — append-only, family-local. The Phase-1 codes are seeded from the disclosure-side analogues of A.5.1's custody-model codes; deployments needing a disclosure-specific reason not covered here MUST use code `255 = Other` until a successor row is registered. Code values 1–5 here are not interchangeable with the same numeric values in the custody-model Posture-transition family (§A.5.1) or in the erasure-evidence family (Companion §20.6.1, ADR 0005). Traceability: **TR-OP-046**.
+This table is the Disclosure-Profile Posture-Transition family's entry under the Core §6 (Event Format) §6.9 ReasonCode Registry — append-only, family-local. The Phase-1 codes mirror A.5.1 wherever the meaning is shared (codes 1, 4, 5); the disclosure-only codes (2, 3) fill A.5.1's custody-specific slots so that meaning-equivalent transitions across families share their numeric value. Deployments needing a disclosure-specific reason not covered here MUST use code `255 = Other` until a successor row is registered. Code values 1–5 here are not interchangeable with the same numeric values in the custody-model Posture-transition family (§A.5.1) or in the erasure-evidence family (Companion §20.6.1, ADR 0005). **Pin note:** this seed table locks at first runtime use per Core §6 (Event Format) §6.9 ReasonCode Registry governance — once a Phase-1 producer emits a registered code on the wire, the (code, meaning) binding is append-only; renumbering after first runtime use is a wire break. Traceability: **TR-OP-046**.
 
 ### A.5.3 Verification semantics
 

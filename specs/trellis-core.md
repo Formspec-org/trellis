@@ -309,6 +309,7 @@ Registered extension identifiers:
 |---|---|---|---|
 | `EventPayload.extensions` | `trellis.custody-model-transition.v1` | 1 | Custody-model Posture-transition record; payload shape per Companion §10 and Appendix A.5.1. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.disclosure-profile-transition.v1` | 1 | Posture-transition record for the disclosure-profile axis; payload shape per Companion §10 and Appendix A.5.2. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.erasure-evidence.v1` | 1 | Cryptographic-erasure evidence record per ADR 0005; payload shape `ErasureEvidencePayload` (ADR 0005 §"Wire shape" / Companion §20.6.2). Verifier obligations in §19 (extension processing for erasure evidence; the 10-step checklist is enumerated in ADR 0005 §"Verifier obligations"). Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.staff-view-decision-binding.v1` | 1 | Staff-view decision-binding record carrying the §15.2 `Watermark` seen by the adjudicator for a rights-impacting decision; payload shape `StaffViewDecisionBinding`. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.evidence-attachment-binding.v1` | 1 | Evidence attachment-binding record from ADR 0072 / Formspec Respondent Ledger §6.9. `PayloadExternal` names the attachment ciphertext bytes; this extension carries the binding metadata. Reject-if-unknown-at-version. |
 | `EventPayload.extensions` | `trellis.causal_deps.v2` | 2 | Migrated HLC / DAG causal dependency structure. |
@@ -338,7 +339,7 @@ The three forms have different bytes, different CDDL types, and different roles.
 
 ### 6.9 ReasonCode Registry
 
-Several Trellis event families carry a `reason_code: uint` field in their payload — Custody-Model Transition (Companion §A.5.1), disclosure-profile transition (Companion §A.5.2), and Erasure Evidence (ADR 0005). The codes are **registered per family**, not shared across families: code `3` means a different thing in a custody-model transition than it does in an erasure-evidence record, and merging the namespaces would either silently reinterpret existing values or force a renumber that breaks the wire. Each family's table is **append-only** under the same discipline as §6.7 — meaning does not change after registration; new codes append; deprecated codes retain their integer value with a `deprecated` annotation.
+Several Trellis event families carry a `reason_code: uint` field in their payload — Custody-Model Transition (Companion §A.5.1), disclosure-profile transition (Companion §A.5.2), and Erasure Evidence (Companion §20.6.1). The codes are **registered per family**, not shared across families: code `3` means a different thing in a custody-model transition than it does in an erasure-evidence record, and merging the namespaces would either silently reinterpret existing values or force a renumber that breaks the wire. Each family's table is **append-only** under the same discipline as §6.7 — meaning does not change after registration; new codes append; deprecated codes retain their integer value with a `deprecated` annotation.
 
 **Cross-family floor.** The integer value `255` is reserved across every family as `Other` — an append-only catch-all whose human-readable rationale lives in the deployment's Posture Declaration narrative. A code value of `255` MUST NOT be used by any family for a more specific meaning. This is the only cross-family invariant; codes `1..254` are family-local.
 
@@ -348,7 +349,7 @@ Several Trellis event families carry a `reason_code: uint` field in their payloa
 |---|---|---|
 | Custody-Model Transition | `CustodyModelTransitionPayload.reason_code` | Companion §A.5.1 |
 | disclosure-profile Posture-transition | `DisclosureProfileTransitionPayload.reason_code` | Companion §A.5.2 |
-| Erasure Evidence | `ErasureEvidencePayload.reason_code` | ADR 0005 §"Reason codes" (Companion §20 once promoted) |
+| Erasure Evidence | `ErasureEvidencePayload.reason_code` | Companion §20.6.1 (mirrored in ADR 0005 §"Reason codes") |
 
 **Authoring discipline.** A new `reason_code` value MUST land in the family's table first, paired with a matrix-row update where the requirement is normative (Phase-1 reason-code values are matrix-tracked under their owning family's TR-OP rows). Operators MUST NOT emit unregistered codes; verifiers receiving an unregistered code report it as a structure failure with `unregistered_reason_code` in the relevant `*_failures[].code` namespace.
 
@@ -1489,6 +1490,99 @@ VERIFY(E) -> VerificationReport
    structure_verified. Continuity and attestation failures surface through
    integrity_verified per step 9.
 
+6b. Erasure-evidence processing. For each event e whose
+   EventPayload.extensions carries `trellis.erasure-evidence.v1` (§6.7;
+   payload shape ADR 0005 §"Wire shape" / Companion §20.6.2): the verifier
+   MUST execute the **10-step erasure-evidence checklist** defined
+   normatively in ADR 0005 §"Verifier obligations". The checklist is
+   reproduced here as an enumeration so the prose section is self-contained;
+   the ADR remains the byte-authoritative source if prose drifts.
+     1. Decode the payload against the ADR 0005 CDDL. Mismatch is a
+        structure failure for that event (recorded in report.event_failures).
+     2. Normalize `key_class` (`"wrap"` → `"subject"`) into `norm_key_class`.
+        If `kid_destroyed` resolves to exactly one row in the export's
+        unified `KeyEntry` registry (Core §8.7), `norm_key_class` MUST equal
+        that row's `kind` — otherwise structure failure with code
+        `erasure_key_class_registry_mismatch`. Pre-`KeyEntry` interop: if
+        `kid_destroyed` resolves only in the legacy flat `SigningKeyEntry`
+        registry, `norm_key_class` MUST be `"signing"`. Opaque-kid path:
+        if `kid_destroyed` resolves in no registry snapshot, registry-bind
+        is skipped (step 8 still applies for `norm_key_class ∈ {"signing",
+        "subject"}`).
+     3. Validate `subject_scope` cross-field by `kind` per ADR 0005
+        (per-subject / per-scope / per-tenant / deployment-wide null-pattern
+        rule). Other patterns are structure failures.
+     4. Check `destroyed_at` ≤ host event's `authored_at` (§6.1
+        `EventHeader.authored_at`). Violation is a structure failure with
+        code `erasure_destroyed_at_after_host` (Companion OC-144 / TR-OP-109).
+     5. Group all decoded erasure-evidence payloads by `kid_destroyed`
+        (byte-equal `bstr`). Within each group, all `destroyed_at` values
+        MUST be integer-equal. Mismatch is a structure failure with code
+        `erasure_destroyed_at_conflict` (Companion OC-145 / TR-OP-113).
+        Distinct `evidence_id` values with identical kid + identical
+        `destroyed_at` are allowed (retry / completion-mode update).
+     6. Check `hsm_receipt` / `hsm_receipt_kind` null-consistency (both null
+        or both non-null). Mismatch is a structure failure.
+     7. Verify every `attestations[*].signature` under domain tag
+        `trellis-transition-attestation-v1` (§9.8) — same domain shared
+        with §A.5 posture-transition attestations. Invalid signature
+        flips `integrity_verified = false` for the report (parallel to
+        step 6.d for posture transitions).
+     8. **Chain consistency for the destroyed kid (Phase-1 scope:
+        `norm_key_class ∈ {"signing", "subject"}` after step-2
+        normalization).** Within each `kid_destroyed` group, all payloads
+        MUST agree on `key_class` after normalization (mismatch is
+        structure failure `erasure_key_class_payload_conflict`). Let
+        `destroyed_at` be the single agreed value from step 5. For every
+        canonical event in the chain whose `authored_at > destroyed_at`:
+          - if its COSE_Sign1 protected-header `kid` equals
+            `kid_destroyed`, mark `post_erasure_use` (localizable failure;
+            integrity_verified = false per step 9);
+          - if its `key_bag.entries` contains an entry wrapped under
+            `kid_destroyed`, mark `post_erasure_wrap` (localizable failure;
+            integrity_verified = false per step 9).
+        For `norm_key_class ∈ {"recovery", "scope", "tenant-root", tstr}`
+        the Phase-1 reference verifier does NOT apply these two checks;
+        subtree obligations co-land with ADR 0006 follow-on milestones.
+     9. **Cascade-scope cross-check (Phase-1 best-effort).** For each
+        declared `CascadeScope`, if the export bundle contains derived
+        artifacts corresponding to that scope, check those artifacts do
+        NOT decode the destroyed key's material. Detection is best-effort
+        in Phase-1 (the deep lint rides O-3 evolution); the verifier MAY
+        emit a warning when it cannot perform the check for a given scope.
+        Cascade violations surface as warnings, not as
+        `integrity_verified = false`, in Phase 1 (folding deferred to a
+        Phase-2 follow-on).
+    10. Accumulate outcomes into a new `report.erasure_evidence` array
+        parallel to `report.posture_transitions`. Each entry carries
+        `evidence_id`, `kid_destroyed`, `destroyed_at`, `cascade_scopes`,
+        `completion_mode`, `signature_verified`, `post_erasure_uses`
+        (count), `post_erasure_wraps` (count), `cascade_violations` (array
+        of scope + artifact refs), `failures` (array of localizable
+        failure codes).
+
+   `integrity_verified = false` if any erasure-evidence entry has
+   `signature_verified = false`, `post_erasure_uses > 0`, or
+   `post_erasure_wraps > 0`, or if steps 1–6 produced a structure failure
+   for any erasure payload (CDDL decode, `erasure_key_class_registry_mismatch`,
+   `erasure_key_class_payload_conflict`, subject-scope shape,
+   `erasure_destroyed_at_after_host`, `erasure_destroyed_at_conflict`,
+   HSM-receipt null-consistency). Cascade violations surface as warnings
+   per step 9.
+
+   **Optional manifest catalog (`trellis.export.erasure-evidence.v1`).**
+   When an export contains erasure-evidence events, the manifest MAY
+   include the catalog extension shaped per ADR 0005 §"Export manifest
+   catalog" (binding `064-erasure-evidence.cbor`). Verifier obligations
+   for the optional catalog mirror the §6.7 catalog pattern (Attachment /
+   Signature-Affirmation / Intake-Handoff): verify `catalog_digest` against
+   the recomputed SHA-256 of `064-erasure-evidence.cbor`; for each catalog
+   entry require field-wise agreement with exactly one in-chain
+   erasure-evidence event; reject duplicates by `(canonical_event_hash)`.
+   Mismatch is a localizable failure with code
+   `erasure_evidence_catalog_digest_mismatch`. The catalog is performance
+   convenience for auditor UX; exporters who omit it are conformant.
+
 **Attachment manifest (optional, stack ADR 0072).** If `ExportManifestPayload.extensions` carries `trellis.export.attachments.v1` (§6.7), the verifier MUST:
 
      a. Require the archive member `061-attachments.cbor` (§18.2).
@@ -1615,6 +1709,13 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `intake_handoff_catalog_digest_mismatch` | 3.f / extensions check | `063-intake-handoffs.cbor` digest does not match the manifest's `trellis.export.intake-handoffs.v1` binding. |
 | `key_class_mismatch` | 4.a (key-class dispatch) | A COSE_Sign1 protected-header `kid` resolves to a `KeyEntry` whose `kind` is a reserved non-signing class (`tenant-root`, `scope`, `subject`, `recovery`); only `signing`-class kids may sign canonical events (Core §8.7.3 step 4 / ADR 0006). |
 | `key_entry_attributes_shape_mismatch` | 3 (registry decode) | A `KeyEntry` whose `kind` is a reserved non-signing class is missing its `attributes` map or carries an `attributes` value whose shape does not match the per-class CDDL group in Core §8.7.2. |
+| `erasure_key_class_registry_mismatch` | 6b step 2 | An `ErasureEvidencePayload`'s `key_class` (after `wrap`→`subject` normalization) does not equal the registry row's `kind` for the resolved `kid_destroyed` (Core §8.7 / ADR 0006). |
+| `erasure_key_class_payload_conflict` | 6b step 8 | Two `ErasureEvidencePayload` payloads naming the same `kid_destroyed` carry disagreeing `key_class` after `wrap`→`subject` normalization. |
+| `erasure_destroyed_at_after_host` | 6b step 4 | An `ErasureEvidencePayload`'s `destroyed_at` strictly exceeds the hosting event's `authored_at` (Companion OC-144 / TR-OP-109). |
+| `erasure_destroyed_at_conflict` | 6b step 5 | Two `ErasureEvidencePayload` payloads naming the same `kid_destroyed` carry disagreeing `destroyed_at` values (Companion OC-145 / TR-OP-113). |
+| `post_erasure_use` | 6b step 8 | A canonical event with `authored_at > destroyed_at` is signed under the destroyed `kid` (within `norm_key_class ∈ {"signing", "subject"}` Phase-1 scope). |
+| `post_erasure_wrap` | 6b step 8 | A canonical event with `authored_at > destroyed_at` carries a `key_bag.entries` row wrapped under the destroyed `kid` (within `norm_key_class ∈ {"signing", "subject"}` Phase-1 scope). |
+| `erasure_evidence_catalog_digest_mismatch` | 6b optional catalog | `064-erasure-evidence.cbor` digest does not match the manifest's `trellis.export.erasure-evidence.v1` binding (ADR 0005 §"Export manifest catalog"). |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
 

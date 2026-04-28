@@ -78,6 +78,17 @@ TAMPER_KIND_ENUM = frozenset({
     "intake_handoff_catalog_digest_mismatch",
     "key_class_mismatch",                # Core §8.7.3 step 4 (ADR 0006).
     "key_entry_attributes_shape_mismatch",   # Core §8.7.2 (ADR 0006).
+    # Erasure-evidence (Core §19.1 / §19 step 6b; ADR 0005). Phase-1
+    # reserved enum values; corpus vectors land in the ADR 0005 execution
+    # train (TODO item #3). The corpus is a subset of the enum (see
+    # `test_enum_matches_corpus`), so reserved-without-fixture is allowed.
+    "erasure_key_class_registry_mismatch",
+    "erasure_key_class_payload_conflict",
+    "erasure_destroyed_at_after_host",
+    "erasure_destroyed_at_conflict",
+    "post_erasure_use",
+    "post_erasure_wrap",
+    "erasure_evidence_catalog_digest_mismatch",
 })
 
 
