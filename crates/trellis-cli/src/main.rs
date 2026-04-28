@@ -13,21 +13,62 @@ use trellis_store_memory::MemoryStore;
 use trellis_verify::verify_single_event;
 
 fn main() {
-    if let Err(message) = run() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Err(message) = run(args.as_slice()) {
         eprintln!("{message}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), String> {
-    let command = std::env::args().nth(1).ok_or_else(|| {
-        "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002>\n\
-         \n\
-         These commands mirror a small smoke subset of the Trellis fixture corpus.\n\
-         Run the full committed vector set via the `trellis-conformance` binary."
-            .to_string()
-    })?;
-    dispatch_command(command.as_str())
+fn usage_top_level() -> String {
+    "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002|erase-key>\n\
+     \n\
+     These commands mirror a small smoke subset of the Trellis fixture corpus.\n\
+     `erase-key --help` prints the ADR 0005 CLI contract (Phase-1 stub; KMS wiring not landed).\n\
+     Run the full committed vector set via the `trellis-conformance` binary."
+        .to_string()
+}
+
+fn run(args: &[String]) -> Result<(), String> {
+    let command = args.get(1).map(String::as_str).ok_or_else(usage_top_level)?;
+    match command {
+        "erase-key" => erase_key_command(args),
+        _ => dispatch_command(command),
+    }
+}
+
+fn erase_key_command(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        eprintln!(
+            "\
+trellis-cli erase-key (Phase-1 stub)
+
+Planned contract per ADR 0005 — reference UX for emitting `trellis.erasure-evidence.v1`:
+
+  trellis-cli erase-key \\
+    --evidence-id <stable-id> \\
+    --kid <kid-hex> \\
+    --key-class signing|tenant-root|scope|subject|wrap|recovery \\
+    --subject-scope per-subject|per-scope|per-tenant|deployment-wide \\
+    --subject-refs <uri-list> \\
+    --cascade-scopes CS-01,CS-03 \\
+    --reason-code 1..5|255 \\
+    --policy-authority <uri> \\
+    --destruction-actor <uri> \\
+    --attestation-key <cose-key-file> \\
+    [--hsm-receipt <file> --hsm-receipt-kind <id>] \\
+    --completion-mode complete|in-progress|best-effort
+
+This build does not perform KMS destruction or ledger append; pass --help any time to show this text.
+"
+        );
+        return Ok(());
+    }
+    Err(
+        "trellis-cli erase-key: not wired in this build (ADR 0005 Phase-1 stub). \
+         Run `trellis-cli erase-key --help` for the planned flag contract."
+            .into(),
+    )
 }
 
 fn dispatch_command(command: &str) -> Result<(), String> {
@@ -194,7 +235,23 @@ fn key_path(file: &str) -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::dispatch_command;
+    use super::{dispatch_command, run};
+
+    #[test]
+    fn erase_key_help_succeeds() {
+        run(&[
+            "trellis-cli".into(),
+            "erase-key".into(),
+            "--help".into(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn erase_key_without_help_errors() {
+        let err = run(&["trellis-cli".into(), "erase-key".into()]).unwrap_err();
+        assert!(err.contains("not wired"), "{err}");
+    }
 
     #[test]
     fn dispatch_rejects_unknown_command() {
