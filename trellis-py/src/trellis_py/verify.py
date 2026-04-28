@@ -55,6 +55,22 @@ WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signatureAffirmation"
 WOS_INTAKE_ACCEPTED_EVENT_TYPE = "wos.kernel.intakeAccepted"
 WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.caseCreated"
 
+# ADR 0010 §6.7 registration — `EventPayload.extensions` slot for
+# user-content-attestation records.
+USER_CONTENT_ATTESTATION_EVENT_EXTENSION = "trellis.user-content-attestation.v1"
+# ADR 0010 §9.8 — domain-separation tag for the dCBOR signature preimage.
+USER_CONTENT_ATTESTATION_DOMAIN = "trellis-user-content-attestation-v1"
+# Phase-1 identity-attestation event type (test-only). Core §6.7 + §10.6
+# reserve `x-trellis-test/*` for fixture authoring; admitted by
+# `_is_identity_attestation_event_type` until PLN-0381 ratifies the canonical
+# `wos.identity.*` naming.
+PHASE_1_TEST_IDENTITY_EVENT_TYPE = "x-trellis-test/identity-attestation/v1"
+# Companion §6.4 operator-URI prefix conventions (Phase-1 baseline). Step 8
+# of ADR 0010 verifier obligations rejects user-content-attestation events
+# whose `attestor` matches either prefix. Mirror Rust constants.
+OPERATOR_URI_PREFIX_TRELLIS = "urn:trellis:operator:"
+OPERATOR_URI_PREFIX_WOS = "urn:wos:operator:"
+
 
 @dataclass
 class VerificationFailure:
@@ -125,6 +141,31 @@ class CertificateOfCompletionOutcome:
 
 
 @dataclass
+class UserContentAttestationOutcome:
+    """Outcome for one ADR 0010 user-content-attestation verification
+    (Core §19 step 6d). One entry per `trellis.user-content-attestation.v1`
+    payload in scope, in chain order. Mirrors Rust
+    `trellis_verify::UserContentAttestationOutcome`.
+
+    `chain_position_resolved` / `identity_resolved` / `signature_verified`
+    / `key_active` participate in the §19 step-9 integrity fold; `failures`
+    localizes the concrete tamper kinds (e.g.
+    `user_content_attestation_chain_position_mismatch`,
+    `user_content_attestation_intent_malformed`)."""
+
+    attestation_id: str
+    attested_event_hash: bytes
+    attestor: str
+    signing_intent: str
+    event_index: int
+    chain_position_resolved: bool = True
+    identity_resolved: bool = True
+    signature_verified: bool = True
+    key_active: bool = True
+    failures: list[str] = field(default_factory=list)
+
+
+@dataclass
 class VerificationReport:
     structure_verified: bool = False
     integrity_verified: bool = False
@@ -135,6 +176,9 @@ class VerificationReport:
     posture_transitions: list[PostureTransitionOutcome] = field(default_factory=list)
     erasure_evidence: list[ErasureEvidenceOutcome] = field(default_factory=list)
     certificates_of_completion: list[CertificateOfCompletionOutcome] = field(
+        default_factory=list
+    )
+    user_content_attestations: list[UserContentAttestationOutcome] = field(
         default_factory=list
     )
     warnings: list[str] = field(default_factory=list)
@@ -249,6 +293,12 @@ class EventDetails:
     attachment_binding: Optional[AttachmentBindingDetails] = None
     erasure: Optional["ErasureEvidenceDetails"] = None
     certificate: Optional["CertificateDetails"] = None
+    user_content_attestation: Optional["UserContentAttestationDetails"] = None
+    # Identity-attestation subject for events whose `event_type` matches
+    # `_is_identity_attestation_event_type`. Read from
+    # `extensions[event_type]["subject"]`. ADR 0010 verifier obligations
+    # step 4 (subject-equals-attestor) reads this.
+    identity_attestation_subject: Optional[str] = None
     wrap_recipients: list[bytes] = field(default_factory=list)
 
 
@@ -342,6 +392,34 @@ class CertificateDetails:
     signing_events: list[bytes]
     workflow_ref: Optional[str]
     attestation_signatures_well_formed: bool
+
+
+@dataclass
+class UserContentAttestationDetails:
+    """Decoded `trellis.user-content-attestation.v1` payload (ADR 0010
+    §"Wire shape" / Core §28 CDDL `UserContentAttestationPayload`). Mirrors
+    Rust `trellis_verify::UserContentAttestationDetails`.
+
+    `step_2_failure` is the deferred-failure marker per ADR 0010 §"Verifier
+    obligations" step 2: intra-payload-invariant failures
+    (`user_content_attestation_intent_malformed` /
+    `user_content_attestation_timestamp_mismatch`) flip
+    `integrity_verified = false` only — they are NOT structure failures
+    and MUST NOT flip `readability_verified`. Decoder records the marker;
+    `_finalize_user_content_attestations` raises it as an `event_failure`
+    and skips remaining per-event checks for this attestation."""
+
+    attestation_id: str
+    attested_event_hash: bytes
+    attested_event_position: int
+    attestor: str
+    identity_attestation_ref: Optional[bytes]
+    signing_intent: str
+    attested_at: int
+    signature: bytes
+    signing_kid: bytes
+    canonical_preimage: bytes
+    step_2_failure: Optional[str] = None
 
 
 @dataclass
@@ -1120,11 +1198,15 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
     attachment_binding: Optional[AttachmentBindingDetails] = None
     erasure: Optional[ErasureEvidenceDetails] = None
     certificate: Optional[CertificateDetails] = None
+    user_content_attestation: Optional[UserContentAttestationDetails] = None
+    identity_attestation_subject: Optional[str] = None
     if isinstance(exts, dict):
         transition = _decode_transition_details(exts)
         attachment_binding = _decode_attachment_binding_details(exts)
         erasure = _decode_erasure_evidence_details(exts, authored_at)
         certificate = _decode_certificate_payload(exts)
+        user_content_attestation = _decode_user_content_attestation_payload(exts, authored_at)
+        identity_attestation_subject = _decode_identity_attestation_subject(exts, event_type)
     elif exts is not None:
         raise VerifyError("extensions not map")
     wrap_recipients = _decode_key_bag_recipients(payload_value)
@@ -1144,6 +1226,8 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         attachment_binding=attachment_binding,
         erasure=erasure,
         certificate=certificate,
+        user_content_attestation=user_content_attestation,
+        identity_attestation_subject=identity_attestation_subject,
         wrap_recipients=wrap_recipients,
     )
 
@@ -1632,6 +1716,367 @@ def _finalize_certificates_of_completion(
     return outcomes
 
 
+def _is_syntactically_valid_uri(value: str) -> bool:
+    """ADR 0010 §"Verifier obligations" step 2 `signing_intent` check.
+    Trellis verifies syntactic URI validity per RFC 3986 only; semantic
+    validity (legal-effect class registry membership) lives at the WOS
+    Signature Profile + jurisdiction registry layer. Mirrors Rust
+    `is_syntactically_valid_uri`."""
+    sep = value.find(":")
+    if sep <= 0 or sep == len(value) - 1:
+        return False
+    scheme = value[:sep]
+    rest = value[sep + 1 :]
+    if not scheme or not rest:
+        return False
+    if not scheme[0].isascii() or not scheme[0].isalpha():
+        return False
+    for ch in scheme[1:]:
+        if not (ch.isascii() and (ch.isalnum() or ch in "+-.")):
+            return False
+    return True
+
+
+def _is_operator_uri(value: str) -> bool:
+    """Companion §6.4 operator-URI prefix check used for ADR 0010 step 8
+    (`user_content_attestation_operator_in_user_slot`). Phase-1 baseline;
+    deployments substitute or extend via deployment-local lint. Mirrors Rust
+    `is_operator_uri`."""
+    return value.startswith(OPERATOR_URI_PREFIX_TRELLIS) or value.startswith(
+        OPERATOR_URI_PREFIX_WOS
+    )
+
+
+def _is_identity_attestation_event_type(event_type: str) -> bool:
+    """ADR 0010 step 4 admit list. Phase-1 admits the §6.7 + §10.6 reserved
+    test prefix; PLN-0381 ratification will add canonical `wos.identity.*`
+    branch in a single edit. Mirrors Rust
+    `is_identity_attestation_event_type`."""
+    return event_type == PHASE_1_TEST_IDENTITY_EVENT_TYPE
+
+
+def _decode_identity_attestation_subject(
+    exts: dict, event_type: str
+) -> Optional[str]:
+    """Resolves the subject of an identity-attestation event from its
+    decoded `EventPayload.extensions` map. Convention:
+    `extensions[event_type]["subject"]` carries the principal URI.
+    Returns `None` for non-identity events or for identity events whose
+    payload omits the subject field. Mirrors Rust
+    `decode_identity_attestation_subject`."""
+    if not _is_identity_attestation_event_type(event_type):
+        return None
+    ext = exts.get(event_type)
+    if not isinstance(ext, dict):
+        return None
+    subject = ext.get("subject")
+    return subject if isinstance(subject, str) else None
+
+
+def _parse_admit_unverified_user_attestations(declaration_bytes: bytes) -> bool:
+    """Reads `admit_unverified_user_attestations` from a Posture Declaration
+    decoded as a dCBOR map. Default `false` per ADR 0010 §"Field semantics"
+    `identity_attestation_ref` clause — failing-closed to default-required.
+    Mirrors Rust `parse_admit_unverified_user_attestations`."""
+    try:
+        value = cbor2.loads(declaration_bytes)
+    except Exception:
+        return False
+    if not isinstance(value, dict):
+        return False
+    field_value = value.get("admit_unverified_user_attestations")
+    return field_value is True
+
+
+def _compute_user_content_attestation_preimage(
+    attestation_id: str,
+    attested_event_hash: bytes,
+    attested_event_position: int,
+    attestor: str,
+    identity_attestation_ref: Optional[bytes],
+    signing_intent: str,
+    attested_at: int,
+) -> bytes:
+    """Builds the dCBOR signature preimage for a user-content attestation
+    per ADR 0010 §"Wire shape": `dCBOR([attestation_id,
+    attested_event_hash, attested_event_position, attestor,
+    identity_attestation_ref, signing_intent, attested_at])`. Mirrors Rust
+    `compute_user_content_attestation_preimage`."""
+    return cbor2.dumps(
+        [
+            attestation_id,
+            attested_event_hash,
+            attested_event_position,
+            attestor,
+            identity_attestation_ref,  # bytes or None
+            signing_intent,
+            attested_at,
+        ],
+        canonical=True,
+    )
+
+
+def _decode_user_content_attestation_payload(
+    exts: dict, host_authored_at: int
+) -> Optional[UserContentAttestationDetails]:
+    """Decodes the optional `trellis.user-content-attestation.v1` extension
+    payload. Step 1 (CDDL decode) bubbles structural failures via
+    `VerifyError`. Step 2 (intra-payload invariants — `attested_at ==
+    host_authored_at`; `signing_intent` is a syntactically valid URI per
+    RFC 3986) is recorded as a deferred `step_2_failure` marker per ADR 0010
+    §"Verifier obligations" step 2 (these failures flip
+    `integrity_verified = false` only — they are NOT structure failures).
+    `_finalize_user_content_attestations` raises the marker as an
+    `event_failure`. Mirrors Rust
+    `decode_user_content_attestation_payload`."""
+    ext = exts.get(USER_CONTENT_ATTESTATION_EVENT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("user-content-attestation extension is not a map")
+
+    attestation_id = str(_map_lookup_str(ext, "attestation_id"))
+    attested_event_hash = _map_lookup_fixed_bytes(ext, "attested_event_hash", 32)
+    attested_event_position = _map_lookup_u64(ext, "attested_event_position")
+    attestor = str(_map_lookup_str(ext, "attestor"))
+    identity_attestation_ref = _map_lookup_optional_fixed_bytes(
+        ext, "identity_attestation_ref", 32
+    )
+    signing_intent = str(_map_lookup_str(ext, "signing_intent"))
+    attested_at = _map_lookup_u64(ext, "attested_at")
+    signature = _map_lookup_fixed_bytes(ext, "signature", 64)
+    signing_kid = _map_lookup_fixed_bytes(ext, "signing_kid", 16)
+
+    # Step 2 — intra-payload invariants. Deferred-marker pattern preserves
+    # ADR 0010 §"Verifier obligations" step 2 prose (`integrity_verified`
+    # only; NOT a structure failure). First-detected wins.
+    if attested_at != host_authored_at:
+        step_2_failure: Optional[str] = "user_content_attestation_timestamp_mismatch"
+    elif not _is_syntactically_valid_uri(signing_intent):
+        step_2_failure = "user_content_attestation_intent_malformed"
+    else:
+        step_2_failure = None
+
+    canonical_preimage = _compute_user_content_attestation_preimage(
+        attestation_id,
+        attested_event_hash,
+        attested_event_position,
+        attestor,
+        identity_attestation_ref,
+        signing_intent,
+        attested_at,
+    )
+
+    return UserContentAttestationDetails(
+        attestation_id=attestation_id,
+        attested_event_hash=attested_event_hash,
+        attested_event_position=attested_event_position,
+        attestor=attestor,
+        identity_attestation_ref=identity_attestation_ref,
+        signing_intent=signing_intent,
+        attested_at=attested_at,
+        signature=signature,
+        signing_kid=signing_kid,
+        canonical_preimage=canonical_preimage,
+        step_2_failure=step_2_failure,
+    )
+
+
+def _verify_user_content_attestation_signature(
+    details: UserContentAttestationDetails, public_key: bytes
+) -> bool:
+    """ADR 0010 §"Verifier obligations" step 5. Re-hashes the pre-computed
+    `canonical_preimage` under domain tag
+    `trellis-user-content-attestation-v1` (Core §9.8) and verifies under the
+    public key resolved from `signing_kid`. Mirrors Rust
+    `verify_user_content_attestation_signature`."""
+    signed_hash = domain_separated_sha256(
+        USER_CONTENT_ATTESTATION_DOMAIN, details.canonical_preimage
+    )
+    try:
+        Ed25519PublicKey.from_public_bytes(public_key).verify(details.signature, signed_hash)
+    except Exception:
+        return False
+    return True
+
+
+def _finalize_user_content_attestations(
+    payloads: list[tuple[int, UserContentAttestationDetails, bytes]],
+    events: list[EventDetails],
+    registry: dict[bytes, SigningKeyEntry],
+    posture_declaration: Optional[bytes],
+    event_failures: list[VerificationFailure],
+) -> list[UserContentAttestationOutcome]:
+    """ADR 0010 §"Verifier obligations" cross-event finalization. Step 1 +
+    step 2 partial run in `_decode_user_content_attestation_payload`; this
+    pass runs steps 3 (chain-position resolution), 4 (identity resolution),
+    5 (signature verification), 6 (key-state check), 7 (collision
+    detection), 8 (operator-in-user-slot), and 9 (outcome accumulation).
+    Mirrors Rust `finalize_user_content_attestations`."""
+    if not payloads:
+        return []
+
+    # Build chain lookups.
+    event_by_hash: dict[bytes, EventDetails] = {}
+    event_by_position: dict[tuple[bytes, int], EventDetails] = {}
+    for ev in events:
+        event_by_hash.setdefault(ev.canonical_event_hash, ev)
+        event_by_position.setdefault((ev.scope, ev.sequence), ev)
+
+    admit_unverified = (
+        _parse_admit_unverified_user_attestations(posture_declaration)
+        if posture_declaration is not None
+        else False
+    )
+
+    # Step 7 collision detection.
+    id_to_canonical: dict[str, UserContentAttestationDetails] = {}
+    id_collision_reported: set[str] = set()
+    for _index, payload, canonical_hash in payloads:
+        prior = id_to_canonical.get(payload.attestation_id)
+        if prior is None:
+            id_to_canonical[payload.attestation_id] = payload
+        else:
+            differs = (
+                prior.attested_event_hash != payload.attested_event_hash
+                or prior.attested_event_position != payload.attested_event_position
+                or prior.attestor != payload.attestor
+                or prior.identity_attestation_ref != payload.identity_attestation_ref
+                or prior.signing_intent != payload.signing_intent
+                or prior.attested_at != payload.attested_at
+            )
+            if differs and payload.attestation_id not in id_collision_reported:
+                id_collision_reported.add(payload.attestation_id)
+                event_failures.append(
+                    VerificationFailure(
+                        "user_content_attestation_id_collision", _hex(canonical_hash)
+                    )
+                )
+
+    outcomes: list[UserContentAttestationOutcome] = []
+    for index, payload, canonical_hash in payloads:
+        outcome = UserContentAttestationOutcome(
+            attestation_id=payload.attestation_id,
+            attested_event_hash=payload.attested_event_hash,
+            attestor=payload.attestor,
+            signing_intent=payload.signing_intent,
+            event_index=index,
+        )
+
+        # Step 2 deferred-failure surface.
+        if payload.step_2_failure is not None:
+            outcome.failures.append(payload.step_2_failure)
+            event_failures.append(
+                VerificationFailure(payload.step_2_failure, _hex(canonical_hash))
+            )
+            outcomes.append(outcome)
+            continue
+
+        # Step 8 — operator-in-user-slot.
+        if _is_operator_uri(payload.attestor):
+            outcome.failures.append("user_content_attestation_operator_in_user_slot")
+            event_failures.append(
+                VerificationFailure(
+                    "user_content_attestation_operator_in_user_slot",
+                    _hex(canonical_hash),
+                )
+            )
+
+        # Step 3 — chain-position resolution.
+        attestation_event = event_by_hash.get(canonical_hash)
+        attestation_scope = attestation_event.scope if attestation_event else b""
+        host = event_by_position.get((attestation_scope, payload.attested_event_position))
+        if host is None or host.canonical_event_hash != payload.attested_event_hash:
+            outcome.chain_position_resolved = False
+            outcome.failures.append("user_content_attestation_chain_position_mismatch")
+            event_failures.append(
+                VerificationFailure(
+                    "user_content_attestation_chain_position_mismatch",
+                    _hex(canonical_hash),
+                )
+            )
+
+        # Step 4 — identity resolution. Failure-location convention follows
+        # the Rust verifier: identity-related failures use the
+        # `identity_attestation_ref` digest as `failing_event_id` (the
+        # unresolvable / wrong-subject / temporally-inverted target),
+        # NOT the UCA event's canonical hash.
+        if payload.identity_attestation_ref is not None:
+            identity_ref = payload.identity_attestation_ref
+            identity_event = event_by_hash.get(identity_ref)
+            if identity_event is None or not _is_identity_attestation_event_type(
+                identity_event.event_type
+            ) or identity_event.scope != attestation_scope:
+                outcome.identity_resolved = False
+                outcome.failures.append("user_content_attestation_identity_unresolved")
+                event_failures.append(
+                    VerificationFailure(
+                        "user_content_attestation_identity_unresolved",
+                        _hex(identity_ref),
+                    )
+                )
+            elif identity_event.sequence >= payload.attested_event_position:
+                outcome.identity_resolved = False
+                outcome.failures.append(
+                    "user_content_attestation_identity_temporal_inversion"
+                )
+                event_failures.append(
+                    VerificationFailure(
+                        "user_content_attestation_identity_temporal_inversion",
+                        _hex(identity_ref),
+                    )
+                )
+            elif identity_event.identity_attestation_subject != payload.attestor:
+                outcome.identity_resolved = False
+                outcome.failures.append(
+                    "user_content_attestation_identity_subject_mismatch"
+                )
+                event_failures.append(
+                    VerificationFailure(
+                        "user_content_attestation_identity_subject_mismatch",
+                        _hex(identity_ref),
+                    )
+                )
+        else:
+            if not admit_unverified:
+                outcome.identity_resolved = False
+                outcome.failures.append("user_content_attestation_identity_required")
+                event_failures.append(
+                    VerificationFailure(
+                        "user_content_attestation_identity_required",
+                        _hex(canonical_hash),
+                    )
+                )
+
+        # Step 6 — key-state check (precedes step 5 so a Retired/Revoked kid
+        # doesn't get a `signature_invalid` mask). Only `Active` (status 0)
+        # admitted in Phase-1; rotation grace lands with TODO item #5.
+        key_entry = registry.get(payload.signing_kid)
+        if key_entry is None or key_entry.status != 0:
+            outcome.key_active = False
+            outcome.failures.append("user_content_attestation_key_not_active")
+            event_failures.append(
+                VerificationFailure(
+                    "user_content_attestation_key_not_active", _hex(canonical_hash)
+                )
+            )
+        else:
+            # Step 5 — signature verification.
+            if not _verify_user_content_attestation_signature(payload, key_entry.public_key):
+                outcome.signature_verified = False
+                outcome.failures.append("user_content_attestation_signature_invalid")
+                event_failures.append(
+                    VerificationFailure(
+                        "user_content_attestation_signature_invalid",
+                        _hex(canonical_hash),
+                    )
+                )
+
+        outcomes.append(outcome)
+
+    return outcomes
+
+
 def _verify_event_set(
     events: list[ParsedSign1],
     registry: dict[bytes, SigningKeyEntry],
@@ -1646,6 +2091,10 @@ def _verify_event_set(
     posture_transitions: list[PostureTransitionOutcome] = []
     erasure_payloads: list[tuple[int, ErasureEvidenceDetails, bytes]] = []
     certificate_payloads: list[tuple[int, CertificateDetails, bytes]] = []
+    user_content_attestation_payloads: list[
+        tuple[int, UserContentAttestationDetails, bytes]
+    ] = []
+    decoded_events_for_uca: list[EventDetails] = []
     chain_summaries: list[_ChainEventSummary] = []
     previous_hash: Optional[bytes] = None
     skip_prev = initial_posture_declaration is not None and len(events) == 1
@@ -1799,6 +2248,11 @@ def _verify_event_set(
             certificate_payloads.append(
                 (index, details.certificate, details.canonical_event_hash)
             )
+        if details.user_content_attestation is not None:
+            user_content_attestation_payloads.append(
+                (index, details.user_content_attestation, details.canonical_event_hash)
+            )
+        decoded_events_for_uca.append(details)
 
         if details.transition is not None:
             tr = details.transition
@@ -1869,6 +2323,15 @@ def _verify_event_set(
         events,
         event_failures,
     )
+    # ADR 0010 §"Verifier obligations" finalization — runs steps 3-9
+    # cross-event after every event has been decoded.
+    user_content_attestations = _finalize_user_content_attestations(
+        user_content_attestation_payloads,
+        decoded_events_for_uca,
+        registry,
+        posture_declaration,
+        event_failures,
+    )
     posture_ok = all(
         o.continuity_verified and o.declaration_resolved and o.attestations_verified
         for o in posture_transitions
@@ -1890,12 +2353,25 @@ def _verify_event_set(
         o.chain_summary_consistent and o.attachment_resolved and o.all_signing_events_resolved
         for o in certificates_of_completion
     )
+    # ADR 0010 §"Verifier obligations" step 9 fold — user-content
+    # attestation outcomes flip integrity when chain-position binding,
+    # identity resolution, signature verification, or key-state check
+    # failed. Step-7 collision and step-8 operator-in-user-slot failures
+    # already land in `event_failures` above.
+    user_content_attestation_ok = all(
+        o.chain_position_resolved
+        and o.identity_resolved
+        and o.signature_verified
+        and o.key_active
+        for o in user_content_attestations
+    )
     return VerificationReport(
         structure_verified=True,
         integrity_verified=not event_failures
         and posture_ok
         and erasure_ok
-        and certificate_ok,
+        and certificate_ok
+        and user_content_attestation_ok,
         readability_verified=True,
         event_failures=event_failures,
         checkpoint_failures=[],
@@ -1903,6 +2379,7 @@ def _verify_event_set(
         posture_transitions=posture_transitions,
         erasure_evidence=erasure_evidence,
         certificates_of_completion=certificates_of_completion,
+        user_content_attestations=user_content_attestations,
         warnings=[],
     )
 
