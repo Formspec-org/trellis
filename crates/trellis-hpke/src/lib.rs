@@ -16,20 +16,24 @@
 //!   keypair via `OsRng`, runs RFC 9180 Base encap, ChaCha20-Poly1305 seals
 //!   the DEK. Goes through `hpke::single_shot_seal`.
 //!
-//! - [`wrap_dek_with_pinned_ephemeral`] — fixture-only seal. The Trellis
-//!   fixture corpus uses pinned 32-byte X25519 scalars as ephemeral private
-//!   keys (Core §9.4 test-vector carve-out), so byte-equal reproducibility
-//!   across implementations does not depend on a CSPRNG. The standard
+//! - `wrap_dek_with_pinned_ephemeral` — fixture-only seal, **gated behind
+//!   the `test-vectors` Cargo feature**. The Trellis fixture corpus uses
+//!   pinned 32-byte X25519 scalars as ephemeral private keys (Core §9.4
+//!   test-vector carve-out), so byte-equal reproducibility across
+//!   implementations does not depend on a CSPRNG. The standard
 //!   `hpke::setup_sender` path runs `DeriveKeyPair(GenerateRandomBytes())`
 //!   (RFC 9180 §7.1) and so cannot accept a raw scalar as ephemeral. This
 //!   function therefore hand-rolls RFC 9180 §5.1.1 Encap on top of
 //!   [`x25519_dalek`] + the (`#[doc(hidden)]` but `pub`)
-//!   [`hpke::kdf::extract_and_expand`] / [`hpke::kdf::labeled_extract`]
+//!   `hpke::kdf::extract_and_expand` / `hpke::kdf::labeled_extract`
 //!   helpers, then completes the key-schedule via the same helpers and
-//!   AEAD-seals with [`chacha20poly1305::ChaCha20Poly1305`]. The receiver
+//!   AEAD-seals with `chacha20poly1305::ChaCha20Poly1305`. The receiver
 //!   side is unchanged — `setup_receiver` (per [`unwrap_dek`]) reproduces
 //!   the same shared secret from `enc + sk_recip` regardless of how the
-//!   sender chose `sk_eph`.
+//!   sender chose `sk_eph`. The feature gate is the production-graph
+//!   firewall: a binary built without `--features test-vectors` cannot
+//!   link the carve-out path even by mistake. Re-enable for byte-oracle
+//!   replays via `cargo test -p trellis-hpke --features test-vectors`.
 //!
 //! - [`unwrap_dek`] — production / verifier open. Constructs the
 //!   `X25519HkdfSha256` private key from a 32-byte recipient seed, then
@@ -37,18 +41,20 @@
 
 #![forbid(unsafe_code)]
 
+use hpke::{
+    Deserializable, OpModeR, Serializable, aead::ChaCha20Poly1305 as HpkeChaCha20Poly1305,
+    kdf::HkdfSha256, kem::X25519HkdfSha256, setup_receiver,
+};
+use rand_core::{OsRng, TryRngCore};
+
+#[cfg(feature = "test-vectors")]
 use chacha20poly1305::{
     AeadInPlace, ChaCha20Poly1305, KeyInit,
     aead::generic_array::GenericArray as AeadGenericArray,
 };
-use hpke::{
-    Deserializable, OpModeR, Serializable,
-    aead::ChaCha20Poly1305 as HpkeChaCha20Poly1305,
-    kdf::{HkdfSha256, LabeledExpand, extract_and_expand, labeled_extract},
-    kem::X25519HkdfSha256,
-    setup_receiver,
-};
-use rand_core::{OsRng, TryRngCore};
+#[cfg(feature = "test-vectors")]
+use hpke::kdf::{LabeledExpand, extract_and_expand, labeled_extract};
+#[cfg(feature = "test-vectors")]
 use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Static};
 
 /// HPKE `info` for Trellis Phase-1 suite 1 wraps (Core §9.4: empty).
@@ -57,9 +63,11 @@ pub const HPKE_SUITE1_INFO: &[u8] = &[];
 /// HPKE wrap `aad` for Trellis Phase-1 suite 1 wraps (Core §9.4: empty).
 pub const HPKE_SUITE1_AAD: &[u8] = &[];
 
+#[cfg(feature = "test-vectors")]
 const KEM_SUITE_ID: [u8; 5] = [b'K', b'E', b'M', 0x00, 0x20]; // "KEM" || 0x0020
 /// HPKE suite-id binding string `"HPKE" || KEM_ID || KDF_ID || AEAD_ID`
 /// (RFC 9180 §5.1) for X25519-HKDF-SHA256-ChaCha20Poly1305.
+#[cfg(feature = "test-vectors")]
 const HPKE_SUITE_ID: [u8; 10] = [
     b'H', b'P', b'K', b'E', 0x00, 0x20, 0x00, 0x01, 0x00, 0x03,
 ];
@@ -168,6 +176,12 @@ pub fn wrap_dek(
 /// language: "no production `Fact Producer`, `Canonical Append Service`,
 /// or `Verifier` may rely on the pinned-key behavior."
 ///
+/// **Gated behind the `test-vectors` Cargo feature.** A production build
+/// of any crate downstream of `trellis-hpke` (i.e. without
+/// `--features test-vectors` enabled) cannot link this symbol. The test
+/// suite enables the feature explicitly via
+/// `cargo test -p trellis-hpke --features test-vectors`.
+///
 /// Implements RFC 9180 §5.1.1 Encap + §5.1 KeySchedule + AEAD seal
 /// directly because `hpke::setup_sender` always runs DeriveKeyPair on
 /// fresh randomness; raw-scalar pinning is the very flexibility
@@ -177,6 +191,7 @@ pub fn wrap_dek(
 ///
 /// # Errors
 /// Returns [`HpkeError`] when KDF expansion or AEAD sealing fails.
+#[cfg(feature = "test-vectors")]
 pub fn wrap_dek_with_pinned_ephemeral(
     recipient_pubkey: &[u8; 32],
     ephemeral_privkey: &[u8; 32],
@@ -270,6 +285,7 @@ pub fn unwrap_dek(
 /// base_nonce)` from `shared_secret` and `info`. Empty PSK + empty PSK ID
 /// per Base mode, empty info per Phase-1 §9.4 (but parameterized in case
 /// a future suite registers a non-empty info).
+#[cfg(feature = "test-vectors")]
 fn derive_base_key_and_nonce(
     shared_secret: &[u8; 32],
     info: &[u8],
@@ -314,16 +330,19 @@ mod tests {
     /// byte-exact oracle.
     #[test]
     fn wrap_then_unwrap_round_trip() {
+        // Derive the recipient pubkey via the hpke crate's own KEM helper
+        // so this test does not need `x25519-dalek` directly (which is
+        // gated behind `test-vectors`).
+        use hpke::{Kem, kem::X25519HkdfSha256};
         let recipient_seed = [0x42u8; 32];
-        let recipient_pub = X25519Public::from(&X25519Static::from(recipient_seed));
+        let sk = <X25519HkdfSha256 as Kem>::PrivateKey::from_bytes(&recipient_seed)
+            .expect("recipient sk");
+        let pk = <X25519HkdfSha256 as Kem>::sk_to_pk(&sk);
+        let mut recipient_pub = [0u8; 32];
+        recipient_pub.copy_from_slice(&pk.to_bytes());
+
         let dek = b"some-32-byte-dek--padding-pad-pad";
-        let wrap = wrap_dek(
-            recipient_pub.as_bytes(),
-            dek,
-            HPKE_SUITE1_INFO,
-            HPKE_SUITE1_AAD,
-        )
-        .expect("wrap");
+        let wrap = wrap_dek(&recipient_pub, dek, HPKE_SUITE1_INFO, HPKE_SUITE1_AAD).expect("wrap");
 
         let mut wire = wrap.ciphertext.clone();
         wire.extend_from_slice(&wrap.aead_tag);
@@ -339,7 +358,9 @@ mod tests {
     }
 
     /// `wrap_dek_with_pinned_ephemeral` then `unwrap_dek` round-trips,
-    /// independently of the `append/004` fixture.
+    /// independently of the `append/004` fixture. Gated under
+    /// `test-vectors` like the function it exercises.
+    #[cfg(feature = "test-vectors")]
     #[test]
     fn pinned_ephemeral_wrap_round_trips() {
         let recipient_seed = [0x55u8; 32];

@@ -15,14 +15,17 @@ license.workspace = true
 #
 # `wrap_dek` / `unwrap_dek` go through hpke's RFC-blessed public API
 # (`single_shot_seal` / `setup_receiver`). The fixture-only
-# `wrap_dek_with_pinned_ephemeral` path bypasses hpke's `setup_sender`
-# (which always derives the ephemeral via `DeriveKeyPair(GenerateRandomBytes())`)
-# and reaches into hpke's lower-level `LabeledExtract` / `ExtractAndExpand`
-# helpers — the only way to produce HPKE bytes that match the Python
-# fixture generator's "raw 32-byte seed = X25519 scalar" carve-out (Core
-# §9.4 test-vector carve-out). x25519-dalek and chacha20poly1305 are
-# explicit deps so the carve-out path does not lean on hpke's transitive
-# graph.
+# `wrap_dek_with_pinned_ephemeral` path is gated behind the
+# `test-vectors` Cargo feature (default off). It bypasses hpke's
+# `setup_sender` (which always derives the ephemeral via
+# `DeriveKeyPair(GenerateRandomBytes())`) and reaches into hpke's
+# lower-level `LabeledExtract` / `ExtractAndExpand` helpers — the only
+# way to produce HPKE bytes that match the Python fixture generator's
+# "raw 32-byte seed = X25519 scalar" carve-out (Core §9.4 test-vector
+# carve-out). x25519-dalek and chacha20poly1305 are explicit deps so
+# the carve-out path does not lean on hpke's transitive graph; both are
+# only referenced under `#[cfg(feature = "test-vectors")]` in the
+# crate.
 #
 # Isolated from `trellis-cose` so HPKE deps do not leak into `trellis-verify`
 # via the existing `trellis-verify -> trellis-cose` chain (Core §16
@@ -43,11 +46,21 @@ license.workspace = true
 #     `append/004` flows through these directly; AEAD nonce schedules,
 #     KDF derivation, X25519 scalar clamping, and HKDF chaining are
 #     under-specified to the version. Re-run
-#     `cargo test -p trellis-hpke` after any bump and confirm the
-#     `append_004_byte_match.rs` byte oracle is still green.
+#     `cargo test -p trellis-hpke --features test-vectors` after any
+#     bump and confirm the `append_004_byte_match.rs` byte oracle is
+#     still green.
 # (3) Crate spike → ADR promotion: `thoughts/adr/0009-hpke-crate-selection.md`
 #     §Lifecycle pins "promote-on-bump." Any bump here is the trigger to
 #     re-read the ADR and update its decision-log entry.
+
+[features]
+# Default off. Gates `wrap_dek_with_pinned_ephemeral` and the related
+# fixture-only KDF / X25519 / AEAD imports so the production
+# crate-graph cannot link the Core §9.4 test-vector carve-out. Enable
+# in test invocations that replay the `append/004` byte oracle:
+# `cargo test -p trellis-hpke --features test-vectors`.
+default = []
+test-vectors = []
 
 [dependencies]
 hpke = { version = "=0.13.0" }

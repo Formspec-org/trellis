@@ -6,7 +6,12 @@
 //! Authority: Core §9.4 (HPKE suite 1 — RFC 9180 Base mode, X25519,
 //! HKDF-SHA256, ChaCha20-Poly1305, `info = h''`, wrap `aad = h''`).
 //! Fixture: `fixtures/vectors/append/004-hpke-wrapped-inline/`.
+//!
+//! **Gated under the `test-vectors` Cargo feature** because it exercises
+//! `wrap_dek_with_pinned_ephemeral`, the Core §9.4 carve-out path. Run
+//! via `cargo test -p trellis-hpke --features test-vectors`.
 
+#![cfg(feature = "test-vectors")]
 #![forbid(unsafe_code)]
 
 use std::path::PathBuf;

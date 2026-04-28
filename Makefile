@@ -22,7 +22,7 @@ help:
 	@echo "Usage:"
 	@echo "  make build          Build all Rust crates"
 	@echo "  make test           Run all tests (Rust, Python, Scripts, Specs)"
-	@echo "  make test-rust      Run all Rust tests"
+	@echo "  make test-rust      Run all Rust tests + trellis-hpke byte oracle"
 	@echo "  make test-python    Run Python conformance tests"
 	@echo "  make test-scripts   Run tests for helper scripts"
 	@echo "  make test-postgres  Run trellis-store-postgres + parity integration tests (needs initdb/pg_ctl on PATH)"
@@ -42,6 +42,8 @@ test: test-rust test-python test-scripts check-specs
 test-rust:
 	@echo "Running Rust tests..."
 	$(CARGO) test --workspace
+	@echo "Running trellis-hpke byte oracle (test-vectors feature)..."
+	$(CARGO) test -p trellis-hpke --features test-vectors
 
 test-python:
 	@echo "Running Python conformance tests..."
