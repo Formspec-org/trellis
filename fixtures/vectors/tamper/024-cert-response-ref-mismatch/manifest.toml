@@ -1,0 +1,25 @@
+id          = "tamper/024-cert-response-ref-mismatch"
+op          = "tamper"
+status      = "active"
+description = """ADR 0007 §"Verifier obligations" step 7 violation: certificate `chain_summary.response_ref` is XOR-flipped so it disagrees with the resolved SignatureAffirmation event's `data.formspecResponseRef` digest. `finalize_certificates_of_completion` parses the SignatureAffirmation record, finds at least one resolvable response digest, fails to find a match, and emits `response_ref_mismatch`. Generator: `_generator/gen_export_010_certificate_of_completion.py`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-150",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "response_ref_mismatch"
+failing_event_id     = "851d24e7c11ea42ec73fd8722ba9567be578deb68b527e88f3a27685e125db96"
+
+[derivation]
+document = "derivation.md"

@@ -1,0 +1,35 @@
+id          = "export/010-certificate-of-completion-inline"
+op          = "export"
+status      = "active"
+description = """ADR 0007 §"Export manifest catalog" positive vector. Three-event chain `[attachment-binding, wos.kernel.signatureAffirmation, trellis.certificate-of-completion.v1]` with `065-certificates-of-completion.cbor` bound through `trellis.export.certificates-of-completion.v1`. Exercises the full ADR 0007 verifier-obligations path: step 4 (attachment lineage + content-hash recompute), step 5 (signing-event resolution), step 6 (timestamp equivalence), step 7 (response_ref cross-check)."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-035",
+    "TR-CORE-062",
+    "TR-CORE-063",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-110",
+    "TR-CORE-134",
+    "TR-CORE-146",
+    "TR-CORE-147",
+    "TR-CORE-148",
+    "TR-CORE-149",
+    "TR-CORE-150",
+    "TR-CORE-151",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "78e28db91a67c4f69df695e93d760f0261d0be411e2d4e612d329659a33fee43"
+
+[derivation]
+document = "derivation.md"
