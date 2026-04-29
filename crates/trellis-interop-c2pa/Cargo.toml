@@ -4,4 +4,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# ADR 0008 §"`c2pa-manifest`" — Wave 25 activation. This crate is the
+# only workspace consumer permitted to depend on `c2pa-rs` per
+# `deny.toml` (cargo-deny ISC-05). Wave 25 takes the **hand-rolled
+# CBOR** path for the Trellis assertion (5-field dCBOR map) — the
+# assertion bytes are byte-exact and stranger-test-reproducible
+# without pulling the 328-crate `c2pa-rs` dep tree into the workspace.
+# The C2PA-tooling consumer (PDF/JPEG embed + read) is documented in
+# README.md as the operator's responsibility; consumers pick their own
+# C2PA SDK and call `extract_trellis_assertion` on the bytes they
+# extract from the manifest store.
+#
+# `trellis-verify` and `trellis-types` MUST NOT pull in this crate
+# transitively (ISC-05). The Phase-1 core verifier runs path-(b)
+# digest-binds only and never decodes the C2PA manifest bytes.
 [dependencies]
+trellis-types = { path = "../trellis-types" }
+ciborium = "0.2"
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "1"
