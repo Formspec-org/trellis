@@ -139,8 +139,10 @@ consume amended responses.
     [`../wos-spec/TODO.md#adr-0066-exec-checklist`](../wos-spec/TODO.md#adr-0066-exec-checklist).
     Parent backlog: **PLN-0055**, **PLN-0056**, **PLN-0050**
     (`ResponseCorrection` linkage), **PLN-0051** (supersession-start linkage).
-    + [ ] Envelope header carries `supersedes_chain_id` (Core + CDDL); null on
-      genesis non-superseding chains.
+    + [ ] `EventPayload.extensions` carries **`trellis.supersedes-chain-id.v1`**
+      per Core §6.7 (spec table landed); align Companion/CDDL + fixtures with
+      that identifier and payload `{ chain_id, checkpoint_hash }`; null /
+      absent on genesis non-superseding chains.
     + [ ] Single-chain vectors: `append/011-correction`, `012-amendment`,
       `013-rescission`.
     + [ ] Verifier **D-3:** correction-preservation; rescission-terminality
