@@ -7,13 +7,24 @@ use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 
 use ciborium::Value;
-use trellis_types::{encode_bstr, encode_tstr, encode_uint};
+use trellis_types::{
+    IDEMPOTENCY_KEY_MAX_LEN, IDEMPOTENCY_KEY_MIN_LEN, encode_bstr, encode_tstr, encode_uint,
+    idempotency_key_length_in_bound,
+};
 
 /// The authored-event fields needed by the Phase-1 append scaffold.
+///
+/// `idempotency_key` is the Core §6.1 / §17.2 wire-contract identity. Its
+/// length is validated against `bstr .size (1..64)` at parse time; a
+/// length-bound violation surfaces as [`CddlError`] with kind
+/// [`CddlErrorKind::IdempotencyKeyLengthInvalid`] so callers (the verifier,
+/// the append scaffold) can map it to the §17.5 `idempotency_key_length_invalid`
+/// rejection code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedAuthoredEvent {
     pub ledger_scope: Vec<u8>,
     pub sequence: u64,
+    pub idempotency_key: Vec<u8>,
 }
 
 /// The Ed25519 key material needed by the Phase-1 append scaffold.
@@ -24,16 +35,32 @@ pub struct ParsedEd25519Key {
 }
 
 /// The canonical-event fields needed by the Phase-1 append scaffold.
+///
+/// `idempotency_key` is parsed from the canonical EventPayload (§6.1 / §28
+/// CDDL); it MUST be byte-equal to the authored-event's `idempotency_key`
+/// because the canonical map is the authored map plus `author_event_hash`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedCanonicalEvent {
     pub ledger_scope: Vec<u8>,
     pub sequence: u64,
     pub author_event_hash: [u8; 32],
+    pub idempotency_key: Vec<u8>,
+}
+
+/// Error kinds surfaced by the append-scaffold CDDL parsers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CddlErrorKind {
+    /// The CBOR document did not decode against the expected map shape.
+    StructureInvalid,
+    /// `idempotency_key` violated Core §6.1 `bstr .size (1..64)` (§17.5
+    /// `idempotency_key_length_invalid`).
+    IdempotencyKeyLengthInvalid,
 }
 
 /// Error returned when fixture CBOR cannot be decoded into the expected shape.
 #[derive(Debug)]
 pub struct CddlError {
+    kind: CddlErrorKind,
     message: String,
     backtrace: Backtrace,
 }
@@ -41,9 +68,23 @@ pub struct CddlError {
 impl CddlError {
     fn new(message: impl Into<String>) -> Self {
         Self {
+            kind: CddlErrorKind::StructureInvalid,
             message: message.into(),
             backtrace: Backtrace::capture(),
         }
+    }
+
+    fn with_kind(kind: CddlErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            backtrace: Backtrace::capture(),
+        }
+    }
+
+    /// Returns the discriminant for this decode failure.
+    pub fn kind(&self) -> CddlErrorKind {
+        self.kind
     }
 }
 
@@ -77,10 +118,12 @@ pub fn parse_authored_event(bytes: &[u8]) -> Result<ParsedAuthoredEvent, CddlErr
 
     let ledger_scope = map_lookup_bytes(map, "ledger_scope")?;
     let sequence = map_lookup_u64(map, "sequence")?;
+    let idempotency_key = map_lookup_idempotency_key(map)?;
 
     Ok(ParsedAuthoredEvent {
         ledger_scope,
         sequence,
+        idempotency_key,
     })
 }
 
@@ -122,6 +165,7 @@ pub fn parse_canonical_event(bytes: &[u8]) -> Result<ParsedCanonicalEvent, CddlE
     let ledger_scope = map_lookup_bytes(map, "ledger_scope")?;
     let sequence = map_lookup_u64(map, "sequence")?;
     let author_event_hash = map_lookup_fixed_bytes(map, "author_event_hash", 32)?;
+    let idempotency_key = map_lookup_idempotency_key(map)?;
 
     Ok(ParsedCanonicalEvent {
         ledger_scope,
@@ -130,6 +174,7 @@ pub fn parse_canonical_event(bytes: &[u8]) -> Result<ParsedCanonicalEvent, CddlE
             .as_slice()
             .try_into()
             .expect("length is fixed to 32 above"),
+        idempotency_key,
     })
 }
 
@@ -255,6 +300,29 @@ fn map_lookup_fixed_bytes(
         return Err(CddlError::new(format!(
             "`{key_name}` must be {expected_len} bytes"
         )));
+    }
+    Ok(bytes)
+}
+
+
+/// Extracts and validates the `idempotency_key` field per Core §6.1 + §17.2.
+///
+/// The CBOR value MUST be a byte string; its length MUST satisfy `bstr .size
+/// (1..64)`. Length violations surface as [`CddlErrorKind::IdempotencyKeyLengthInvalid`]
+/// so verifiers can map to the §17.5 `idempotency_key_length_invalid` code
+/// without re-parsing the structural failure.
+fn map_lookup_idempotency_key(map: &[(Value, Value)]) -> Result<Vec<u8>, CddlError> {
+    let bytes = map_lookup_bytes(map, "idempotency_key")?;
+    if !idempotency_key_length_in_bound(&bytes) {
+        return Err(CddlError::with_kind(
+            CddlErrorKind::IdempotencyKeyLengthInvalid,
+            format!(
+                "idempotency_key length {} outside Core §6.1 bound {}..={}",
+                bytes.len(),
+                IDEMPOTENCY_KEY_MIN_LEN,
+                IDEMPOTENCY_KEY_MAX_LEN,
+            ),
+        ));
     }
     Ok(bytes)
 }

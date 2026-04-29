@@ -78,6 +78,11 @@ TAMPER_KIND_ENUM = frozenset({
     "intake_handoff_catalog_digest_mismatch",
     "key_class_mismatch",                # Core §8.7.3 step 4 (ADR 0006).
     "key_entry_attributes_shape_mismatch",   # Core §8.7.2 (ADR 0006).
+    # Append idempotency (Core §6.1 / §17 / §19.1; invariant #13). Verifier
+    # detection of structural reject + same-key/different-payload conflict.
+    # Fixtures: tamper/035 + tamper/036.
+    "idempotency_key_length_invalid",        # Core §6.1 / §17.2 / §17.5; TR-CORE-158.
+    "idempotency_key_payload_mismatch",      # Core §17.3 clause 3 / §17.5 (verifier-side); TR-CORE-160.
     # Erasure-evidence (Core §19.1 / §19 step 6b; ADR 0005). Phase-1
     # reserved enum values; corpus vectors land in the ADR 0005 execution
     # train (TODO item #3). The corpus is a subset of the enum (see

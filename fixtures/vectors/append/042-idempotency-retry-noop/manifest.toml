@@ -1,0 +1,37 @@
+id          = "append/042-idempotency-retry-noop"
+op          = "append"
+description = """Core §17.3 clauses 1+2 byte-equal retry semantics. For a fixed
+`(ledger_scope, idempotency_key)` and byte-identical authored inputs, every
+successful retry resolves to the byte-identical canonical event (same
+`author_event_hash`, `canonical_event_hash`, `content_hash`, `signed_event`,
+`append_head`). The deterministic-nonce derivation of §9.4 (TR-CORE-144)
+makes this a producer obligation rather than an operator policy. Distinct
+from `append/041-aead-retry-determinism` only by `idempotency_key` and
+`event_type`; both vectors prove the same retry-noop property under
+different keys, demonstrating that the property holds across the
+`idempotency_key` value space.
+"""
+
+[coverage]
+tr_core = [
+    "TR-CORE-031",  # inv #4 — content_hash over real AEAD ciphertext bytes
+    "TR-CORE-038",  # inv #7 — key_bag populated + included in author_event_hash
+    "TR-CORE-051",  # inv #13 — idempotency semantics
+    "TR-CORE-144",  # deterministic AEAD nonce derivation
+    "TR-CORE-159",  # NEW — §17.3 clauses 1+2 byte-equal retry
+    "TR-CORE-161",  # NEW — §28 CDDL idempotency_key binding in canonical hash
+]
+
+[inputs]
+signing_key    = "../../_keys/issuer-001.cose_key"
+payload        = "../../_inputs/sample-payload-001.bin"
+authored_event = "input-author-event-hash-preimage.cbor"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

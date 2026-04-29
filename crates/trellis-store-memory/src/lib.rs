@@ -127,9 +127,10 @@ pub fn append_event_in_tx(
         }
     }
 
-    // Item #24 will thread `idempotency_key` into `StoredEvent` (per
-    // `trellis/TODO.md`); the conflict check above is a no-op until callers
-    // supply keys AND `stored_key` returns the threaded value.
+    // `StoredEvent::idempotency_key` now carries the parsed Core §6.1 / §17.2
+    // wire-contract identity through (item #2 closed Wave 24). The collision
+    // check above is therefore live — both `stored_key` and the buffered
+    // events return the threaded value.
     tx.buffered.push(event.clone());
     Ok(())
 }
@@ -165,18 +166,26 @@ impl std::fmt::Display for MemoryAppendError {
 
 impl std::error::Error for MemoryAppendError {}
 
-/// Phase-1 placeholder — `StoredEvent` does not yet carry `idempotency_key`
-/// (item #24). Returns `None` until that item threads the field through
-/// `trellis-types`.
-fn stored_key(_stored: &StoredEvent) -> Option<&[u8]> {
-    None
+/// Reads the Core §6.1 `idempotency_key` from the threaded `StoredEvent`.
+fn stored_key(stored: &StoredEvent) -> Option<&[u8]> {
+    stored.idempotency_key()
 }
 
 impl LedgerStore for MemoryStore {
-    type Error = Infallible;
+    type Error = MemoryAppendError;
 
     fn append_event(&mut self, event: StoredEvent) -> Result<(), Self::Error> {
-        self.events.push(event);
+        // Compose the `LedgerStore` trait method through the buffered-tx
+        // surface so the §6.1 length bound and the §17.3 unique-`(scope,
+        // key)` collision check both fire against the same code path
+        // exercised by `append_event_in_tx`.
+        let key = event.idempotency_key().map(<[u8]>::to_vec);
+        let mut tx = self.begin();
+        append_event_in_tx(&mut tx, &event, key.as_deref())?;
+        // `MemoryTransaction::commit` returns `Result<(), Infallible>`;
+        // the `?` here is structurally unreachable but kept for parity with
+        // `trellis-store-postgres`.
+        let _ = tx.commit();
         Ok(())
     }
 }

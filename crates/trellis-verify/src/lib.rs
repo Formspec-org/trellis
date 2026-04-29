@@ -1232,6 +1232,12 @@ struct EventDetails {
     author_event_hash: [u8; 32],
     content_hash: [u8; 32],
     canonical_event_hash: [u8; 32],
+    /// Core §6.1 / §17.2 wire-contract identity. Length is validated against
+    /// `bstr .size (1..64)` at parse time; out-of-bound length surfaces as a
+    /// typed `VerifyError` with kind `idempotency_key_length_invalid`.
+    /// Used by the per-event-set loop to detect §17.3 duplicate `(scope, key)`
+    /// identity with divergent canonical material.
+    idempotency_key: Vec<u8>,
     payload_ref: PayloadRef,
     transition: Option<TransitionDetails>,
     attachment_binding: Option<AttachmentBindingDetails>,
@@ -1790,6 +1796,15 @@ fn verify_event_set_with_classes(
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
     let skip_prev_hash_check = initial_posture_declaration.is_some() && events.len() == 1;
+
+    // Core §17.3 — Track every `(ledger_scope, idempotency_key)` identity
+    // seen so far in this event set, mapped to the first canonical event's
+    // `canonical_event_hash`. A second event sharing the identity but with
+    // a divergent `canonical_event_hash` is a §17.3 clause-3 violation
+    // surfaced as `idempotency_key_payload_mismatch` (§17.5 + TR-CORE-160).
+    // The check is offline (Core §16) and operates purely on the canonical
+    // events; no Canonical Append Service state is required.
+    let mut idempotency_index: BTreeMap<(Vec<u8>, Vec<u8>), [u8; 32]> = BTreeMap::new();
     let mut shadow_custody_model =
         initial_posture_declaration.and_then(|bytes| parse_custody_model(bytes).ok());
     let mut shadow_disclosure_profile =
@@ -1913,6 +1928,32 @@ fn verify_event_set_with_classes(
                     "scope_mismatch",
                     hex_string(&details.canonical_event_hash),
                 ));
+            }
+        }
+
+        // Core §17.3 clause 3 + §17.5 — duplicate `(scope, idempotency_key)`
+        // identity with divergent canonical material is `idempotency_key_payload_mismatch`.
+        // The first occurrence is admitted as the canonical reference; the
+        // second occurrence is the failing event. Identity is determined by
+        // (scope, idempotency_key); divergence is by canonical_event_hash
+        // (which transitively binds content_hash + author_event_hash via
+        // §9.2 / §9.5 preimages). TR-CORE-160 + TR-CORE-162.
+        let identity_key = (details.scope.clone(), details.idempotency_key.clone());
+        match idempotency_index.get(&identity_key) {
+            Some(prior_hash) if *prior_hash != details.canonical_event_hash => {
+                event_failures.push(VerificationFailure::new(
+                    "idempotency_key_payload_mismatch",
+                    hex_string(&details.canonical_event_hash),
+                ));
+            }
+            Some(_) => {
+                // Same identity, byte-equal canonical hash — §17.3 clause 1
+                // (same canonical reference) / clause 2 (declared no-op).
+                // Phase 1 ledgers SHOULD NOT carry duplicate entries, but a
+                // byte-equal duplicate is a no-op rather than a tamper.
+            }
+            None => {
+                idempotency_index.insert(identity_key, details.canonical_event_hash);
             }
         }
 
@@ -2706,6 +2747,21 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
     let content_hash = bytes_array(&map_lookup_fixed_bytes(payload_map, "content_hash", 32)?);
     let canonical_event_hash = recompute_canonical_event_hash(&scope, payload_bytes);
 
+    // Core §6.1 / §17.2 — `idempotency_key` MUST be a CBOR byte string of
+    // 1..=64 bytes. Length-bound violations surface as the typed §17.5
+    // `idempotency_key_length_invalid` so the report's `tamper_kind`
+    // localizes the structural failure.
+    let idempotency_key = map_lookup_bytes(payload_map, "idempotency_key")?;
+    if idempotency_key.is_empty() || idempotency_key.len() > 64 {
+        return Err(VerifyError::with_kind(
+            format!(
+                "idempotency_key length {} outside Core §6.1 / §17.2 bound 1..=64",
+                idempotency_key.len(),
+            ),
+            "idempotency_key_length_invalid",
+        ));
+    }
+
     let header = map_lookup_map(payload_map, "header")?;
     let authored_at = map_lookup_u64(header, "authored_at")?;
     let event_type_bytes = map_lookup_bytes(header, "event_type")?;
@@ -2756,6 +2812,7 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
         author_event_hash,
         content_hash,
         canonical_event_hash,
+        idempotency_key,
         payload_ref,
         transition,
         attachment_binding,

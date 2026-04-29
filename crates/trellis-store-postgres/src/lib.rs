@@ -256,8 +256,12 @@ impl LedgerStore for PostgresStore {
     type Error = PostgresStoreError;
 
     fn append_event(&mut self, event: StoredEvent) -> Result<(), Self::Error> {
+        // Forward the threaded Core §6.1 / §17.2 `idempotency_key` to
+        // `append_event_in_tx` so the partial unique index on
+        // `(scope, idempotency_key)` enforces the §17.3 wire-contract identity.
         let mut tx = self.begin()?;
-        append_event_in_tx(&mut tx, &event, None)?;
+        let key = event.idempotency_key();
+        append_event_in_tx(&mut tx, &event, key)?;
         tx.commit().map_err(|error| {
             PostgresStoreError::new(
                 PostgresStoreErrorKind::QueryFailed,
@@ -280,12 +284,13 @@ impl LedgerStore for PostgresStore {
 /// `Some(key)`, the table's partial unique index on
 /// `(scope, idempotency_key)` enforces "one canonical event per
 /// `(ledger_scope, idempotency_key)` forever." Phase-1 Rust threading
-/// (CDDL parsing, hash preimage, verifier) is item #24 in `trellis/TODO.md`;
-/// today Trellis-internal callers pass `None` and the constraint stays
-/// dormant. wos-server (which already has a stable
+/// closed Wave 24 (formerly item #24, renumbered to item #2 then closed):
+/// `trellis-cddl::parse_authored_event` extracts the field, `trellis-core`
+/// threads it through `StoredEvent::with_idempotency_key`, and the
+/// `LedgerStore::append_event` impl above forwards it here. wos-server's
 /// `(caseId, recordId)`-derived key per
-/// [WOS ADR 0061](../../../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md))
-/// can begin populating it ahead of #24.
+/// [WOS ADR 0061](../../../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
+/// composes through this same surface.
 ///
 /// # Errors
 /// - [`PostgresStoreErrorKind::IdempotencyKeyTooLong`] if `key.len() > 64`.

@@ -1180,6 +1180,8 @@ Every `append` call carries a stable `idempotency_key`. Without a wire-contract 
 
 `idempotency_key` is a byte string of 1–64 bytes. It MAY be a UUIDv7 ([RFC 9562]), a stable caller-assigned identifier, or any value chosen by the Fact Producer so long as the producer guarantees that equivalent authored submissions produce equal keys.
 
+The structural bound `bstr .size (1..64)` (§6.1, §28) is enforced by Phase 1 producers and verifiers. An authored event whose `idempotency_key` is empty or longer than 64 bytes MUST be rejected with the structured code `idempotency_key_length_invalid` (§17.5); this is a structural-reject path orthogonal to the §17.3 retry-vs-conflict resolution.
+
 The recommended convention is UUIDv7, because:
 
 - it is globally unique without coordination,
@@ -1187,6 +1189,8 @@ The recommended convention is UUIDv7, because:
 - RFC 9562 pins its format, avoiding legacy UUIDv4 randomness variance.
 
 Callers may substitute a deterministic hash of the authored fact's causal identity (for example, `SHA-256(session_id || field_path || proposed_value)`) if that better matches their retry semantics.
+
+Traceability: **TR-CORE-158** (structural `bstr .size (1..64)` bound + `idempotency_key_length_invalid` rejection), **TR-CORE-161** (`idempotency_key` participates in the `AuthorEventHashPreimage` and `EventPayload` dCBOR preimages — implementations MUST parse the field and MUST NOT compute `author_event_hash` or `canonical_event_hash` against a preimage that omits it).
 
 ### 17.3 Resolution semantics
 
@@ -1200,9 +1204,13 @@ For a given `idempotency_key` within a declared ledger scope, a Canonical Append
 
 The service MUST NOT, on retry, create a new canonical order position with a different canonical event hash under the same `idempotency_key`. Duplication at the same `idempotency_key` with a different hash is undefined canonical order.
 
+Traceability: **TR-CORE-159** (clauses 1+2 byte-equal retry semantics — same canonical reference / declared no-op), **TR-CORE-160** (clause 3 `IdempotencyKeyPayloadMismatch` rejection + verifier-side `tamper_kind = "idempotency_key_payload_mismatch"`), **TR-CORE-162** (`(ledger_scope, idempotency_key)` scope-permanence — cross-scope reuse permitted, in-scope reuse forbidden regardless of operator policy).
+
 ### 17.4 Operational retry policy boundary
 
 Core defines the permanent, scope-permanent idempotency identity and deterministic replay/rejection semantics. The Operational Companion §18 (Append Idempotency (Operational)) defines retry budgets, API-facing TTLs, dedup-store retention lifecycle, and how operators document storage compaction. No operational policy may cause `(ledger_scope, idempotency_key)` to accept a different payload after any expiry; operator policy may only decide how long the *accept-or-reject decision* stays fast (before falling back to a replay-from-chain lookup), never what the decision is.
+
+Traceability: **TR-CORE-162** (operator-policy boundary — TTL, compaction, lifecycle MAY NOT relax the §17.3 scope-permanent rule).
 
 ### 17.5 Rejection codes
 
@@ -1211,6 +1219,7 @@ The following rejection codes are normative for Phase 1. Each is a structured, v
 | Code | Meaning |
 |---|---|
 | `IdempotencyKeyPayloadMismatch` | Same `(ledger_scope, idempotency_key)`, different payload/hash material — see §17.3. |
+| `idempotency_key_length_invalid` | `idempotency_key` is empty or longer than 64 bytes (§6.1 / §17.2 `bstr .size (1..64)`). Structural reject; orthogonal to §17.3 conflict resolution. |
 | `prev_hash_mismatch` | `prev_hash` does not match the predecessor's canonical event hash (§10.2). |
 | `sequence_gap` | `sequence` is not `prev.sequence + 1`. |
 | `unknown_suite_id` | `suite_id` is not registered (§7.2). |
@@ -1982,6 +1991,8 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `intake_handoff_catalog_digest_mismatch` | 3.f / extensions check | `063-intake-handoffs.cbor` digest does not match the manifest's `trellis.export.intake-handoffs.v1` binding. |
 | `key_class_mismatch` | 4.a (key-class dispatch) | A COSE_Sign1 protected-header `kid` resolves to a `KeyEntry` whose `kind` is a reserved non-signing class (`tenant-root`, `scope`, `subject`, `recovery`); only `signing`-class kids may sign canonical events (Core §8.7.3 step 4 / ADR 0006). |
 | `key_entry_attributes_shape_mismatch` | 3 (registry decode) | A `KeyEntry` whose `kind` is a reserved non-signing class is missing its `attributes` map or carries an `attributes` value whose shape does not match the per-class CDDL group in Core §8.7.2. |
+| `idempotency_key_length_invalid` | 1 / 4.c | An event's `EventPayload.idempotency_key` is missing, not a CBOR byte string, empty, or longer than 64 bytes — violates the `bstr .size (1..64)` structural bound (Core §6.1 / §17.2 / §28). |
+| `idempotency_key_payload_mismatch` | 4.h (per-event-set) | Two events in scope share `(ledger_scope, idempotency_key)` but their canonical material disagrees on `content_hash`, `author_event_hash`, or `canonical_event_hash` — the §17.3 clause-3 wire-contract violation (`IdempotencyKeyPayloadMismatch` rejection from §17.5, lifted to verifier-detectable tamper). |
 | `erasure_key_class_registry_mismatch` | 6b step 2 | An `ErasureEvidencePayload`'s `key_class` (after `wrap`→`subject` normalization) does not equal the registry row's `kind` for the resolved `kid_destroyed` (Core §8.7 / ADR 0006). |
 | `erasure_key_class_payload_conflict` | 6b step 8 | Two `ErasureEvidencePayload` payloads naming the same `kid_destroyed` carry disagreeing `key_class` after `wrap`→`subject` normalization. |
 | `erasure_destroyed_at_after_host` | 6b step 4 | An `ErasureEvidencePayload`'s `destroyed_at` strictly exceeds the hosting event's `authored_at` (Companion OC-144 / TR-OP-109). |

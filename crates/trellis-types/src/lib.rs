@@ -39,16 +39,29 @@ pub const COSE_LABEL_SUITE_ID: i128 = -65_537;
 pub const COSE_SUITE_ID_LABEL_MAGNITUDE: u64 = 65_536;
 
 /// Signed and canonical event bytes stored after a successful append.
+///
+/// `idempotency_key` is the optional Core §6.1 / §17 wire-contract
+/// identity. Phase-1 callers that have already extracted the key from the
+/// authored event (the §17.3 retry-conflict resolution path) pass it
+/// through [`StoredEvent::with_idempotency_key`]; legacy callers that
+/// have not yet been threaded use [`StoredEvent::new`] which defaults to
+/// `None`. The stores read the key via [`StoredEvent::idempotency_key`]
+/// to enforce the §17.3 unique-`(scope, key)` invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredEvent {
     scope: Vec<u8>,
     sequence: u64,
     canonical_event: Vec<u8>,
     signed_event: Vec<u8>,
+    idempotency_key: Option<Vec<u8>>,
 }
 
 impl StoredEvent {
-    /// Creates a stored event snapshot.
+    /// Creates a stored event snapshot without an `idempotency_key`.
+    ///
+    /// Phase-1 callers prefer [`StoredEvent::with_idempotency_key`] when the
+    /// authored event has been parsed; this constructor stays available for
+    /// legacy / structural-only callers.
     ///
     /// # Examples
     /// ```rust
@@ -56,6 +69,7 @@ impl StoredEvent {
     ///
     /// let event = StoredEvent::new(b"scope".to_vec(), 0, vec![0x01], vec![0x02]);
     /// assert_eq!(event.sequence(), 0);
+    /// assert!(event.idempotency_key().is_none());
     /// ```
     pub fn new(
         scope: Vec<u8>,
@@ -68,6 +82,30 @@ impl StoredEvent {
             sequence,
             canonical_event,
             signed_event,
+            idempotency_key: None,
+        }
+    }
+
+    /// Creates a stored event snapshot carrying its Core §6.1 `idempotency_key`.
+    ///
+    /// The caller MUST have already validated that `idempotency_key.len()` is
+    /// in the closed interval `[IDEMPOTENCY_KEY_MIN_LEN, IDEMPOTENCY_KEY_MAX_LEN]`
+    /// (see [`IDEMPOTENCY_KEY_MIN_LEN`] / [`IDEMPOTENCY_KEY_MAX_LEN`]). This
+    /// constructor does not re-validate; the store-side `append_event_in_tx`
+    /// path is the load-bearing length check.
+    pub fn with_idempotency_key(
+        scope: Vec<u8>,
+        sequence: u64,
+        canonical_event: Vec<u8>,
+        signed_event: Vec<u8>,
+        idempotency_key: Vec<u8>,
+    ) -> Self {
+        Self {
+            scope,
+            sequence,
+            canonical_event,
+            signed_event,
+            idempotency_key: Some(idempotency_key),
         }
     }
 
@@ -90,6 +128,25 @@ impl StoredEvent {
     pub fn signed_event(&self) -> &[u8] {
         &self.signed_event
     }
+
+    /// Returns the Core §6.1 `idempotency_key` if it was threaded through the
+    /// authored-event parse, otherwise `None`. Used by `LedgerStore` impls
+    /// to enforce the §17.3 unique-`(ledger_scope, idempotency_key)` invariant.
+    pub fn idempotency_key(&self) -> Option<&[u8]> {
+        self.idempotency_key.as_deref()
+    }
+}
+
+/// Minimum byte length of `idempotency_key` per Core §6.1 / §17.2 (`bstr .size (1..64)`).
+pub const IDEMPOTENCY_KEY_MIN_LEN: usize = 1;
+
+/// Maximum byte length of `idempotency_key` per Core §6.1 / §17.2 (`bstr .size (1..64)`).
+pub const IDEMPOTENCY_KEY_MAX_LEN: usize = 64;
+
+/// Returns `true` iff `key` satisfies the Core §6.1 `bstr .size (1..64)` bound.
+#[must_use]
+pub fn idempotency_key_length_in_bound(key: &[u8]) -> bool {
+    (IDEMPOTENCY_KEY_MIN_LEN..=IDEMPOTENCY_KEY_MAX_LEN).contains(&key.len())
 }
 
 /// The append head returned after a successful append.

@@ -133,12 +133,18 @@ pub fn append_event<S: LedgerStore>(
         canonical_event_hash,
     );
 
+    // Thread the parsed `idempotency_key` (Core §6.1 / §17.2 — already
+    // length-validated by `parse_authored_event`) into `StoredEvent` so the
+    // backing `LedgerStore` can enforce the §17.3 unique-`(scope, key)`
+    // invariant. Phase-1 callers always supply a key (the field is required
+    // by §6.1 / §28); the `with_idempotency_key` constructor encodes that.
     store
-        .append_event(StoredEvent::new(
+        .append_event(StoredEvent::with_idempotency_key(
             parsed_event.ledger_scope.clone(),
             parsed_event.sequence,
             canonical_event.clone(),
             signed_event.clone(),
+            parsed_event.idempotency_key.clone(),
         ))
         .map_err(|error| AppendError::new(format!("store append failed: {error}")))?;
 

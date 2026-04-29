@@ -1,0 +1,58 @@
+id          = "tamper/036-idempotency-key-too-long"
+op          = "tamper"
+status      = "active"
+description = """Core §6.1 / §17.2 / §28 structural bound `bstr .size (1..64)` \
+violation — the authored event's `idempotency_key` is 65 bytes (one byte over \
+the upper limit). The Ed25519 signature over the EventPayload is valid (the \
+issuer signed exactly what is stored); §19 step 4.b would pass the signature \
+check, and step 4.d would compute the matching `author_event_hash`. The \
+tamper is detected at the §6.1 / §17.2 structural-bound check, which the \
+verifier MUST run before or alongside per-event integrity checks. \
+`tamper_kind = "idempotency_key_length_invalid"` per §17.5. Distinct from \
+`tamper/035-idempotency-key-payload-mismatch` (in-scope conflict, §17.3 \
+clause 3 path) and from `tamper/008-malformed-cose` (CBOR tag-id structural \
+identification) — this is the §6.1 length bound enforcement, orthogonal to \
+both retry-conflict resolution and CBOR structural identification."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-052",  # explicit / auditable rejection codes (§17.5)
+    "TR-CORE-061",  # verifier-integrity independence (offline length check)
+    "TR-CORE-158",  # NEW — §6.1 / §17.2 structural bound enforcement
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+# §19 verifier expectations:
+#   (a) structure_verified == false — the §6.1 / §17.2 structural bound is
+#       a structural CDDL conformance obligation. An over-length idempotency_key
+#       fails CDDL grammar conformance regardless of signature validity.
+#   (b) integrity_verified == false — §19 step 9 conjunction cannot be true
+#       when structure_verified is false.
+#   (c) readability_verified == false — same rationale; no payload decoded
+#       once structure fails.
+#   (d) tamper_kind == "idempotency_key_length_invalid" per §17.5.
+#   (e) failing_event_id — when structure fails before per-event integrity
+#       checks run, the event's stored `canonical_event_hash` is the natural
+#       locator for "which envelope failed structure" since it is the only
+#       event in this single-event ledger.
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "idempotency_key_length_invalid"
+
+# §17.2 — pin the over-length key length and the canonical hash for
+# cross-implementation reproducibility.
+idempotency_key_length = 65
+# Canonical hash of the (over-length-key) event. Not pinned to
+# `failing_event_id` because the verifier's fatal-path report uses
+# location `"structure"` for structural failures (per tamper/008's
+# precedent); committed here as a runner-side cross-check pin.
+event_canonical_event_hash_for_runner = "4feb3b7b06f630f79df90c8736ef0c66dee7efcb1806c665844774c0cbcceee6"
+
+[derivation]
+document = "derivation.md"
