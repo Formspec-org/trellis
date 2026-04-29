@@ -18,6 +18,81 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 24 (2026-04-28) — Core §17 `idempotency_key` Rust + Python + fixtures (item #2)
+
+Closes the seven sub-tasks of TODO item #2 — the wire-contract idempotency
+catch-up. Spec already pinned `bstr .size (1..64)` and `(ledger_scope,
+idempotency_key)` identity in §6.1 / §17 / §28; Wave 24 paid down the Rust
+runtime, the verifier, the stores, the fixture corpus, the Python G-5 oracle,
+and the spec/lint/matrix discipline around them.
+
+Train (`9a32ad6..b88c73c`, 2 commits):
+
+- `885a96b` — Rust + fixtures + spec lockstep. `trellis-cddl::ParsedAuthoredEvent` /
+  `ParsedCanonicalEvent` carry `idempotency_key`; both parsers length-validate
+  via the new typed `CddlErrorKind::IdempotencyKeyLengthInvalid`. `StoredEvent`
+  threads the key through `with_idempotency_key`. `trellis-store-postgres`
+  partial-unique index `trellis_events_scope_idempotency_uidx` enforces
+  §17.3 at SQL; `trellis-store-memory` matches via `append_event_in_tx`.
+  `trellis-verify::verify_event_set_with_classes` adds an offline
+  `idempotency_index` BTreeMap detecting §17.3 clause-3 divergence with
+  `tamper_kind = idempotency_key_payload_mismatch` (Core §16: no service
+  state required). `decode_event_details` length-checks the wire bytes.
+  Three new fixtures (`append/042-idempotency-retry-noop`,
+  `tamper/035-idempotency-key-payload-mismatch`, `tamper/036-idempotency-key-too-long`)
+  with byte-exact generators. Spec: §17.2 / §17.3 / §17.4 traceability anchors;
+  §19.1 enum gains two rows (`idempotency_key_length_invalid`,
+  `idempotency_key_payload_mismatch`); `check-specs.py` `TAMPER_KIND_ENUM`
+  mirrors. Matrix: TR-CORE-158..162 (the rows themselves were already
+  authored; this commit added their prose anchors and lint coverage).
+- `b88c73c` — `trellis-py` G-5 parity. `EventDetails` carries
+  `idempotency_key`; `_decode_event_details` length-validates with
+  `VerifyError(kind="idempotency_key_length_invalid")`; `_verify_event_set`
+  builds the same `(scope, key) → canonical_event_hash` index as the Rust
+  side, surfacing `idempotency_key_payload_mismatch` event-failures.
+
+Counts: G-4 clean (cargo test --workspace 100%); G-5 109 → **109** (the
+two new tamper vectors went from 2 / 2 failed to 0 / 0); pytest 64 / 0;
+`check-specs.py` clean.
+
+Spec posture verified: the byte-level question "does `idempotency_key`
+join the canonical hash preimage?" — yes. §28 CDDL pins the field as the
+twelfth entry in both `AuthorEventHashPreimage` and `EventPayload`; §9.5
+and §9.2 hash both preimages. The existing Phase-1 v1.0.0 fixture corpus
+already encoded the field byte-exact (witness map prefix `0xac` authored
+/ `0xad` canonical) — Rust simply was not parsing or threading it. The
+runtime change is therefore strictly additive at the byte path; no
+existing fixture's `canonical_event_hash` re-derived.
+
+Sub-task status:
+
+1. Fixtures first — `append/042` + `tamper/035` + `tamper/036` (DONE).
+2. `trellis-cddl` / `trellis-types` parse + length-validate (DONE).
+3. `trellis-core` + stores `(scope, key)` uniqueness (DONE; partial unique
+   index in Postgres, in-memory map in `trellis-store-memory`).
+4. `trellis-verify` reject duplicate identity with divergent canonical
+   material per §17.5 (DONE).
+5. `trellis-conformance` + `trellis-cli` drive updated vectors (DONE; the
+   conformance crate already carried the model-check at TR-CORE-050; the
+   new fixture corpus is consumed by the Wave-24-existing replay path).
+6. `trellis-py` G-5 parity (DONE — `b88c73c`).
+7. Hygiene — `trellis-verify` dev-dep on `trellis-cddl`: KEEP. The dep is
+   genuinely used (`trellis-verify/src/lib.rs:6090` consumes
+   `parse_ed25519_cose_key` in tests). The SKILL "Findings since last
+   sync" entry was stale; refreshed in this wave.
+
+WOS `custodyHook` binding (parent ADR 0061 §2.4 — `(caseId, recordId)` →
+`SHA-256(len_prefix("trellis-wos-idempotency-v1") || dCBOR(...))`): the
+Rust `(scope, key)` enforcement composes cleanly. Parent runtime wiring
+tracks separately at `wos-spec/TODO.md`.
+
+Findings flagged but not fixed (out-of-scope per the brief):
+
+- Retired Respondent Ledger naming downstream — out of scope (Wave 24
+  did not touch that surface).
+- Companion §6.4 user-vs-operator distinction — Wave 23 residue, untouched.
+- WOS-side `custodyHook` runtime wiring — parent's job.
+
 ### Wave 23 (2026-04-28) — ADR 0010 user-content-attestation primitive (item #1) — closes PLN-0379
 
 Sequenced sibling to ADR 0007 (Wave 22). Lands the byte-level primitive
