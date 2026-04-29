@@ -1,0 +1,16 @@
+id          = "tamper/040-interop-sidecar-derivation-version-unknown"
+op          = "tamper"
+status      = "active"
+description = """Wave 25 — `interop_sidecar_derivation_version_unknown`. Manifest lists one `c2pa-manifest` entry with `derivation_version: 99`; Wave 25 supports v1 only. Phase-1 verifier emits `tamper_kind = "interop_sidecar_derivation_version_unknown"`. Bumping the derivation_version is wire-breaking per ISC-06; this fixture pins the verifier-side rejection. Anchors TR-CORE-166 (ISC-06 version pin)."""
+
+[coverage]
+tr_core = ["TR-CORE-166"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "interop_sidecar_derivation_version_unknown"

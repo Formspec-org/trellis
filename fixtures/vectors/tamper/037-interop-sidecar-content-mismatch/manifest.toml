@@ -1,0 +1,16 @@
+id          = "tamper/037-interop-sidecar-content-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Wave 25 — `interop_sidecar_content_mismatch`. Manifest lists one `c2pa-manifest@v1` entry whose `content_digest` is the SHA-256 (under `trellis-content-v1`) of the canonical sidecar bytes; the on-disk sidecar at `interop-sidecars/c2pa-manifest/cert-wave25-001.c2pa` has its last byte XOR-flipped. Phase-1 verifier emits `tamper_kind = "interop_sidecar_content_mismatch"`. Anchors TR-CORE-163 (digest recompute under domain tag)."""
+
+[coverage]
+tr_core = ["TR-CORE-163"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "interop_sidecar_content_mismatch"

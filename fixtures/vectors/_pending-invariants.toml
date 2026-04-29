@@ -15,9 +15,4 @@
 #   TR-CORE-163..166 normative in commit 1 (spec deltas);
 #   fixtures land in commit 4 (`tamper/037..040`). Cleared in commit 4.
 
-pending_matrix_rows = [
-    "TR-CORE-163",  # interop_sidecar_content_mismatch          → tamper/037
-    "TR-CORE-164",  # interop_sidecar_kind_unknown              → tamper/038
-    "TR-CORE-165",  # interop_sidecar_unlisted_file             → tamper/039
-    "TR-CORE-166",  # interop_sidecar_derivation_version_unknown → tamper/040
-]
+pending_matrix_rows = []

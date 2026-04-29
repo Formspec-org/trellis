@@ -1,0 +1,26 @@
+id          = "export/014-interop-sidecar-c2pa-manifest"
+op          = "export"
+status      = "active"
+description = """Wave 25 positive — manifest lists one
+`c2pa-manifest@v1` entry; the sidecar file at
+`interop-sidecars/c2pa-manifest/cert-wave25-001.c2pa` is present and
+its SHA-256 (under `trellis-content-v1`) matches manifest
+`content_digest`. Phase-1 verifier (path-(b): digest-binds only) returns
+`structure_verified = integrity_verified = readability_verified = true`;
+`VerificationReport.interop_sidecars` carries one outcome with
+`content_digest_ok = kind_registered = true`, `phase_1_locked = false`.
+Anchors TR-CORE-145 (envelope reservation posture under Wave 25
+narrowing)."""
+
+[coverage]
+tr_core = ["TR-CORE-145"]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "4c68ef88c2b13df36c326fdab5e829a2a1aaf46622b933934661bb4ba5e6f0f6"
+
+[derivation]
+document = "derivation.md"

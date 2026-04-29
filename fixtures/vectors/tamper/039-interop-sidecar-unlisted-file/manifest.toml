@@ -1,0 +1,16 @@
+id          = "tamper/039-interop-sidecar-unlisted-file"
+op          = "tamper"
+status      = "active"
+description = """Wave 25 — `interop_sidecar_unlisted_file`. Manifest lists ONE valid `c2pa-manifest@v1` entry with matching `content_digest`; the on-disk `interop-sidecars/` tree contains TWO files — the manifest-listed one plus a stray `stray.cbor` not catalogued in `manifest.interop_sidecars`. Phase-1 verifier emits `tamper_kind = "interop_sidecar_unlisted_file"` after the manifest walk completes (smuggled-sidecar attack surface). Anchors TR-CORE-165 (manifest-completeness gate)."""
+
+[coverage]
+tr_core = ["TR-CORE-165"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "interop_sidecar_unlisted_file"
