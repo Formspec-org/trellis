@@ -18,6 +18,134 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 26 (2026-04-28) — Wave 25 review close-out: canonical dCBOR ordering + cross-impl byte oracle
+
+Closes a semi-formal Wave 25 code review (`46cfc72..6e09dc0` + parent
+`fb5b9ff3`). One BLOCKER (FINDING 1, real correctness bug) plus two
+trailing alignments shipped; three lesser findings (4/5/6) deferred
+to backlog with explicit rationale.
+
+Train (3 trellis commits + 1 parent submodule bump):
+
+- `b522f89` — `fix(c2pa): canonical dCBOR ordering in
+  emit_c2pa_manifest_for_certificate`. Pre-fix, the Rust emitter
+  inserted the five assertion fields in byte-lex order of the decoded
+  UTF-8 string (`canonical_event_hash, certificate_id, cose_sign1_ref,
+  kid, presentation_artifact.content_hash`). RFC 8949 §4.2.2 (per
+  Core §5.1 dCBOR profile) requires lex order on the **encoded
+  `tstr` bytes**, which prefixes a length byte — for the five field
+  lengths spanning 11..42 bytes, canonical order is
+  `kid (11) → certificate_id (22) → cose_sign1_ref (22) →
+  canonical_event_hash (28) → presentation_artifact.content_hash (42)`.
+  Two fields share length 22, falsifying the prior comment's "no two
+  strings share a length" claim (FINDING 3 fixed in the same commit).
+  Replaced the insertion-order `vec![]` with an encoded-tstr-keyed
+  sort via a new `encode_tstr_key` helper (RFC 8949 §3.1 major type 3
+  short + 1-byte length-head forms). Path-(b) verifier was unaffected
+  because it digest-binds the on-disk file, and the on-disk fixture
+  was always cbor2-canonical — only the Rust emitter was wrong.
+  trellis-interop-c2pa: 7/0 → 10/0 tests (added byte-equality oracle
+  against the on-disk fixture, name-locked canonical-key-order test,
+  encode_tstr_key encoding test).
+- `175b630` — `test(c2pa): cross-implementation byte-equality oracle
+  (cbor2 path)`. Wave 25 README claimed "byte-exact under any
+  conforming dCBOR encoder" with no test; the FINDING 1 bug shipped
+  under that aspirational claim. Wave 26 audited adding `c2pa-rs` as
+  a `[dev-dependencies]` for a third oracle (C2PA-tooling round-trip):
+  the probe `cargo tree --edges normal,build,dev` measured **285
+  unique transitive crates** plus tokio + reqwest + hyper +
+  hyper-rustls + vendored OpenSSL — above the brief's ~150 threshold
+  and pulling explicitly-flagged heavy stack for an offline
+  assertion-only oracle. Skipped Phase 2b per the tripwire; landed
+  Phase 2a alone — `trellis-py/tests/test_interop_c2pa_byte_oracle.py`
+  asserts cbor2(canonical=True) re-encoding of the declared logical
+  input is byte-equal to the on-disk fixture. Together with the Rust
+  fixture-byte test from `b522f89`, two independent encoders
+  (`ciborium` + `cbor2`) meet at the same canonical fixture; any
+  drift in either localizes to that side. README rewritten:
+  byte-exactness claim is now **verified** with both enforcement
+  paths cited; audit findings + dev-dep decision documented in-crate.
+  trellis-py: 64/0 → 67/0 tests; G-5 unchanged (114/0).
+- `<this commit>` — `fix(adr+spec): align ADR 0008 dispatch order
+  with Rust + close Wave 26`. ADR 0008 §"Phase-1 verifier obligation"
+  prose listed dispatch as `kind → derivation_version → path →
+  content_digest → unlisted_file → phase_1_locked`; Rust authoritative
+  implementation in `trellis-verify::verify_interop_sidecars` runs
+  `kind → derivation_version → path → phase_1_locked → content_digest
+  → unlisted_file` (with `phase_1_locked` ahead of digest so a
+  fixture mis-listing kind+path under a still-locked kind surfaces
+  the dominant `phase_1_locked` failure rather than a digest
+  mismatch). Per ADR 0004, Rust is byte authority — prose updated to
+  match (FINDING 2). The realignment also annotates the rationale
+  for lock-off-before-digest order so the next reader sees why.
+
+ISC-02 status. **Promoted from aspirational to verified** in Wave 26.
+The two-sided cbor2-↔-fixture-↔-ciborium oracle is the new
+ADR 0008 path-(b) byte-determinism enforcement mechanism.
+
+ISC-05 status. Held throughout. The audited c2pa-rs dev-dep was NOT
+added; `trellis-verify` / `trellis-types` continue to take zero
+ecosystem deps. `deny.toml` `c2pa` wrapper allowlist unchanged.
+
+Counts (Wave 26 deltas vs. Wave 25 close):
+
+| gate | Wave 25 | Wave 26 | delta |
+|-----|--------|--------|-------|
+| `cargo test --workspace` | 56 suites green | 56 suites green | clean |
+| `trellis-interop-c2pa` unit tests | 7/0 | 10/0 | +3 (fixture-byte oracle, key-order lock, tstr-encoding) |
+| `trellis-py` pytest | 64/0 | 67/0 | +3 (cbor2 byte oracle) |
+| G-5 conformance corpus | 114/0 | 114/0 | clean (no fixture changes) |
+| `check-specs.py` | clean | clean | clean |
+
+Findings closed: **1** (canonical dCBOR ordering — root correctness
+bug, was producing non-canonical bytes against the spec); **2** (ADR
+0008 prose dispatch order disagreed with Rust; Rust wins per ADR
+0004); **3** (false comment claim about field-name length uniqueness,
+empirically falsified by `certificate_id` and `cose_sign1_ref` both
+being 22 bytes).
+
+Findings deferred to backlog (acceptable — none on the critical path,
+each surfaces a future cleanup target with non-trivial scope):
+
+- **FINDING 4** — `interop_sidecar_content_mismatch` failure-code
+  conflation. The Rust verifier raises `content_mismatch` for both
+  *missing file* and *digest divergence*. A finer-grained
+  `interop_sidecar_missing` code would localize "manifest promised
+  bytes that aren't in the ZIP" vs. "bytes are present but mutated".
+  Worth doing; not on Wave-26's surgical-fix track.
+- **FINDING 5** — `is_interop_sidecar_path_valid` predicate has no
+  Python-side unit test. The Rust unit test `interop_sidecar_path_prefix_invariant`
+  covers TR-CORE-167; the Python equivalent in `trellis-py` is
+  fixture-driven only. Low-value to add unless `trellis-py` is
+  consumed standalone by an adopter.
+- **FINDING 6** — brittle version-gating in
+  `verify_interop_sidecars` (`if !supported_versions.contains(...)
+  && kind == INTEROP_SIDECAR_KIND_C2PA_MANIFEST`). The double
+  conjunction is correct today but reads fragile; will get a cleaner
+  match-on-kind-then-version rewrite when a second kind unlocks
+  (Wave N+, when `scitt-receipt` or another kind activates and the
+  current shape stops fitting).
+
+Anti-monkeypatching wins:
+
+1. **Review-driven, not speculative.** FINDING 1 was a real
+   correctness bug uncovered by review; the fix realigns Rust with
+   the spec (ADR 0004 byte-authority discipline). Findings 2 and 3
+   are alignment cleanups in the same train, not invented scope.
+2. **Audit before adopting.** Adding `c2pa-rs` as a dev-dep was
+   plausible-sounding but failed the empirical cost check (285
+   transitive crates + tokio + openssl). Phase 2a alone delivers the
+   ISC-02 cross-impl claim without taking the cost. Future adopter
+   that *needs* the C2PA-tooling oracle pays the cost in their own
+   `trellis-interop-c2pa-tooling` crate, not the workspace base.
+3. **Findings 4/5/6 deferred with explicit rationale**, not
+   silently fixed under the guise of "while we're here". The
+   surgical-fix train stayed surgical.
+4. **README claim flipped from aspirational to verified.** A claim
+   without a test was the Wave-25 rough edge that let FINDING 1
+   ship; Wave 26 closes that gap permanently. Two encoder paths
+   meeting at the same fixture makes future regressions obvious.
+
 ### Wave 25 (2026-04-28) — `c2pa-manifest@v1` adapter activation + dispatched verifier (item #1)
 
 Closes the original TODO item #1 — the `c2pa-manifest` interop-sidecar
