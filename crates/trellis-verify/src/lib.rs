@@ -1817,12 +1817,13 @@ fn is_interop_sidecar_path_valid(path: &str) -> bool {
 ///
 /// Failure dispatch order (per ADR 0008 §"Phase-1 verifier obligation"
 /// step 2): kind-registered → derivation-version-supported →
-/// path-prefix-valid → content-digest-match. Files-on-disk that are not
-/// manifest-listed → `interop_sidecar_unlisted_file` (after manifest
-/// walk completes; closes the smuggled-sidecar attack surface). Each
-/// fatal short-circuits — the function does NOT accumulate
-/// multiple failures into one outcome (auditors get one localizable
-/// signal per export).
+/// path-prefix-valid → phase-1-lock-off (`interop_sidecar_phase_1_locked`
+/// for the three still-locked kinds) → content-digest-match. Files-on-disk
+/// that are not manifest-listed → `interop_sidecar_unlisted_file` (after
+/// manifest walk completes; closes the smuggled-sidecar attack surface).
+/// For each manifest entry, checks run in this order; the verifier returns
+/// the first failing check (one fatal `VerificationReport` per export, not
+/// a bundle of competing failure codes).
 fn verify_interop_sidecars(
     manifest_map: &[(Value, Value)],
     archive: &ExportArchive,
@@ -1955,9 +1956,9 @@ fn verify_interop_sidecars(
             ));
         }
 
-        // Step 2.c (path-prefix-valid) — TR-CORE-167. Unit-test-only;
-        // no fixture exercises this code path because the four
-        // dispatched-kind fixtures already cover the surrounding flow.
+        // Step 2.c (path-prefix-valid) — TR-CORE-167. Predicate also covered
+        // by `interop_sidecar_path_prefix_invariant`; full dispatch path by
+        // `verify_interop_sidecars_rejects_manifest_path_outside_interop_tree`.
         if !is_interop_sidecar_path_valid(&path) {
             return Err(VerificationReport::fatal(
                 "interop_sidecar_path_invalid",
@@ -2055,6 +2056,11 @@ fn verify_interop_sidecars(
 /// [`parse_export_zip`] for the layout contract.
 struct ExportArchive {
     members: BTreeMap<String, Vec<u8>>,
+}
+
+#[cfg(test)]
+fn export_archive_for_tests(members: BTreeMap<String, Vec<u8>>) -> ExportArchive {
+    ExportArchive { members }
 }
 
 /// Parses a Trellis export ZIP into [`ExportArchive`] members.
@@ -6418,17 +6424,16 @@ mod tests {
     use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
     use super::{
-        is_interop_sidecar_path_valid, parse_sign1_bytes, parse_signing_key_registry,
-        verify_event_set, verify_export_zip, verify_single_event, verify_tampered_ledger,
+        export_archive_for_tests, is_interop_sidecar_path_valid, parse_sign1_bytes,
+        parse_signing_key_registry, verify_event_set, verify_export_zip,
+        verify_interop_sidecars, verify_single_event, verify_tampered_ledger,
     };
 
-    /// TR-CORE-167 — interop_sidecar_path_invalid predicate. Checked
-    /// here as a unit test (not a fixture) because the path-prefix
-    /// invariant is purely structural: the four fixture-bearing rows
-    /// (TR-CORE-163..166) already exercise the surrounding dispatch
-    /// path, and a fixture for path-invalid would duplicate the
-    /// other negatives without adding signal. ADR 0008 §"Phase-1
-    /// verifier obligation" step 2.c.
+    /// TR-CORE-167 — `interop_sidecar_path_invalid` predicate (ADR 0008
+    /// §"Phase-1 verifier obligation" step 2.c). Structural cases only;
+    /// see `verify_interop_sidecars_rejects_manifest_path_outside_interop_tree`
+    /// for the same check inside `verify_interop_sidecars` (no tamper ZIP —
+    /// manifest re-signing would duplicate tamper/037..040 infra).
     #[test]
     fn interop_sidecar_path_prefix_invariant() {
         // Valid: starts with the literal byte prefix.
@@ -6455,6 +6460,47 @@ mod tests {
         assert!(!is_interop_sidecar_path_valid("nested/interop-sidecars/x"));
         assert!(!is_interop_sidecar_path_valid("Interop-sidecars/x")); // case-sensitive
         assert!(!is_interop_sidecar_path_valid("interop-sidecar/x"));  // missing trailing 's/'
+    }
+
+    /// TR-CORE-167 — `interop_sidecar_path_invalid` through the real
+    /// `verify_interop_sidecars` dispatch (ADR 0008 step 2), without a
+    /// tamper ZIP: a `c2pa-manifest@v1` entry whose `path` points into the
+    /// canonical tree must fail **path-prefix** before digest lookup.
+    #[test]
+    fn verify_interop_sidecars_rejects_manifest_path_outside_interop_tree() {
+        let entry = Value::Map(vec![
+            (
+                Value::Text("kind".into()),
+                Value::Text("c2pa-manifest".into()),
+            ),
+            (
+                Value::Text("path".into()),
+                Value::Text("010-events.cbor".into()),
+            ),
+            (
+                Value::Text("derivation_version".into()),
+                Value::Integer(1u64.into()),
+            ),
+            (
+                Value::Text("content_digest".into()),
+                Value::Bytes([0x77_u8; 32].to_vec()),
+            ),
+            (
+                Value::Text("source_ref".into()),
+                Value::Text("urn:trellis:test:ref".into()),
+            ),
+        ]);
+        let manifest_map = vec![(
+            Value::Text("interop_sidecars".into()),
+            Value::Array(vec![entry]),
+        )];
+        let archive = export_archive_for_tests(BTreeMap::new());
+        let report = verify_interop_sidecars(&manifest_map, &archive).expect_err("bad path prefix");
+        assert_eq!(report.event_failures.len(), 1);
+        assert_eq!(
+            report.event_failures[0].kind, "interop_sidecar_path_invalid",
+            "must not reach digest check (empty archive would otherwise be content_mismatch)"
+        );
     }
 
     fn rebuild_export_zip(template: &[u8], overrides: &[(&str, &[u8])], omit: &[&str]) -> Vec<u8> {
