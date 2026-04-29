@@ -141,7 +141,18 @@ TAMPER_KIND_ENUM = frozenset({
     "user_content_attestation_key_not_active",
     "user_content_attestation_id_collision",
     "user_content_attestation_operator_in_user_slot",
-    "interop_sidecar_phase_1_locked",  # ADR 0008 Phase-1 lock-off.
+    "interop_sidecar_phase_1_locked",  # ADR 0008 Phase-1 lock-off (3 still-locked kinds).
+    # Interop-sidecar dispatched-verifier failure surfaces (Core §19.1 / §18.3a;
+    # ADR 0008 §"Phase-1 verifier obligation"). Wave 25 activates the
+    # `c2pa-manifest@v1` kind: path-(b) digest-binds only, no `source_ref`
+    # resolution. Fixtures: tamper/037..040 (4 of 5 — `interop_sidecar_path_invalid`
+    # is unit-test-only). The corpus is a subset of the enum, so
+    # reserved-without-fixture is allowed (R13 corpus-subset rule).
+    "interop_sidecar_content_mismatch",          # TR-CORE-163; tamper/037.
+    "interop_sidecar_kind_unknown",              # TR-CORE-164; tamper/038.
+    "interop_sidecar_unlisted_file",             # TR-CORE-165; tamper/039.
+    "interop_sidecar_derivation_version_unknown",# TR-CORE-166; tamper/040.
+    "interop_sidecar_path_invalid",              # TR-CORE-167; unit-test-only (no fixture).
 })
 
 

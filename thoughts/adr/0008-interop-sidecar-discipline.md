@@ -192,7 +192,7 @@ Phase-1 producers MUST emit `interop_sidecars` as `null` or `[]`. Phase-1 verifi
 
   When both succeed, the presentation artifact has dual attestation. If only one succeeds, the verifier reports the partial coverage in `VerificationReport`; core attestation is load-bearing, C2PA attestation is additive.
 
-- **Status:** Phase 1 — locked off. Phase 2+ — adapter crate `trellis-interop-c2pa`. **Trigger to unlock: co-landing with ADR 0007 implementation.** ADR 0007's reference template (implementation sequencing step 9) SHOULD layer C2PA manifest emission on top of PDF rendering.
+- **Status:** Phase 2 — **active** (Wave 25, 2026-04-28). Adapter crate `trellis-interop-c2pa` implements `emit_c2pa_manifest_for_certificate` + `extract_trellis_assertion` + `TrellisAssertion::verify_against_canonical_chain`. Phase-1 verifier dispatches manifest-listed `c2pa-manifest@v1` entries to **path-(b) digest-binds only**: recompute `content_digest` against the on-disk sidecar file under `trellis-content-v1` and validate `path` / `kind` / `derivation_version` against the closed registry. **The Phase-1 core verifier does NOT resolve `source_ref` to the canonical event** (presence-only validation; cross-binding to the certificate event is a property of the C2PA-tooling path, not core). The C2PA-tooling-path consumer pattern (read manifest, extract assertion, verify five-field cross-check against `CanonicalChainContext`) is documented in `trellis-interop-c2pa/README.md`; that path layers additive evidence on top of the canonical-bytes verification per ISC-01. Other three kinds (`scitt-receipt`, `vc-jose-cose-event`, `did-key-view`) remain locked.
 
 ### `did-key-view` — Signing-key registry → `did:key` labeling view
 
@@ -221,13 +221,14 @@ Phase-1 producers MUST emit `interop_sidecars` as `null` or `[]`. Phase-1 verifi
 A conforming Phase-1 verifier processing an export bundle MUST:
 
 1. If `interop-sidecars/` is absent and the manifest's `interop_sidecars` is `null` or `[]`, proceed with normal verification. Core bytes alone MUST yield `integrity_verified = true` on a valid export.
-2. If `interop_sidecars` is non-empty OR files exist under `interop-sidecars/` that are not listed in the manifest:
-   - Listed entries: verify each `content_digest` against the file bytes. Mismatch flips `integrity_verified = false` with `interop_sidecar_content_mismatch`.
-   - Listed `kind` values: check against the registry in this ADR. Unregistered kind → `interop_sidecar_kind_unknown`.
-   - Registered kinds are **all** Phase-1 locked-off; any present listed entry → `interop_sidecar_phase_1_locked` (ADR 0003 alignment).
+2. If `interop_sidecars` is non-empty OR files exist under `interop-sidecars/` that are not listed in the manifest, run dispatch in this order — each check fails closed on the first violation, the rest of the list still walks so multiple failures localize per-entry:
+   - Listed `kind` values: check against the closed registry in this ADR. Unregistered kind → `interop_sidecar_kind_unknown`.
+   - Listed `derivation_version` not in the verifier's supported set for that kind → `interop_sidecar_derivation_version_unknown`. (Wave 25 supports `c2pa-manifest@v1`.)
+   - Listed `path`: MUST start with the byte prefix `interop-sidecars/`; otherwise → `interop_sidecar_path_invalid`.
+   - Listed entries: verify each `content_digest` against the file bytes (SHA-256 under domain tag `trellis-content-v1`). Mismatch → `interop_sidecar_content_mismatch`.
    - Files under `interop-sidecars/` not listed in the manifest → `interop_sidecar_unlisted_file`.
-   - Listed `derivation_version` not in the verifier's supported set for that kind → `interop_sidecar_derivation_version_unknown`.
-3. Do NOT load, decode, or parse sidecar *contents* in Phase 1 — adapter crates are unimplemented and the verifier is forbidden from importing ecosystem libs (ISC-05).
+   - Phase-1 lock-off: registered kinds **except `c2pa-manifest@v1`** are still locked off under ADR 0003 alignment; a present listed entry under any of the three locked kinds → `interop_sidecar_phase_1_locked`. The `c2pa-manifest@v1` kind passes through to `VerificationReport.interop_sidecars` with `phase_1_locked = false`.
+3. Phase-1 core verifier path is **path-(b): digest-binds only.** It does NOT resolve `source_ref` to the canonical event, does NOT decode the C2PA manifest bytes, and does NOT depend on `c2pa-rs` (ISC-05; `c2pa-rs` is bound to `trellis-interop-c2pa` per `deny.toml`). The C2PA-tooling-path consumer is a separate verification path documented in `trellis-interop-c2pa/README.md`; consumers run that path additively, never as a replacement for canonical bytes (ISC-01).
 
 `VerificationReport.interop_sidecars` is a new optional field, parallel to `posture_transitions` / `erasure_evidence` / `certificates_of_completion`, carrying per-entry outcomes:
 
@@ -264,11 +265,19 @@ Phase-1 corpus additions (reservation + lock-off proofs):
 |---|---|
 | `export/011-interop-sidecars-absent` | Canonical positive: `interop-sidecars/` tree absent; manifest omits `interop_sidecars`. |
 | `export/012-interop-sidecars-empty-list` | Canonical positive: `interop-sidecars/` tree present but empty; manifest has `interop_sidecars: []`. |
-| `tamper/027-interop-sidecar-populated-phase-1` | Manifest lists a `scitt-receipt` entry in Phase-1 export; verifier fails with `interop_sidecar_phase_1_locked`. |
-| `tamper/028-interop-sidecar-content-mismatch` | Sidecar file bytes altered relative to manifest `content_digest`; fails with `interop_sidecar_content_mismatch`. |
-| `tamper/029-interop-sidecar-kind-unknown` | Manifest lists unregistered kind `"made-up-kind"`; fails with `interop_sidecar_kind_unknown`. |
-| `tamper/030-interop-sidecar-unlisted-file` | `interop-sidecars/scitt-receipt/stray.cbor` present, not listed in manifest; fails with `interop_sidecar_unlisted_file`. |
-| `tamper/031-interop-sidecar-derivation-version-unknown` | Listed `derivation_version: 99` for a registered kind; fails with `interop_sidecar_derivation_version_unknown`. |
+| `export/014-interop-sidecar-c2pa-manifest` | **Wave 25 positive (c2pa-manifest@v1).** Manifest lists one `c2pa-manifest@v1` entry; sidecar file present at the listed path; `content_digest` matches; verifier emits a populated `interop_sidecars` slice on `VerificationReport` with `content_digest_ok = kind_registered = true`, `phase_1_locked = false`. |
+| `tamper/027-interop-sidecar-populated-phase-1` | Manifest lists a `scitt-receipt` entry in Phase-1 export; verifier fails with `interop_sidecar_phase_1_locked` (still locked under Wave 25). |
+| `tamper/037-interop-sidecar-content-mismatch` | **Wave 25.** Sidecar file bytes altered relative to manifest `content_digest`; fails with `interop_sidecar_content_mismatch`. |
+| `tamper/038-interop-sidecar-kind-unknown` | **Wave 25.** Manifest lists unregistered kind `"made-up-kind"`; fails with `interop_sidecar_kind_unknown`. |
+| `tamper/039-interop-sidecar-unlisted-file` | **Wave 25.** `interop-sidecars/c2pa-manifest/stray.cbor` present, not listed in manifest; fails with `interop_sidecar_unlisted_file`. |
+| `tamper/040-interop-sidecar-derivation-version-unknown` | **Wave 25.** Listed `derivation_version: 99` for a registered kind; fails with `interop_sidecar_derivation_version_unknown`. |
+
+> **Slot reassignment note (Wave 25, 2026-04-28).** The Phase-1-reserved
+> slots originally numbered 028..031 in this fixture plan were absorbed by
+> the Wave 23 user-content-attestation corpus (tamper/028..034). The four
+> dispatched-verifier interop fixtures relocate to slots 037..040 with
+> kind-agnostic names (no `c2pa` substring in the slug) so future kinds can
+> reuse the same negative scaffolding without slot churn.
 
 Per-kind Phase-2+ vectors are deferred to per-adapter implementation; each adapter unlock lands its own `append/` / `export/` / `tamper/` fixtures covering derivation-version round-trip, byte-exact field mapping, and per-kind failure modes.
 
@@ -276,9 +285,9 @@ Per-kind Phase-2+ vectors are deferred to per-adapter implementation; each adapt
 
 1. **SCITT issuer-key provenance.** The `scitt-receipt` adapter re-signs with a distinct SCITT-issuer key (not the checkpoint signer). Whether that key MUST be registered in the Trellis signing-key registry (ADR 0006 `KeyEntry`) or in an adapter-local registry is deferred; resolved in the adapter's own landing ADR.
 2. **VC `@context` hosting.** The Trellis-hosted VC context URI must resolve to a content-hashed JSON-LD document at a stable address. Hosting location, content-hash commitment, and long-term URL stability policy are deferred to the VC-adapter implementation.
-3. **C2PA assertion label registration.** The `trellis.certificate-of-completion.v1` assertion label needs formal registration with the C2PA registry. May require a C2PA coalition membership step; deferred to C2PA-adapter implementation.
+3. **C2PA assertion label registration.** ~~Deferred to C2PA-adapter implementation.~~ **Resolved Wave 25 (2026-04-28):** the adapter ships under the **vendor-prefix label `org.formspec.trellis.certificate-of-completion.v1`** per C2PA assertion-naming conventions for vendor-defined assertions. Vendor-prefix is the load-bearing rationale: it sidesteps the C2PA-coalition membership-and-registration cycle (multi-month, governance-gated) without forfeiting interop with the C2PA-tooling path; consumers parse the assertion the same way regardless of label namespace. A formal short-form registration with the C2PA assertion registry remains a follow-on deferred to a coalition-membership ADR; that ADR will rename the label and bump the kind's `derivation_version` per ISC-06.
 4. **`did:web` for agency keys.** Excluded from the initial registry because resolution requires network access, which breaks Core §16 offline-verification independence. A future `did-web-view` kind could be added with an explicit "verifier treats DID as opaque string offline; MAY dereference only when online; verification outcome MUST NOT depend on resolution success" rule. Not blocking.
-5. **Ecosystem-library avoidance for Phase-1 verifier reservation work.** Step 2 of *Implementation sequencing* adds manifest-level reservation to `trellis-core` and `trellis-verify`. Even that work MUST NOT pull in ecosystem libs — the registry is a closed set of string literals, digest checks are plain SHA-256, and the verifier rejects all populated entries in Phase 1. No ecosystem dep is required until a kind actually unlocks.
+5. **Ecosystem-library avoidance for Phase-1 verifier reservation work.** Step 2 of *Implementation sequencing* adds manifest-level reservation to `trellis-core` and `trellis-verify`. Even that work MUST NOT pull in ecosystem libs — the registry is a closed set of string literals, digest checks are plain SHA-256, and the verifier rejects all populated entries in Phase 1. No ecosystem dep is required until a kind actually unlocks. *Wave 25 status: `c2pa-manifest@v1` activates per path-(b); `trellis-verify` remains free of `c2pa-rs` (the dep lives only in `trellis-interop-c2pa`); ISC-05 holds.* **`source_ref` resolution semantics deferred to a future ADR.** The Phase-1 verifier under Wave 25 validates `source_ref` for **presence only** — a non-empty `tstr`, no schema enforcement, no canonical-event-hash binding, no cross-resolution into the chain. Full `source_ref` resolution semantics (URI scheme, canonical-event-hash binding shape, cross-resolution into the certificate event) are a separable design question that benefits from being decided once across all four kinds (each derives from a different canonical anchor: checkpoint+event-hash for SCITT, event for VC, certificate-event for C2PA, key-registry for DID); deferred to a later ADR landing alongside the second kind that activates.
 
 ## Cross-references
 

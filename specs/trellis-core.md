@@ -1336,7 +1336,7 @@ ExportManifestPayload = {
   posture_declaration: PostureDeclaration, ; §20
   head_format_version: uint,              ; §18.7; Phase 1 = 1
   omitted_payload_checks: [* OmittedPayloadCheck], ; §16.4, §19
-  ? interop_sidecars: [* InteropSidecarEntry] / null, ; §18.3a; Phase-1 locked
+  ? interop_sidecars: [* InteropSidecarEntry] / null, ; §18.3a; Phase-1 partial
   extensions:       { * tstr => any } / null,
 }
 ```
@@ -1344,11 +1344,28 @@ ExportManifestPayload = {
 The manifest binds every other archive member by digest. A verifier MUST check that every digest in the manifest matches the actual archive contents.
 
 **Interop sidecars (§18.3a).** `interop_sidecars` is reserved under ADR 0003
-lock-off discipline. Phase-1 producers MUST emit `null` or `[]` when `interop_sidecars` is present.
-Phase-1 verifiers receiving a non-empty list MUST fail with `interop_sidecar_phase_1_locked`. Phase-2+ adapters populate the field
-per [ADR 0008](../../thoughts/adr/0008-interop-sidecar-discipline.md);
-verification of populated entries is deferred until the adapter kind
-activates. Traceability: **TR-CORE-145**.
+lock-off discipline. The reservation is **partially active** in Phase 1:
+the `c2pa-manifest@v1` kind dispatches to per-entry verification (Wave 25;
+ADR 0008 §"Phase-1 verifier obligation"); the three remaining registered
+kinds (`scitt-receipt`, `vc-jose-cose-event`, `did-key-view`) are still
+locked off pending their per-kind triggers. Phase-1 verifiers receiving a
+populated entry under any of the three locked kinds MUST fail with
+`interop_sidecar_phase_1_locked`. Phase-1 verifiers receiving a populated
+`c2pa-manifest@v1` entry MUST run path-(b) verification: digest-binds only,
+no `source_ref` resolution; failure surfaces are
+`interop_sidecar_content_mismatch`,
+`interop_sidecar_kind_unknown`,
+`interop_sidecar_unlisted_file`,
+`interop_sidecar_derivation_version_unknown`. The C2PA-tooling-path
+(reading the C2PA manifest assertion) is documented in ADR 0008 §"`c2pa-manifest`"
+as a consumer pattern; it is NOT part of the Phase-1 core verifier (Core §16).
+Traceability: **TR-CORE-145** (envelope reservation; Phase-1 lock-off
+governance), **TR-CORE-163** (`interop_sidecar_content_mismatch` digest
+recompute), **TR-CORE-164** (`interop_sidecar_kind_unknown` closed-registry
+gate), **TR-CORE-165** (`interop_sidecar_unlisted_file` manifest-completeness
+gate), **TR-CORE-166** (`interop_sidecar_derivation_version_unknown`
+ISC-06 version pin), and **TR-CORE-167** (`interop_sidecar_path_invalid`
+path-prefix invariant; unit-test-only).
 
 ```cddl
 OmittedPayloadCheck = {
@@ -2031,7 +2048,11 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `user_content_attestation_key_not_active` | 6d step 6 | `signing_kid` resolves to a `KeyEntry` whose `kind` is not `signing` or whose lifecycle state at `attested_at` is not `Active` (`Rotating` not admitted until rotation-grace ratifies) (ADR 0010 §"Verifier obligations" step 6). |
 | `user_content_attestation_id_collision` | 6d step 7 | Two `trellis.user-content-attestation.v1` events in scope share `attestation_id` with disagreeing canonical payload (ADR 0010 §"Verifier obligations" step 7; fail-closed). |
 | `user_content_attestation_operator_in_user_slot` | 6d step 8 | An `attestor` URI resolves to a principal class registered as `operator` per Companion §6.4; user-content attestations are user-actor-only, operator attestations belong in §A.5's `Attestation` shape (ADR 0010 §"Verifier obligations" step 8). |
-| `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` is non-empty in Phase 1 (ADR 0008 ISC-04 / ADR 0003 lock-off). |
+| `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` lists an entry under one of the three Phase-1-locked kinds (`scitt-receipt`, `vc-jose-cose-event`, `did-key-view`); ADR 0008 ISC-04 / ADR 0003 lock-off. The `c2pa-manifest@v1` kind dispatches to per-entry verification (Wave 25) and does NOT raise this code. |
+| `interop_sidecar_content_mismatch` | 3.f / interop check | Recomputed SHA-256 over the file at `interop_sidecars[i].path` does not equal the manifest's `interop_sidecars[i].content_digest` (digest preimage under domain tag `trellis-content-v1`). ADR 0008 ISC-03 / §"Phase-1 verifier obligation" step 2. |
+| `interop_sidecar_kind_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].kind` is not in the ADR 0008 closed registry (`scitt-receipt`, `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`). ADR 0008 ISC-04. |
+| `interop_sidecar_unlisted_file` | 3.f / interop check | A file is present under `interop-sidecars/` in the export ZIP but is not catalogued in `manifest.interop_sidecars`. ADR 0008 ISC-03 / §"Export bundle layout". |
+| `interop_sidecar_derivation_version_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].derivation_version` is not in the verifier's supported set for that kind. ADR 0008 ISC-06. |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
 
@@ -2746,21 +2767,86 @@ StaffViewDecisionBinding = {
   extensions:              { * tstr => any } / null,
 }
 
+; The §28 grammar mirrors the §19 prose definition byte-for-byte. When the
+; prose adds an outcome slice, the appendix gains the matching field + struct
+; in the same commit (mirror-discipline; ADR 0004 byte-authority).
 VerificationReport = {
-  structure_verified:     bool,
-  integrity_verified:     bool,
-  readability_verified:   bool,
-  event_failures:         [* VerificationFailure],
-  checkpoint_failures:    [* VerificationFailure],
-  proof_failures:         [* VerificationFailure],
-  omitted_payload_checks: [* OmittedPayloadCheck],
-  warnings:               [* tstr],
+  structure_verified:         bool,
+  integrity_verified:         bool,
+  readability_verified:       bool,
+  event_failures:             [* VerificationFailure],
+  checkpoint_failures:        [* VerificationFailure],
+  proof_failures:             [* VerificationFailure],
+  posture_transitions:        [* PostureTransitionOutcome],
+  erasure_evidence:           [* ErasureEvidenceOutcome],
+  certificates_of_completion: [* CertificateOfCompletionOutcome],
+  ? interop_sidecars:         [* InteropSidecarVerificationEntry],
+  omitted_payload_checks:     [* OmittedPayloadCheck],
+  warnings:                   [* tstr],
 }
 
 VerificationFailure = {
   location: tstr,
   code:     tstr,
   detail:   tstr,
+}
+
+; Posture-transition outcome (§19 step 6 / §A.5). Mirrors the §19 prose
+; definition. `kind` (Posture-transition kind) distinguishes custody-model
+; transitions from Posture disclosure-profile transitions; `failures`
+; carries localized §19 codes.
+PostureTransitionOutcome = {
+  transition_id:           tstr,
+  kind:                    tstr,   ; Posture-transition kind: "custody-model" or "disclosure-profile"
+  event_index:             uint,
+  from_state:              tstr,
+  to_state:                tstr,
+  continuity_verified:     bool,
+  declaration_resolved:    bool,
+  attestations_verified:   bool,
+  failures:                [* tstr],
+}
+
+; Erasure-evidence outcome (§19 step 6b; ADR 0005). Mirrors the §19 prose.
+ErasureEvidenceOutcome = {
+  evidence_id:           tstr,
+  event_index:           uint,
+  kid_destroyed:         bstr,
+  destroyed_at:          uint,
+  cascade_scopes:        [* tstr],
+  completion_mode:       tstr,
+  signature_verified:    bool,
+  post_erasure_uses:     uint,
+  post_erasure_wraps:    uint,
+  cascade_violations:    [* tstr],
+  failures:              [* tstr],
+}
+
+; Certificate-of-completion outcome (§19 step 6c; ADR 0007). Mirrors the
+; §19 prose.
+CertificateOfCompletionOutcome = {
+  certificate_id:                tstr,
+  event_index:                   uint,
+  completed_at:                  uint,
+  signer_count:                  uint,
+  attachment_resolved:           bool,
+  all_signing_events_resolved:   bool,
+  chain_summary_consistent:      bool,
+  failures:                      [* tstr],
+}
+
+; Interop-sidecar per-entry verification outcome (§18.3a / ADR 0008).
+; One entry per `interop_sidecars[i]` declared in the manifest, in
+; manifest-listed order. Phase-1 verifiers populate this when at least
+; one entry is dispatched (`c2pa-manifest@v1`); empty otherwise.
+InteropSidecarVerificationEntry = {
+  kind:                 tstr,
+  path:                 tstr,
+  derivation_version:   uint .size 1,
+  content_digest_ok:    bool,
+  kind_registered:      bool,
+  phase_1_locked:       bool,
+  failures:             [* tstr],
 }
 
 ; --- User-content attestation (ADR 0010) -----------------------------
@@ -2991,6 +3077,9 @@ Core traceability rows:
 - TR-CORE-120, TR-CORE-121, TR-CORE-122, TR-CORE-123, TR-CORE-124, TR-CORE-125, TR-CORE-126
 - TR-CORE-130, TR-CORE-131, TR-CORE-132, TR-CORE-133, TR-CORE-134
 - TR-CORE-140, TR-CORE-141, TR-CORE-142, TR-CORE-143
+- TR-CORE-145 (interop sidecar envelope reservation; ADR 0008)
+- TR-CORE-158, TR-CORE-159, TR-CORE-160, TR-CORE-161, TR-CORE-162 (Core §17 idempotency wire-contract)
+- TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167 (Core §18.3a interop-sidecar dispatched-verifier obligations; Wave 25 / ADR 0008)
 
 ## 31. References
 

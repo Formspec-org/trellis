@@ -1,0 +1,23 @@
+# Pending-invariants / pending-matrix-rows allowlist (R13/F5).
+#
+# This file lists rows that are *normatively authored* in the matrix and the
+# core / companion prose, but whose fixture vectors land in a follow-up
+# commit of the same change train. Listed-but-now-covered entries are
+# errors (the lint forces cleanup); listed-and-uncovered is allowed.
+#
+# Discipline:
+#   - Only used to keep multi-commit trains green between spec-deltas
+#     (commit 1) and fixture-corpus (commit 4).
+#   - Each entry MUST cite its train + the commit that lands the fixture.
+#   - This file is a transit allowlist, NOT a permanent residue ledger.
+#
+# Wave 25 (c2pa-manifest activation; ADR 0008 Phase-2 unlock):
+#   TR-CORE-163..166 normative in commit 1 (spec deltas);
+#   fixtures land in commit 4 (`tamper/037..040`). Cleared in commit 4.
+
+pending_matrix_rows = [
+    "TR-CORE-163",  # interop_sidecar_content_mismatch          → tamper/037
+    "TR-CORE-164",  # interop_sidecar_kind_unknown              → tamper/038
+    "TR-CORE-165",  # interop_sidecar_unlisted_file             → tamper/039
+    "TR-CORE-166",  # interop_sidecar_derivation_version_unknown → tamper/040
+]
