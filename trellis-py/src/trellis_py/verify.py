@@ -166,6 +166,28 @@ class UserContentAttestationOutcome:
 
 
 @dataclass
+class InteropSidecarVerificationEntry:
+    """ADR 0008 §"Phase-1 verifier obligation" per-entry interop-sidecar
+    outcome. One entry per `manifest.interop_sidecars[i]` walked under
+    Wave 25 dispatch (today: `c2pa-manifest@v1`). Mirrors Rust
+    `trellis_verify::InteropSidecarVerificationEntry` and Core §28
+    CDDL byte-for-byte.
+
+    Path-(b) discipline: digest-binds only — does NOT resolve `source_ref`
+    or decode the C2PA manifest bytes (Core §16 ISC-05 — Python G-5
+    oracle stays free of `c2pa` ecosystem deps).
+    """
+
+    kind: str
+    path: str
+    derivation_version: int
+    content_digest_ok: bool = True
+    kind_registered: bool = True
+    phase_1_locked: bool = False
+    failures: list[str] = field(default_factory=list)
+
+
+@dataclass
 class VerificationReport:
     structure_verified: bool = False
     integrity_verified: bool = False
@@ -179,6 +201,9 @@ class VerificationReport:
         default_factory=list
     )
     user_content_attestations: list[UserContentAttestationOutcome] = field(
+        default_factory=list
+    )
+    interop_sidecars: list[InteropSidecarVerificationEntry] = field(
         default_factory=list
     )
     warnings: list[str] = field(default_factory=list)
@@ -250,6 +275,32 @@ class NonSigningKeyEntry:
 
 # Reserved non-signing class literals (Core §8.7).
 _RESERVED_NON_SIGNING_KIND = frozenset({"tenant-root", "scope", "subject", "recovery"})
+
+# ADR 0008 closed kind registry. Mirrors Rust
+# `trellis_verify::INTEROP_SIDECAR_KIND_*` constants.
+_INTEROP_SIDECAR_REGISTERED_KINDS = frozenset({
+    "c2pa-manifest",
+    "did-key-view",
+    "scitt-receipt",
+    "vc-jose-cose-event",
+})
+
+# Wave 25: c2pa-manifest@v1 is the only dispatched kind/version. The
+# three other kinds in the registry are still locked-off; bumping the
+# supported version set is wire-breaking per ISC-06.
+_INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS = frozenset({1})
+
+# ADR 0008 §"Export bundle layout" — sidecar files live under a single
+# `interop-sidecars/` tree at the export root. Mirrors Rust
+# `trellis_verify::INTEROP_SIDECARS_PATH_PREFIX`.
+_INTEROP_SIDECARS_PATH_PREFIX = "interop-sidecars/"
+
+
+def _is_interop_sidecar_path_valid(path: str) -> bool:
+    """TR-CORE-167 — byte-prefix check. Mirrors Rust
+    `trellis_verify::is_interop_sidecar_path_valid`. No normalization,
+    no Unicode folding, case-sensitive."""
+    return path.startswith(_INTEROP_SIDECARS_PATH_PREFIX)
 
 
 @dataclass
@@ -3740,6 +3791,148 @@ def parse_export_zip(data: bytes) -> dict[str, bytes]:
     return members
 
 
+def _verify_interop_sidecars(
+    manifest_map: dict, archive: dict[str, bytes]
+) -> tuple[list[InteropSidecarVerificationEntry], Optional[VerificationReport]]:
+    """ADR 0008 §"Phase-1 verifier obligation" — Wave 25 dispatched
+    verifier (path-(b): digest-binds only). Walks
+    `manifest.interop_sidecars` and the on-disk `interop-sidecars/`
+    tree and produces one outcome per dispatched-kind entry.
+
+    Returns ``(outcomes, fatal_report_or_None)``. When the second
+    element is non-None, the caller MUST short-circuit and return it
+    as the verifier's report (mirrors Rust ``Result<Vec<...>,
+    VerificationReport>`` short-circuit). Mirrors
+    ``trellis_verify::verify_interop_sidecars``.
+    """
+    raw = manifest_map.get("interop_sidecars")
+    if raw is None:
+        return [], None
+    if not isinstance(raw, list):
+        return [], VerificationReport.fatal(
+            "manifest_payload_invalid",
+            "interop_sidecars must be an array or null",
+        )
+
+    outcomes: list[InteropSidecarVerificationEntry] = []
+    listed_paths: set[str] = set()
+
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            return [], VerificationReport.fatal(
+                "manifest_payload_invalid",
+                f"interop_sidecars[{index}] is not a map",
+            )
+        try:
+            kind = entry["kind"]
+            if not isinstance(kind, str):
+                raise VerifyError(f"interop_sidecars[{index}].kind is not a string")
+            path = entry["path"]
+            if not isinstance(path, str):
+                raise VerifyError(f"interop_sidecars[{index}].path is not a string")
+            derivation_version = entry["derivation_version"]
+            if not isinstance(derivation_version, int) or not (
+                0 <= derivation_version <= 255
+            ):
+                raise VerifyError(
+                    f"interop_sidecars[{index}].derivation_version out of range"
+                )
+            content_digest = entry["content_digest"]
+            if not isinstance(content_digest, bytes) or len(content_digest) != 32:
+                raise VerifyError(
+                    f"interop_sidecars[{index}].content_digest must be 32 bytes"
+                )
+            source_ref = entry.get("source_ref")
+            if not isinstance(source_ref, str):
+                raise VerifyError(
+                    f"interop_sidecars[{index}].source_ref must be a string"
+                )
+        except (KeyError, VerifyError) as exc:
+            return [], VerificationReport.fatal(
+                "manifest_payload_invalid",
+                f"interop_sidecars[{index}] is invalid: {exc}",
+            )
+
+        # Step 2.a (kind-registered) — TR-CORE-164.
+        if kind not in _INTEROP_SIDECAR_REGISTERED_KINDS:
+            return [], VerificationReport.fatal(
+                "interop_sidecar_kind_unknown",
+                f"interop_sidecars[{index}].kind {kind!r} is not in the ADR 0008 registry",
+            )
+
+        # Step 2.b (derivation-version-supported) — TR-CORE-166.
+        if (
+            kind == "c2pa-manifest"
+            and derivation_version
+            not in _INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS
+        ):
+            return [], VerificationReport.fatal(
+                "interop_sidecar_derivation_version_unknown",
+                f"interop_sidecars[{index}] kind={kind!r} "
+                f"derivation_version={derivation_version} not in supported set",
+            )
+
+        # Step 2.c (path-prefix-valid) — TR-CORE-167.
+        if not _is_interop_sidecar_path_valid(path):
+            return [], VerificationReport.fatal(
+                "interop_sidecar_path_invalid",
+                f"interop_sidecars[{index}].path {path!r} does not start with "
+                f"{_INTEROP_SIDECARS_PATH_PREFIX!r}",
+            )
+
+        # Step 2.d (Phase-1 lock-off — three locked kinds short-circuit
+        # AFTER passing structural checks). Wave 25 unlocks
+        # `c2pa-manifest@v1` only.
+        if kind != "c2pa-manifest":
+            return [], VerificationReport.fatal(
+                "interop_sidecar_phase_1_locked",
+                f"interop_sidecars[{index}] kind={kind!r} is still Phase-1 locked-off "
+                "(ADR 0008 / ADR 0003)",
+            )
+
+        # Step 2.e (content-digest-match) — TR-CORE-163.
+        actual_bytes = archive.get(path)
+        if actual_bytes is None:
+            return [], VerificationReport.fatal(
+                "interop_sidecar_content_mismatch",
+                f"interop_sidecars[{index}].path {path!r} is missing from the export ZIP",
+            )
+        actual_digest = domain_separated_sha256(CONTENT_DOMAIN, actual_bytes)
+        if actual_digest != content_digest:
+            return [], VerificationReport.fatal(
+                "interop_sidecar_content_mismatch",
+                f"interop_sidecars[{index}].content_digest does not match "
+                f"SHA-256(trellis-content-v1, {path!r})",
+            )
+
+        listed_paths.add(path)
+        outcomes.append(
+            InteropSidecarVerificationEntry(
+                kind=kind,
+                path=path,
+                derivation_version=derivation_version,
+                content_digest_ok=True,
+                kind_registered=True,
+                phase_1_locked=False,
+                failures=[],
+            )
+        )
+
+    # Step 2.f (unlisted-file) — TR-CORE-165.
+    for member_path in archive:
+        if not member_path.startswith(_INTEROP_SIDECARS_PATH_PREFIX):
+            continue
+        if member_path in listed_paths:
+            continue
+        return [], VerificationReport.fatal(
+            "interop_sidecar_unlisted_file",
+            f"{member_path!r} is present under interop-sidecars/ but not catalogued in "
+            "manifest.interop_sidecars",
+        )
+
+    return outcomes, None
+
+
 def verify_export_zip(export_zip: bytes) -> VerificationReport:
     try:
         archive = parse_export_zip(export_zip)
@@ -3800,20 +3993,21 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         return VerificationReport.fatal("manifest_payload_invalid", "manifest payload root is not a map")
     manifest_map = manifest_payload
 
-    # Phase-1 interop sidecar lock-off (ADR 0008); mirrors `trellis-verify`.
-    isc = manifest_map.get("interop_sidecars")
-    if isc is not None:
-        if isinstance(isc, list):
-            if len(isc) > 0:
-                return VerificationReport.fatal(
-                    "interop_sidecar_phase_1_locked",
-                    "Phase-1 verifier rejects populated interop_sidecars (ADR 0008)",
-                )
-        else:
-            return VerificationReport.fatal(
-                "manifest_payload_invalid",
-                "interop_sidecars must be an array or null",
-            )
+    # ADR 0008 §"Phase-1 verifier obligation" — Wave 25 dispatched
+    # verifier (path-(b): digest-binds only). Mirrors Rust
+    # `trellis_verify::verify_interop_sidecars`. The `c2pa-manifest@v1`
+    # kind dispatches to per-entry verification; the three other
+    # registered kinds (`scitt-receipt`, `vc-jose-cose-event`,
+    # `did-key-view`) remain Phase-1 locked-off. Outcomes accumulate
+    # into `interop_sidecars` for the dispatched-kind entries; lock-off
+    # / unknown-kind / version-unknown / path-invalid / content-mismatch
+    # / unlisted-file all short-circuit via `VerificationReport.fatal`
+    # (Core §19.1 / TR-CORE-145, 163..167).
+    interop_sidecars_outcomes, fatal_report = _verify_interop_sidecars(
+        manifest_map, archive
+    )
+    if fatal_report is not None:
+        return fatal_report
 
     required_digests = [
         ("010-events.cbor", "events_digest"),
@@ -3917,6 +4111,12 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         payload_blobs,
         non_signing_registry=non_signing_registry,
     )
+    # ADR 0008 / Core §18.3a — Wave 25 dispatched-verifier outcomes.
+    # `_verify_interop_sidecars` already short-circuited any fatal
+    # path through `fatal_report` above; what reaches this site is the
+    # per-entry success slice. The export integrity-fold below treats
+    # absent failures as pass-through.
+    report.interop_sidecars = interop_sidecars_outcomes
     try:
         attachment_export = _parse_attachment_export_extension(manifest_map)
     except VerifyError as exc:
@@ -4219,6 +4419,18 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
             and o.signature_verified
             and o.key_active
             for o in report.user_content_attestations
+        )
+        # ADR 0008 §"Phase-1 verifier obligation" / Core §18.3a — Wave 25
+        # dispatched-verifier integrity fold. Today every non-pass
+        # condition short-circuits via `fatal`; this fold is defensive
+        # against a future sub-fatal failure surface. Mirrors Rust
+        # `trellis-verify`.
+        and all(
+            o.content_digest_ok
+            and o.kind_registered
+            and not o.phase_1_locked
+            and not o.failures
+            for o in report.interop_sidecars
         )
     )
     report.readability_verified = True

@@ -18,6 +18,132 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 25 (2026-04-28) — `c2pa-manifest@v1` adapter activation + dispatched verifier (item #1)
+
+Closes the original TODO item #1 — the `c2pa-manifest` interop-sidecar
+adapter. ADR 0008's reservation-with-lockoff posture flips for the
+first kind: `c2pa-manifest@v1` now dispatches to per-entry verification
+under the **path-(b) digest-binds only** discipline; the three other
+registered kinds (`scitt-receipt`, `vc-jose-cose-event`, `did-key-view`)
+remain Phase-1 locked-off pending their per-kind triggers.
+
+Train (`46cfc72..75f0884`, 5 commits):
+
+- `3eda94d` — Spec deltas. Core §18.3a narrows the lock-off ("all
+  kinds except `c2pa-manifest@v1`"), §19.1 gains 5 new tamper-kind
+  rows (`interop_sidecar_content_mismatch`,
+  `interop_sidecar_kind_unknown`, `interop_sidecar_unlisted_file`,
+  `interop_sidecar_derivation_version_unknown`,
+  `interop_sidecar_path_invalid`). §28 CDDL backfilled mirror-discipline
+  (ADR 0004 byte-authority): adds `posture_transitions`,
+  `erasure_evidence`, `certificates_of_completion`, and
+  `interop_sidecars` fields to `VerificationReport` plus four outcome
+  struct definitions (the §19 prose had them; §28 didn't). ADR 0008:
+  c2pa-manifest status Phase-1-locked → Phase-2-active; Open Q3
+  resolved (vendor-prefix label
+  `org.formspec.trellis.certificate-of-completion.v1`); Open Q5 adds
+  `source_ref` resolution semantics deferred. Matrix: TR-CORE-163..167
+  (4 fixture-bearing + 1 unit-test-only). check-specs.py
+  `TAMPER_KIND_ENUM` mirror updated. ADR 0008 fixture-plan slot
+  reassignment 028..031 → 037..040 (Wave 23 UCA fixtures absorbed
+  the original slots).
+- `bfd7fc9` — `trellis-verify` dispatched verifier. Replaces the
+  broad lock-off block with `verify_interop_sidecars`; adds
+  `InteropSidecarVerificationEntry` struct mirroring Core §28 CDDL
+  byte-for-byte; threads `interop_sidecars` into `VerificationReport`
+  with the integrity-fold extension. Failure dispatch order: kind →
+  derivation_version → path-prefix → lock-off (3 kinds) → digest →
+  unlisted-file. Unit test `interop_sidecar_path_prefix_invariant`
+  covers the byte-prefix predicate (TR-CORE-167). ISC-05 holds —
+  `trellis-verify` does NOT take a `c2pa-rs` dep.
+- `8a1e76f` — `trellis-interop-c2pa` adapter. Three public surfaces:
+  `emit_c2pa_manifest_for_certificate`, `extract_trellis_assertion`,
+  `TrellisAssertion::verify_against_canonical_chain`. Uses **hand-
+  rolled CBOR** rather than `c2pa-rs` — the `c2pa` crate brings 328
+  transitive deps (image parsers, ASN.1 decoders, RDF infra,
+  network-capable certificate validation), inappropriate as a workspace
+  base dep. The Trellis assertion itself is a 5-field dCBOR map; the
+  C2PA-tooling consumer (read manifest from PDF/JPEG, decode
+  assertion, run cross-check) is documented as the operator's
+  responsibility in `crates/trellis-interop-c2pa/README.md`.
+- `75f0884` — Fixture corpus. 1 positive (`export/014-interop-sidecar-c2pa-manifest`)
+  + 4 negatives (`tamper/037..040`). Built via
+  `gen_interop_sidecar_c2pa_037_to_040.py` mutating
+  `export/012-interop-sidecars-empty-list` as the base, re-signing
+  the manifest under `_keys/issuer-001.cose_key`. Synthetic
+  five-field Trellis-assertion sidecar bytes mirror the
+  `trellis-interop-c2pa` shape so the fixture and the adapter
+  exercise the same byte format.
+- `<commit-5>` — Python parity + this entry + TODO renumber. Wave 25
+  closes G-5 at 114/0 (+5 vectors from 109/0). `_verify_interop_sidecars`
+  in `trellis-py/src/trellis_py/verify.py` mirrors the Rust dispatch
+  byte-for-byte. README documents the **C2PA-tooling-path is not
+  ported** — that path lives in `trellis-interop-c2pa` Rust only;
+  porting to Python would force every G-5 oracle deployment to ship
+  a C2PA SDK, which the path-(b) discipline sidesteps.
+
+Counts: G-4 clean (cargo test --workspace 100%; trellis-verify 88/0
+tests + new path-prefix unit test; trellis-interop-c2pa 7/0 tests;
+trellis-conformance 9/0 model-checks + corpus replay). G-5 109 → **114**.
+pytest 64 / 0. `check-specs.py` clean.
+
+Anti-monkeypatching wins (the discipline showed up):
+
+1. **Spec rows landed BEFORE fixtures + Rust references.** Commit 1
+   (spec deltas + matrix rows + check-specs enum mirror) wired the
+   normative surface; commit 2 (Rust verifier) and commit 4 (fixtures)
+   could only land because the failure codes existed in
+   `TAMPER_KIND_ENUM`. Vector-coverage rule was kept happy via the
+   transit allowlist (`fixtures/vectors/_pending-invariants.toml`)
+   and cleared at commit 4. Lockstep held.
+2. **§28 mirror discipline backfilled, not deferred.** §19 prose had
+   gained `posture_transitions` / `erasure_evidence` /
+   `certificates_of_completion` over Waves 21-23, but §28 still
+   carried the old 8-field `VerificationReport`. Wave 25 is when the
+   drift was visible (the Rust Report struct reaches 12 fields with
+   `interop_sidecars`); the cleanup landed in commit 1 alongside the
+   new field. ADR 0004 byte-authority preserved.
+3. **Vendor-prefix label decision rather than C2PA coalition gating.**
+   Open Q3 had been deferred behind "may need C2PA coalition step";
+   Wave 25 used the C2PA assertion-naming convention for vendor
+   assertions (`org.formspec.trellis.certificate-of-completion.v1`)
+   to ship without that gate, and documented the rationale in ADR
+   0008 + crate README. A coalition-membership ADR remains an
+   optional follow-on bumping `derivation_version` per ISC-06.
+4. **`source_ref` resolution semantics explicitly deferred** rather
+   than stubbed. Open Q5 names the deferral as "this is a separable
+   design question that benefits from being decided once across all
+   four kinds" — the Phase-1 verifier validates `source_ref` for
+   presence only. No speculative resolution code; no dead-code
+   constants for the still-locked kinds.
+5. **Hand-rolled CBOR for the assertion**, not a `c2pa-rs` dep at
+   the workspace base. The 328-crate dep tree would have crossed
+   ISC-05 hygiene boundaries the moment a workspace `cargo check`
+   touched it. The C2PA-tooling consumer's PDF/JPEG embedding lives
+   outside the workspace center.
+6. **Fixture-slot relocation 028..031 → 037..040.** The pre-flight
+   tripwire surfaced that the original ADR 0008 fixture plan
+   collided with the Wave 23 UCA corpus (slots 028..034). Resolved
+   with kind-agnostic names (no `c2pa` substring in the slug) so
+   future kinds reuse the same negative scaffolding without slot
+   churn.
+
+Findings flagged but not fixed (out-of-scope per the brief):
+
+- C2PA-tooling-path Python parity is intentionally absent. The Rust
+  adapter's `extract_trellis_assertion` + `verify_against_canonical_chain`
+  exist; the Python equivalent would force a C2PA SDK into the G-5
+  oracle's dep tree, which path-(b) discipline sidesteps. If a future
+  adopter needs a Python-side consumer, it lands as `trellis-py-c2pa`
+  beside `trellis-py`, not folded into `trellis-py` itself.
+- Formal C2PA-registry registration of the assertion label is
+  deferred behind a future coalition-membership ADR. The vendor-prefix
+  label is interop-equivalent for path-(a) consumers.
+- `trellis-cli` does not yet expose a sidecar-emit subcommand. The
+  emitter is library-tier; a CLI wrapper would land with the first
+  reference deployment that ships the assertion to a real PDF
+  pipeline.
+
 ### Wave 24 (2026-04-28) — Core §17 `idempotency_key` Rust + Python + fixtures (item #2)
 
 Closes the seven sub-tasks of TODO item #2 — the wire-contract idempotency

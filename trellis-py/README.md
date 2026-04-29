@@ -31,3 +31,22 @@ Exit code `0` means every vector under `append/`, `export/`, `verify/`, `tamper/
 ## Dependencies
 
 `cbor2`, `cryptography` (Ed25519). No Rust runtime is required at import time.
+
+## Out of scope (intentional)
+
+The Python G-5 oracle implements **path-(b)** of the ADR 0008 interop-
+sidecar dispatched verifier — digest-binds only, no `source_ref`
+resolution, no C2PA manifest decode (Wave 25). That is the same
+discipline `trellis-verify` follows in Rust; both implementations
+treat the manifest store as opaque bytes whose SHA-256 (under
+`trellis-content-v1`) is the only verifiable surface.
+
+The **C2PA-tooling-path consumer** (read manifest from PDF/JPEG,
+decode the `org.formspec.trellis.certificate-of-completion.v1`
+assertion, run the five-field cross-check against the canonical
+chain) is **not ported to Python**. That path lives in Rust under
+`trellis-interop-c2pa` and is consumer-tier per ADR 0008 §"`c2pa-manifest`"
+(an adopter picks a C2PA SDK and integrates the assertion bytes into
+their PDF rendering pipeline). Porting it to Python would force every
+G-5 oracle deployment to ship a C2PA SDK; the path-(b) discipline
+sidesteps that by checking only the bytes the export ZIP catalogues.
