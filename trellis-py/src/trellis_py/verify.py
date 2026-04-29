@@ -3799,6 +3799,12 @@ def _verify_interop_sidecars(
     `manifest.interop_sidecars` and the on-disk `interop-sidecars/`
     tree and produces one outcome per dispatched-kind entry.
 
+    Failure order per entry (first failure wins; mirrors
+    ``trellis_verify::verify_interop_sidecars``): kind-registered →
+    derivation-version-supported (``c2pa-manifest`` only) → path-prefix
+    valid → phase-1 lock-off → content-digest match; then unlisted files
+    under ``interop-sidecars/`` after the manifest walk.
+
     Returns ``(outcomes, fatal_report_or_None)``. When the second
     element is non-None, the caller MUST short-circuit and return it
     as the verifier's report (mirrors Rust ``Result<Vec<...>,

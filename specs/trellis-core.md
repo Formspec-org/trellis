@@ -1356,7 +1356,8 @@ no `source_ref` resolution; failure surfaces are
 `interop_sidecar_content_mismatch`,
 `interop_sidecar_kind_unknown`,
 `interop_sidecar_unlisted_file`,
-`interop_sidecar_derivation_version_unknown`. The C2PA-tooling-path
+`interop_sidecar_derivation_version_unknown`,
+`interop_sidecar_path_invalid`. The C2PA-tooling-path
 (reading the C2PA manifest assertion) is documented in ADR 0008 §"`c2pa-manifest`"
 as a consumer pattern; it is NOT part of the Phase-1 core verifier (Core §16).
 Traceability: **TR-CORE-145** (envelope reservation; Phase-1 lock-off
@@ -1365,7 +1366,7 @@ recompute), **TR-CORE-164** (`interop_sidecar_kind_unknown` closed-registry
 gate), **TR-CORE-165** (`interop_sidecar_unlisted_file` manifest-completeness
 gate), **TR-CORE-166** (`interop_sidecar_derivation_version_unknown`
 ISC-06 version pin), and **TR-CORE-167** (`interop_sidecar_path_invalid`
-path-prefix invariant; unit-test-only).
+path-prefix invariant; `trellis-verify` unit tests, no tamper ZIP).
 
 ```cddl
 OmittedPayloadCheck = {
