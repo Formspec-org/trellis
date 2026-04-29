@@ -18,6 +18,99 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 27 (2026-04-29) — TODO #23 close-out: PLN-0385 wire-shape drift discovery + Fork-B resolution
+
+Closes Trellis TODO item #23 (`custody-hook-encoding.md` v1.0 +
+cross-stack ingestion fixture) by discovering that the work the TODO
+described was speculative-against-a-phantom-spec, and the actual gap
+was 3 lines of prose drift across two repos plus a status pin.
+
+A cross-stack-scout dispatch (agent `ac9045864e6973fec`) ran three
+pre-flight audits before scoping the train and stopped on a tripwire:
+the four-field append wire surface cited by parent PLN-0385 + this
+TODO item + `wos-server/TODO.md` lines 19/116 (`tag`, `payload`,
+`prior_event_hash`, `producer_signature`) does NOT match the four-
+field surface pinned by ADR-0061 §2.3 + `custody-hook-encoding.md`
+§1.3 (`caseId`, `recordId`, `eventType`, `record`). The token
+`producer_signature` exists in zero specs / zero crates / zero
+schemas / zero fixtures across the entire stack — it was a planning-
+layer hallucination propagated through PLN-0385.
+
+Diagnosis (Fork B, ratified): PLN-0385 was authored from a wos-server-
+centric mental model where Trellis-envelope-level fields
+(`prior_event_hash` is Core §10.2; producer signing is COSE_Sign1
+around the envelope) got conflated with the WOS-authored-record
+surface (the seam input). ADR-0061 had drawn the layering line
+correctly; PLN-0385 prose erased it.
+
+Resolution path (Fork A, executed): the cross-stack ingestion fixture
+the TODO asked for ALREADY existed as
+`append/010-wos-custody-hook-state-transition` (and siblings
+`append/019-022`). The verifier round-trip ALREADY existed as the
+trellis-conformance replay. The companion file at
+`wos-spec/specs/kernel/custody-hook-encoding.md` was at
+`1.0.0-draft.1`/`draft` — ratifying it to `1.0.0`/`accepted` plus
+adding two paragraphs binding §3.4/§3.5 to the existing fixture
+corpus, plus correcting the PLN-0385 four-field reference in three
+places (parent PLANNING.md + 2 cross-references in
+wos-server/TODO.md), closes the work cleanly.
+
+Train (1 wos-spec commit + 1 trellis commit + 1 parent commit):
+
+- wos-spec `3497a1b` — `docs: ratify custody-hook-encoding.md v1.0;
+  correct PLN-0385 wire-shape drift`. Companion frontmatter +
+  body header: `1.0.0-draft.1`/`draft` → `1.0.0`/`accepted`.
+  §3.4 paragraph binds the cross-stack ingestion fixture corpus
+  (`append/010` + siblings `019-022`). §3.5 paragraph binds the
+  Trellis verifier round-trip (`cargo test -p trellis-conformance`).
+  `crates/wos-server/TODO.md` lines 19 + 116 corrected.
+- trellis `<commit-2-sha>` — `docs: close TODO #23 + Wave 27
+  COMPLETED entry`. TODO renumber #23 removed; #24 → #23, #25 → #24.
+  Cross-reference in §"Signature-stack cluster" updated; phantom
+  `producer_signature` removed from cluster prose. "Items 5-10 +
+  17-25" → "Items 5-10 + 17-24". "Depends on item #24" → "Depends
+  on item #23".
+- parent `<commit-3-sha>` — submodule bump (wos-spec + trellis) +
+  PLANNING.md PLN-0385 four-field reference correction +
+  `producer_signature` phantom removed.
+
+No fixtures changed; no Rust changed; no tests changed. The corpus
+this companion binds to was authored against the correct surface
+from the start — only the prose pointing AT it had drifted.
+
+Anti-monkeypatching wins:
+
+1. **Pre-flight tripwire prevented a phantom-spec authoring train.**
+   The original TODO scope would have authored a NEW cross-stack
+   fixture against the phantom four-field surface, supeseding ADR-
+   0061 silently and creating a duplicate of `append/010` under a
+   new name. Pre-flight caught it before any fixture touched disk.
+2. **Drift correction over speculation.** The honest work was three
+   lines of prose, not a multi-commit fixture train. Reclassifying
+   the scope from "S" to "drift cleanup" preserves the user-economic-
+   model rule (don't manufacture work).
+3. **Question-excess rule applied.** When the user asked whether
+   `producer_signature` would add value if it WERE intentional, the
+   answer (analyzed against existing signing surfaces — envelope
+   COSE_Sign1, ADR 0010 user-content-attestation events, payload-
+   internal sigs in `record`) was: pure duplication. ADR-0061's
+   choice to keep the four fields identity-shaped (not signature-
+   shaped) was the architecturally clean call; PLN-0385's drift
+   reached for an "every record needs a signature" intuition that
+   was already covered three different ways at adjacent layers.
+4. **Submodule WIP isolation.** wos-spec submodule had ~120 files
+   of unrelated WIP from prior sessions. Stash-and-replay landed
+   only the Wave 27 prose edits in commit `3497a1b`; pre-existing
+   WIP preserved untouched in working tree.
+
+Findings closed: PLN-0385 wire-shape drift; companion v1.0
+ratification status; cross-stack fixture corpus binding; Trellis
+verifier round-trip binding.
+
+Findings deferred: wider parent-PLANNING.md PLN-0379..0398 cluster
+audit (other rows in the cluster may carry similar drift; not in
+scope for this train).
+
 ### Wave 26 (2026-04-28) — Wave 25 review close-out: canonical dCBOR ordering + cross-impl byte oracle
 
 Closes a semi-formal Wave 25 code review (`46cfc72..6e09dc0` + parent

@@ -30,7 +30,7 @@ it and retag. The revision window stays open until real adopters close it.
 Ordered by `Importance × Debt`. Each item names its prerequisite inline.
 
 **Cross-repo pointer — parent PLANNING.md.** Stack-wide rows live as `PLN-XXXX`
-in [`/PLANNING.md`](../PLANNING.md). Items 5-10 + 17-25 cite parent rows;
+in [`/PLANNING.md`](../PLANNING.md). Items 5-10 + 17-24 cite parent rows;
 items 1-4 + 11-16 are Trellis-internal envelope/verifier discipline with no
 parent counterpart. The MVP-foundation cluster (PLN-0331..0349) consumes
 `trellis-cose` / `trellis-verify` downstream — keep the public APIs stable for
@@ -48,15 +48,18 @@ gap blocks the adapter.
 
 **Signature-stack cluster** (everything about signatures): items **#5** + **#6**
 (WOS-T4 + ADR 0073 shared-fixture residue), **#7** (identity attestation,
-supersedes PLN-0310 → PLN-0381), **#23**
-(`custody-hook-encoding.md` v1.0 — the four-field append wire surface carrying
-`producer_signature`, parent PLN-0385), **#24** (external recipient lifecycle,
-parent PLN-0382), **#25** (tenant-scope export bundles spanning multiple
+supersedes PLN-0310 → PLN-0381), **#23** (external recipient lifecycle,
+parent PLN-0382), **#24** (tenant-scope export bundles spanning multiple
 ledger scopes, parent PLN-0392).
 
 ADR 0010 user-content Attestation primitive (closed Wave 23,
-`b1b23ce..74cd52d`) and `c2pa-manifest@v1` adapter (closed Wave 25,
-`3eda94d..<commit-5-sha>`) — see [`COMPLETED.md`](COMPLETED.md). Trellis
+`b1b23ce..74cd52d`), `c2pa-manifest@v1` adapter (closed Wave 25,
+`3eda94d..<commit-5-sha>`), and `custody-hook-encoding.md` v1.0 + Wave 27
+PLN-0385 wire-shape drift correction (closed Wave 27 — see
+[`COMPLETED.md`](COMPLETED.md); the four-field surface is `caseId` /
+`recordId` / `eventType` / `record` per ADR-0061 §2.3, NOT the phantom
+`tag` / `payload` / `prior_event_hash` / `producer_signature` cited in
+the original PLN-0385 prose). Trellis
 owns the integrity artifact bytes; WOS owns the semantics. Both compose
 under PLN-0379 + PLN-0380. Parent stack closure cluster spans
 PLN-0379..0398 plus PLN-0355 (ESIGN gate, Trigger) and PLN-0370 (DocuSign
@@ -297,23 +300,7 @@ consume amended responses.
     Trellis-side action once stack governance picks the policy home:
     contribute scope notes (which crates and surfaces are in / out of scope).
 
-23. **`custody-hook-encoding.md` v1.0 + cross-stack ingestion fixture** — **S**.
-    *Coordinates parent **PLN-0385**.* WOS-side companion authoring promotes
-    `wos-spec/specs/kernel/custody-hook-encoding.md` to v1.0 (today informally
-    referenced); Trellis-side action is the cross-stack ingestion fixture
-    proving one authored WOS record → dCBOR canonicalization → Trellis
-    envelope ingest. Four-field append wire surface: `tag`, `payload`,
-    `prior_event_hash`, **`producer_signature`** (signature-stack —
-    WOS-side signatures cross into the Trellis envelope through this field).
-    Without the companion at v1.0, "Trellis owns bytes / WOS owns meaning"
-    decomposes silently. Cited from Kernel §10.5 + Core §22 (RL composition).
-    + [ ] WOS-side: companion at v1.0 (parent-tracked).
-    + [ ] Trellis-side: cross-stack fixture in shared bundle (one authored
-      record → dCBOR → envelope, byte-exact).
-    + [ ] Verifier round-trip: envelope → dCBOR decode → authored record →
-      byte-equal.
-
-24. **External recipient lifecycle — Trellis-side ingestion** — **M**.
+23. **External recipient lifecycle — Trellis-side ingestion** — **M**.
     *Land after parent ratifies the stack ADR per **PLN-0382**.* Privacy
     Profile registers external systems as per-class recipients; ledgered
     `wos.governance.access-granted` / `access-revoked` events flow through
@@ -326,13 +313,13 @@ consume amended responses.
     (PLN-0382 done-criterion). Composes with `wos.governance.*` namespace
     ratification at parent **PLN-0384**.
 
-25. **Tenant-scope Trellis export shape** — **M**, Trigger.
+24. **Tenant-scope Trellis export shape** — **M**, Trigger.
     *Coordinates parent **PLN-0392**. Activate trigger:* first tenant-scope
     export use case. Core §18 ZIP layout is per-`ledger_scope`; tenant-scope
     spans many. Owner lean: option (a) — new `070-tenant-package-manifest.cbor`
     cataloging constituent per-scope ZIPs with cross-binding digests.
     Alternative (b): top-level package format nesting per-scope exports.
-    Depends on item #24 (export must cover recipient-rotation events).
+    Depends on item #23 (export must cover recipient-rotation events).
     Signature-stack: tenant-scope export bundles span signed events across
     ledger scopes — procurement + audit may demand a single bundle.
     + [ ] Choice ratified (lean: option (a)).
