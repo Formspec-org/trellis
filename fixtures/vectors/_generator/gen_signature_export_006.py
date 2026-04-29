@@ -28,6 +28,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -99,7 +100,7 @@ def build_signing_key_registry(kid: bytes, pubkey: bytes) -> bytes:
         "pubkey": pubkey,
         "suite_id": SUITE_ID_PHASE_1,
         "status": 0,
-        "valid_from": 1776877800,
+        "valid_from": ts(1776877800),
         "valid_to": None,
         "supersedes": None,
         "attestation": None,
@@ -219,7 +220,7 @@ def build_export_006() -> None:
         "scope": scope,
         "tree_size": 1,
         "tree_head_hash": leaf_hash,
-        "timestamp": 1776877860,
+        "timestamp": ts(1776877860),
         "anchor_ref": None,
         "prev_checkpoint_hash": None,
         "extensions": None,
@@ -257,7 +258,7 @@ def build_export_006() -> None:
         "format": "trellis-export/1",
         "version": 1,
         "generator": "x-trellis-test/export-generator-006-signature",
-        "generated_at": 1776877860,
+        "generated_at": ts(1776877860),
         "scope": scope,
         "tree_size": 1,
         "head_checkpoint_digest": head_checkpoint_digest,

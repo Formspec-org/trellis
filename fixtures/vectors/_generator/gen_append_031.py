@@ -41,10 +41,15 @@ sequence = 0 / 1 do not collide.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -61,17 +66,17 @@ LEDGER_SCOPE = b"test-key-entry-ledger"
 
 # Event A: genesis.
 EVENT_A_SEQUENCE = 0
-EVENT_A_TIMESTAMP = 1745120000
+EVENT_A_TIMESTAMP = ts(1745120000)
 EVENT_A_IDEMPOTENCY_KEY = b"idemp-append-031a"
 
 # Event B: post-rotation, sequence=1.
 EVENT_B_SEQUENCE = 1
-EVENT_B_TIMESTAMP = 1745120120
+EVENT_B_TIMESTAMP = ts(1745120120)
 EVENT_B_IDEMPOTENCY_KEY = b"idemp-append-031b"
 
 # Rotation timestamp — `valid_to` on issuer-001's post-rotation entry and
 # `valid_from` on issuer-002.
-ROTATION_TIMESTAMP = 1745120060
+ROTATION_TIMESTAMP = ts(1745120060)
 
 EVENT_TYPE = b"x-trellis-test/append-minimal"
 CLASSIFICATION = b"x-trellis-test/unclassified"

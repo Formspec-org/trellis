@@ -24,6 +24,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,7 +35,7 @@ CASE_ID = "sba-poc_case_01jqrpd32jf8xtx9qxkkv3rqsc"
 RECORD_ID = "sba-poc_prov_01jqt0f0wm8f4b7n1j6m2r3k4p"
 LEDGER_SCOPE = f"wos-case:{CASE_ID}".encode("utf-8")
 SEQUENCE = 0
-TIMESTAMP = 1776877800
+TIMESTAMP = ts(1776877800)
 EVENT_TYPE = b"wos.kernel.signatureAffirmation"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0

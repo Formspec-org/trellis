@@ -29,5 +29,5 @@ The payload hash is over the attachment ciphertext bytes named by
 
 - `content_hash`: `e796c89473ca5db95c63050683cb05b971b8815380e847ef560d32f805459fe6`
 - `idempotency_key`: `1ddbdf32dcb1cbf5b2fa379a358757cb95e1863426a3243bbf92bac4ef1a82fc`
-- `author_event_hash`: `801d0ca7b66ecaec41a9876671633ad015a0614eb5f058482924dd66a67d1511`
-- `canonical_event_hash`: `03c83d06c490a28e3101bdf30887da2242c4c1a44078aab633b7eb4d2c4b4934`
+- `author_event_hash`: `38d5cb021db56a20346930dde43c0fb174db237709155f3ec47628bfe4641195`
+- `canonical_event_hash`: `deef7001a81a7133d5cd9a1ec0e9db27e05883022eef3b7fab5d6d5faf2abd0b`

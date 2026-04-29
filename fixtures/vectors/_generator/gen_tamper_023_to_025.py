@@ -40,11 +40,16 @@ the kids of 035 (recovery) / 032 (subject) by construction.
 from __future__ import annotations
 
 import hashlib
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs — mirror gen_append_032_to_035.py constants exactly so the
@@ -126,7 +131,7 @@ def build_subject_attrs(valid_to: int | None = None) -> dict:
         "pubkey":           fixture_pubkey("subject"),
         "subject_ref":      "urn:agency.gov:subject:fixture-025",
         "authorized_for":   [b"x-trellis-test/wrap-cap-1"],
-        "effective_from":   1745130000,
+        "effective_from":   ts(1745130000),
         "valid_to":         valid_to,
         "supersedes":       None,
     }
@@ -138,7 +143,7 @@ def build_recovery_attrs(authorized_kid: bytes) -> dict:
         "authorizes_recovery_for": [authorized_kid],
         "activation_quorum":       1,
         "activation_quorum_set":   None,
-        "effective_from":          1745130000,
+        "effective_from":          ts(1745130000),
         "supersedes":              None,
     }
 
@@ -295,7 +300,7 @@ def emit_023(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
 
     signed_event, ledger_bytes, canonical_event_hash = build_event(
         ledger_scope=b"test-key-entry-recovery-ledger",
-        timestamp=1745130800,
+        timestamp=ts(1745130800),
         idempotency_key=b"tamper-key-class-recovery-023",
         payload_bytes=payload_bytes,
         seed=seed_001,
@@ -304,7 +309,7 @@ def emit_023(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
 
     # Registry mirrors append/035: legacy issuer-001 + the recovery row.
     registry = [
-        build_signing_entry_legacy(kid_001, pubkey_001, 1745130000),
+        build_signing_entry_legacy(kid_001, pubkey_001, ts(1745130000)),
         recovery_row,
     ]
     registry_bytes = dcbor(registry)
@@ -319,7 +324,7 @@ def emit_023(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
 
 
 def emit_024(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
-             payload_bytes: bytes) -> None:
+              payload_bytes: bytes) -> None:
     out_dir = ROOT / "tamper" / "024-key-entry-attributes-shape-mismatch"
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"\ngenerating {out_dir.relative_to(ROOT.parent.parent)}/")
@@ -338,7 +343,7 @@ def emit_024(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
         "extensions": None,
     }
     registry = [
-        build_signing_entry_legacy(kid_001, pubkey_001, 1745130000),
+        build_signing_entry_legacy(kid_001, pubkey_001, ts(1745130000)),
         malformed_subject_row,
     ]
     registry_bytes = dcbor(registry)
@@ -347,7 +352,7 @@ def emit_024(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
     # is the registry's structural-shape failure (not signature_invalid).
     signed_event, ledger_bytes, canonical_event_hash = build_event(
         ledger_scope=b"test-key-entry-024-ledger",
-        timestamp=1745131000,
+        timestamp=ts(1745131000),
         idempotency_key=b"tamper-key-entry-shape-024",
         payload_bytes=payload_bytes,
         seed=seed_001,
@@ -378,13 +383,13 @@ def emit_025(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
     # detection: signing-class violation when the subject kid is used
     # in a COSE_Sign1 protected header — `key_class_mismatch`.
     subject_row = build_non_signing_entry(
-        "subject", build_subject_attrs(valid_to=1745130100),  # past
+        "subject", build_subject_attrs(valid_to=ts(1745130100)),  # past
     )
     subject_kid: bytes = subject_row["kid"]
 
     signed_event, ledger_bytes, canonical_event_hash = build_event(
         ledger_scope=b"test-key-entry-025-ledger",
-        timestamp=1745131200,  # > subject_valid_to; future Phase-2+ check
+        timestamp=ts(1745131200),  # > subject_valid_to; future Phase-2+ check
         idempotency_key=b"tamper-subject-wrap-after-valid-to-025",
         payload_bytes=payload_bytes,
         seed=seed_001,
@@ -392,7 +397,7 @@ def emit_025(seed_001: bytes, pubkey_001: bytes, kid_001: bytes,
     )
 
     registry = [
-        build_signing_entry_legacy(kid_001, pubkey_001, 1745130000),
+        build_signing_entry_legacy(kid_001, pubkey_001, ts(1745130000)),
         subject_row,
     ]
     registry_bytes = dcbor(registry)

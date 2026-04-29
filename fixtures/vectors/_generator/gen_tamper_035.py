@@ -40,6 +40,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 # ---------------------------------------------------------------------------
@@ -68,8 +69,8 @@ assert len(PLAINTEXT_A) == 64 and len(PLAINTEXT_B) == 64
 assert PLAINTEXT_A != PLAINTEXT_B
 
 # Distinct authored_at to mirror tamper/006's narrative (sequence 0 < sequence 1).
-TIMESTAMP_GENESIS = 1745000350
-TIMESTAMP_FOLLOWER = 1745000351
+TIMESTAMP_GENESIS = ts(1745000350)
+TIMESTAMP_FOLLOWER = ts(1745000351)
 
 PAYLOAD_NONCE = b"\x00" * 12  # structural-only, mirrors append/001 / append/005
 
@@ -168,7 +169,7 @@ def build_signing_key_entry(kid: bytes, pubkey_raw: bytes) -> dict:
         "pubkey": pubkey_raw,
         "suite_id": SUITE_ID,
         "status": 0,  # Active
-        "valid_from": 1745000000,
+        "valid_from": ts(1745000000),
         "valid_to": None,
         "supersedes": None,
         "attestation": None,

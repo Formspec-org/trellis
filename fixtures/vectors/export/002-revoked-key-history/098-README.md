@@ -2,8 +2,8 @@
 
 - scope (manifest.scope): `test-revocation-ledger`
 - tree_size (manifest.tree_size): `1`
-- tree_head_hash: `b3429cc786c88170ecabd6a56dda555c424ad2f9f69abaa6237f03ae66a7fa3a`
-- head_checkpoint_digest: `9c9e0c0723c30efda5d5bd7096423392ced2e84525c76aeed74f50a2856c346b`
+- tree_head_hash: `321f70c72f3cdccfc3c38c2819494dc0ebfd22491a77e04ba277d7914f822b81`
+- head_checkpoint_digest: `f659113f7eac906bf4062aec2e795269746a25ddf4f60f9abda9c1f8e20a0fe2`
 
 ## Posture Declaration (manifest.posture_declaration)
 ```json

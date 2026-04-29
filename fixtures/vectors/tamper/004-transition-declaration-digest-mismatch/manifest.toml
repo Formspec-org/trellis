@@ -43,7 +43,7 @@ structure_verified   = true
 integrity_verified   = false
 readability_verified = true
 tamper_kind          = "posture_declaration_digest_mismatch"
-failing_event_id     = "952347b52bec17cbba1a85763c28c37124262f2ac97278b64c0b168e5c1a7c27"
+failing_event_id     = "07c6c7635878ce81a227fb3be3235254cf3ac5f1ceb9164bfcc3589396354207"
 
 idempotency_key = "tamper-transition-004"
 

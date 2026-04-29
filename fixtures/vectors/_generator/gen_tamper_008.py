@@ -57,9 +57,14 @@ wrap. Same discipline as tamper/001/005/006/007.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -76,10 +81,10 @@ BASELINE_APPEND_HEAD_FILE = BASELINE_VECTOR_DIR / "expected-append-head.cbor"
 # Drift-alarm SHA-256 — if append/001's envelope drifts, regenerate that
 # vector first and update here.
 EXPECTED_BASELINE_EVENT_SHA256 = (
-    "8d18bcd820945b4c5575a44823d79685858914ee5893ac3c9e4b8ec183273815"
+    "3104ec644994ec735cd540bc5f8fcce0cdbdbd1316a2c09c7207742c075ef389"
 )
 BASELINE_CANONICAL_EVENT_HASH_HEX = (
-    "ef2622f1470ba3d9c24b47c0566cab8902b6500fbb3d47bdd77aae068e724ddb"
+    "bb2cdb1e0aa3bcae1d50cb72d68b26af45b92e088f820e901c3d6d1558694396"
 )
 
 LEDGER_SCOPE = b"test-response-ledger"                  # §10.4
@@ -96,7 +101,7 @@ TAMPERED_TAG_BYTE = 0xd1
 
 SUITE_ID = 1
 ALG_EDDSA = -8
-ISSUER_VALID_FROM = 1745000000
+ISSUER_VALID_FROM = ts(1745000000)
 SIGNING_KEY_ACTIVE_STATUS = 0
 
 

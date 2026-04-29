@@ -31,7 +31,7 @@ structure_verified   = true
 integrity_verified   = false
 readability_verified = true
 tamper_kind          = "attestation_insufficient"
-failing_event_id     = "a14060ff664e4c229c1e832e78c5072f430a709005e4c38821f94a976b2eb4c0"
+failing_event_id     = "262f04137053e52df2f33bbf3ea5819308eeba67dd5dbfd9010984c430470803"
 
 idempotency_key = "tamper-transition-003"
 

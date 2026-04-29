@@ -36,10 +36,15 @@ event-1's `key_bag.entries[0].recipient` is byte-equal to that value.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 KEY_ISSUER = ROOT / "_keys" / "issuer-001.cose_key"
@@ -54,9 +59,9 @@ PAYLOAD_NONCE = b"\x00" * 12
 PAYLOAD_MARKER_ERASURE = b"erasure-event"
 PAYLOAD_MARKER_FOLLOWUP = b"followup-after-erasure"
 
-DESTROYED_AT = 1_745_000_100
-HOST_AUTHORED_AT_EVENT0 = 1_745_000_100  # equal — step 4 allows <=
-FOLLOWUP_AUTHORED_AT = 1_745_000_500     # > destroyed_at
+DESTROYED_AT = ts(1_745_000_100)
+HOST_AUTHORED_AT_EVENT0 = ts(1_745_000_100)  # equal — step 4 allows <=
+FOLLOWUP_AUTHORED_AT = ts(1_745_000_500)     # > destroyed_at
 
 SUITE_ID = 1
 ALG_EDDSA = -8

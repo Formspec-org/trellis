@@ -62,6 +62,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -85,7 +86,7 @@ PAYLOAD_NONCE = b"\x00" * 12
 # Every vector signs at the same authored_at; per-vector ledger_scope
 # guarantees genesis sequence = 0 on each. ADR 0010 §"Field semantics"
 # `attested_at` clause: `attested_at` MUST exactly equal `authored_at`.
-HOST_AUTHORED_AT = 1_776_900_000
+HOST_AUTHORED_AT = ts(1_776_900_000)
 
 SUITE_ID = SUITE_ID_PHASE_1
 

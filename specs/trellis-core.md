@@ -450,8 +450,8 @@ SigningKeyEntry = {
   pubkey:        bstr,                    ; raw public key bytes per suite_id
   suite_id:      uint,                    ; §7.2
   status:        SigningKeyStatus,        ; §8.4
-  valid_from:    uint,                    ; RFC 3339 timestamp as Unix seconds UTC
-  valid_to:      uint / null,             ; null for currently-active keys
+  valid_from:    timestamp,               ; key activation time
+  valid_to:      timestamp / null,        ; null for currently-active keys
   supersedes:    bstr / null,             ; kid this entry replaces, if any
   attestation:   bstr / null,             ; optional HSM / KMS attestation, suite-defined
 }
@@ -515,7 +515,7 @@ LedgerServiceWrapEntry = {
   lak_version:        uint,                ; new LAK version
   ephemeral_pubkey:   bstr .size 32,       ; X25519 ephemeral public key, unique per wrap (§9.4)
   wrapped_dek:        bstr,                ; HPKE-wrapped DEK, §9.4
-  created_at:         uint,                ; Unix seconds UTC
+  created_at:         timestamp,                ; wrap creation time
   signature:          COSESign1Bytes,      ; service signature, same COSE suite as §7
 }
 ```
@@ -549,8 +549,8 @@ KeyEntrySigning = {
   pubkey:        bstr,                    ; algorithm pinned by suite_id
   suite_id:      uint,
   status:        SigningKeyStatus,        ; §8.4
-  valid_from:    uint,
-  valid_to:      uint / null,
+  valid_from:    timestamp,
+  valid_to:      timestamp / null,
   supersedes:    bstr / null,
   attestation:   bstr / null,
 }
@@ -574,7 +574,7 @@ For reserved literals (`tenant-root`, `scope`, `subject`, `recovery`), `attribut
 TenantRootKeyAttributes = {
   pubkey:           bstr .size 32,
   tenant_ref:       tstr,
-  effective_from:   uint,
+  effective_from:   timestamp,
   supersedes:       bstr .size 16 / null,
   ; NO status field: tenant-root keys are activation-scoped, not rotating.
 }
@@ -583,7 +583,7 @@ ScopeKeyAttributes = {
   pubkey:              bstr .size 32,
   scope_ref:           bstr,                  ; ledger_scope byte-string
   parent_tenant_ref:   tstr,
-  effective_from:      uint,
+  effective_from:      timestamp,
   supersedes:          bstr .size 16 / null,
 }
 
@@ -591,8 +591,8 @@ SubjectKeyAttributes = {
   pubkey:            bstr .size 32,
   subject_ref:       tstr,
   authorized_for:    [+ bstr],
-  effective_from:    uint,
-  valid_to:          uint / null,
+  effective_from:    timestamp,
+  valid_to:          timestamp / null,
   supersedes:        bstr .size 16 / null,
 }
 
@@ -601,7 +601,7 @@ RecoveryKeyAttributes = {
   authorizes_recovery_for: [+ bstr .size 16],   ; kids of signing keys only
   activation_quorum:       uint,
   activation_quorum_set:   [+ bstr .size 16] / null,
-  effective_from:          uint,
+  effective_from:          timestamp,
   supersedes:              bstr .size 16 / null,
 }
 ```
@@ -884,7 +884,7 @@ CheckpointPayload = {
   scope:         bstr,                  ; ledger scope identifier
   tree_size:     uint,                  ; count of events committed to
   tree_head_hash: digest,               ; Merkle root, §11.3
-  timestamp:     uint,                  ; Unix seconds UTC at issuance
+  timestamp:     timestamp,                  ; checkpoint issuance time
   anchor_ref:    bstr / null,           ; §11.5; Phase 1 optional
   prev_checkpoint_hash: digest / null,  ; previous checkpoint's digest, or null for the first
   extensions:    { * tstr => any } / null, ; §11.6; reserved for Phase 3+ heads
@@ -959,7 +959,7 @@ The event header is where Trellis makes an explicit, normatively-enumerated trad
 ```cddl
 EventHeader = {
   event_type:    bstr,                    ; registered event-type identifier (§14)
-  authored_at:   uint,                    ; Unix seconds UTC; plaintext
+  authored_at:   timestamp,                    ; plaintext; routing, retention, audit
   retention_tier: uint .size 1,           ; 0..3; plaintext
   classification: bstr,                   ; registered classification identifier; plaintext
   outcome_commitment: digest / null,      ; §12.2; commitment, NOT plaintext outcome
@@ -1115,7 +1115,7 @@ Watermark = {
   tree_size:            uint,
   tree_head_hash:       digest,
   checkpoint_ref:       digest,              ; checkpoint_digest (§11.2)
-  built_at:             uint,                ; Unix seconds UTC when the artifact was built
+  built_at:             timestamp,           ; artifact build time
   rebuild_path:         tstr,                ; implementation-defined deterministic identifier
   ? projection_schema_id: tstr,              ; optional; projection schema version identifier
                                              ; (URI per RFC 3986 when present)
@@ -1322,7 +1322,7 @@ ExportManifestPayload = {
   format:           tstr,                 ; "trellis-export/1"
   version:          uint .size 1,         ; = 1 for Phase 1
   generator:        tstr,                 ; generator identifier
-  generated_at:     uint,                 ; Unix seconds UTC
+  generated_at:     timestamp,              ; manifest generation time
   scope:            bstr,                 ; ledger scope
   tree_size:        uint,                 ; events covered
   head_checkpoint_digest: digest,         ; §11.2
@@ -1485,6 +1485,13 @@ VERIFY(E) -> VerificationReport
           with the remaining structure and chain checks for this event.
      h. If payload.sequence == 0: check payload.prev_hash == null. Else check
         payload.prev_hash == canonical_event_hash(events[payload.sequence - 1]).
+        Independently, verify payload.header.authored_at >= prior event's
+        payload.header.authored_at (non-decreasing timestamps along chain order
+        per ADR 0069 D-3). This check is unconditional — it runs even when
+        prev_hash linkage fails, so both `prev_hash_break` and
+        `timestamp_order_violation` can fire for the same event.
+        A backwards timestamp is a `timestamp_order_violation` integrity failure
+        recorded in report.event_failures; equal timestamps are permitted.
      i. Check payload.causal_deps is null or [] (Phase 1 strict-linear, §10.3).
      j. Resolve the RegistryBinding applicable to payload.sequence per §14.4;
         check payload.header.event_type and related fields against the bound registry.
@@ -1943,7 +1950,7 @@ ErasureEvidenceOutcome = {
   evidence_id:           tstr,   ; from the erasure-evidence event payload
   event_index:           uint,   ; position in the events array
   kid_destroyed:         bstr,
-  destroyed_at:          uint,
+  destroyed_at:          timestamp,
   cascade_scopes:        [* tstr],
   completion_mode:       tstr,
   signature_verified:    bool,
@@ -1956,7 +1963,7 @@ ErasureEvidenceOutcome = {
 CertificateOfCompletionOutcome = {
   certificate_id:                tstr,   ; from the certificate event payload
   event_index:                   uint,   ; position in the events array
-  completed_at:                  uint,
+  completed_at:                  timestamp,
   signer_count:                  uint,
   attachment_resolved:           bool,
   all_signing_events_resolved:   bool,
@@ -1998,6 +2005,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `prev_hash_break` | 4.h | Event's `prev_hash` does not equal the prior event's recomputed `canonical_event_hash`. |
 | `event_truncation` | 4.h | A middle event of a chain is absent; subsequent `prev_hash` values do not link. |
 | `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
+| `timestamp_order_violation` | 4.h (temporal) | A chain event's `authored_at` is strictly less than its predecessor's `authored_at` (ADR 0069 D-3). Hash chain and signatures are valid; only temporal order fails. |
 | `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
 | `malformed_cose` | 4.c | COSE_Sign1 envelope is structurally invalid (wrong tag, wrong array shape, wrong protected-header type). |
 | `scope_mismatch` | 4.f | `EventPayload.ledger_scope` does not equal `manifest.scope`. |
@@ -2031,7 +2039,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `presentation_artifact_attachment_missing` | 6c step 4 | `presentation_artifact.attachment_id` cannot be resolved through the ADR 0072 attachment-binding lineage (bytes missing though the binding requires them). Distinct from `presentation_artifact_content_mismatch`. |
 | `presentation_artifact_content_mismatch` | 6c step 4 | Resolved presentation-artifact bytes recompute under `trellis-presentation-artifact-v1` (§9.8) to a digest that does not equal `presentation_artifact.content_hash`. |
 | `signing_event_unresolved` | 6c step 5 | A `signing_events[i]` digest does not resolve to a chain-present `SignatureAffirmation` event (or WOS equivalent registered in §6.7). |
-| `signing_event_timestamp_mismatch` | 6c step 6 | A `signer_display[i].signed_at` does not exactly equal the resolved `SignatureAffirmation` header's `authored_at` (uint seconds, exact equality). |
+| `signing_event_timestamp_mismatch` | 6c step 6 | A `signer_display[i].signed_at` does not exactly equal the resolved `SignatureAffirmation` header's `authored_at` (timestamp exact equality). |
 | `response_ref_mismatch` | 6c step 7 | `chain_summary.response_ref` is non-null but does not equal the Formspec canonical-response-hash carried on the linked `SignatureAffirmation`. |
 | `certificate_catalog_digest_mismatch` | 6c optional catalog | `065-certificates-of-completion.cbor` digest does not match the manifest's `trellis.export.certificates-of-completion.v1` binding (ADR 0007 §"Export manifest catalog"). |
 | `certificate_catalog_invalid` | 6c optional catalog | `065-certificates-of-completion.cbor` is malformed (CBOR decode failure, missing required fields, or `entry_count` disagrees with actual rows). |
@@ -2428,7 +2436,7 @@ The Phase 1 success criterion (§1 Status) is that a second implementation, writ
 digest     = bstr .size 32      ; SHA-256
 suite_id   = uint
 kid        = bstr .size 16
-timestamp  = uint               ; Unix seconds UTC
+timestamp  = [uint, uint .le 999999999]  ; [seconds since Unix epoch UTC, nanos within second]
 
 ; --- Event ------------------------------------------------------------
 
@@ -2814,7 +2822,7 @@ ErasureEvidenceOutcome = {
   evidence_id:           tstr,
   event_index:           uint,
   kid_destroyed:         bstr,
-  destroyed_at:          uint,
+  destroyed_at:          timestamp,
   cascade_scopes:        [* tstr],
   completion_mode:       tstr,
   signature_verified:    bool,
@@ -2829,7 +2837,7 @@ ErasureEvidenceOutcome = {
 CertificateOfCompletionOutcome = {
   certificate_id:                tstr,
   event_index:                   uint,
-  completed_at:                  uint,
+  completed_at:                  timestamp,
   signer_count:                  uint,
   attachment_resolved:           bool,
   all_signing_events_resolved:   bool,
@@ -2866,7 +2874,7 @@ UserContentAttestationPayload = {
                                                    ; null only when the deployment Posture Declaration admits
                                                    ; unverified attestors (default REQUIRED non-null)
   signing_intent:           tstr,                  ; URI per RFC 3986; meaning per WOS Signature Profile registry
-  attested_at:              uint,                  ; Unix seconds UTC; MUST equal envelope authored_at exactly
+  attested_at:              timestamp,              ; MUST equal envelope authored_at exactly
   signature:                bstr,                  ; detached Ed25519 over dCBOR([attestation_id,
                                                    ;   attested_event_hash, attested_event_position,
                                                    ;   attestor, identity_attestation_ref, signing_intent,
@@ -3003,7 +3011,7 @@ ExportManifestPayload {
     external_anchor_required: false,
     external_anchor_name: null,
     recovery_without_user: false,
-    metadata_leakage_summary: "Envelope reveals event_type, authored_at (1s granularity), retention_tier, classification, and protected-header kid. Outcome, subject, and tags are committed, not plaintext."
+    metadata_leakage_summary: "Envelope reveals event_type, authored_at (nanosecond granularity), retention_tier, classification, and protected-header kid. Outcome, subject, and tags are committed, not plaintext."
   },
   head_format_version: 1,
   omitted_payload_checks: [],
@@ -3073,7 +3081,7 @@ Core traceability rows:
 - TR-CORE-060, TR-CORE-061, TR-CORE-062, TR-CORE-063, TR-CORE-064, TR-CORE-065, TR-CORE-066, TR-CORE-067
 - TR-CORE-070, TR-CORE-071, TR-CORE-072
 - TR-CORE-080, TR-CORE-081, TR-CORE-082
-- TR-CORE-090, TR-CORE-091
+- TR-CORE-090, TR-CORE-091, TR-CORE-092
 - TR-CORE-100, TR-CORE-101, TR-CORE-102, TR-CORE-103
 - TR-CORE-110, TR-CORE-111, TR-CORE-112, TR-CORE-113
 - TR-CORE-120, TR-CORE-121, TR-CORE-122, TR-CORE-123, TR-CORE-124, TR-CORE-125, TR-CORE-126

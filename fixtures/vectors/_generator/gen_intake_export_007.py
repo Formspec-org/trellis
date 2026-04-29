@@ -28,6 +28,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -67,14 +68,14 @@ WORKFLOW_INTAKE_RECORD_ID = "sba-poc_prov_01jy0workflowattachintake001"
 PUBLIC_INTAKE_RECORD_ID = "sba-poc_prov_01jy0publiccreateintake0001"
 PUBLIC_CASE_CREATED_RECORD_ID = "sba-poc_prov_01jy0publiccreatecase00001"
 
-WORKFLOW_AUTHORED_AT = 1776954600
-PUBLIC_INTAKE_AUTHORED_AT = 1776958200
-PUBLIC_CASE_CREATED_AUTHORED_AT = 1776958260
+WORKFLOW_AUTHORED_AT = ts(1776954600)
+PUBLIC_INTAKE_AUTHORED_AT = ts(1776958200)
+PUBLIC_CASE_CREATED_AUTHORED_AT = ts(1776958260)
 
-CHECKPOINT_TIMESTAMP_WORKFLOW = 1776954660
-CHECKPOINT_TIMESTAMP_PUBLIC = 1776958320
-GENERATED_AT_WORKFLOW = 1776954670
-GENERATED_AT_PUBLIC = 1776958330
+CHECKPOINT_TIMESTAMP_WORKFLOW = ts(1776954660)
+CHECKPOINT_TIMESTAMP_PUBLIC = ts(1776958320)
+GENERATED_AT_WORKFLOW = ts(1776954670)
+GENERATED_AT_PUBLIC = ts(1776958330)
 
 
 def sha256(data: bytes) -> bytes:
@@ -1139,8 +1140,8 @@ Response bytes.
         export_id="export/013-intake-handoffs-public-create-empty-outputs",
         description="Two-event ADR 0073 export carrying a public Formspec handoff and the admitted WOS intake records with empty outputs arrays. The package is structurally valid, but the WOS payloads are semantically invalid for Trellis intake verification.",
         scope=append_021_empty["scope"],
-        generated_at=GENERATED_AT_PUBLIC + 100,
-        checkpoint_timestamp=CHECKPOINT_TIMESTAMP_PUBLIC + 100,
+        generated_at=ts(GENERATED_AT_PUBLIC[0] + 100),
+        checkpoint_timestamp=ts(CHECKPOINT_TIMESTAMP_PUBLIC[0] + 100),
         events=[append_021_empty["event_bytes"], append_022_empty["event_bytes"]],
         registry_version="x-trellis-test/registry-intake-v1",
         readme_title="export/013-intake-handoffs-public-create-empty-outputs",

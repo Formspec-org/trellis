@@ -21,10 +21,15 @@ ephemeral keys. `derivation.md` declares this scope explicitly.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs (see `fixtures/vectors/_keys/`, `_inputs/`, and task brief).
@@ -38,7 +43,7 @@ OUT_DIR = ROOT / "append" / "001-minimal-inline-payload"
 # Event-level pinned values.
 LEDGER_SCOPE = b"test-response-ledger"                  # bstr, §10.6 AppendHead CDDL
 SEQUENCE = 0                                            # genesis event, §10.2
-TIMESTAMP = 1745000000                                  # Unix seconds UTC, §12.1 authored_at
+TIMESTAMP = ts(1745000000)                                # Unix seconds UTC, §12.1 authored_at
 EVENT_TYPE = b"x-trellis-test/append-minimal"           # §14.6 reserved test prefix
 CLASSIFICATION = b"x-trellis-test/unclassified"         # §14.6 reserved test prefix
 RETENTION_TIER = 0                                      # §12.1; plaintext

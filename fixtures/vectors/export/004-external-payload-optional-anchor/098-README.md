@@ -2,8 +2,8 @@
 
 - scope (manifest.scope): `test-response-ledger`
 - tree_size (manifest.tree_size): `1`
-- tree_head_hash: `8337cc091966bdb7bf27375de35330bcad500c125017364793b0ab85f648af9a`
-- head_checkpoint_digest: `3378c74bdbbabf41ff5aeb43b56524528dc12342ef0bc63aeff375084a731475`
+- tree_head_hash: `988b86f51b761fecc5248203a63541fe50907f0fc0e3345ef4429b22161f3d7a`
+- head_checkpoint_digest: `85dba91dbe7d50cdde87b9cb77accab45dc4cfeae67cfe3719bba12b41b45e30`
 
 ## Posture Declaration (manifest.posture_declaration)
 ```json

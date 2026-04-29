@@ -29,6 +29,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    ts,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -219,7 +220,7 @@ def build_export_009() -> None:
         "scope": scope,
         "tree_size": 1,
         "tree_head_hash": leaf_hash,
-        "timestamp": 1745000200,
+        "timestamp": ts(1745000200),
         "anchor_ref": None,
         "prev_checkpoint_hash": None,
         "extensions": None,
@@ -257,7 +258,7 @@ def build_export_009() -> None:
         "format": "trellis-export/1",
         "version": 1,
         "generator": "x-trellis-test/export-generator-009-erasure",
-        "generated_at": 1745000200,
+        "generated_at": ts(1745000200),
         "scope": scope,
         "tree_size": 1,
         "head_checkpoint_digest": head_checkpoint_digest,

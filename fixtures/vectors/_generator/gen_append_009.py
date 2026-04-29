@@ -50,10 +50,15 @@ self-contained reading of Core to preserve the G-5 stranger-test discipline.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -70,14 +75,14 @@ LEDGER_SCOPE = b"test-revocation-ledger"                # bstr, §10.4
 # Single genesis event (sequence = 0). The Revoked-side lifecycle claim
 # attaches to the registry-after snapshot independent of event count.
 EVENT_SEQUENCE = 0                                      # §10.2 genesis
-EVENT_TIMESTAMP = 1745110000                            # +10000s past 002; narrative-only
+EVENT_TIMESTAMP = ts(1745110000)                            # +10000s past 002; narrative-only
 EVENT_IDEMPOTENCY_KEY = b"idemp-append-009"             # 16 bytes; §6.1 .size (1..64)
 
 # Compromise-detection timestamp — pinned as `valid_to` on issuer-002's
 # post-compromise registry entry. Chosen > EVENT_TIMESTAMP so the event is
 # unambiguously pre-compromise by wall-clock narrative; §10.2 ordering is
 # by prev_hash not wall-clock but the timestamps carry narrative intent.
-COMPROMISE_TIMESTAMP = 1745110120                       # +120s after event
+COMPROMISE_TIMESTAMP = ts(1745110120)                       # +120s after event
 
 # Header fields inherited from 001/002/005. §14.6 reserved test prefix.
 EVENT_TYPE = b"x-trellis-test/append-minimal"

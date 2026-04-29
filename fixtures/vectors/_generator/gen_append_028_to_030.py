@@ -56,6 +56,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -79,8 +80,8 @@ PAYLOAD_NONCE = b"\x00" * 12
 
 # Event headers reuse the same authored_at; per-vector ledger_scope
 # guarantees genesis sequence = 0 on each.
-HOST_AUTHORED_AT = 1_776_900_000
-COMPLETED_AT = 1_776_899_500     # ≤ HOST_AUTHORED_AT (causality)
+HOST_AUTHORED_AT = ts(1_776_900_000)
+COMPLETED_AT = ts(1_776_899_500)     # ≤ HOST_AUTHORED_AT (causality)
 
 SUITE_ID = SUITE_ID_PHASE_1
 
@@ -138,7 +139,7 @@ def load_signature_affirmation_canonical_hash() -> bytes:
     return digest
 
 
-def load_signature_affirmation_authored_at() -> int:
+def load_signature_affirmation_authored_at() -> list:
     """Per ADR 0007 step 6: `signer_display[i].signed_at` MUST exactly equal
     the resolved SignatureAffirmation event header's `authored_at`. Genesis
     fixtures don't exercise that path (cross-event resolution is deferred to
@@ -149,7 +150,7 @@ def load_signature_affirmation_authored_at() -> int:
         (SIGNATURE_AFFIRMATION_VECTOR / "expected-event-payload.cbor").read_bytes()
     )
     authored_at = payload["header"]["authored_at"]
-    assert isinstance(authored_at, int)
+    assert isinstance(authored_at, list) and len(authored_at) == 2
     return authored_at
 
 
@@ -164,7 +165,7 @@ def build_attestation(
     authority_class: str,
     signing_seed: bytes,
     transition_id: str,
-    effective_at: int,
+    effective_at,
 ) -> dict:
     """Per ADR 0007 §"Verifier obligations" step 3: attestations reuse the
     Companion §A.5 shape verbatim, signed under

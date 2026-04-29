@@ -47,13 +47,13 @@ structure_verified   = true
 integrity_verified   = false
 readability_verified = true
 tamper_kind          = "idempotency_key_payload_mismatch"
-failing_event_id     = "468782621c70449203c9a17afe2d518a9aa4afab4fd80c9600b3c03bcf1139db"
+failing_event_id     = "38c09828b9eb5670633240f3f959995576e5b2e8cbc6226a06023e995e289b12"
 
 # §17.2 — pin the colliding key and the two distinct content_hash values for
 # cross-implementation reproducibility.
 colliding_idempotency_key = "idemp-tamper-035-collide"
-event_0_canonical_event_hash = "b2bb4eebf3c7820edaf01f11204f8b2c86a0b0df07fb5a5fc80c8ead33179d64"
-event_1_canonical_event_hash = "468782621c70449203c9a17afe2d518a9aa4afab4fd80c9600b3c03bcf1139db"
+event_0_canonical_event_hash = "19676b1219749f73029bb80e855de2133ae16dc65102ac014548341e353db55f"
+event_1_canonical_event_hash = "38c09828b9eb5670633240f3f959995576e5b2e8cbc6226a06023e995e289b12"
 event_0_content_hash         = "73952b7eca5028a92171f979985a4b918d07952ce0e19085629ab4140fd4cd7f"
 event_1_content_hash         = "a3e16af629cdaf815690c996d853a313532ea8158772a0fb955084a3c2f62f58"
 

@@ -43,10 +43,15 @@ every other fixture scope (no collision at `sequence = 0` with
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -66,7 +71,7 @@ EVENT_DEFS = [
     {
         "sequence":        0,
         "prev_hash":       None,
-        "authored_at":     1745020000,
+        "authored_at":     ts(1745020000),
         "event_type":      b"x-trellis-test/staff-view-seed",
         "classification":  b"x-trellis-test/unclassified",
         "retention_tier":  0,
@@ -77,7 +82,7 @@ EVENT_DEFS = [
         "sequence":        1,
         # prev_hash populated at build time after event 0 is hashed.
         "prev_hash":       None,
-        "authored_at":     1745020060,
+        "authored_at":     ts(1745020060),
         "event_type":      b"x-trellis-test/staff-view-follow",
         "classification":  b"x-trellis-test/unclassified",
         "retention_tier":  0,
@@ -89,10 +94,10 @@ for ev in EVENT_DEFS:
     assert len(ev["idempotency_key"]) == 16
 
 # Checkpoint-level pins.
-CHECKPOINT_TIMESTAMP = 1745020120                        # §11.2 timestamp
+CHECKPOINT_TIMESTAMP = ts(1745020120)                        # §11.2 timestamp
 
 # Staff-view Watermark / binding pins (Core §15.2, §28 Appendix A; Companion §17.4).
-WATERMARK_BUILT_AT = 1745020180                          # §15.2 built_at
+WATERMARK_BUILT_AT = ts(1745020180)                          # §15.2 built_at
 WATERMARK_REBUILD_PATH = "trellis.staff-view.v1/default"  # §17.4 / §15.3 identifier
 WATERMARK_PROJECTION_SCHEMA_ID = "trellis.staff-view.v1"  # §17.4 staff-view schema URI
 

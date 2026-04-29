@@ -66,6 +66,7 @@ TAMPER_KIND_ENUM = frozenset({
     "prev_hash_break",
     "event_truncation",
     "event_reorder",
+    "timestamp_order_violation",          # ADR 0069 D-3.
     "head_checkpoint_digest_mismatch",
     "malformed_cose",
     "scope_mismatch",

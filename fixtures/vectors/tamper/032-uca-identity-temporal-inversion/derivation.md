@@ -3,7 +3,7 @@
 2-event chain on `ledger_scope = b'trellis-uca-tamper:032-temporal'`:
 
 * seq 0: identity-attestation event with `subject` = `"urn:trellis:principal:applicant-032"`,
-  `canonical_event_hash` = `0e89362621972cc804552746ee24ccb29c544308aad8d37e1e701095e6a1de07`.
+  `canonical_event_hash` = `d4fb96cdedf0728b3e13344dc0ac04625186de02d859f0fe3415c88ba929ed89`.
 * seq 1: user-content-attestation event with
   `attested_event_position = 0`, `attested_event_hash` = identity event's
   canonical hash, `identity_attestation_ref` = same digest.

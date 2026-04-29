@@ -13,7 +13,7 @@ ADR 0010 §"Wire shape" positive vector for `trellis.user-content-attestation.v1
 - `identity_attestation_ref` = `null` (Posture Declaration MUST admit unverified attestors)
 - `signing_intent` = `urn:wos:signature-intent:public-comment` (RFC 3986 syntactically valid;
   semantics owned by WOS Signature Profile per ADR 0010 §"Field semantics").
-- `attested_at` = `1776900000` (= envelope `authored_at`; ADR 0010
+- `attested_at` = `[1776900000, 0]` (= envelope `authored_at`; ADR 0010
   §"Verifier obligations" step 2 exact-equality rule).
 
 ## Construction
@@ -26,7 +26,7 @@ ADR 0010 §"Wire shape" positive vector for `trellis.user-content-attestation.v1
 2. **UserContentAttestationPayload.signature.** Sign the SHA-256 of the
    preimage under domain tag `trellis-user-content-attestation-v1` (Core §9.8)
    using `_keys/issuer-001.cose_key`. Detached Ed25519, 64 bytes. See
-   `input-uca-signature.bin`. First 16 bytes: `068f3a32b0a6d052152af1c4e0a83720`.
+   `input-uca-signature.bin`. First 16 bytes: `de902ad69f98600ff611bd4d49cc5796`.
 
 3. **UserContentAttestationPayload** (Core §28 / ADR 0010 §"Wire shape"):
    the 11-field map carrying all signed fields plus `signing_kid` (issuer-001's
@@ -40,8 +40,8 @@ ADR 0010 §"Wire shape" positive vector for `trellis.user-content-attestation.v1
    `_keys/issuer-001.cose_key` (Ed25519, suite-id 1).
 
 6. **Hashes.** Author/canonical hashes follow Core §9.5 / §9.1 framing.
-   - `author_event_hash` = `485e05e64630174824bf9abdadf8cdce219c34c92bb5892570219d780cab18ab`
-   - `canonical_event_hash` = `7504a8df46ef4ad5091289a8c2d85db676049bef7c470a395f19f02827c44f9d`
+   - `author_event_hash` = `0c5f9589d97c45f1b2e4c79a75f3a1270b8bb3868a9f4ec20f935a0c4994ba86`
+   - `canonical_event_hash` = `4dac71b9a0ff48c3e02441a323cd0804cad8c6cb95c799fbd913612e11afd6e7`
 
 ## Phase-1 verifier posture
 

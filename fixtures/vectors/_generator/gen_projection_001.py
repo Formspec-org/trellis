@@ -27,10 +27,15 @@ against an already-pinned reference.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -52,7 +57,7 @@ EVENT_DEFS = [
     {
         "sequence":        0,
         "prev_hash":       None,
-        "authored_at":     1745000000,
+        "authored_at":     ts(1745000000),
         "event_type":      b"x-trellis-test/projection-seed",
         "classification":  b"x-trellis-test/unclassified",
         "retention_tier":  0,
@@ -63,7 +68,7 @@ EVENT_DEFS = [
         "sequence":        1,
         # prev_hash populated at build time after event 0 is hashed.
         "prev_hash":       None,
-        "authored_at":     1745000060,
+        "authored_at":     ts(1745000060),
         "event_type":      b"x-trellis-test/projection-follow",
         "classification":  b"x-trellis-test/unclassified",
         "retention_tier":  0,
@@ -75,10 +80,10 @@ for ev in EVENT_DEFS:
     assert len(ev["idempotency_key"]) == 16
 
 # Checkpoint-level pins.
-CHECKPOINT_TIMESTAMP = 1745000120                        # §11.2 timestamp
+CHECKPOINT_TIMESTAMP = ts(1745000120)                        # §11.2 timestamp
 
 # Watermark / view pins (Core §15.2 and Companion §14.1).
-WATERMARK_BUILT_AT = 1745000180                          # §15.2 built_at
+WATERMARK_BUILT_AT = ts(1745000180)                          # §15.2 built_at
 WATERMARK_REBUILD_PATH = "trellis.projection.v1/minimal"  # §15.3 identifier
 WATERMARK_PROJECTION_SCHEMA_ID = "urn:trellis:projection:minimal:v1"  # §15.2
 

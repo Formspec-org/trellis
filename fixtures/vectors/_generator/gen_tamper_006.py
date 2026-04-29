@@ -61,9 +61,14 @@ scope discipline as tamper/001 and tamper/005.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -84,23 +89,23 @@ FOLLOWER_APPEND_HEAD_FILE = FOLLOWER_VECTOR_DIR / "expected-append-head.cbor"
 # Drift-alarm SHA-256 digests — identical to tamper/005's constants. If these
 # drift, regenerate the upstream vector first and update here.
 EXPECTED_GENESIS_EVENT_SHA256 = (
-    "8d18bcd820945b4c5575a44823d79685858914ee5893ac3c9e4b8ec183273815"
+    "3104ec644994ec735cd540bc5f8fcce0cdbdbd1316a2c09c7207742c075ef389"
 )
 EXPECTED_FOLLOWER_EVENT_SHA256 = (
-    "416d5e6190d0ec8ad791437f7e4bdb369f751b11dcb3597a5f2911421529aac9"
+    "b2b3ce687fd8b618a69fd89b311d46de115725381a6044fcbb35206b0df77ffe"
 )
 
 GENESIS_CANONICAL_EVENT_HASH_HEX = (
-    "ef2622f1470ba3d9c24b47c0566cab8902b6500fbb3d47bdd77aae068e724ddb"
+    "bb2cdb1e0aa3bcae1d50cb72d68b26af45b92e088f820e901c3d6d1558694396"
 )  # append/001 canonical_event_hash — the expected predecessor the reorder dislocates.
 FOLLOWER_CANONICAL_EVENT_HASH_HEX = (
-    "3d3d5aeb5d4b8d972adbddfe0f339a94fffe01bf90ac1648be2eb98d4acc9f17"
+    "7a8574461a5fb60b6ee60c552e414aaf45aefba3ca1b6cc71fa72d029537c020"
 )  # append/005 canonical_event_hash — the failing_event_id (now at index 0).
 
 LEDGER_SCOPE = b"test-response-ledger"                  # §10.6
 
 # §8.2 / §8.5 registry values — identical to tamper/001 / tamper/005.
-ISSUER_VALID_FROM = 1745000000
+ISSUER_VALID_FROM = ts(1745000000)
 SIGNING_KEY_ACTIVE_STATUS = 0
 SUITE_ID = 1
 ALG_EDDSA = -8

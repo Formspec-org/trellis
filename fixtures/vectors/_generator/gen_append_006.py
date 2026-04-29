@@ -39,10 +39,15 @@ byte-testable regardless of the declaration's internal CDDL.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned paths.
@@ -65,7 +70,7 @@ OUT_DIR = ROOT / "append" / "006-custody-transition-cm-b-to-cm-a"
 
 LEDGER_SCOPE = b"test-response-ledger"                  # §10.6; equal to 001
 SEQUENCE = 1                                            # §10.2 sequence > 0
-TIMESTAMP = 1745000100                                  # +100s vs 001
+TIMESTAMP = ts(1745000100)                                # +100s vs 001
 EVENT_TYPE = b"trellis.custody-model-transition.v1"     # Core §6.7; Companion A.5.1
 CLASSIFICATION = b"x-trellis-test/unclassified"         # §14.6
 RETENTION_TIER = 0                                      # §12.1

@@ -61,10 +61,15 @@ generators it is not.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs. Paths mirror gen_append_001 / gen_append_005 so the three
@@ -84,7 +89,7 @@ OUT_DIR = ROOT / "append" / "003-external-payload-ref"
 # scope identity space; idempotency keys distinguish them per §17.3.
 LEDGER_SCOPE = b"test-response-ledger"                  # bstr, §10.6 AppendHead CDDL
 SEQUENCE = 0                                            # genesis event, §10.2
-TIMESTAMP = 1745000003                                  # +3s vs 001 for narrative clarity
+TIMESTAMP = ts(1745000003)                                # +3s vs 001 for narrative clarity
 EVENT_TYPE = b"x-trellis-test/append-external"          # §14.6 reserved test prefix
 CLASSIFICATION = b"x-trellis-test/unclassified"         # §14.6; inherited from 001
 RETENTION_TIER = 0                                      # §12.1; plaintext

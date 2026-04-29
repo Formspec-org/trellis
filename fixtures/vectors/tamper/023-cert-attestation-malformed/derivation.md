@@ -15,6 +15,6 @@ structural failure mode — the length stays 64, so the verifier would admit
 the malformed signature pending Phase-2+ crypto verification. Truncation
 exercises the operative Phase-1 path.
 
-Failing canonical_event_hash: `b82aec24029e4f502213ad60af2a67d83f2a00539a3bb13078efe048371dd8a0`.
+Failing canonical_event_hash: `30789c39aac1c534b2b437e85f9efcd53dc0d48d6177ce726a7e4cce176a98d3`.
 
 Generator: `_generator/gen_tamper_021_023_025_026.py`.

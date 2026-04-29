@@ -73,9 +73,14 @@ tamper surfaces at §19 step 4.h directly, reachable from just
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -96,10 +101,10 @@ GENESIS_APPEND_HEAD_FILE = GENESIS_VECTOR_DIR / "expected-append-head.cbor"
 SURVIVOR_APPEND_HEAD_FILE = SURVIVOR_VECTOR_DIR / "expected-append-head.cbor"
 
 EXPECTED_GENESIS_EVENT_SHA256 = (
-    "8d18bcd820945b4c5575a44823d79685858914ee5893ac3c9e4b8ec183273815"
+    "3104ec644994ec735cd540bc5f8fcce0cdbdbd1316a2c09c7207742c075ef389"
 )
 EXPECTED_SURVIVOR_EVENT_SHA256 = (
-    "416d5e6190d0ec8ad791437f7e4bdb369f751b11dcb3597a5f2911421529aac9"
+    "b2b3ce687fd8b618a69fd89b311d46de115725381a6044fcbb35206b0df77ffe"
 )
 
 # The two canonical event hashes pinned by the upstream append vectors. We
@@ -107,10 +112,10 @@ EXPECTED_SURVIVOR_EVENT_SHA256 = (
 # alarm; these constants are for documentation and for the final console
 # summary.
 GENESIS_CANONICAL_EVENT_HASH_HEX = (
-    "ef2622f1470ba3d9c24b47c0566cab8902b6500fbb3d47bdd77aae068e724ddb"
+    "bb2cdb1e0aa3bcae1d50cb72d68b26af45b92e088f820e901c3d6d1558694396"
 )  # append/001 canonical_event_hash
 SURVIVOR_CANONICAL_EVENT_HASH_HEX = (
-    "3d3d5aeb5d4b8d972adbddfe0f339a94fffe01bf90ac1648be2eb98d4acc9f17"
+    "7a8574461a5fb60b6ee60c552e414aaf45aefba3ca1b6cc71fa72d029537c020"
 )  # append/005 canonical_event_hash — also the failing_event_id.
 
 LEDGER_SCOPE = b"test-response-ledger"                  # §10.6
@@ -118,7 +123,7 @@ LEDGER_SCOPE = b"test-response-ledger"                  # §10.6
 # §8.2 / §8.5 registry values — identical to tamper/001. The tampered
 # survivor event is signed under issuer-001; §19 step 4.a MUST resolve its
 # kid or abort before ever reaching step 4.h.
-ISSUER_VALID_FROM = 1745000000                          # §8.2
+ISSUER_VALID_FROM = ts(1745000000)                          # §8.2
 SIGNING_KEY_ACTIVE_STATUS = 0                           # §8.4 Active
 SUITE_ID = 1                                            # §7.2
 ALG_EDDSA = -8                                          # COSE alg, §7.1

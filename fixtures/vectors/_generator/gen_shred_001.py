@@ -32,10 +32,15 @@ but belong to later fixtures that also materialize those derived artifacts.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -50,7 +55,7 @@ LEDGER_SCOPE = b"test-shred-ledger"                       # §10.4
 # Event 0 — appended plaintext-bearing payload.
 EVENT0_SEQUENCE       = 0
 EVENT0_PREV_HASH      = None                               # genesis (§10.2)
-EVENT0_AUTHORED_AT    = 1745100000
+EVENT0_AUTHORED_AT    = ts(1745100000)
 EVENT0_EVENT_TYPE     = b"x-trellis-test/shred-target-append"   # §14.6
 EVENT0_CLASSIFICATION = b"x-trellis-test/shreddable"            # §14.6
 EVENT0_RETENTION_TIER = 0
@@ -72,7 +77,7 @@ assert len(EVENT0_PAYLOAD_BYTES) == 32
 # is bound into the shred event's payload so a verifier/cascade-enforcer can
 # identify which prior event's plaintext is now destroyed.
 EVENT1_SEQUENCE       = 1
-EVENT1_AUTHORED_AT    = 1745100060
+EVENT1_AUTHORED_AT    = ts(1745100060)
 EVENT1_EVENT_TYPE     = b"x-trellis-test/crypto-shred"    # §14.6
 EVENT1_CLASSIFICATION = b"x-trellis-test/shred-fact"      # §14.6
 EVENT1_RETENTION_TIER = 0

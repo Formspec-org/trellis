@@ -38,6 +38,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,7 +50,7 @@ SUITE_ID = SUITE_ID_PHASE_1
 EVENT_TYPE = b"x-trellis-test/append-minimal"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0
-TIMESTAMP = 1745000360
+TIMESTAMP = ts(1745000360)
 PAYLOAD_NONCE = b"\x00" * 12
 
 # §6.1 / §17.2 structural-bound violator: 65 bytes — exactly one over the
@@ -80,7 +81,7 @@ def build_signing_key_entry(kid: bytes, pubkey_raw: bytes) -> dict:
         "pubkey": pubkey_raw,
         "suite_id": SUITE_ID,
         "status": 0,
-        "valid_from": 1745000000,
+        "valid_from": ts(1745000000),
         "valid_to": None,
         "supersedes": None,
         "attestation": None,

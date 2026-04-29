@@ -30,9 +30,9 @@ it and retag. The revision window stays open until real adopters close it.
 Ordered by `Importance × Debt`. Each item names its prerequisite inline.
 
 **Cross-repo pointer — parent PLANNING.md.** Stack-wide rows live as `PLN-XXXX`
-in [`/PLANNING.md`](../PLANNING.md). Items 5-10 + 17-24 cite parent rows;
-items 1-4 + 11-16 are Trellis-internal envelope/verifier discipline with no
-parent counterpart. The MVP-foundation cluster (PLN-0331..0349) consumes
+in [`/PLANNING.md`](../PLANNING.md). Items 5-10 + 17-25 cite parent rows;
+items 1-4 + 11-16 + 26 are Trellis-internal envelope/verifier discipline with
+no parent counterpart. The MVP-foundation cluster (PLN-0331..0349) consumes
 `trellis-cose` / `trellis-verify` downstream — keep the public APIs stable for
 composition. Cross-submodule Cargo path-dep posture is parent **PLN-0368**;
 Trellis complies with the chosen pattern when it lands.
@@ -270,17 +270,36 @@ consume amended responses.
       `append/0NN-commit-failure-stalled`,
       `tamper/0NN-failures-json-mismatch`.
 
-20. **ADR 0069 execution — chain timestamp-order verification** — **S–M**.
+20. **ADR 0069 execution — chain timestamp-order verification + CBOR wire migration** — **M**.
     *Land after parent accepts ADR 0069 (gated on parent **PLN-0073** +
     **PLN-0114** + **PLN-0115** + **PLN-0117**).* Parent backlog: **PLN-0077**,
     **PLN-0083**, **PLN-0131** (failure taxonomy), **PLN-0082** (cross-repo
     timestamp fixture bundle), **PLN-0084** (leap-second vectors).
-    + [ ] Verifier check: chain timestamps non-decreasing across linked events;
+    + [ ] **CBOR envelope timestamp wire migration: `uint` seconds →
+      `uint64` nanoseconds** per ADR 0069 D-2.1 (parent **PLN-0400**). Today
+      [`specs/trellis-core.md`](specs/trellis-core.md) line 2431 declares
+      `timestamp = uint  ; Unix seconds UTC`; ADR 0069 D-2.1 pins `uint64`
+      nanoseconds-since-Unix-epoch as the byte-protocol floor. Migration:
+      CDDL §28 + every site (`valid_from` line 453, `created_at` line 518,
+      checkpoint `timestamp` line 887, `signing_event_timestamp_mismatch`
+      line 2034, `user_content_attestation_timestamp_mismatch` line 2042,
+      base `timestamp = uint` line 2431) + Rust + Python parity (ADR 0004)
+      + `tamper/0NN-timestamp-uint-seconds-rejected` legacy-format negative
+      vector; verifier rejects sub-nanosecond and second-precision
+      encodings. **Why this matters now:** second-precision wire is
+      structurally incapable of carrying SLA-clock ordering under ADR 0067
+      statutory clocks — silent precision loss at envelope ingest
+      contaminates downstream deadline arithmetic, and retagging after
+      first production records lock the wrong shape is the exact
+      architectural-debt class ADR 0069 D-2.1 exists to prevent. Maximalist
+      envelope discipline (Trellis ADR 0001-0004): change the bytes now,
+      `v1.0.0` is a coherent-snapshot tag, not a freeze.
+    + [x] Verifier check: chain timestamps non-decreasing across linked events;
       D-3 precision profile honored.
-    + [ ] Failure taxonomy: temporal-order violations classified separately
+    + [x] Failure taxonomy: temporal-order violations classified separately
       from hash/signature integrity, so reports distinguish "the chain says
       'after' but the clocks say 'before'" from "the bytes were tampered."
-    + [ ] Vectors: `tamper/0NN-timestamp-backwards`, including the case where
+    + [x] Vectors: `tamper/041-timestamp-backwards`, including the case where
       the hash chain is valid but temporal order fails.
 
 21. **ADR 0081 execution — content-addressed artifact identity** — **S**.
@@ -329,6 +348,36 @@ consume amended responses.
     + [ ] Fixture vector for one tenant spanning two `ledger_scope`s.
     + [ ] Verifier accepts; secret-exclusion list (per ADR-0013 absorption)
       enforced.
+
+25. **PLN-0379..0398 cluster drift audit** — **S**.
+    *Land before authoring against any sibling row in the parent stack-closure
+    cluster (proactive; no external trigger).* Wave 27 closure of PLN-0385
+    surfaced a phantom four-field surface (`tag` / `payload` /
+    `prior_event_hash` / `producer_signature`) cited in parent prose but
+    absent from every spec / crate / schema / fixture; correct surface per
+    ADR-0061 §2.3 is `caseId` / `recordId` / `eventType` / `record`.
+    `producer_signature` exists nowhere — envelope-level signing is COSE_Sign1
+    around the envelope, at the Trellis layer above the WOS-authored record
+    surface. Sibling rows (PLN-0379, 0380, 0381, 0382, 0383, 0384, 0386, 0387)
+    were authored from the same wos-server-centric mental model and plausibly
+    carry parallel drift. Audit each sibling: cross-reference cited wire
+    surface, schema names, event-type strings, and field labels against
+    Trellis CDDL §28, wos-spec schemas, custody-hook companion, and ADR-0061.
+    Output: per-row corrections applied in-place to PLANNING.md + the
+    referenced source docs (mirroring the Wave 27 train pattern). Prevents
+    repeating Wave 27 archaeology cost (cross-stack-scout dispatch → Fork-B
+    drift discovery → three-commit cross-repo train) once per sibling row.
+    See [`COMPLETED.md`](COMPLETED.md) Wave 27 for the discovery pattern.
+
+26. **`interop_sidecar_content_mismatch` failure-code split** — **XS**.
+    *Land when a `c2pa-manifest@v1` adopter consumes the Wave 25 dispatched
+    verifier and hits a conflated diagnostic.* Current `verify_interop_sidecars`
+    raises `interop_sidecar_content_mismatch` for both *missing file*
+    (manifest promises bytes the ZIP doesn't carry) and *digest divergence*
+    (bytes present, mutated). Split into `interop_sidecar_missing` +
+    `interop_sidecar_content_mismatch` (digest-only); add matrix row, one
+    fixture per code, Core §19.1 prose update, ADR 0008 §"Failure taxonomy"
+    update. See [`COMPLETED.md`](COMPLETED.md) Wave 26 FINDING 4.
 
 ---
 

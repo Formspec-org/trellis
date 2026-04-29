@@ -41,9 +41,14 @@ design doc.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -55,13 +60,13 @@ SOURCE_VECTOR_DIR = ROOT / "append" / "005-prior-head-chain"
 OUT_DIR = ROOT / "tamper" / "001-signature-flip"
 
 # The source event — `append/005`'s byte-exact COSE_Sign1 artifact (724 bytes,
-# sha256 416d5e6190d0ec8ad791437f7e4bdb369f751b11dcb3597a5f2911421529aac9).
+# sha256 b2b3ce687fd8b618a69fd89b311d46de115725381a6044fcbb35206b0df77ffe).
 # This vector's only byte-level delta vs 005's `expected-event.cbor` is the
 # one flipped signature byte.
 SOURCE_EVENT_FILE = SOURCE_VECTOR_DIR / "expected-event.cbor"
 SOURCE_APPEND_HEAD_FILE = SOURCE_VECTOR_DIR / "expected-append-head.cbor"
 EXPECTED_SOURCE_EVENT_SHA256 = (
-    "416d5e6190d0ec8ad791437f7e4bdb369f751b11dcb3597a5f2911421529aac9"
+    "b2b3ce687fd8b618a69fd89b311d46de115725381a6044fcbb35206b0df77ffe"
 )
 
 # Ledger-scope and sequence values mirror 005 because the tampered event IS
@@ -69,14 +74,14 @@ EXPECTED_SOURCE_EVENT_SHA256 = (
 # is what this vector pins as `failing_event_id` for the runner.
 LEDGER_SCOPE = b"test-response-ledger"                  # §10.6
 PRE_TAMPER_CANONICAL_EVENT_HASH_HEX = (
-    "3d3d5aeb5d4b8d972adbddfe0f339a94fffe01bf90ac1648be2eb98d4acc9f17"
+    "7a8574461a5fb60b6ee60c552e414aaf45aefba3ca1b6cc71fa72d029537c020"
 )  # from 005's derivation.md Step 11.
 
 # Signing-key registry entry values. `valid_from` / `valid_to` are narrative-
 # only for this fixture — §19's per-event signature check does not read
 # them. `attestation = null` is permitted under §8.2 (optional HSM/KMS
 # attestation).
-ISSUER_VALID_FROM = 1745000000                          # §8.2
+ISSUER_VALID_FROM = ts(1745000000)                          # §8.2
 SIGNING_KEY_ACTIVE_STATUS = 0                           # §8.2; SigningKeyStatus.Active
 
 # §7.4 / §7.1 pins for kid-derivation. Same values the append/001 / append/005

@@ -73,6 +73,24 @@ def domain_separated_sha256(tag: str, *components: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Core §28 protobuf-pattern timestamp: [seconds, nanos].
+# ---------------------------------------------------------------------------
+
+
+def ts(seconds: int, nanos: int = 0) -> list:
+    """Wrap a Unix-epoch timestamp as [seconds, nanos] per Core §28 CDDL.
+
+    ADR 0069 D-2.1 protobuf-pattern wire format: every CBOR ``timestamp``
+    site is ``[uint, uint .le 999999999]``.  Generators call ``ts(1745000000)``
+    instead of bare ``1745000000``; the returned list encodes as a
+    definite-length CBOR array under ``dcbor()``.
+    """
+    assert isinstance(seconds, int) and seconds >= 0
+    assert isinstance(nanos, int) and 0 <= nanos <= 999_999_999
+    return [seconds, nanos]
+
+
+# ---------------------------------------------------------------------------
 # Core §18.1 deterministic ZIP entry.
 # ---------------------------------------------------------------------------
 

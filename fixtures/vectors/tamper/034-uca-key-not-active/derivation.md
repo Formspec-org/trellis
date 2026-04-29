@@ -13,7 +13,7 @@ Per ADR 0010 §"Verifier obligations" step 6, only `Active`
 ratified rotation grace per ADR 0010 open question 4. The verifier flips
 `key_active = false` and emits
 `user_content_attestation_key_not_active` with `failing_event_id` =
-`92776371d61fd0bf6a7b2637185d7ec507e8f39988776ab1f0eb18c45819ace2`.
+`97eace545bc383e14436d243e687d24a7d3ea51890a8ed779df7e8460fe3b291`.
 
 This is the first fixture corpus to exercise the SigningKeyStatus
 distinction at the user-content-attestation step 6 surface — prior

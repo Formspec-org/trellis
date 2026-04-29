@@ -16,7 +16,7 @@ computes the signature under `trellis-transition-attestation-v1`
 (Companion §A.5's operator-actor posture-transition tag). The Phase-1
 verifier flips `signature_verified = false` and emits
 `user_content_attestation_signature_invalid` with `failing_event_id`
-= `4c5509336c14c71ae5737659644db87daebb1ffa8e6e5d7b19c2e7181fdae904`.
+= `32f293be28b3145c06ab5687b3bc9d9af596be3af24fd622b07aeff4c0796ccd`.
 
 Adversary intent: cross-family signature confusion — present an A.5
 Attestation byte slug as a user-content attestation, hoping the verifier

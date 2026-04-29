@@ -25,6 +25,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +36,7 @@ CASE_ID = "linc_case_01j5d5p0c8e9g2h3j4k5m6n7p8"
 RECORD_ID = "linc_prov_01j5d5p1d9f0h3j4k5m6n7p8q9"
 LEDGER_SCOPE = f"wos-case:{CASE_ID}".encode("utf-8")
 SEQUENCE = 0
-TIMESTAMP = 1745000010
+TIMESTAMP = ts(1745000010)
 EVENT_TYPE = b"wos.kernel.stateTransition"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0

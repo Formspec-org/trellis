@@ -62,6 +62,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -148,7 +149,7 @@ def build_signing_key_registry(kid: bytes, pubkey: bytes) -> bytes:
     )
 
 
-def build_event_header(authored_at: int) -> dict:
+def build_event_header(authored_at: list) -> dict:
     return {
         "event_type":             EVENT_TYPE,
         "authored_at":             authored_at,
@@ -167,7 +168,7 @@ def build_event_payload(
     ledger_scope: bytes,
     sequence: int,
     prev_hash: bytes | None,
-    authored_at: int,
+    authored_at: list,
     certificate_payload: dict,
     idempotency_key: bytes,
     payload_marker: bytes,
@@ -585,7 +586,7 @@ def gen_tamper_026(*, issuer_seed: bytes, issuer_pub: bytes, kid: bytes) -> str:
         ledger_scope=ledger_scope,
         sequence=1,
         prev_hash=canonical_a,
-        authored_at=src_meta["authored_at"] + 1,
+        authored_at=ts(src_meta["authored_at"][0] + 1),
         certificate_payload=cert_b,
         idempotency_key=b"tamper-026-event-1",
         payload_marker=payload_marker_b,

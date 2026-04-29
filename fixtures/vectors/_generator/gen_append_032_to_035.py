@@ -35,8 +35,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -123,7 +127,7 @@ def build_subject_attrs() -> dict:
         "pubkey":           fixture_pubkey("subject"),
         "subject_ref":      "urn:agency.gov:subject:fixture-032",
         "authorized_for":   [b"x-trellis-test/wrap-cap-1"],
-        "effective_from":   1745130000,
+        "effective_from":   ts(1745130000),
         "valid_to":         None,
         "supersedes":       None,
     }
@@ -133,7 +137,7 @@ def build_tenant_root_attrs() -> dict:
     return {
         "pubkey":         fixture_pubkey("tenant-root"),
         "tenant_ref":     "urn:agency.gov:tenant:fixture-033",
-        "effective_from": 1745130000,
+        "effective_from": ts(1745130000),
         "supersedes":     None,
     }
 
@@ -143,7 +147,7 @@ def build_scope_attrs() -> dict:
         "pubkey":            fixture_pubkey("scope"),
         "scope_ref":         b"test-key-entry-scope-fixture-034",
         "parent_tenant_ref": "urn:agency.gov:tenant:fixture-034",
-        "effective_from":    1745130000,
+        "effective_from":    ts(1745130000),
         "supersedes":        None,
     }
 
@@ -157,7 +161,7 @@ def build_recovery_attrs(authorized_kid: bytes) -> dict:
         "authorizes_recovery_for": [authorized_kid],
         "activation_quorum":       1,
         "activation_quorum_set":   None,
-        "effective_from":          1745130000,
+        "effective_from":          ts(1745130000),
         "supersedes":              None,
     }
 
@@ -187,7 +191,7 @@ VECTOR_SPECS: list[VectorSpec] = [
         number="032",
         name="032-key-entry-subject-reservation",
         ledger_scope=b"test-key-entry-subject-ledger",
-        timestamp=1745130200,
+        timestamp=ts(1745130200),
         idempotency_key=b"idemp-append-032",
         class_kind="subject",
         description=(
@@ -202,7 +206,7 @@ VECTOR_SPECS: list[VectorSpec] = [
         number="033",
         name="033-key-entry-tenant-root-reservation",
         ledger_scope=b"test-key-entry-tenant-root-ledger",
-        timestamp=1745130400,
+        timestamp=ts(1745130400),
         idempotency_key=b"idemp-append-033",
         class_kind="tenant-root",
         description=(
@@ -216,7 +220,7 @@ VECTOR_SPECS: list[VectorSpec] = [
         number="034",
         name="034-key-entry-scope-reservation",
         ledger_scope=b"test-key-entry-scope-ledger",
-        timestamp=1745130600,
+        timestamp=ts(1745130600),
         idempotency_key=b"idemp-append-034",
         class_kind="scope",
         description=(
@@ -230,7 +234,7 @@ VECTOR_SPECS: list[VectorSpec] = [
         number="035",
         name="035-key-entry-recovery-reservation",
         ledger_scope=b"test-key-entry-recovery-ledger",
-        timestamp=1745130800,
+        timestamp=ts(1745130800),
         idempotency_key=b"idemp-append-035",
         class_kind="recovery",
         description=(

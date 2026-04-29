@@ -73,10 +73,15 @@ Scope decision: single-event ledger, same discipline as tamper/001 / 005 /
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -95,7 +100,7 @@ BASELINE_AUTHORED_PREIMAGE_FILE = BASELINE_VECTOR_DIR / "input-author-event-hash
 # Drift-alarm SHA-256 digests on upstream append/001 artifacts. If these drift,
 # regenerate `append/001` first and update here.
 EXPECTED_BASELINE_EVENT_SHA256 = (
-    "8d18bcd820945b4c5575a44823d79685858914ee5893ac3c9e4b8ec183273815"
+    "3104ec644994ec735cd540bc5f8fcce0cdbdbd1316a2c09c7207742c075ef389"
 )
 EXPECTED_BASELINE_PAYLOAD_SHA256 = (
     # SHA-256(fixtures/vectors/append/001-minimal-inline-payload/
@@ -114,7 +119,7 @@ COSE_LABEL_KID = 4
 COSE_LABEL_SUITE_ID = -65537
 
 # §8.2 / §8.5 registry values — identical to tamper/001 / tamper/005 / 006.
-ISSUER_VALID_FROM = 1745000000
+ISSUER_VALID_FROM = ts(1745000000)
 SIGNING_KEY_ACTIVE_STATUS = 0
 
 # §9.5 domain-separation tag.

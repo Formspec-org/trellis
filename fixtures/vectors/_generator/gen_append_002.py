@@ -57,10 +57,15 @@ discipline.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -77,12 +82,12 @@ LEDGER_SCOPE = b"test-rotation-ledger"                  # bstr, §10.6
 
 # Pre-rotation event A (genesis).
 A_SEQUENCE = 0                                          # §10.2: sequence == 0
-A_TIMESTAMP = 1745100000                                # +100000s past 001/005; narrative-only
+A_TIMESTAMP = ts(1745100000)                              # +100000s past 001/005; narrative-only
 A_IDEMPOTENCY_KEY = b"idemp-append-002a"                # 17 bytes; §6.1 .size (1..64)
 
 # Post-rotation event B (chained).
 B_SEQUENCE = 1                                          # §10.2: sequence > 0 → prev_hash non-null
-B_TIMESTAMP = 1745100120                                # +120s after A; narrative-only
+B_TIMESTAMP = ts(1745100120)                              # +120s after A; narrative-only
 B_IDEMPOTENCY_KEY = b"idemp-append-002b"                # 17 bytes; distinct from A per §17.3
 
 # Rotation event pinned timestamp — used as `valid_to` on issuer-001's entry in
@@ -90,7 +95,7 @@ B_IDEMPOTENCY_KEY = b"idemp-append-002b"                # 17 bytes; distinct fro
 # second after A, one minute before B, so A is unambiguously pre-rotation and
 # B is unambiguously post-rotation by wall-clock ordering. §10.2 ordering is
 # by prev_hash not wall-clock; the timestamps are narrative only.
-ROTATION_TIMESTAMP = 1745100060
+ROTATION_TIMESTAMP = ts(1745100060)
 
 # Header fields inherited from 001/005. §14.6 reserved test prefix.
 EVENT_TYPE = b"x-trellis-test/append-minimal"

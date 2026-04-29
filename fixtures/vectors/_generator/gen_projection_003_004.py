@@ -11,10 +11,15 @@ Both fixtures exercise TR-OP-008, the declared snapshot-cadence obligation.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -167,7 +172,7 @@ def event_def(sequence: int, prev_hash: bytes | None) -> dict:
     return {
         "sequence":        sequence,
         "prev_hash":       prev_hash,
-        "authored_at":     1745200000 + (sequence * 60),
+        "authored_at":     ts(1745200000 + (sequence * 60)),
         "event_type":      b"x-trellis-test/cadence-event",
         "idempotency_key": idempotency,
         "payload_bytes":   f"cadence-payload-{sequence}".encode("ascii").ljust(32, b"\x00"),
@@ -224,7 +229,7 @@ def build_checkpoint_payload(
         "scope":                LEDGER_SCOPE,
         "tree_size":            tree_size,
         "tree_head_hash":       tree_head_hash,
-        "timestamp":            1745201000 + (tree_size * 60),
+        "timestamp":            ts(1745201000 + (tree_size * 60)),
         "anchor_ref":           None,
         "prev_checkpoint_hash": prev_checkpoint_hash,
         "extensions":           None,

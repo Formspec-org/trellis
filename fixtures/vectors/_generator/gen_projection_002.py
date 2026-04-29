@@ -46,10 +46,15 @@ runner from conflating the two projection fixtures.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned inputs.
@@ -69,7 +74,7 @@ EVENT_DEFS = [
     {
         "sequence":        0,
         "prev_hash":       None,
-        "authored_at":     1745100000,
+        "authored_at":     ts(1745100000),
         "event_type":      b"x-trellis-test/rebuild-seed",
         "classification":  b"x-trellis-test/unclassified",
         "retention_tier":  0,
@@ -80,7 +85,7 @@ EVENT_DEFS = [
         "sequence":        1,
         # prev_hash populated at build time after event 0 is hashed.
         "prev_hash":       None,
-        "authored_at":     1745100060,
+        "authored_at":     ts(1745100060),
         "event_type":      b"x-trellis-test/rebuild-follow",
         "classification":  b"x-trellis-test/unclassified",
         "retention_tier":  0,
@@ -92,7 +97,7 @@ for ev in EVENT_DEFS:
     assert len(ev["idempotency_key"]) == 16
 
 # Checkpoint-level pins.
-CHECKPOINT_TIMESTAMP = 1745100120                        # §11.2 timestamp
+CHECKPOINT_TIMESTAMP = ts(1745100120)                        # §11.2 timestamp
 
 # Rebuild-procedure identifier (Core §15.3). Distinct from projection/001's
 # watermark-only identifier to signal a different view shape.

@@ -42,6 +42,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -646,7 +647,7 @@ def build_transition_event_seq2(seed: bytes, kid: bytes) -> bytes:
             "declaration_id": "urn:trellis:declaration:test:003-post",
             "operator_id": "urn:trellis:operator:test",
             "scope": "test-response-ledger",
-            "effective_from": 1745000400,
+            "effective_from": ts(1745000400),
             "supersedes": "urn:trellis:declaration:test:003-pre",
             "custody_model": {"custody_model_id": "CM-B"},
             "disclosure_profile": "rl-profile-B",
@@ -659,7 +660,7 @@ def build_transition_event_seq2(seed: bytes, kid: bytes) -> bytes:
     )
 
     def attestation(authority: str, authority_class: str) -> dict:
-        preimage = dcbor(["urn:trellis:transition:test:003b", 1745000400, authority_class])
+        preimage = dcbor(["urn:trellis:transition:test:003b", ts(1745000400), authority_class])
         signing_preimage = domain_separated_preimage(
             TAG_TRELLIS_TRANSITION_ATTESTATION_V1,
             preimage,
@@ -673,7 +674,7 @@ def build_transition_event_seq2(seed: bytes, kid: bytes) -> bytes:
 
     header = {
         "event_type": b"trellis.custody-model-transition.v1",
-        "authored_at": 1745000400,
+        "authored_at":  ts(1745000400),
         "retention_tier": 0,
         "classification": b"x-trellis-test/unclassified",
         "outcome_commitment": None,
@@ -694,7 +695,7 @@ def build_transition_event_seq2(seed: bytes, kid: bytes) -> bytes:
             "to_custody_model": "CM-B",
             "transition_actor": "urn:trellis:principal:test-operator",
             "policy_authority": "urn:trellis:authority:test-governance",
-            "effective_at": 1745000400,
+            "effective_at": ts(1745000400),
             "reason_code": 2,
             "temporal_scope": "prospective",
             "declaration_doc_digest": declaration_digest,
@@ -758,14 +759,14 @@ def generate_exports() -> None:
         registry_specs=[
             {"bytes": export_002_registry, "version": "x-trellis-test/registry-002-v1", "bound_at_sequence": 0}
         ],
-        checkpoint_timestamps=[1745110060],
+        checkpoint_timestamps=[ts(1745110060)],
         manifest_seed=issuer_002_seed,
         manifest_kid=issuer_002_kid,
         posture_declaration=posture_002,
         external_anchors=[],
         payload_members={},
         readme_name="Run `./090-verify.sh` from this directory.",
-        generated_at=1745110060,
+        generated_at=ts(1745110060),
     )
 
     # export/003 — three-event chain with two custody transitions.
@@ -799,14 +800,14 @@ def generate_exports() -> None:
         registry_specs=[
             {"bytes": export_003_registry, "version": "x-trellis-test/registry-003-v1", "bound_at_sequence": 0}
         ],
-        checkpoint_timestamps=[1745000050, 1745000150, 1745000450],
+        checkpoint_timestamps=[ts(1745000050), ts(1745000150), ts(1745000450)],
         manifest_seed=issuer_001_seed,
         manifest_kid=issuer_001_kid,
         posture_declaration=posture_003,
         external_anchors=[],
         payload_members={},
         readme_name="Run `./090-verify.sh` from this directory.",
-        generated_at=1745000450,
+        generated_at=ts(1745000450),
     )
 
     # export/004 — bundled PayloadExternal plus optional external-anchor claim.
@@ -837,14 +838,14 @@ def generate_exports() -> None:
         registry_specs=[
             {"bytes": export_004_registry, "version": "x-trellis-test/registry-004-v1", "bound_at_sequence": 0}
         ],
-        checkpoint_timestamps=[1745000063],
+        checkpoint_timestamps=[ts(1745000063)],
         manifest_seed=issuer_001_seed,
         manifest_kid=issuer_001_kid,
         posture_declaration=posture_004,
         external_anchors=[],
         payload_members={f"060-payloads/{external_hash}.bin": EXTERNAL_PAYLOAD_003.read_bytes()},
         readme_name="Run `./090-verify.sh` from this directory.",
-        generated_at=1745000063,
+        generated_at=ts(1745000063),
     )
 
 
@@ -853,7 +854,7 @@ def generate_verify_vectors() -> None:
 
     root_dir_002, members_002, data_002, manifest_002 = source_export_payload(OUT_EXPORT_002)
     registry_after = cbor2.loads(data_002["030-signing-key-registry.cbor"])
-    registry_after[0]["valid_to"] = 1745109999
+    registry_after[0]["valid_to"] = ts(1745109999)
     registry_after_bytes = dcbor(registry_after)
     manifest_002["signing_key_registry_digest"] = sha256(registry_after_bytes)
     manifest_002_bytes = resign_manifest(data_002["000-manifest.cbor"], manifest_002, issuer_002_seed)

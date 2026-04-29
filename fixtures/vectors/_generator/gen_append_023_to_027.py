@@ -43,10 +43,15 @@ the ADR's *Fixture plan* table.
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Pinned paths.
@@ -65,8 +70,8 @@ PRIOR_VECTOR_DIR = ROOT / "append" / "001-minimal-inline-payload"
 
 LEDGER_SCOPE = b"test-response-ledger"
 SEQUENCE = 1
-HOST_TIMESTAMP = 1_745_000_200             # > append/001's authored_at
-DESTROYED_AT_TIMESTAMP = 1_745_000_100     # < HOST_TIMESTAMP per step 4
+HOST_TIMESTAMP = ts(1_745_000_200)             # > append/001's authored_at
+DESTROYED_AT_TIMESTAMP = ts(1_745_000_100)     # < HOST_TIMESTAMP per step 4
 EVENT_TYPE = b"trellis.erasure-evidence.v1"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0

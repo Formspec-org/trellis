@@ -53,6 +53,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -87,10 +88,10 @@ OUT_DIR = ROOT / "export" / "001-two-event-chain"
 SUITE_ID = SUITE_ID_PHASE_1
 
 # Pinned timestamps for manifest/checkpoint (Unix seconds UTC).
-AUTHORED_AT = 1745000000  # from append/001 header.authored_at
-GENERATED_AT = 1745000060
-CHECKPOINT_TIMESTAMP_1 = 1745000050
-CHECKPOINT_TIMESTAMP_2 = 1745000060
+AUTHORED_AT = ts(1745000000)
+GENERATED_AT = ts(1745000060)
+CHECKPOINT_TIMESTAMP_1 = ts(1745000050)
+CHECKPOINT_TIMESTAMP_2 = ts(1745000060)
 
 # ---------------------------------------------------------------------------
 # Domain tags (§9.8) and §9.1 framing.

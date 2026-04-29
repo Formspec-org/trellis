@@ -78,7 +78,7 @@ structure_verified   = true
 integrity_verified   = false
 readability_verified = true
 tamper_kind          = "event_truncation"
-failing_event_id     = "3d3d5aeb5d4b8d972adbddfe0f339a94fffe01bf90ac1648be2eb98d4acc9f17"
+failing_event_id     = "7a8574461a5fb60b6ee60c552e414aaf45aefba3ca1b6cc71fa72d029537c020"
 
 # The dangling pointer (= the omitted genesis event's canonical_event_hash).
 # Surfaced as a named expected-report field so a runner that wants to

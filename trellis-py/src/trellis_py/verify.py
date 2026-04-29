@@ -34,6 +34,49 @@ from trellis_py.constants import (
     SUITE_ID_PHASE_1,
 )
 
+
+class TrellisTimestamp:
+    """Protobuf-pattern timestamp: [seconds, nanos] per ADR 0069 D-2.1."""
+    __slots__ = ('seconds', 'nanos')
+
+    def __init__(self, seconds: int, nanos: int = 0):
+        assert isinstance(seconds, int) and seconds >= 0
+        assert isinstance(nanos, int) and 0 <= nanos <= 999_999_999
+        self.seconds = seconds
+        self.nanos = nanos
+
+    def __eq__(self, other):
+        if not isinstance(other, TrellisTimestamp):
+            return NotImplemented
+        return self.seconds == other.seconds and self.nanos == other.nanos
+
+    def __lt__(self, other):
+        if not isinstance(other, TrellisTimestamp):
+            return NotImplemented
+        if self.seconds != other.seconds:
+            return self.seconds < other.seconds
+        return self.nanos < other.nanos
+
+    def __le__(self, other):
+        return self == other or self < other
+
+    def __gt__(self, other):
+        if not isinstance(other, TrellisTimestamp):
+            return NotImplemented
+        return other < self
+
+    def __ge__(self, other):
+        return self == other or self > other
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __repr__(self):
+        return f"TrellisTimestamp(seconds={self.seconds}, nanos={self.nanos})"
+
+    def __hash__(self):
+        return hash((self.seconds, self.nanos))
+
 ATTACHMENT_EXPORT_EXTENSION = "trellis.export.attachments.v1"
 ATTACHMENT_EVENT_EXTENSION = "trellis.evidence-attachment-binding.v1"
 SIGNATURE_EXPORT_EXTENSION = "trellis.export.signature-affirmations.v1"
@@ -106,7 +149,7 @@ class ErasureEvidenceOutcome:
 
     evidence_id: str
     kid_destroyed: bytes
-    destroyed_at: int
+    destroyed_at: TrellisTimestamp
     cascade_scopes: list[str]
     completion_mode: str
     event_index: int
@@ -132,7 +175,7 @@ class CertificateOfCompletionOutcome:
 
     certificate_id: str
     event_index: int
-    completed_at: int
+    completed_at: TrellisTimestamp
     signer_count: int
     attachment_resolved: bool = True
     all_signing_events_resolved: bool = True
@@ -249,7 +292,7 @@ class ParsedSign1:
 class SigningKeyEntry:
     public_key: bytes
     status: int
-    valid_to: Optional[int]
+    valid_to: Optional[TrellisTimestamp]
 
 
 @dataclass
@@ -270,7 +313,7 @@ class NonSigningKeyEntry:
     """
 
     class_: str  # `class` is a Python keyword; trailing underscore by convention.
-    subject_valid_to: Optional[int] = None
+    subject_valid_to: Optional[TrellisTimestamp] = None
 
 
 # Reserved non-signing class literals (Core §8.7).
@@ -331,7 +374,7 @@ class AttachmentBindingDetails:
 class EventDetails:
     scope: bytes
     sequence: int
-    authored_at: int
+    authored_at: TrellisTimestamp
     event_type: str
     classification: str
     prev_hash: Optional[bytes]
@@ -389,7 +432,7 @@ class ErasureEvidenceDetails:
     evidence_id: str
     kid_destroyed: bytes
     norm_key_class: str
-    destroyed_at: int
+    destroyed_at: TrellisTimestamp
     cascade_scopes: list[str]
     completion_mode: str
     attestation_signatures_well_formed: bool
@@ -404,7 +447,7 @@ class SignerDisplayDetails:
     principal_ref: str
     display_name: str
     display_role: Optional[str]
-    signed_at: int
+    signed_at: TrellisTimestamp
 
 
 @dataclass
@@ -443,7 +486,7 @@ class CertificateDetails:
 
     certificate_id: str
     case_ref: Optional[str]
-    completed_at: int
+    completed_at: TrellisTimestamp
     presentation_artifact: PresentationArtifactDetails
     chain_summary: ChainSummaryDetails
     signing_events: list[bytes]
@@ -472,7 +515,7 @@ class UserContentAttestationDetails:
     attestor: str
     identity_attestation_ref: Optional[bytes]
     signing_intent: str
-    attested_at: int
+    attested_at: TrellisTimestamp
     signature: bytes
     signing_kid: bytes
     canonical_preimage: bytes
@@ -484,7 +527,7 @@ class _ChainEventSummary:
     """Per-event chain summary used by ADR 0005 step 8 cross-event walk."""
 
     event_index: int
-    authored_at: int
+    authored_at: TrellisTimestamp
     signing_kid: bytes
     wrap_recipients: list[bytes]
     canonical_event_hash: bytes
@@ -545,6 +588,26 @@ def _map_lookup_u64(m: dict, key: str) -> int:
     if not isinstance(v, int) or v < 0:
         raise VerifyError(f"`{key}` is not an unsigned integer")
     return v
+
+
+def _map_lookup_timestamp(m: dict, key: str) -> TrellisTimestamp:
+    v = m.get(key)
+    if v is None:
+        raise VerifyError(f"missing required field: {key}")
+    if isinstance(v, list) and len(v) == 2:
+        seconds = v[0]
+        nanos = v[1]
+        if not isinstance(seconds, int) or seconds < 0:
+            raise VerifyError(f"{key} seconds must be non-negative uint, got {seconds!r}")
+        if not isinstance(nanos, int) or nanos < 0 or nanos > 999_999_999:
+            raise VerifyError(f"{key} nanos must be 0..999999999, got {nanos!r}")
+        return TrellisTimestamp(seconds, nanos)
+    if isinstance(v, int):
+        raise VerifyError(
+            f"{key} is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1",
+            kind="legacy_timestamp_format",
+        )
+    raise VerifyError(f"{key} must be [uint, uint] array, got {type(v).__name__}")
 
 
 def _map_lookup_bool(m: dict, key: str) -> bool:
@@ -731,7 +794,7 @@ def _decode_custody_model_transition(ext: object) -> TransitionDetails:
     tid = str(_map_lookup_str(ext, "transition_id"))
     fs = str(_map_lookup_str(ext, "from_custody_model"))
     ts = str(_map_lookup_str(ext, "to_custody_model"))
-    _ = _map_lookup_u64(ext, "effective_at")
+    _ = _map_lookup_timestamp(ext, "effective_at")
     dd = _map_lookup_fixed_bytes(ext, "declaration_doc_digest", 32)
     classes = _decode_attestation_classes(ext)
     return TransitionDetails(
@@ -751,7 +814,7 @@ def _decode_disclosure_profile_transition(ext: object) -> TransitionDetails:
     tid = str(_map_lookup_str(ext, "transition_id"))
     fs = str(_map_lookup_str(ext, "from_disclosure_profile"))
     ts = str(_map_lookup_str(ext, "to_disclosure_profile"))
-    _ = _map_lookup_u64(ext, "effective_at")
+    _ = _map_lookup_timestamp(ext, "effective_at")
     dd = _map_lookup_fixed_bytes(ext, "declaration_doc_digest", 32)
     sc = str(_map_lookup_str(ext, "scope_change"))
     classes = _decode_attestation_classes(ext)
@@ -853,7 +916,7 @@ def _decode_certificate_payload(exts: dict) -> Optional[CertificateDetails]:
     case_ref = case_ref_raw if (case_ref_raw is None or isinstance(case_ref_raw, str)) else None
     if case_ref_raw is not None and not isinstance(case_ref_raw, str):
         raise VerifyError("certificate `case_ref` is neither text nor null")
-    completed_at = _map_lookup_u64(ext, "completed_at")
+    completed_at = _map_lookup_timestamp(ext, "completed_at")
 
     # PresentationArtifact decode.
     pa = ext.get("presentation_artifact")
@@ -909,7 +972,7 @@ def _decode_certificate_payload(exts: dict) -> Optional[CertificateDetails]:
             display_role = display_role_raw
         else:
             raise VerifyError("signer_display entry display_role is neither text nor null")
-        signed_at = _map_lookup_u64(entry, "signed_at")
+        signed_at = _map_lookup_timestamp(entry, "signed_at")
         signer_display.append(
             SignerDisplayDetails(
                 principal_ref=principal_ref,
@@ -1081,7 +1144,7 @@ def _validate_subject_scope_shape(subject_scope: dict, kind: str) -> None:
 
 
 def _decode_erasure_evidence_details(
-    extensions: dict, host_authored_at: int
+    extensions: dict, host_authored_at: TrellisTimestamp
 ) -> Optional[ErasureEvidenceDetails]:
     """Decodes the optional `trellis.erasure-evidence.v1` extension payload
     and runs ADR 0005 §"Verifier obligations" steps 1 (CDDL), 3 (subject_scope
@@ -1107,7 +1170,7 @@ def _decode_erasure_evidence_details(
     wire_key_class = str(_map_lookup_str(ext, "key_class"))
     norm_key_class = "subject" if wire_key_class == "wrap" else wire_key_class
 
-    destroyed_at = _map_lookup_u64(ext, "destroyed_at")
+    destroyed_at = _map_lookup_timestamp(ext, "destroyed_at")
 
     # Step 4: `destroyed_at` MUST be ≤ host event's `authored_at`.
     # Companion OC-144 / TR-OP-109. Typed kind so the report's `tamper_kind`
@@ -1248,7 +1311,7 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
     header = _map_lookup_str(payload_value, "header")
     if not isinstance(header, dict):
         raise VerifyError("header not map")
-    authored_at = _map_lookup_u64(header, "authored_at")
+    authored_at = _map_lookup_timestamp(header, "authored_at")
     et = _map_lookup_bytes(header, "event_type")
     cl = _map_lookup_bytes(header, "classification")
     if not isinstance(et, bytes) or not isinstance(cl, bytes):
@@ -1366,13 +1429,21 @@ def _parse_key_registry(
             pubkey = _map_lookup_fixed_bytes(entry, "pubkey", 32)
             status = _map_lookup_u64(entry, "status")
             vt_raw = _map_lookup_optional_str(entry, "valid_to")
-            valid_to: Optional[int]
+            valid_to: Optional[TrellisTimestamp]
             if vt_raw is None:
                 valid_to = None
+            elif isinstance(vt_raw, list) and len(vt_raw) == 2:
+                if isinstance(vt_raw[0], int) and isinstance(vt_raw[1], int):
+                    valid_to = TrellisTimestamp(vt_raw[0], vt_raw[1])
+                else:
+                    raise VerifyError("valid_to invalid")
             elif isinstance(vt_raw, int):
-                valid_to = vt_raw
+                raise VerifyError(
+                    "legacy uint timestamp in valid_to",
+                    kind="legacy_timestamp_format",
+                )
             else:
-                raise VerifyError("valid_to invalid")
+                raise VerifyError("valid_to must be [uint, uint] or null")
             reg[kid] = SigningKeyEntry(
                 public_key=pubkey, status=status, valid_to=valid_to
             )
@@ -1397,17 +1468,29 @@ def _parse_key_registry(
             # Subject-class capture: read `valid_to` from `attributes` for
             # forward-compatible Phase-2+ enforcement (ADR 0006 *Phase-1
             # runtime discipline*). Other classes don't carry valid_to.
-            subject_valid_to: Optional[int] = None
+            subject_valid_to: Optional[TrellisTimestamp] = None
             if kind_norm == "subject":
                 vt = attrs.get("valid_to")
                 if vt is None:
                     subject_valid_to = None
+                elif isinstance(vt, list) and len(vt) == 2:
+                    if isinstance(vt[0], int) and isinstance(vt[1], int):
+                        subject_valid_to = TrellisTimestamp(vt[0], vt[1])
+                    else:
+                        raise VerifyError(
+                            "key_entry_attributes_shape_mismatch: subject "
+                            "`valid_to` array elements must be uint (Core §8.7.2)",
+                            kind="key_entry_attributes_shape_mismatch",
+                        )
                 elif isinstance(vt, int):
-                    subject_valid_to = vt
+                    raise VerifyError(
+                        "legacy uint timestamp in subject valid_to",
+                        kind="legacy_timestamp_format",
+                    )
                 else:
                     raise VerifyError(
                         "key_entry_attributes_shape_mismatch: subject "
-                        "`valid_to` is neither uint nor null (Core §8.7.2)",
+                        "`valid_to` is neither [uint, uint] nor null (Core §8.7.2)",
                         kind="key_entry_attributes_shape_mismatch",
                     )
             non_signing[kid] = NonSigningKeyEntry(
@@ -1871,7 +1954,7 @@ def _compute_user_content_attestation_preimage(
     attestor: str,
     identity_attestation_ref: Optional[bytes],
     signing_intent: str,
-    attested_at: int,
+    attested_at: TrellisTimestamp,
 ) -> bytes:
     """Builds the dCBOR signature preimage for a user-content attestation
     per ADR 0010 §"Wire shape": `dCBOR([attestation_id,
@@ -1886,14 +1969,14 @@ def _compute_user_content_attestation_preimage(
             attestor,
             identity_attestation_ref,  # bytes or None
             signing_intent,
-            attested_at,
+            [attested_at.seconds, attested_at.nanos],
         ],
         canonical=True,
     )
 
 
 def _decode_user_content_attestation_payload(
-    exts: dict, host_authored_at: int
+    exts: dict, host_authored_at: TrellisTimestamp
 ) -> Optional[UserContentAttestationDetails]:
     """Decodes the optional `trellis.user-content-attestation.v1` extension
     payload. Step 1 (CDDL decode) bubbles structural failures via
@@ -1919,7 +2002,7 @@ def _decode_user_content_attestation_payload(
         ext, "identity_attestation_ref", 32
     )
     signing_intent = str(_map_lookup_str(ext, "signing_intent"))
-    attested_at = _map_lookup_u64(ext, "attested_at")
+    attested_at = _map_lookup_timestamp(ext, "attested_at")
     signature = _map_lookup_fixed_bytes(ext, "signature", 64)
     signing_kid = _map_lookup_fixed_bytes(ext, "signing_kid", 16)
 
@@ -2736,7 +2819,7 @@ def _parse_erasure_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]:
                 ),
                 "evidence_id": str(_map_lookup_str(entry, "evidence_id")),
                 "kid_destroyed": _map_lookup_fixed_bytes(entry, "kid_destroyed", 16),
-                "destroyed_at": int(_map_lookup_u64(entry, "destroyed_at")),
+                "destroyed_at": _map_lookup_timestamp(entry, "destroyed_at"),
                 "completion_mode": str(_map_lookup_str(entry, "completion_mode")),
                 "cascade_scopes": cascade_scopes,
                 "subject_scope_kind": str(_map_lookup_str(entry, "subject_scope_kind")),
@@ -2805,7 +2888,7 @@ def _parse_certificate_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]
                     entry, "canonical_event_hash", 32
                 ),
                 "certificate_id":  str(_map_lookup_str(entry, "certificate_id")),
-                "completed_at":    int(_map_lookup_u64(entry, "completed_at")),
+                "completed_at":    _map_lookup_timestamp(entry, "completed_at"),
                 "signer_count":    int(_map_lookup_u64(entry, "signer_count")),
                 "media_type":      str(_map_lookup_str(entry, "media_type")),
                 "attachment_id":   str(_map_lookup_str(entry, "attachment_id")),

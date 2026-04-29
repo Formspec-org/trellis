@@ -70,6 +70,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -82,7 +83,7 @@ OUT_TAMPER_022 = ROOT / "tamper" / "022-cert-signing-event-unresolved"
 OUT_TAMPER_024 = ROOT / "tamper" / "024-cert-response-ref-mismatch"
 
 LEDGER_SCOPE = b"trellis-cert:export-010"
-GENERATED_AT = 1_776_900_500
+GENERATED_AT = ts(1_776_900_500)
 SUITE_ID = SUITE_ID_PHASE_1
 
 CERTIFICATE_EVENT_EXTENSION = "trellis.certificate-of-completion.v1"
@@ -235,7 +236,7 @@ def build_signing_key_registry_export_shape(kid: bytes, pubkey: bytes) -> bytes:
                 "pubkey":      pubkey,
                 "suite_id":    SUITE_ID,
                 "status":      0,
-                "valid_from":  GENERATED_AT - 1000,
+                "valid_from":  ts(GENERATED_AT[0] - 1000),
                 "valid_to":    None,
                 "supersedes":  None,
                 "attestation": None,
@@ -427,7 +428,7 @@ def build_binding_event(*, seed: bytes, kid: bytes) -> dict:
     event_payload, event_payload_bytes, aeh, canonical_hash = build_event_payload(
         sequence=0,
         prev_hash=None,
-        authored_at=GENERATED_AT - 100,
+        authored_at=ts(GENERATED_AT[0] - 100),
         event_type="formspec.attachment.added",
         classification=CLASSIFICATION_BINDING,
         content_hash=content_hash,
@@ -508,7 +509,7 @@ def build_signature_affirmation_event(
     event_payload, event_payload_bytes, aeh, canonical_hash = build_event_payload(
         sequence=1,
         prev_hash=prev_hash,
-        authored_at=GENERATED_AT - 50,
+        authored_at=ts(GENERATED_AT[0] - 50),
         event_type="wos.kernel.signatureAffirmation",
         classification=CLASSIFICATION_SIGAFF,
         content_hash=content_hash,
@@ -524,7 +525,7 @@ def build_signature_affirmation_event(
         "author_event_hash":    aeh,
         "canonical_event_hash": canonical_hash,
         "content_hash":         content_hash,
-        "authored_at":          GENERATED_AT - 50,
+        "authored_at":          ts(GENERATED_AT[0] - 50),
         "record":               record,
     }
 
@@ -552,7 +553,7 @@ def build_certificate_event(
     cert_payload = {
         "certificate_id":        CERTIFICATE_ID,
         "case_ref":              CASE_REF,
-        "completed_at":          GENERATED_AT - 75,
+        "completed_at":          ts(GENERATED_AT[0] - 75),
         "presentation_artifact": {
             "content_hash":  presentation_content_hash,
             "media_type":    "application/pdf",
@@ -585,7 +586,7 @@ def build_certificate_event(
                 authority="urn:trellis:authority:test-cm-a-authority",
                 authority_class="new",
                 transition_id="urn:trellis:certificate:export-010",
-                effective_at=GENERATED_AT - 75,
+                effective_at=ts(GENERATED_AT[0] - 75),
             )
         ],
         "extensions": None,
@@ -601,7 +602,7 @@ def build_certificate_event(
     event_payload, event_payload_bytes, aeh, canonical_hash = build_event_payload(
         sequence=2,
         prev_hash=prev_hash,
-        authored_at=GENERATED_AT,
+        authored_at=ts(GENERATED_AT[0]),
         event_type=CERTIFICATE_EVENT_EXTENSION,
         classification=CLASSIFICATION_CERT,
         content_hash=content_hash,
@@ -721,7 +722,7 @@ def compose_export_members(
         "scope":                LEDGER_SCOPE,
         "tree_size":            tree_size,
         "tree_head_hash":       tree_root,
-        "timestamp":            GENERATED_AT,
+        "timestamp":            ts(GENERATED_AT[0]),
         "anchor_ref":           None,
         "prev_checkpoint_hash": None,
         "extensions":           None,
@@ -783,7 +784,7 @@ def compose_export_members(
         "format":                     "trellis-export/1",
         "version":                    1,
         "generator":                  "x-trellis-test/export-generator-010-cert",
-        "generated_at":               GENERATED_AT,
+        "generated_at":               ts(GENERATED_AT[0]),
         "scope":                      LEDGER_SCOPE,
         "tree_size":                  tree_size,
         "head_checkpoint_digest":     head_checkpoint_digest,

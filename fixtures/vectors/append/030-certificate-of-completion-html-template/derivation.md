@@ -19,7 +19,7 @@ ADR 0007 §"Wire shape" positive vector for `trellis.certificate-of-completion.v
    Field choices:
    - `certificate_id` = `urn:trellis:certificate:test:030`
    - `case_ref` = `None`
-   - `completed_at` = `1776899500`
+   - `completed_at` = `[1776899500, 0]`
    - `presentation_artifact.media_type` = `'text/html'`
    - `presentation_artifact.template_id` = `None`
    - `presentation_artifact.template_hash` = `non-null (32 bytes)`
@@ -38,7 +38,7 @@ ADR 0007 §"Wire shape" positive vector for `trellis.certificate-of-completion.v
    `_keys/issuer-001.cose_key` (Ed25519, suite-id 1).
 
 5. **Hashes.** Author/canonical hashes follow Core §9.5 / §9.1 framing.
-   Final `canonical_event_hash` = `a99882db77a65c6f970398a8c710807ba066d07ebf7210392aa4701b258cb5a1`.
+   Final `canonical_event_hash` = `51208211d44398733cc79192f672726bf33d0c3ae1d56fd5a0c79e9fd184aef6`.
 
 ## Phase-1 verifier posture
 

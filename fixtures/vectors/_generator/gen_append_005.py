@@ -61,6 +61,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 # ---------------------------------------------------------------------------
@@ -81,7 +82,7 @@ OUT_DIR = ROOT / "append" / "005-prior-head-chain"
 # inherited from 001 so the derivation.md can focus on the §10.2 delta.
 LEDGER_SCOPE = b"test-response-ledger"                  # bstr, §10.6; equal to 001's
 SEQUENCE = 1                                            # §10.2: `sequence > 0`
-TIMESTAMP = 1745000001                                  # +1s vs 001 for narrative clarity
+TIMESTAMP = ts(1745000001)                              # +1s vs 001 for narrative clarity
 EVENT_TYPE = b"x-trellis-test/append-minimal"           # §14.6; inherited from 001
 CLASSIFICATION = b"x-trellis-test/unclassified"         # §14.6; inherited from 001
 RETENTION_TIER = 0                                      # §12.1

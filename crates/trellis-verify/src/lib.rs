@@ -93,6 +93,32 @@ const WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE: &str = "wos.kernel.signatureAffirmat
 const WOS_INTAKE_ACCEPTED_EVENT_TYPE: &str = "wos.kernel.intakeAccepted";
 const WOS_CASE_CREATED_EVENT_TYPE: &str = "wos.kernel.caseCreated";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrellisTimestamp {
+    pub seconds: u64,
+    pub nanos: u32,
+}
+
+impl PartialOrd for TrellisTimestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TrellisTimestamp {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.seconds
+            .cmp(&other.seconds)
+            .then_with(|| self.nanos.cmp(&other.nanos))
+    }
+}
+
+impl Display for TrellisTimestamp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}, {}]", self.seconds, self.nanos)
+    }
+}
+
 /// Reserved CascadeScope identifiers from Companion Appendix A.7. Free-text
 /// scope values are non-conformant per OC-141 (Companion §20.6.3 / TR-OP-106);
 /// registry-extension `tstr` values that follow the Appendix A.7 convention
@@ -164,7 +190,7 @@ pub struct PostureTransitionOutcome {
 pub struct ErasureEvidenceOutcome {
     pub evidence_id: String,
     pub kid_destroyed: Vec<u8>,
-    pub destroyed_at: u64,
+    pub destroyed_at: TrellisTimestamp,
     pub cascade_scopes: Vec<String>,
     pub completion_mode: String,
     pub event_index: u64,
@@ -191,7 +217,7 @@ pub struct ErasureEvidenceOutcome {
 pub struct CertificateOfCompletionOutcome {
     pub certificate_id: String,
     pub event_index: u64,
-    pub completed_at: u64,
+    pub completed_at: TrellisTimestamp,
     pub signer_count: u64,
     pub attachment_resolved: bool,
     pub all_signing_events_resolved: bool,
@@ -1301,7 +1327,7 @@ struct ParsedSign1 {
 struct EventDetails {
     scope: Vec<u8>,
     sequence: u64,
-    authored_at: u64,
+    authored_at: TrellisTimestamp,
     event_type: String,
     classification: String,
     prev_hash: Option<[u8; 32]>,
@@ -1376,7 +1402,7 @@ struct EventDetails {
 struct SigningKeyEntry {
     public_key: [u8; 32],
     status: u64,
-    valid_to: Option<u64>,
+    valid_to: Option<TrellisTimestamp>,
 }
 
 /// A reserved non-signing `KeyEntry` (Core §8.7 / ADR 0006).
@@ -1402,7 +1428,7 @@ struct NonSigningKeyEntry {
     /// captured for forward-compatible enforcement (see field-level doc above).
     /// `None` for non-`subject` classes and for `subject` rows with `valid_to = null`.
     #[allow(dead_code)]
-    subject_valid_to: Option<u64>,
+    subject_valid_to: Option<TrellisTimestamp>,
 }
 
 #[derive(Clone, Debug)]
@@ -1475,7 +1501,7 @@ struct ErasureEvidenceDetails {
     /// §8.7.6 / ADR 0005 step 2). Stored as the normalized string so step 5
     /// / step 8 group reasoning compares apples to apples.
     norm_key_class: String,
-    destroyed_at: u64,
+    destroyed_at: TrellisTimestamp,
     cascade_scopes: Vec<String>,
     completion_mode: String,
     /// Phase-1 contract: every attestation row has structural shape
@@ -1512,7 +1538,7 @@ struct CertificateDetails {
     /// field but does not gate on its presence beyond the CDDL shape.
     #[allow(dead_code)]
     case_ref: Option<String>,
-    completed_at: u64,
+    completed_at: TrellisTimestamp,
     presentation_artifact: PresentationArtifactDetails,
     chain_summary: ChainSummaryDetails,
     /// `signing_events[i]` digests in workflow order. Step 5 resolves each
@@ -1601,7 +1627,7 @@ struct UserContentAttestationDetails {
     /// admission is missing.
     identity_attestation_ref: Option<[u8; 32]>,
     signing_intent: String,
-    attested_at: u64,
+    attested_at: TrellisTimestamp,
     /// 64-byte detached Ed25519 signature over `dCBOR([attestation_id,
     /// attested_event_hash, attested_event_position, attestor,
     /// identity_attestation_ref, signing_intent, attested_at])` under domain
@@ -1642,7 +1668,7 @@ struct SignerDisplayDetails {
     display_role: Option<String>,
     /// Step 6 inputs: MUST exactly equal the resolved SignatureAffirmation
     /// header `authored_at` for `signing_events[i]`.
-    signed_at: u64,
+    signed_at: TrellisTimestamp,
 }
 
 #[derive(Clone, Debug)]
@@ -1688,7 +1714,7 @@ struct ErasureEvidenceCatalogEntryRow {
     canonical_event_hash: [u8; 32],
     evidence_id: String,
     kid_destroyed: [u8; 16],
-    destroyed_at: u64,
+    destroyed_at: TrellisTimestamp,
     completion_mode: String,
     cascade_scopes: Vec<String>,
     subject_scope_kind: String,
@@ -1712,7 +1738,7 @@ struct CertificateExportExtension {
 struct CertificateCatalogEntryRow {
     canonical_event_hash: [u8; 32],
     certificate_id: String,
-    completed_at: u64,
+    completed_at: TrellisTimestamp,
     signer_count: u64,
     media_type: String,
     attachment_id: String,
@@ -2127,6 +2153,7 @@ fn verify_event_set_with_classes(
     let mut event_failures = Vec::new();
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
+    let mut previous_authored_at: Option<TrellisTimestamp> = None;
     let skip_prev_hash_check = initial_posture_declaration.is_some() && events.len() == 1;
 
     // Core §17.3 — Track every `(ledger_scope, idempotency_key)` identity
@@ -2373,6 +2400,20 @@ fn verify_event_set_with_classes(
         }
         previous_hash = Some(details.canonical_event_hash);
 
+        // ADR 0069 D-3 — timestamps must be non-decreasing along chain
+        // order. Equal timestamps are permitted; chain position
+        // disambiguates. A backwards timestamp is an integrity failure
+        // distinct from hash/signature tamper (Core §19 step 4.h-temporal).
+        if let Some(prev_at) = previous_authored_at {
+            if details.authored_at < prev_at {
+                event_failures.push(VerificationFailure::new(
+                    "timestamp_order_violation",
+                    hex_string(&details.canonical_event_hash),
+                ));
+            }
+        }
+        previous_authored_at = Some(details.authored_at);
+
         // ADR 0005 step 8 input collection — every event contributes a
         // chain summary so the post-loop pass can flag `authored_at >
         // destroyed_at` events that sign under (post_erasure_use) or wrap
@@ -2531,7 +2572,7 @@ struct ChainEventSummary {
     /// hash (parallel to existing event_failures localization).
     #[allow(dead_code)]
     event_index: u64,
-    authored_at: u64,
+    authored_at: TrellisTimestamp,
     signing_kid: Vec<u8>,
     wrap_recipients: Vec<Vec<u8>>,
     canonical_event_hash: [u8; 32],
@@ -2560,7 +2601,7 @@ fn finalize_erasure_evidence(
     }
 
     // Step 5 / 8 group state — keyed by `kid_destroyed` bytes.
-    let mut group_destroyed_at: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+    let mut group_destroyed_at: BTreeMap<Vec<u8>, TrellisTimestamp> = BTreeMap::new();
     let mut group_key_class: BTreeMap<Vec<u8>, String> = BTreeMap::new();
     let mut group_conflict_destroyed_at: BTreeSet<Vec<u8>> = BTreeSet::new();
     let mut group_conflict_key_class: BTreeSet<Vec<u8>> = BTreeSet::new();
@@ -3095,7 +3136,7 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
     }
 
     let header = map_lookup_map(payload_map, "header")?;
-    let authored_at = map_lookup_u64(header, "authored_at")?;
+    let authored_at = map_lookup_timestamp(header, "authored_at")?;
     let event_type_bytes = map_lookup_bytes(header, "event_type")?;
     let event_type = String::from_utf8(event_type_bytes)
         .map_err(|_| VerifyError::new("header.event_type is not valid UTF-8"))?;
@@ -3217,7 +3258,7 @@ fn decode_custody_model_transition(
     let transition_id = map_lookup_text(extension_map, "transition_id")?;
     let from_state = map_lookup_text(extension_map, "from_custody_model")?;
     let to_state = map_lookup_text(extension_map, "to_custody_model")?;
-    let _effective_at = map_lookup_u64(extension_map, "effective_at")?;
+    let _effective_at = map_lookup_timestamp(extension_map, "effective_at")?;
     let declaration_digest = bytes_array(&map_lookup_fixed_bytes(
         extension_map,
         "declaration_doc_digest",
@@ -3245,7 +3286,7 @@ fn decode_disclosure_profile_transition(
     let transition_id = map_lookup_text(extension_map, "transition_id")?;
     let from_state = map_lookup_text(extension_map, "from_disclosure_profile")?;
     let to_state = map_lookup_text(extension_map, "to_disclosure_profile")?;
-    let _effective_at = map_lookup_u64(extension_map, "effective_at")?;
+    let _effective_at = map_lookup_timestamp(extension_map, "effective_at")?;
     let declaration_digest = bytes_array(&map_lookup_fixed_bytes(
         extension_map,
         "declaration_doc_digest",
@@ -3328,7 +3369,7 @@ fn decode_attachment_binding_details(
 /// can short-circuit at decode time.
 fn decode_erasure_evidence_details(
     extensions: &[(Value, Value)],
-    host_authored_at: u64,
+    host_authored_at: TrellisTimestamp,
 ) -> Result<Option<ErasureEvidenceDetails>, VerifyError> {
     let Some(extension_value) =
         map_lookup_optional_value(extensions, ERASURE_EVIDENCE_EVENT_EXTENSION)
@@ -3354,7 +3395,7 @@ fn decode_erasure_evidence_details(
         wire_key_class
     };
 
-    let destroyed_at = map_lookup_u64(extension_map, "destroyed_at")?;
+    let destroyed_at = map_lookup_timestamp(extension_map, "destroyed_at")?;
 
     // Step 4: `destroyed_at` MUST be ≤ host event's `authored_at`.
     // Companion OC-144 / TR-OP-109. Violation is a structure failure with
@@ -3482,7 +3523,7 @@ fn decode_certificate_payload(
 
     let certificate_id = map_lookup_text(extension_map, "certificate_id")?;
     let case_ref = map_lookup_optional_text(extension_map, "case_ref")?;
-    let completed_at = map_lookup_u64(extension_map, "completed_at")?;
+    let completed_at = map_lookup_timestamp(extension_map, "completed_at")?;
 
     // PresentationArtifact decode.
     let pa_value = map_lookup_optional_value(extension_map, "presentation_artifact")
@@ -3530,7 +3571,7 @@ fn decode_certificate_payload(
         let principal_ref = map_lookup_text(entry_map, "principal_ref")?;
         let display_name = map_lookup_text(entry_map, "display_name")?;
         let display_role = map_lookup_optional_text(entry_map, "display_role")?;
-        let signed_at = map_lookup_u64(entry_map, "signed_at")?;
+        let signed_at = map_lookup_timestamp(entry_map, "signed_at")?;
         signer_display.push(SignerDisplayDetails {
             principal_ref,
             display_name,
@@ -3668,7 +3709,7 @@ fn decode_certificate_payload(
 /// - structural CDDL shape per Core §28 / ADR 0010 §"Wire shape"
 fn decode_user_content_attestation_payload(
     extensions: &[(Value, Value)],
-    host_authored_at: u64,
+    host_authored_at: TrellisTimestamp,
 ) -> Result<Option<UserContentAttestationDetails>, VerifyError> {
     let Some(extension_value) =
         map_lookup_optional_value(extensions, USER_CONTENT_ATTESTATION_EVENT_EXTENSION)
@@ -3688,7 +3729,7 @@ fn decode_user_content_attestation_payload(
         map_lookup_optional_fixed_bytes(extension_map, "identity_attestation_ref", 32)?
             .map(|bytes| bytes_array(&bytes));
     let signing_intent = map_lookup_text(extension_map, "signing_intent")?;
-    let attested_at = map_lookup_u64(extension_map, "attested_at")?;
+    let attested_at = map_lookup_timestamp(extension_map, "attested_at")?;
     let signature_bytes = map_lookup_fixed_bytes(extension_map, "signature", 64)?;
     let signature: [u8; 64] = signature_bytes
         .as_slice()
@@ -3754,12 +3795,16 @@ fn compute_user_content_attestation_preimage(
     attestor: &str,
     identity_attestation_ref: Option<&[u8; 32]>,
     signing_intent: &str,
-    attested_at: u64,
+    attested_at: TrellisTimestamp,
 ) -> Vec<u8> {
     let identity_value = match identity_attestation_ref {
         Some(digest) => Value::Bytes(digest.to_vec()),
         None => Value::Null,
     };
+    let timestamp_value = Value::Array(vec![
+        Value::Integer(attested_at.seconds.into()),
+        Value::Integer(attested_at.nanos.into()),
+    ]);
     let array = Value::Array(vec![
         Value::Text(attestation_id.to_owned()),
         Value::Bytes(attested_event_hash.to_vec()),
@@ -3767,7 +3812,7 @@ fn compute_user_content_attestation_preimage(
         Value::Text(attestor.to_owned()),
         identity_value,
         Value::Text(signing_intent.to_owned()),
-        Value::Integer(attested_at.into()),
+        timestamp_value,
     ]);
     let mut buf = Vec::new();
     ciborium::ser::into_writer(&array, &mut buf)
@@ -4930,7 +4975,7 @@ fn parse_erasure_catalog_entries(
                 )?),
                 evidence_id: map_lookup_text(map, "evidence_id")?,
                 kid_destroyed,
-                destroyed_at: map_lookup_u64(map, "destroyed_at")?,
+                destroyed_at: map_lookup_timestamp(map, "destroyed_at")?,
                 completion_mode: map_lookup_text(map, "completion_mode")?,
                 cascade_scopes,
                 subject_scope_kind: map_lookup_text(map, "subject_scope_kind")?,
@@ -5084,7 +5129,7 @@ fn parse_certificate_catalog_entries(
                     32,
                 )?),
                 certificate_id: map_lookup_text(map, "certificate_id")?,
-                completed_at: map_lookup_u64(map, "completed_at")?,
+                completed_at: map_lookup_timestamp(map, "completed_at")?,
                 signer_count: map_lookup_u64(map, "signer_count")?,
                 media_type: map_lookup_text(map, "media_type")?,
                 attachment_id: map_lookup_text(map, "attachment_id")?,
@@ -5802,16 +5847,18 @@ fn parse_key_registry(
             None | Some("signing") => {
                 let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
                 let status = map_lookup_u64(map, "status")?;
-                let valid_to = match map_lookup_optional_value(map, "valid_to") {
-                    Some(Value::Integer(value)) => {
-                        Some(u64::try_from(*value).map_err(|_| {
-                            VerifyError::new("signing-key registry valid_to is out of range")
-                        })?)
-                    }
+                let valid_to: Option<TrellisTimestamp> = match map_lookup_optional_value(map, "valid_to") {
+                    Some(Value::Array(arr)) => Some(decode_timestamp_array(arr)?),
                     Some(Value::Null) | None => None,
+                    Some(Value::Integer(_)) => {
+                        return Err(VerifyError::with_kind(
+                            "signing-key registry valid_to is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1",
+                            "legacy_timestamp_format",
+                        ));
+                    }
                     Some(_) => {
                         return Err(VerifyError::new(
-                            "signing-key registry valid_to is neither uint nor null",
+                            "signing-key registry valid_to is neither timestamp array nor null",
                         ));
                     }
                 };
@@ -5864,24 +5911,23 @@ fn parse_key_registry(
                 // for forward-compatible Phase-2+ enforcement; absent or
                 // null is the dominant Phase-1 case. Other classes don't
                 // carry a `valid_to` field per §8.7.2.
-                let subject_valid_to = if class == "subject" {
+                let subject_valid_to: Option<TrellisTimestamp> = if class == "subject" {
                     let valid_to_field = attributes_map
                         .and_then(|m| m.iter().find(|(k, _)| k.as_text() == Some("valid_to")));
                     match valid_to_field {
-                        Some((_, Value::Integer(integer))) => Some(
-                            u64::try_from(*integer).map_err(|_| {
-                                VerifyError::with_kind(
-                                    "key_entry_attributes_shape_mismatch: \
-                                     subject `valid_to` is out of u64 range (Core §8.7.2)",
-                                    "key_entry_attributes_shape_mismatch",
-                                )
-                            })?,
-                        ),
+                        Some((_, Value::Array(arr))) => Some(decode_timestamp_array(arr)?),
                         Some((_, Value::Null)) | None => None,
+                        Some((_, Value::Integer(_))) => {
+                            return Err(VerifyError::with_kind(
+                                "key_entry_attributes_shape_mismatch: subject \
+                                 `valid_to` is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1",
+                                "key_entry_attributes_shape_mismatch",
+                            ));
+                        }
                         Some(_) => {
                             return Err(VerifyError::with_kind(
                                 "key_entry_attributes_shape_mismatch: subject \
-                                 `valid_to` is neither uint nor null (Core §8.7.2)",
+                                 `valid_to` is neither timestamp array nor null (Core §8.7.2)",
                                 "key_entry_attributes_shape_mismatch",
                             ));
                         }
@@ -6309,6 +6355,58 @@ fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, VerifyE
         .ok_or_else(|| VerifyError::new(format!("`{key_name}` is not an unsigned integer")))
 }
 
+fn decode_timestamp_array(arr: &[Value]) -> Result<TrellisTimestamp, VerifyError> {
+    if arr.len() != 2 {
+        return Err(VerifyError::new("timestamp array must have exactly 2 elements"));
+    }
+    let seconds = match &arr[0] {
+        Value::Integer(i) => u64::try_from(*i).map_err(|_| {
+            VerifyError::new("timestamp seconds out of u64 range")
+        })?,
+        _ => {
+            return Err(VerifyError::new(
+                "timestamp seconds must be uint",
+            ))
+        }
+    };
+    let nanos = match &arr[1] {
+        Value::Integer(i) => u32::try_from(*i).map_err(|_| {
+            VerifyError::new("timestamp nanos out of u32 range")
+        })?,
+        _ => {
+            return Err(VerifyError::new(
+                "timestamp nanos must be uint",
+            ))
+        }
+    };
+    if nanos > 999_999_999 {
+        return Err(VerifyError::new(format!(
+            "timestamp nanos must be 0..999999999, got {nanos}"
+        )));
+    }
+    Ok(TrellisTimestamp { seconds, nanos })
+}
+
+fn map_lookup_timestamp(
+    map: &[(Value, Value)],
+    key_name: &str,
+) -> Result<TrellisTimestamp, VerifyError> {
+    let value = map_lookup_optional_value(map, key_name)
+        .ok_or_else(|| VerifyError::new(format!("missing `{key_name}`")))?;
+    match value {
+        Value::Array(arr) => decode_timestamp_array(arr),
+        Value::Integer(_) => Err(VerifyError::with_kind(
+            format!(
+                "{key_name} is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1"
+            ),
+            "legacy_timestamp_format",
+        )),
+        _ => Err(VerifyError::new(format!(
+            "{key_name} must be [uint, uint] array"
+        ))),
+    }
+}
+
 fn map_lookup_bool(map: &[(Value, Value)], key_name: &str) -> Result<bool, VerifyError> {
     map_lookup_optional_value(map, key_name)
         .and_then(Value::as_bool)
@@ -6427,6 +6525,7 @@ mod tests {
         export_archive_for_tests, is_interop_sidecar_path_valid, parse_sign1_bytes,
         parse_signing_key_registry, verify_event_set, verify_export_zip,
         verify_interop_sidecars, verify_single_event, verify_tampered_ledger,
+        TrellisTimestamp,
     };
 
     /// TR-CORE-167 — `interop_sidecar_path_invalid` predicate (ADR 0008
@@ -6827,7 +6926,10 @@ mod tests {
         let entry_map = registry_entries[0].as_map_mut().unwrap();
         for (key, value) in entry_map.iter_mut() {
             if key.as_text() == Some("valid_to") {
-                *value = ciborium::Value::Integer(1745109999u64.into());
+                *value = ciborium::Value::Array(vec![
+                    ciborium::Value::Integer(1745109999u64.into()),
+                    ciborium::Value::Integer(0u32.into()),
+                ]);
             }
         }
         let mut registry_bytes = Vec::new();
@@ -7205,7 +7307,10 @@ mod tests {
                     ),
                     (
                         Value::Text("destroyed_at".into()),
-                        Value::Integer(destroyed_at.into()),
+                        Value::Array(vec![
+                            Value::Integer(destroyed_at.into()),
+                            Value::Integer(0u32.into()),
+                        ]),
                     ),
                     (
                         Value::Text("cascade_scopes".into()),
@@ -7388,13 +7493,13 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
             .unwrap()
             .expect("erasure extension must decode");
         assert_eq!(details.evidence_id, "urn:trellis:erasure:test:1");
         assert_eq!(details.kid_destroyed, kid.to_vec());
         assert_eq!(details.norm_key_class, "signing");
-        assert_eq!(details.destroyed_at, 1_745_000_000);
+        assert_eq!(details.destroyed_at, TrellisTimestamp { seconds: 1_745_000_000, nanos: 0 });
         assert_eq!(details.cascade_scopes, vec!["CS-03"]);
         assert_eq!(details.completion_mode, "complete");
         assert!(details.attestation_signatures_well_formed);
@@ -7407,7 +7512,7 @@ mod tests {
             Value::Map(vec![]),
         )];
         let result =
-            super::decode_erasure_evidence_details(&extensions, 1_745_000_000).unwrap();
+            super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_000, nanos: 0 }).unwrap();
         assert!(result.is_none(), "no erasure-evidence ext → None");
     }
 
@@ -7426,7 +7531,7 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -7455,7 +7560,7 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert!(err.to_string().contains("subject_scope"));
     }
 
@@ -7474,7 +7579,7 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert_eq!(err.kind(), Some("erasure_destroyed_at_after_host"));
     }
 
@@ -7491,7 +7596,7 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert!(err.to_string().contains("hsm_receipt"));
     }
 
@@ -7508,7 +7613,7 @@ mod tests {
             Some(Value::Text("opaque-vendor-receipt-v1".into())),
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert!(err.to_string().contains("hsm_receipt"));
     }
 
@@ -7525,7 +7630,7 @@ mod tests {
             Some(Value::Text("opaque-vendor-receipt-v1".into())),
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
             .unwrap()
             .unwrap();
         assert_eq!(details.evidence_id, "urn:trellis:erasure:test:1");
@@ -7561,7 +7666,7 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
             .unwrap()
             .unwrap();
         assert!(!details.attestation_signatures_well_formed);
@@ -7580,7 +7685,7 @@ mod tests {
             None,
             vec![], // empty
         );
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert!(err.to_string().contains("cascade_scopes"));
     }
 
@@ -7597,7 +7702,7 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert!(err.to_string().contains("attestations"));
     }
 
@@ -7654,7 +7759,7 @@ mod tests {
                 (Value::Text("extensions".into()), Value::Null),
             ]),
         )];
-        let err = super::decode_erasure_evidence_details(&extensions, 1_745_000_100).unwrap_err();
+        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
         assert!(err.to_string().contains("kid_destroyed"));
     }
 
@@ -7671,7 +7776,7 @@ mod tests {
             None,
             vec!["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, 1_745_000_100)
+        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
             .unwrap()
             .unwrap();
         assert_eq!(details.subject_scope_kind, "deployment-wide");
@@ -7697,7 +7802,7 @@ mod tests {
             evidence_id: format!("urn:trellis:erasure:test:{}", kid[0]),
             kid_destroyed: kid,
             norm_key_class: norm_key_class.to_string(),
-            destroyed_at,
+            destroyed_at: super::TrellisTimestamp { seconds: destroyed_at, nanos: 0 },
             cascade_scopes: vec!["CS-03".to_string()],
             completion_mode: "complete".to_string(),
             attestation_signatures_well_formed: true,
@@ -7715,7 +7820,7 @@ mod tests {
     ) -> super::ChainEventSummary {
         super::ChainEventSummary {
             event_index: index,
-            authored_at,
+            authored_at: super::TrellisTimestamp { seconds: authored_at, nanos: 0 },
             signing_kid,
             wrap_recipients,
             canonical_event_hash,
@@ -8116,7 +8221,10 @@ mod tests {
                 Value::Text("Test Signer".into()),
             ),
             (Value::Text("display_role".into()), Value::Null),
-            (Value::Text("signed_at".into()), Value::Integer(signed_at.into())),
+            (Value::Text("signed_at".into()), Value::Array(vec![
+                Value::Integer(signed_at.into()),
+                Value::Integer(0.into()),
+            ])),
         ])
     }
 
@@ -8167,7 +8275,7 @@ mod tests {
                 (Value::Text("case_ref".into()), Value::Null),
                 (
                     Value::Text("completed_at".into()),
-                    Value::Integer(1_745_100_000u64.into()),
+                    Value::Array(vec![Value::Integer(1_745_100_000u64.into()), Value::Integer(0.into())]),
                 ),
                 (
                     Value::Text("presentation_artifact".into()),
@@ -8214,7 +8322,7 @@ mod tests {
             .unwrap()
             .expect("certificate extension must decode");
         assert_eq!(details.certificate_id, "urn:trellis:cert:test:1");
-        assert_eq!(details.completed_at, 1_745_100_000);
+        assert_eq!(details.completed_at, TrellisTimestamp { seconds: 1_745_100_000, nanos: 0 });
         assert_eq!(details.chain_summary.signer_count, 1);
         assert_eq!(details.signing_events.len(), 1);
         assert_eq!(details.signing_events[0], signing_event);
@@ -8424,13 +8532,13 @@ mod tests {
                 principal_ref: format!("urn:trellis:principal:test-{i}"),
                 display_name: "Test".to_string(),
                 display_role: None,
-                signed_at: 1_745_099_000 + i as u64,
+                signed_at: TrellisTimestamp { seconds: 1_745_099_000 + i as u64, nanos: 0 },
             })
             .collect();
         super::CertificateDetails {
             certificate_id: certificate_id.to_string(),
             case_ref: None,
-            completed_at: 1_745_100_000,
+            completed_at: TrellisTimestamp { seconds: 1_745_100_000, nanos: 0 },
             presentation_artifact: super::PresentationArtifactDetails {
                 content_hash: [0u8; 32],
                 media_type: "application/pdf".to_string(),
@@ -8475,7 +8583,7 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].certificate_id, "cert-1");
         assert_eq!(outcomes[0].signer_count, 1);
-        assert_eq!(outcomes[0].completed_at, 1_745_100_000);
+        assert_eq!(outcomes[0].completed_at, TrellisTimestamp { seconds: 1_745_100_000, nanos: 0 });
         // Empty events slice → unresolvable signing event → step 5 flags.
         assert!(!outcomes[0].all_signing_events_resolved);
         assert!(
@@ -8625,6 +8733,7 @@ mod tests {
         signing_kid: Vec<u8>,
         identity_attestation_ref: Option<[u8; 32]>,
     ) -> super::UserContentAttestationDetails {
+        let attested_at_ts = super::TrellisTimestamp { seconds: attested_at, nanos: 0 };
         let attested_event_hash = [0xAAu8; 32];
         let attested_event_position = 0;
         let canonical_preimage = super::compute_user_content_attestation_preimage(
@@ -8634,7 +8743,7 @@ mod tests {
             attestor,
             identity_attestation_ref.as_ref(),
             signing_intent,
-            attested_at,
+            attested_at_ts,
         );
         super::UserContentAttestationDetails {
             attestation_id: attestation_id.to_string(),
@@ -8643,7 +8752,7 @@ mod tests {
             attestor: attestor.to_string(),
             identity_attestation_ref,
             signing_intent: signing_intent.to_string(),
-            attested_at,
+            attested_at: attested_at_ts,
             signature: [0u8; 64],
             signing_kid,
             canonical_preimage,
@@ -8881,7 +8990,7 @@ mod tests {
         );
         let mut b = a.clone();
         // Mutate an inner field so the canonical payloads disagree.
-        b.attested_at = 1_776_900_999;
+        b.attested_at = super::TrellisTimestamp { seconds: 1_776_900_999, nanos: 0 };
         // Canonical preimages must reflect the divergence.
         a.canonical_preimage = super::compute_user_content_attestation_preimage(
             &a.attestation_id,
@@ -8973,7 +9082,10 @@ mod tests {
             (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
             (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
             (Value::Text("signing_intent".into()), Value::Text("urn:trellis:intent:applicant".into())),
-            (Value::Text("attested_at".into()), Value::Integer(1_776_900_000u64.into())),
+            (Value::Text("attested_at".into()), Value::Array(vec![
+                Value::Integer(1_776_900_000u64.into()),
+                Value::Integer(0u32.into()),
+            ])),
             (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
             (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes)),
         ]);
@@ -8982,7 +9094,10 @@ mod tests {
             extension_value,
         )];
         // Host envelope authored_at differs from payload attested_at.
-        let decoded = super::decode_user_content_attestation_payload(&extensions, 1_776_900_999)
+        let decoded = super::decode_user_content_attestation_payload(
+            &extensions,
+            super::TrellisTimestamp { seconds: 1_776_900_999, nanos: 0 },
+        )
             .expect("step 2 failures decode cleanly; finalize raises them");
         let details = decoded.expect("payload present");
         assert_eq!(
@@ -9004,7 +9119,10 @@ mod tests {
             (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
             (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
             (Value::Text("signing_intent".into()), Value::Text("not-a-uri".into())),
-            (Value::Text("attested_at".into()), Value::Integer(1_776_900_000u64.into())),
+            (Value::Text("attested_at".into()), Value::Array(vec![
+                Value::Integer(1_776_900_000u64.into()),
+                Value::Integer(0u32.into()),
+            ])),
             (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
             (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes)),
         ]);
@@ -9012,7 +9130,10 @@ mod tests {
             Value::Text(super::USER_CONTENT_ATTESTATION_EVENT_EXTENSION.into()),
             extension_value,
         )];
-        let decoded = super::decode_user_content_attestation_payload(&extensions, 1_776_900_000)
+        let decoded = super::decode_user_content_attestation_payload(
+            &extensions,
+            super::TrellisTimestamp { seconds: 1_776_900_000, nanos: 0 },
+        )
             .expect("step 2 failures decode cleanly; finalize raises them");
         let details = decoded.expect("payload present");
         assert_eq!(
@@ -9024,7 +9145,10 @@ mod tests {
     #[test]
     fn decode_uca_payload_returns_none_when_extension_absent() {
         let extensions: Vec<(Value, Value)> = vec![];
-        let decoded = super::decode_user_content_attestation_payload(&extensions, 0)
+        let decoded = super::decode_user_content_attestation_payload(
+            &extensions,
+            super::TrellisTimestamp { seconds: 0, nanos: 0 },
+        )
             .expect("absent extension is not an error");
         assert!(decoded.is_none());
     }
@@ -9039,7 +9163,10 @@ mod tests {
             (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
             (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
             (Value::Text("signing_intent".into()), Value::Text("urn:trellis:intent:applicant".into())),
-            (Value::Text("attested_at".into()), Value::Integer(1_776_900_000u64.into())),
+            (Value::Text("attested_at".into()), Value::Array(vec![
+                Value::Integer(1_776_900_000u64.into()),
+                Value::Integer(0u32.into()),
+            ])),
             (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
             (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes.clone())),
         ]);
@@ -9047,7 +9174,10 @@ mod tests {
             Value::Text(super::USER_CONTENT_ATTESTATION_EVENT_EXTENSION.into()),
             extension_value,
         )];
-        let decoded = super::decode_user_content_attestation_payload(&extensions, 1_776_900_000)
+        let decoded = super::decode_user_content_attestation_payload(
+            &extensions,
+            super::TrellisTimestamp { seconds: 1_776_900_000, nanos: 0 },
+        )
             .expect("well-formed payload decodes")
             .expect("extension is present");
         assert_eq!(decoded.attestation_id, "uca-ok-1");
@@ -9056,5 +9186,85 @@ mod tests {
         assert_eq!(decoded.signing_kid, kid_bytes);
         assert_eq!(decoded.signature.len(), 64);
         assert!(!decoded.canonical_preimage.is_empty());
+    }
+
+    #[test]
+    fn verify_tampered_ledger_detects_timestamp_order_violation() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/tamper/041-timestamp-backwards");
+        let report = verify_tampered_ledger(
+            &fs::read(root.join("input-signing-key-registry.cbor")).unwrap(),
+            &fs::read(root.join("input-tampered-ledger.cbor")).unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(report.structure_verified);
+        assert!(!report.integrity_verified);
+        assert!(report.readability_verified);
+        assert_eq!(
+            report.event_failures[0].kind,
+            "timestamp_order_violation"
+        );
+    }
+
+    #[test]
+    fn verify_equal_timestamps_pass_temporal_check() {
+        let genesis_root =
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/vectors/append/001-minimal-inline-payload");
+        let chain_root =
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/vectors/append/005-prior-head-chain");
+        let registry_root =
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/vectors/tamper/041-timestamp-backwards");
+
+        let genesis_event =
+            parse_sign1_bytes(&fs::read(genesis_root.join("expected-event.cbor")).unwrap())
+                .unwrap();
+        let chain_event =
+            parse_sign1_bytes(&fs::read(chain_root.join("expected-event.cbor")).unwrap()).unwrap();
+
+        let registry_bytes =
+            fs::read(registry_root.join("input-signing-key-registry.cbor")).unwrap();
+        let registry = parse_signing_key_registry(&registry_bytes).unwrap();
+
+        let report = verify_event_set(
+            &[genesis_event, chain_event],
+            &registry,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        assert!(report.structure_verified);
+        assert!(
+            report.integrity_verified,
+            "append/001 + append/005 chain should pass all checks including temporal order \
+             (authored_at 1745000000 < 1745000001 is non-decreasing)"
+        );
+        assert!(report.event_failures.is_empty());
+    }
+
+    #[test]
+    fn verify_rejects_legacy_uint_timestamp_format() {
+        let header: Vec<(Value, Value)> = vec![
+            (Value::Text("event_type".into()), Value::Bytes(b"x-trellis-test/append-minimal".to_vec())),
+            (Value::Text("authored_at".into()), Value::Integer(1745000000.into())),
+            (Value::Text("retention_tier".into()), Value::Integer(0.into())),
+            (Value::Text("classification".into()), Value::Bytes(b"x-trellis-test/unclassified".to_vec())),
+            (Value::Text("outcome_commitment".into()), Value::Null),
+            (Value::Text("subject_ref_commitment".into()), Value::Null),
+            (Value::Text("tag_commitment".into()), Value::Null),
+            (Value::Text("witness_ref".into()), Value::Null),
+            (Value::Text("extensions".into()), Value::Null),
+        ];
+        let result = super::map_lookup_timestamp(&header, "authored_at");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), Some("legacy_timestamp_format"));
     }
 }

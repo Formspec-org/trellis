@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "crates/trellis-types",
+    "crates/trellis-cddl",
+    "crates/trellis-cose",
+    "crates/trellis-hpke",
+    "crates/trellis-core",
+    "crates/trellis-verify",
+    "crates/trellis-store-memory",
+    "crates/trellis-store-postgres",
+    "crates/trellis-export",
+    "crates/trellis-conformance",
+    "crates/trellis-cli",
+    "crates/trellis-interop-scitt",
+    "crates/trellis-interop-vc",
+    "crates/trellis-interop-c2pa",
+    "crates/trellis-interop-did",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"

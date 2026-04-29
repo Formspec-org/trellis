@@ -6,7 +6,7 @@
 * seq 1: host event
 * seq 2: user-content-attestation event with `attestor` = `"urn:trellis:principal:applicant-031"`,
   `identity_attestation_ref` = seq 0's `canonical_event_hash`
-  (`6e7f4e3d8e18574a541d28a5ad99af919a2e7274959eef66398b1f0add5bf3bd`).
+  (`352dccadcc522191505c91e77f83baa99bb13109d52a1894364beeb003832eea`).
 
 Per ADR 0010 §"Verifier obligations" step 4, the resolved identity-
 attestation event's payload subject MUST equal `attestor`. This vector's

@@ -29,6 +29,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -44,7 +45,7 @@ ATTACHMENT_CIPHERTEXT = (
 
 LEDGER_SCOPE = b"respondent-ledger:resp-8d0b1e85"
 SEQUENCE = 0
-TIMESTAMP = 1776866400
+TIMESTAMP = ts(1776866400)
 EVENT_TYPE = b"formspec.attachment.added"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0

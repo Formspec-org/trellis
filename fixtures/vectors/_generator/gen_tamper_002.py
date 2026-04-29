@@ -30,10 +30,15 @@ sufficient to reach the failing step).
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 KEY_ISSUER = ROOT / "_keys" / "issuer-001.cose_key"
@@ -45,7 +50,7 @@ OUT_DIR = ROOT / "tamper" / "002-transition-from-mismatch"
 
 LEDGER_SCOPE = b"test-response-ledger"
 SEQUENCE = 1
-TIMESTAMP = 1745000400
+TIMESTAMP = ts(1745000400)
 EVENT_TYPE = b"trellis.custody-model-transition.v1"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0
@@ -125,7 +130,7 @@ def build_initial_declaration_bytes() -> bytes:
         "declaration_id":            "urn:trellis:declaration:test:tamper-002-initial",
         "operator_id":               "urn:trellis:operator:test",
         "scope":                     "test-response-ledger",
-        "effective_from":            1745000000,
+        "effective_from":            ts(1745000000),
         "supersedes":                None,
         "custody_model":             {"custody_model_id": INITIAL_CUSTODY_MODEL},
         "disclosure_profile":        "rl-profile-A",
@@ -293,7 +298,7 @@ def main() -> None:
         "pubkey":      issuer_pub,
         "suite_id":    SUITE_ID,
         "status":      0,                   # Active
-        "valid_from":  1745000000,
+        "valid_from":  ts(1745000000),
         "valid_to":    None,
         "supersedes":  None,
         "attestation": None,

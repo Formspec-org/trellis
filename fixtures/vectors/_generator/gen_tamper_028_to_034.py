@@ -53,6 +53,7 @@ from _lib.byte_utils import (  # noqa: E402
     SUITE_ID_PHASE_1,
     dcbor,
     domain_separated_sha256,
+    ts,
 )
 
 
@@ -74,7 +75,7 @@ TAG_TRELLIS_CONTENT_V1 = "trellis-content-v1"
 TAG_USER_CONTENT_ATTESTATION_V1 = "trellis-user-content-attestation-v1"
 TAG_TRELLIS_TRANSITION_ATTESTATION_V1 = "trellis-transition-attestation-v1"
 
-HOST_AUTHORED_AT = 1_776_900_000
+HOST_AUTHORED_AT = ts(1_776_900_000)
 
 
 # ---------------------------------------------------------------------------

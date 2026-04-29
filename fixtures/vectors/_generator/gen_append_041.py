@@ -17,13 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import sys
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives.asymmetric import x25519
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import x25519  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305  # noqa: E402
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
+
+from _lib.byte_utils import ts  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SIGNING_KEY_FILE = ROOT / "_keys" / "issuer-001.cose_key"
@@ -34,7 +39,7 @@ OUT_DIR = ROOT / "append" / "041-aead-retry-determinism"
 
 LEDGER_SCOPE = b"test-response-ledger"
 SEQUENCE = 0
-TIMESTAMP = 1745000041
+TIMESTAMP = ts(1745000041)
 EVENT_TYPE = b"x-trellis-test/aead-retry-determinism"
 CLASSIFICATION = b"x-trellis-test/unclassified"
 RETENTION_TIER = 0
