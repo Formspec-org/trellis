@@ -246,7 +246,7 @@ InteropSidecarVerificationEntry = {
 
 ## Crate-hygiene contract
 
-A Phase-1 `cargo test -p trellis-verify` build MUST NOT pull in any interop adapter crate, any JSON-LD processor, any RDF canonicalizer, any VC library, any SCITT library, any DID library, or any C2PA library. A `cargo-deny` (or equivalent) guard configuration MUST enumerate forbidden transitive deps for `trellis-core` / `trellis-verify` / `trellis-types` at the point Phase-1 verifier reservation work (step 2 of *Implementation sequencing*) executes.
+A Phase-1 `cargo nextest run -p trellis-verify` build MUST NOT pull in any interop adapter crate, any JSON-LD processor, any RDF canonicalizer, any VC library, any SCITT library, any DID library, or any C2PA library. A `cargo-deny` (or equivalent) guard configuration MUST enumerate forbidden transitive deps for `trellis-core` / `trellis-verify` / `trellis-types` at the point Phase-1 verifier reservation work (step 2 of *Implementation sequencing*) executes.
 
 The adapter crates, when implemented, MUST depend on `trellis-types` only (for canonical struct shapes); they MUST NOT depend on `trellis-core` or `trellis-verify` runtime code. This keeps the dependency graph one-way: Core → Types; Interop → Types; never Core → Interop.
 

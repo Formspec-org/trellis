@@ -9,7 +9,7 @@
 //!
 //! **Gated under the `test-vectors` Cargo feature** because it exercises
 //! `wrap_dek_with_pinned_ephemeral`, the Core §9.4 carve-out path. Run
-//! via `cargo test -p trellis-hpke --features test-vectors`.
+//! via `cargo nextest run -p trellis-hpke --features test-vectors`.
 
 #![cfg(feature = "test-vectors")]
 #![forbid(unsafe_code)]

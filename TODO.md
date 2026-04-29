@@ -365,6 +365,6 @@ architectural debt. Nothing is released.
 | Fixture corpus | `fixtures/vectors/` |
 | Rust reference impl | `crates/` (workspace root: `../Cargo.toml`) |
 | Python cross-check (G-5) | `trellis-py/` |
-| Green check | `python3 scripts/check-specs.py && cargo test --workspace && python -m trellis_py.conformance` |
+| Green check | `python3 scripts/check-specs.py && cargo nextest run --workspace && python -m trellis_py.conformance` |
 
 Spec-sized work: move substance to [`thoughts/specs/`](thoughts/specs/), keep a pointer here. Landed work: move to [`COMPLETED.md`](COMPLETED.md).

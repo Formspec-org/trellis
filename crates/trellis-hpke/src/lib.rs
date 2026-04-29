@@ -33,7 +33,7 @@
 //!   sender chose `sk_eph`. The feature gate is the production-graph
 //!   firewall: a binary built without `--features test-vectors` cannot
 //!   link the carve-out path even by mistake. Re-enable for byte-oracle
-//!   replays via `cargo test -p trellis-hpke --features test-vectors`.
+//!   replays via `cargo nextest run -p trellis-hpke --features test-vectors`.
 //!
 //! - [`unwrap_dek`] — production / verifier open. Constructs the
 //!   `X25519HkdfSha256` private key from a 32-byte recipient seed, then
@@ -180,7 +180,7 @@ pub fn wrap_dek(
 /// of any crate downstream of `trellis-hpke` (i.e. without
 /// `--features test-vectors` enabled) cannot link this symbol. The test
 /// suite enables the feature explicitly via
-/// `cargo test -p trellis-hpke --features test-vectors`.
+/// `cargo nextest run -p trellis-hpke --features test-vectors`.
 ///
 /// Implements RFC 9180 §5.1.1 Encap + §5.1 KeySchedule + AEAD seal
 /// directly because `hpke::setup_sender` always runs DeriveKeyPair on

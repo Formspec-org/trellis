@@ -42,9 +42,9 @@ test: test-rust test-python test-scripts check-specs check-verifier-isolation
 
 test-rust:
 	@echo "Running Rust tests..."
-	$(CARGO) test --workspace
+	$(CARGO) nextest run --workspace
 	@echo "Running trellis-hpke byte oracle (test-vectors feature)..."
-	$(CARGO) test -p trellis-hpke --features test-vectors
+	$(CARGO) nextest run -p trellis-hpke --features test-vectors
 
 test-python:
 	@echo "Running Python conformance tests..."
@@ -57,15 +57,15 @@ test-scripts:
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_specs.py
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_vector_renumbering.py
 
-# Targeted run of the Postgres-side integration suite. `cargo test --workspace`
+# Targeted run of the Postgres-side integration suite. `cargo nextest run --workspace`
 # already exercises these — this target exists for fast iteration on the
 # canonical-side of the wos-server EventStore composition (per VISION.md §V).
 # Requires `initdb` and `pg_ctl` discoverable on PATH (Postgres 14+; tested
 # against Postgres 16 via `/opt/homebrew/opt/postgresql@16/bin`).
 test-postgres:
 	@echo "Running trellis-store-postgres + parity integration tests..."
-	$(CARGO) test -p trellis-store-postgres
-	$(CARGO) test -p trellis-conformance --test store_parity
+	$(CARGO) nextest run -p trellis-store-postgres
+	$(CARGO) nextest run -p trellis-conformance --test store_parity
 
 check-specs:
 	@echo "Running spec checks..."

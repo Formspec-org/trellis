@@ -46,7 +46,7 @@ license.workspace = true
 #     `append/004` flows through these directly; AEAD nonce schedules,
 #     KDF derivation, X25519 scalar clamping, and HKDF chaining are
 #     under-specified to the version. Re-run
-#     `cargo test -p trellis-hpke --features test-vectors` after any
+#     `cargo nextest run -p trellis-hpke --features test-vectors` after any
 #     bump and confirm the `append_004_byte_match.rs` byte oracle is
 #     still green.
 # (3) Crate spike → ADR promotion: `thoughts/adr/0009-hpke-crate-selection.md`
@@ -58,7 +58,7 @@ license.workspace = true
 # fixture-only KDF / X25519 / AEAD imports so the production
 # crate-graph cannot link the Core §9.4 test-vector carve-out. Enable
 # in test invocations that replay the `append/004` byte oracle:
-# `cargo test -p trellis-hpke --features test-vectors`.
+# `cargo nextest run -p trellis-hpke --features test-vectors`.
 default = []
 test-vectors = []
 

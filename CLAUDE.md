@@ -67,12 +67,12 @@ Apply after stack-wide heuristics (in [`../VISION.md`](../VISION.md)):
 ```bash
 # Targeted
 cargo check --workspace
-cargo test -p trellis-core
-cargo test -p trellis-verify
-cargo test -p trellis-conformance         # full-corpus replay (G-4 oracle)
+cargo nextest run -p trellis-core
+cargo nextest run -p trellis-verify
+cargo nextest run -p trellis-conformance         # full-corpus replay (G-4 oracle)
 
 # Full
-cargo test --workspace
+cargo nextest run --workspace
 cd trellis-py && python3 -m pytest -q     # stranger cross-check (G-5 oracle)
 python3 scripts/check-specs.py            # spec discipline + fixture coverage
 
