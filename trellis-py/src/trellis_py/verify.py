@@ -287,6 +287,12 @@ class EventDetails:
     author_event_hash: bytes
     content_hash: bytes
     canonical_event_hash: bytes
+    # Core §6.1 / §17.2 wire-contract identity. Length is validated against
+    # `bstr .size (1..64)` at parse time; out-of-bound length surfaces as a
+    # typed VerifyError with kind "idempotency_key_length_invalid". Used by
+    # the per-event-set loop to detect §17.3 duplicate (scope, key) identity
+    # with divergent canonical material. TR-CORE-158, TR-CORE-160, TR-CORE-161.
+    idempotency_key: bytes
     payload_ref_inline: Optional[bytes]
     payload_ref_external: bool
     transition: Optional["TransitionDetails"]
@@ -1171,6 +1177,23 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
     author_event_hash = _map_lookup_fixed_bytes(payload_value, "author_event_hash", 32)
     content_hash = _map_lookup_fixed_bytes(payload_value, "content_hash", 32)
     canonical_event_hash = _recompute_canonical_event_hash(scope, event.payload)
+
+    # Core §6.1 / §17.2 — `idempotency_key` MUST be a CBOR byte string of
+    # 1..=64 bytes. Length-bound violations surface as the typed §17.5
+    # `idempotency_key_length_invalid` so the report's `tamper_kind`
+    # localizes the structural failure (TR-CORE-158).
+    idempotency_key = _map_lookup_bytes(payload_value, "idempotency_key")
+    if not isinstance(idempotency_key, bytes):
+        raise VerifyError(
+            "idempotency_key is not a CBOR byte string",
+            kind="idempotency_key_length_invalid",
+        )
+    if len(idempotency_key) == 0 or len(idempotency_key) > 64:
+        raise VerifyError(
+            f"idempotency_key length {len(idempotency_key)} outside Core §6.1 / §17.2 bound 1..=64",
+            kind="idempotency_key_length_invalid",
+        )
+
     header = _map_lookup_str(payload_value, "header")
     if not isinstance(header, dict):
         raise VerifyError("header not map")
@@ -1220,6 +1243,7 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         author_event_hash=author_event_hash,
         content_hash=content_hash,
         canonical_event_hash=canonical_event_hash,
+        idempotency_key=idempotency_key,
         payload_ref_inline=inline,
         payload_ref_external=external,
         transition=transition,
@@ -2099,6 +2123,14 @@ def _verify_event_set(
     chain_summaries: list[_ChainEventSummary] = []
     previous_hash: Optional[bytes] = None
     skip_prev = initial_posture_declaration is not None and len(events) == 1
+
+    # Core §17.3 — Track every (ledger_scope, idempotency_key) identity seen
+    # so far in this event set, mapped to the first canonical event's
+    # canonical_event_hash. A second event sharing the identity with a
+    # divergent canonical_event_hash is a §17.3 clause-3 violation surfaced
+    # as `idempotency_key_payload_mismatch` (§17.5 + TR-CORE-160). Offline
+    # check (Core §16); no Canonical Append Service state is required.
+    idempotency_index: dict[tuple[bytes, bytes], bytes] = {}
     shadow_custody_model: Optional[str] = None
     shadow_disclosure_profile: Optional[str] = None
     if initial_posture_declaration is not None:
@@ -2178,6 +2210,28 @@ def _verify_event_set(
             event_failures.append(
                 VerificationFailure("scope_mismatch", _hex(details.canonical_event_hash))
             )
+
+        # Core §17.3 clause 3 + §17.5 — duplicate (scope, idempotency_key)
+        # identity with divergent canonical material is
+        # `idempotency_key_payload_mismatch`. The first occurrence is admitted
+        # as the canonical reference; the second occurrence is the failing
+        # event. Identity is (scope, idempotency_key); divergence is by
+        # canonical_event_hash (which transitively binds content_hash +
+        # author_event_hash via §9.2 / §9.5 preimages). TR-CORE-160 + TR-CORE-162.
+        identity_key = (details.scope, details.idempotency_key)
+        prior_hash = idempotency_index.get(identity_key)
+        if prior_hash is not None and prior_hash != details.canonical_event_hash:
+            event_failures.append(
+                VerificationFailure(
+                    "idempotency_key_payload_mismatch",
+                    _hex(details.canonical_event_hash),
+                )
+            )
+        elif prior_hash is None:
+            idempotency_index[identity_key] = details.canonical_event_hash
+        # prior_hash is not None and equal canonical_event_hash → §17.3
+        # clause 1 / clause 2 byte-equal no-op; Phase 1 ledgers SHOULD NOT
+        # carry duplicate entries but byte-equal duplicates are not tampers.
 
         if details.payload_ref_inline is not None:
             expected_ch = domain_separated_sha256(CONTENT_DOMAIN, details.payload_ref_inline)
