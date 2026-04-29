@@ -57,19 +57,40 @@ adapter footprint.
 
 ## Why hand-rolled CBOR
 
-The `c2pa-rs` crate is large (≈ 328 transitive dependencies as of
-v0.80, including image parsers, ASN.1 decoders, RDF infrastructure,
-and network-capable certificate-validation paths). That weight is
-appropriate for the C2PA-tooling consumer — which already needs
-PDF/JPEG embedding and C2PA-conventional signing — but inappropriate
-as a workspace base dep.
+The `c2pa-rs` crate is large. A Wave 26 audit at v0.80 measured **285
+unique transitive crates** even when added solely as a
+`[dev-dependencies]` of this crate, and the tree pulls
+`tokio` + `reqwest` + `hyper` + `hyper-rustls` + `openssl` (vendored
+OpenSSL C build). That weight is appropriate for the C2PA-tooling
+consumer — which already needs PDF/JPEG embedding and C2PA-conventional
+signing — but inappropriate as a workspace base dep, **and
+inappropriate as a dev-dep for an offline assertion-bytes oracle**.
 
 The Trellis *assertion* is a 5-field dCBOR map; the assertion bytes
-are byte-exact under any conforming dCBOR encoder. This crate emits
-and parses the assertion directly via `ciborium`, with deterministic
-map-key ordering per Core §5.1. Consumers feed the assertion bytes
-into their preferred C2PA SDK (or read them out after the SDK extracts
-the assertion from the manifest store).
+are **byte-exact under any conforming dCBOR encoder, verified
+cross-implementation** as of Wave 26. This crate emits and parses the
+assertion directly via `ciborium`, with deterministic map-key
+ordering per Core §5.1 (RFC 8949 §4.2.2 — lex sort on the encoded
+`tstr` bytes, equivalent to length-then-bytes for the assertion field
+set). Two enforcement paths run in CI:
+
+1. **Rust ↔ fixture.** `trellis-interop-c2pa::tests::emit_matches_canonical_dcbor_fixture_bytes`
+   asserts the `ciborium`-emitted assertion bytes are byte-equal to
+   the on-disk canonical fixture
+   `fixtures/vectors/export/014-…/cert-wave25-001.c2pa`.
+2. **Python (`cbor2`) ↔ fixture.** `trellis-py/tests/test_interop_c2pa_byte_oracle.py`
+   asserts `cbor2.dumps(..., canonical=True)` re-encodes the same
+   logical input to byte-equal output against the same fixture.
+
+Two independent encoders (`ciborium` + `cbor2`) reaching identical
+bytes through the fixture is the load-bearing claim ADR 0008's
+path-(b) verifier rests on. A C2PA-tooling-path round-trip oracle
+(extract assertion from a real manifest produced by `c2pa-rs`,
+byte-compare) was scoped in Wave 26 and audited; it shipped as a
+follow-on ADR slot rather than landing under the current crate's
+dev-deps. Consumers feed the assertion bytes into their preferred
+C2PA SDK (or read them out after the SDK extracts the assertion from
+the manifest store).
 
 If a future design needs end-to-end PDF-embedding round-trip vectors
 in the workspace conformance corpus, the right design move is to add
