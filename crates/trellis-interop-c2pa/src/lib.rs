@@ -78,10 +78,26 @@ pub const ASSERTION_LABEL: &str = "org.formspec.trellis.certificate-of-completio
 pub const DERIVATION_VERSION: u8 = 1;
 
 /// Trellis assertion fields (the five-field cross-binding). Names
-/// match ADR 0008 §"`c2pa-manifest`" assertion-field table; ordering
-/// here is alphabetic by string-bytes per Core §5.1 dCBOR map-key
-/// ordering — `canonical_event_hash` < `certificate_id` <
-/// `cose_sign1_ref` < `kid` < `presentation_artifact.content_hash`.
+/// match ADR 0008 §"`c2pa-manifest`" assertion-field table. Map-key
+/// ordering on the wire is dCBOR-canonical per Core §5.1 / RFC 8949
+/// §4.2.2 — sort the **encoded `tstr`** bytes lexicographically (which
+/// is equivalent to "shorter length first, ties broken bytewise"
+/// because the CBOR length prefix is monotonic in length). The five
+/// field names span 11..42 bytes:
+///
+/// | len | field |
+/// |----:|-------|
+/// |  11 | `trellis.kid` |
+/// |  22 | `trellis.certificate_id` |
+/// |  22 | `trellis.cose_sign1_ref` |
+/// |  28 | `trellis.canonical_event_hash` |
+/// |  42 | `trellis.presentation_artifact.content_hash` |
+///
+/// Sorting on encoded `tstr` bytes (length-prefix first, then UTF-8
+/// payload) yields the order above; the emitter inserts in that order
+/// so `ciborium`'s insertion-order serializer produces canonical bytes.
+/// This matches `cbor2.dumps(..., canonical=True)` and the on-disk
+/// fixture at `fixtures/vectors/export/014-…/cert-wave25-001.c2pa`.
 const FIELD_CANONICAL_EVENT_HASH: &str = "trellis.canonical_event_hash";
 const FIELD_CERTIFICATE_ID: &str = "trellis.certificate_id";
 const FIELD_COSE_SIGN1_REF: &str = "trellis.cose_sign1_ref";
@@ -164,45 +180,76 @@ pub fn emit_c2pa_manifest_for_certificate(
     kid: &[u8; 16],
     cose_sign1_ref: &[u8; 32],
 ) -> Result<Vec<u8>, AdapterError> {
-    // Map-key bytes lex-sort. The strings ordered by byte value:
-    //   "trellis.canonical_event_hash"            (starts 't' 'r' 'e' 'l' 'l' 'i' 's' '.' 'c' 'a' …)
-    //   "trellis.certificate_id"                  (… 'c' 'e' …)
-    //   "trellis.cose_sign1_ref"                  (… 'c' 'o' …)
-    //   "trellis.kid"                             (… 'k' …)
-    //   "trellis.presentation_artifact.content_hash"  (… 'p' …)
-    // dCBOR also length-prefix-sorts; all five strings are
-    // distinguishable on first differing byte after the shared
-    // "trellis." prefix, and the lengths span 11..42 bytes — RFC 8949
-    // §4.2.2 tie-breaks by length ascending then bytes, but the
-    // length tier doesn't matter here because no two strings share a
-    // length. ciborium's serializer emits keys in insertion order;
-    // we therefore insert in the canonical lex-sorted order below.
-    let value = Value::Map(vec![
+    // dCBOR canonical map-key order = lex sort on the **encoded `tstr`
+    // bytes** (RFC 8949 §4.2.2), not on the decoded UTF-8 string.
+    // `ciborium`'s `Value::Map` is a `Vec<(Value, Value)>` and
+    // serializes in insertion order, so we sort the five entries on
+    // their encoded-tstr key bytes before constructing the map.
+    let mut entries: Vec<(Vec<u8>, Value, Value)> = vec![
         (
+            encode_tstr_key(FIELD_CANONICAL_EVENT_HASH),
             Value::Text(FIELD_CANONICAL_EVENT_HASH.to_string()),
             Value::Bytes(canonical_event_hash.to_vec()),
         ),
         (
+            encode_tstr_key(FIELD_CERTIFICATE_ID),
             Value::Text(FIELD_CERTIFICATE_ID.to_string()),
             Value::Text(certificate_id.to_string()),
         ),
         (
+            encode_tstr_key(FIELD_COSE_SIGN1_REF),
             Value::Text(FIELD_COSE_SIGN1_REF.to_string()),
             Value::Bytes(cose_sign1_ref.to_vec()),
         ),
         (
+            encode_tstr_key(FIELD_KID),
             Value::Text(FIELD_KID.to_string()),
             Value::Bytes(kid.to_vec()),
         ),
         (
+            encode_tstr_key(FIELD_PRESENTATION_ARTIFACT_CONTENT_HASH),
             Value::Text(FIELD_PRESENTATION_ARTIFACT_CONTENT_HASH.to_string()),
             Value::Bytes(presentation_artifact_content_hash.to_vec()),
         ),
-    ]);
+    ];
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let value = Value::Map(
+        entries
+            .into_iter()
+            .map(|(_, k, v)| (k, v))
+            .collect::<Vec<_>>(),
+    );
     let mut buf = Vec::new();
     ciborium::ser::into_writer(&value, &mut buf)
         .map_err(|error| AdapterError::CborEncode(error.to_string()))?;
     Ok(buf)
+}
+
+/// Encodes a CBOR `tstr` head + payload (RFC 8949 §3.1, major type 3)
+/// for a Rust `&str`. Used by the canonical map-key sort so we compare
+/// keys on their on-the-wire bytes rather than on the decoded UTF-8
+/// string. The five assertion field names are all ≤ 255 bytes, so we
+/// only need the 1-byte / 1+1-byte head forms.
+fn encode_tstr_key(s: &str) -> Vec<u8> {
+    let payload = s.as_bytes();
+    let n = payload.len();
+    let mut out = Vec::with_capacity(2 + n);
+    if n < 24 {
+        // 0b011_xxxxx — short form, length in low 5 bits.
+        out.push(0x60 | n as u8);
+    } else if n < 256 {
+        // 0b011_11000 (0x78) — 1-byte length follows.
+        out.push(0x78);
+        out.push(n as u8);
+    } else {
+        // Unreachable for the Trellis assertion field set (max 42).
+        // For completeness if a future field exceeds 255 bytes, the
+        // 2-byte length form (0x79) would land here; the assertion
+        // CDDL caps field-name length well below that.
+        unreachable!("assertion field name {n} bytes exceeds 1-byte length form");
+    }
+    out.extend_from_slice(payload);
+    out
 }
 
 /// Parses a Trellis assertion from C2PA-extracted bytes. The caller
@@ -573,5 +620,109 @@ mod tests {
         let digest = compute_cose_sign1_ref(bytes);
         let expected = domain_separated_sha256(CONTENT_DOMAIN, bytes);
         assert_eq!(digest, expected);
+    }
+
+    /// ISC-02 byte-determinism oracle: emitter output MUST be
+    /// byte-equal to the canonical on-disk fixture, which was
+    /// generated by `cbor2.dumps(..., canonical=True)` in the
+    /// `gen_interop_sidecar_c2pa_037_to_040.py` generator. This is the
+    /// within-crate half of the cross-implementation oracle (the
+    /// `trellis-py` half is `test_interop_c2pa_byte_oracle.py`).
+    /// Two emitters reaching the same bytes for identical logical
+    /// input is the load-bearing claim.
+    #[test]
+    fn emit_matches_canonical_dcbor_fixture_bytes() {
+        // Inputs match `ASSERTION_FIELDS` in
+        // `fixtures/vectors/_generator/gen_interop_sidecar_c2pa_037_to_040.py`.
+        let canonical_event_hash = [0x11_u8; 32];
+        let pa_content_hash = [0x22_u8; 32];
+        let kid = [0x33_u8; 16];
+        let cose_sign1_ref = [0x44_u8; 32];
+        let bytes = emit_c2pa_manifest_for_certificate(
+            "cert-wave25-001",
+            &canonical_event_hash,
+            &pa_content_hash,
+            &kid,
+            &cose_sign1_ref,
+        )
+        .expect("emit");
+
+        // Workspace-relative: `crates/trellis-interop-c2pa/Cargo.toml`
+        // lives at `<workspace>/crates/trellis-interop-c2pa/`, so the
+        // fixture sits at `../../fixtures/...` relative to that.
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("fixtures")
+            .join("vectors")
+            .join("export")
+            .join("014-interop-sidecar-c2pa-manifest")
+            .join("interop-sidecars")
+            .join("c2pa-manifest")
+            .join("cert-wave25-001.c2pa");
+        let fixture_bytes = std::fs::read(&fixture_path)
+            .unwrap_or_else(|err| panic!("read fixture {fixture_path:?}: {err}"));
+
+        assert_eq!(
+            bytes, fixture_bytes,
+            "emit_c2pa_manifest_for_certificate must produce dCBOR-canonical bytes \
+             byte-equal to the cbor2(canonical=True) fixture (Core §5.1, RFC 8949 §4.2.2)"
+        );
+    }
+
+    /// Unit-level guard on the canonical key order. Locks the
+    /// dCBOR-canonical sequence in by name so any future field
+    /// rename / addition forces a deliberate canonical-order recheck
+    /// (and a fixture regeneration) rather than silently regressing.
+    #[test]
+    fn emit_canonical_key_order_is_kid_then_cert_then_cose_then_canonical_then_pa() {
+        let bytes = emit_c2pa_manifest_for_certificate(
+            "cert-test",
+            &[0; 32],
+            &[0; 32],
+            &[0; 16],
+            &[0; 32],
+        )
+        .expect("emit");
+        let value: Value = ciborium::de::from_reader(Cursor::new(&bytes)).expect("decode");
+        let entries = match value {
+            Value::Map(entries) => entries,
+            _ => panic!("expected map"),
+        };
+        let keys: Vec<&str> = entries
+            .iter()
+            .map(|(k, _)| match k {
+                Value::Text(s) => s.as_str(),
+                _ => panic!("non-text key"),
+            })
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                FIELD_KID,
+                FIELD_CERTIFICATE_ID,
+                FIELD_COSE_SIGN1_REF,
+                FIELD_CANONICAL_EVENT_HASH,
+                FIELD_PRESENTATION_ARTIFACT_CONTENT_HASH,
+            ],
+            "dCBOR canonical order is length-then-bytes; encoded-tstr lex sort \
+             gives kid(11) < certificate_id(22) < cose_sign1_ref(22) < \
+             canonical_event_hash(28) < presentation_artifact.content_hash(42)"
+        );
+    }
+
+    #[test]
+    fn encode_tstr_key_short_and_one_byte_length_forms() {
+        // < 24 bytes — major type 3 short form.
+        assert_eq!(encode_tstr_key("trellis.kid"), {
+            let mut v = vec![0x60 | 11_u8];
+            v.extend_from_slice(b"trellis.kid");
+            v
+        });
+        // ≥ 24 bytes — 1-byte length follows the 0x78 head.
+        let key_28 = "trellis.canonical_event_hash"; // length 28
+        let mut want = vec![0x78, 28];
+        want.extend_from_slice(key_28.as_bytes());
+        assert_eq!(encode_tstr_key(key_28), want);
     }
 }
