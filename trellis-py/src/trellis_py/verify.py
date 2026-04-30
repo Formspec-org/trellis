@@ -2256,6 +2256,7 @@ def _verify_event_set(
     decoded_events_for_uca: list[EventDetails] = []
     chain_summaries: list[_ChainEventSummary] = []
     previous_hash: Optional[bytes] = None
+    previous_authored_at: Optional[TrellisTimestamp] = None
     skip_prev = initial_posture_declaration is not None and len(events) == 1
 
     # Core §17.3 — Track every (ledger_scope, idempotency_key) identity seen
@@ -2414,6 +2415,15 @@ def _verify_event_set(
             else:
                 kind = "prev_hash_mismatch"
             event_failures.append(VerificationFailure(kind, _hex(details.canonical_event_hash)))
+
+        # ADR 0069 D-3 / Core §19 step 4.h-temporal:
+        # chain authored_at timestamps must be non-decreasing in chain order.
+        if previous_authored_at is not None and details.authored_at < previous_authored_at:
+            event_failures.append(
+                VerificationFailure("timestamp_order_violation", _hex(details.canonical_event_hash))
+            )
+
+        previous_authored_at = details.authored_at
         previous_hash = details.canonical_event_hash
 
         # ADR 0005 step 8 input collection — every event contributes a
