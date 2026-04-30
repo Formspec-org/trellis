@@ -20,6 +20,7 @@ from trellis_py.verify import (
     PresentationArtifactDetails,
     ChainSummaryDetails,
     SignerDisplayDetails,
+    TrellisTimestamp,
     VerificationFailure,
     VerifyError,
     _decode_certificate_payload,
@@ -53,7 +54,7 @@ def signer_display_entry(
         "principal_ref": principal_ref,
         "display_name":  display_name,
         "display_role":  display_role,
-        "signed_at":     signed_at,
+        "signed_at":     [signed_at, 0],
     }
 
 
@@ -122,7 +123,7 @@ def certificate_extensions(
         "trellis.certificate-of-completion.v1": {
             "certificate_id":        certificate_id,
             "case_ref":              case_ref,
-            "completed_at":          completed_at,
+            "completed_at":          [completed_at, 0],
             "presentation_artifact": pa,
             "chain_summary":         cs,
             "signing_events":        signing_events,
@@ -287,7 +288,7 @@ def make_cert_details(
     return CertificateDetails(
         certificate_id=certificate_id,
         case_ref=None,
-        completed_at=completed_at,
+        completed_at=TrellisTimestamp(seconds=completed_at, nanos=0),
         presentation_artifact=PresentationArtifactDetails(
             content_hash=presentation_content_hash,
             media_type="application/pdf",
@@ -303,7 +304,7 @@ def make_cert_details(
                     principal_ref="applicant",
                     display_name="Test Signer",
                     display_role="applicant",
-                    signed_at=1_776_900_000,
+                    signed_at=TrellisTimestamp(seconds=1_776_900_000, nanos=0),
                 )
                 for _ in signing_events
             ],
@@ -439,7 +440,7 @@ def test_parse_certificate_catalog_entries_round_trip():
         {
             "canonical_event_hash": b"\xc1" * 32,
             "certificate_id":       "cert-1",
-            "completed_at":         1_776_899_500,
+            "completed_at":         [1_776_899_500, 0],
             "signer_count":         2,
             "media_type":           "application/pdf",
             "attachment_id":        "urn:trellis:attachment:cert-1",

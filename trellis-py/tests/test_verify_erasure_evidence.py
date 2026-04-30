@@ -17,6 +17,7 @@ from trellis_py.verify import (
     ErasureEvidenceDetails,
     NonSigningKeyEntry,
     SigningKeyEntry,
+    TrellisTimestamp,
     VerificationFailure,
     VerifyError,
     _ChainEventSummary,
@@ -78,7 +79,7 @@ def erasure_extensions(
             "evidence_id": "urn:trellis:erasure:test:1",
             "kid_destroyed": kid_destroyed,
             "key_class": key_class,
-            "destroyed_at": destroyed_at,
+            "destroyed_at": [destroyed_at, 0],
             "cascade_scopes": list(cascade_scopes),
             "completion_mode": "complete",
             "destruction_actor": "urn:trellis:principal:test-actor",
@@ -102,7 +103,7 @@ def payload_details(
         evidence_id="urn:trellis:erasure:test:py",
         kid_destroyed=kid,
         norm_key_class=norm_key_class,
-        destroyed_at=destroyed_at,
+        destroyed_at=TrellisTimestamp(seconds=destroyed_at, nanos=0),
         cascade_scopes=["CS-03"],
         completion_mode="complete",
         attestation_signatures_well_formed=True,
@@ -120,7 +121,7 @@ def chain_summary(
 ) -> _ChainEventSummary:
     return _ChainEventSummary(
         event_index=index,
-        authored_at=authored_at,
+        authored_at=TrellisTimestamp(seconds=authored_at, nanos=0),
         signing_kid=signing_kid,
         wrap_recipients=wrap_recipients,
         canonical_event_hash=canonical_event_hash,
@@ -192,12 +193,12 @@ def test_validate_subject_scope_unknown_kind_rejected() -> None:
 
 def test_decode_step1_minimum_valid_payload_decodes() -> None:
     extensions = erasure_extensions(kid_destroyed=b"\xab" * 16)
-    details = _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+    details = _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
     assert details is not None
     assert details.evidence_id == "urn:trellis:erasure:test:1"
     assert details.kid_destroyed == b"\xab" * 16
     assert details.norm_key_class == "signing"
-    assert details.destroyed_at == 1_745_000_000
+    assert details.destroyed_at == TrellisTimestamp(seconds=1_745_000_000, nanos=0)
     assert details.cascade_scopes == ["CS-03"]
     assert details.completion_mode == "complete"
     assert details.attestation_signatures_well_formed is True
@@ -205,7 +206,7 @@ def test_decode_step1_minimum_valid_payload_decodes() -> None:
 
 def test_decode_step1_returns_none_when_extension_absent() -> None:
     extensions = {"trellis.custody-model-transition.v1": {}}
-    assert _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_000) is None
+    assert _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_000, nanos=0)) is None
 
 
 def test_decode_step2_normalizes_wire_wrap_to_subject() -> None:
@@ -213,7 +214,7 @@ def test_decode_step2_normalizes_wire_wrap_to_subject() -> None:
     normalize to `"subject"` before any registry comparison.
     """
     extensions = erasure_extensions(key_class="wrap")
-    details = _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+    details = _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
     assert details is not None
     assert details.norm_key_class == "subject"
 
@@ -227,7 +228,7 @@ def test_decode_step3_rejects_per_subject_with_null_subject_refs() -> None:
     }
     extensions = erasure_extensions(subject_scope=bad_scope)
     with pytest.raises(VerifyError, match="subject_scope"):
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
 
 
 def test_decode_step4_rejects_destroyed_at_after_host_authored_at() -> None:
@@ -236,20 +237,20 @@ def test_decode_step4_rejects_destroyed_at_after_host_authored_at() -> None:
     """
     extensions = erasure_extensions(destroyed_at=1_745_000_500)
     with pytest.raises(VerifyError) as excinfo:
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
     assert excinfo.value.kind == "erasure_destroyed_at_after_host"
 
 
 def test_decode_step6_rejects_hsm_receipt_without_kind() -> None:
     extensions = erasure_extensions(hsm_receipt=b"opaque-hsm-bytes")
     with pytest.raises(VerifyError, match="hsm_receipt"):
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
 
 
 def test_decode_step6_rejects_hsm_receipt_kind_without_receipt() -> None:
     extensions = erasure_extensions(hsm_receipt_kind="opaque-vendor-receipt-v1")
     with pytest.raises(VerifyError, match="hsm_receipt"):
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
 
 
 def test_decode_step6_accepts_both_hsm_fields_present() -> None:
@@ -257,7 +258,7 @@ def test_decode_step6_accepts_both_hsm_fields_present() -> None:
         hsm_receipt=b"opaque-hsm-bytes",
         hsm_receipt_kind="opaque-vendor-receipt-v1",
     )
-    details = _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+    details = _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
     assert details is not None
 
 
@@ -268,7 +269,7 @@ def test_decode_step7_marks_short_attestation_signature_malformed() -> None:
         "signature": b"\x00" * 32,  # wrong length
     }
     extensions = erasure_extensions(attestations=[bad_attestation])
-    details = _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+    details = _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
     assert details is not None
     assert details.attestation_signatures_well_formed is False
 
@@ -276,19 +277,19 @@ def test_decode_step7_marks_short_attestation_signature_malformed() -> None:
 def test_decode_step1_rejects_empty_cascade_scopes() -> None:
     extensions = erasure_extensions(cascade_scopes=[])
     with pytest.raises(VerifyError, match="cascade_scopes"):
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
 
 
 def test_decode_step1_rejects_empty_attestations() -> None:
     extensions = erasure_extensions(attestations=[])
     with pytest.raises(VerifyError, match="attestations"):
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
 
 
 def test_decode_step1_rejects_kid_wrong_size() -> None:
     extensions = erasure_extensions(kid_destroyed=b"\x00" * 15)
     with pytest.raises(VerifyError, match="kid_destroyed"):
-        _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+        _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
 
 
 def test_decode_deployment_wide_scope_decodes() -> None:
@@ -297,7 +298,7 @@ def test_decode_deployment_wide_scope_decodes() -> None:
         attestations=[one_attestation("prior"), one_attestation("new")],
         cascade_scopes=["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"],
     )
-    details = _decode_erasure_evidence_details(extensions, host_authored_at=1_745_000_100)
+    details = _decode_erasure_evidence_details(extensions, host_authored_at=TrellisTimestamp(seconds=1_745_000_100, nanos=0))
     assert details is not None
     assert details.subject_scope_kind == "deployment-wide"
     assert len(details.cascade_scopes) == 6
