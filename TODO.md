@@ -275,25 +275,16 @@ consume amended responses.
     **PLN-0114** + **PLN-0115** + **PLN-0117**).* Parent backlog: **PLN-0077**,
     **PLN-0083**, **PLN-0131** (failure taxonomy), **PLN-0082** (cross-repo
     timestamp fixture bundle), **PLN-0084** (leap-second vectors).
-    + [ ] **CBOR envelope timestamp wire migration: `uint` seconds →
-      `uint64` nanoseconds** per ADR 0069 D-2.1 (parent **PLN-0400**). Today
-      [`specs/trellis-core.md`](specs/trellis-core.md) line 2431 declares
-      `timestamp = uint  ; Unix seconds UTC`; ADR 0069 D-2.1 pins `uint64`
-      nanoseconds-since-Unix-epoch as the byte-protocol floor. Migration:
-      CDDL §28 + every site (`valid_from` line 453, `created_at` line 518,
-      checkpoint `timestamp` line 887, `signing_event_timestamp_mismatch`
-      line 2034, `user_content_attestation_timestamp_mismatch` line 2042,
-      base `timestamp = uint` line 2431) + Rust + Python parity (ADR 0004)
-      + `tamper/0NN-timestamp-uint-seconds-rejected` legacy-format negative
-      vector; verifier rejects sub-nanosecond and second-precision
-      encodings. **Why this matters now:** second-precision wire is
-      structurally incapable of carrying SLA-clock ordering under ADR 0067
-      statutory clocks — silent precision loss at envelope ingest
-      contaminates downstream deadline arithmetic, and retagging after
-      first production records lock the wrong shape is the exact
-      architectural-debt class ADR 0069 D-2.1 exists to prevent. Maximalist
-      envelope discipline (Trellis ADR 0001-0004): change the bytes now,
-      `v1.0.0` is a coherent-snapshot tag, not a freeze.
+    + [x] **CBOR envelope timestamp wire migration: `uint` seconds →
+      protobuf-pattern `[uint, uint .le 999999999]`** per ADR 0069 D-2.1.
+      Changed from original `uint64` nanoseconds plan to protobuf-pattern
+      `[seconds, nanos]` arrays (industry-standard, no overflow risk). CDDL
+      §28 base type, all timestamp sites, Rust `TrellisTimestamp` struct,
+      Python `TrellisTimestamp` class, 53 generators migrated via `ts()`
+      helper, 439 CBOR fixtures regenerated, 27 manifest hashes updated.
+      `legacy_timestamp_format` rejection for bare-uint timestamps.
+      Remaining: negative vector `tamper/0NN-timestamp-legacy-uint-rejected`
+      + §19.1 enum registration for `legacy_timestamp_format`.
     + [x] Verifier check: chain timestamps non-decreasing across linked events;
       D-3 precision profile honored.
     + [x] Failure taxonomy: temporal-order violations classified separately

@@ -2006,6 +2006,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `event_truncation` | 4.h | A middle event of a chain is absent; subsequent `prev_hash` values do not link. |
 | `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
 | `timestamp_order_violation` | 4.h (temporal) | A chain event's `authored_at` is strictly less than its predecessor's `authored_at` (ADR 0069 D-3). Hash chain and signatures are valid; only temporal order fails. |
+| `legacy_timestamp_format` | 4.c (payload decode) | A timestamp field is encoded as bare `uint` instead of the required `[uint, uint .le 999999999]` array (ADR 0069 D-2.1). The verifier cannot extract the field; decode-time structural rejection. |
 | `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
 | `malformed_cose` | 4.c | COSE_Sign1 envelope is structurally invalid (wrong tag, wrong array shape, wrong protected-header type). |
 | `scope_mismatch` | 4.f | `EventPayload.ledger_scope` does not equal `manifest.scope`. |
