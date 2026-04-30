@@ -49,8 +49,7 @@ use rand_core::{OsRng, TryRngCore};
 
 #[cfg(feature = "test-vectors")]
 use chacha20poly1305::{
-    AeadInPlace, ChaCha20Poly1305, KeyInit,
-    aead::generic_array::GenericArray as AeadGenericArray,
+    AeadInPlace, ChaCha20Poly1305, KeyInit, aead::generic_array::GenericArray as AeadGenericArray,
 };
 #[cfg(feature = "test-vectors")]
 use hpke::kdf::{LabeledExpand, extract_and_expand, labeled_extract};
@@ -68,9 +67,7 @@ const KEM_SUITE_ID: [u8; 5] = [b'K', b'E', b'M', 0x00, 0x20]; // "KEM" || 0x0020
 /// HPKE suite-id binding string `"HPKE" || KEM_ID || KDF_ID || AEAD_ID`
 /// (RFC 9180 §5.1) for X25519-HKDF-SHA256-ChaCha20Poly1305.
 #[cfg(feature = "test-vectors")]
-const HPKE_SUITE_ID: [u8; 10] = [
-    b'H', b'P', b'K', b'E', 0x00, 0x20, 0x00, 0x01, 0x00, 0x03,
-];
+const HPKE_SUITE_ID: [u8; 10] = [b'H', b'P', b'K', b'E', 0x00, 0x20, 0x00, 0x01, 0x00, 0x03];
 
 const POLY1305_TAG_LEN: usize = 16;
 
@@ -135,8 +132,8 @@ pub fn wrap_dek(
 ) -> Result<WrapResult, HpkeError> {
     use hpke::single_shot_seal_in_place_detached;
 
-    let pk_recip =
-        <X25519HkdfSha256 as hpke::Kem>::PublicKey::from_bytes(recipient_pubkey).map_err(|_| {
+    let pk_recip = <X25519HkdfSha256 as hpke::Kem>::PublicKey::from_bytes(recipient_pubkey)
+        .map_err(|_| {
             HpkeError::InvalidInput("recipient_pubkey is not a 32-byte X25519 public key")
         })?;
 
@@ -258,14 +255,12 @@ pub fn unwrap_dek(
         return Err(HpkeError::InvalidInput("wrapped_dek shorter than 16 bytes"));
     }
 
-    let sk_recip =
-        <X25519HkdfSha256 as hpke::Kem>::PrivateKey::from_bytes(recipient_privkey).map_err(
-            |_| HpkeError::InvalidInput("recipient_privkey is not a 32-byte X25519 scalar"),
-        )?;
-    let encapped_key =
-        <X25519HkdfSha256 as hpke::Kem>::EncappedKey::from_bytes(ephemeral_pubkey).map_err(
-            |_| HpkeError::InvalidInput("ephemeral_pubkey is not a 32-byte X25519 public key"),
-        )?;
+    let sk_recip = <X25519HkdfSha256 as hpke::Kem>::PrivateKey::from_bytes(recipient_privkey)
+        .map_err(|_| HpkeError::InvalidInput("recipient_privkey is not a 32-byte X25519 scalar"))?;
+    let encapped_key = <X25519HkdfSha256 as hpke::Kem>::EncappedKey::from_bytes(ephemeral_pubkey)
+        .map_err(|_| {
+        HpkeError::InvalidInput("ephemeral_pubkey is not a 32-byte X25519 public key")
+    })?;
 
     let mut receiver_ctx = setup_receiver::<HpkeChaCha20Poly1305, HkdfSha256, X25519HkdfSha256>(
         &OpModeR::Base,

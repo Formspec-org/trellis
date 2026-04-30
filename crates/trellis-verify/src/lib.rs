@@ -125,9 +125,7 @@ impl Display for TrellisTimestamp {
 /// are admitted (Phase-1 reference verifier accepts any `tstr` shape; deep
 /// registry-membership lint rides O-3 evolution).
 #[allow(dead_code)]
-const APPENDIX_A7_CASCADE_SCOPES: &[&str] = &[
-    "CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06",
-];
+const APPENDIX_A7_CASCADE_SCOPES: &[&str] = &["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"];
 
 /// ADR 0008 closed kind registry. New kinds land via ADR revision; this
 /// constant updates in lockstep with the ADR's "Registry — Initial
@@ -547,9 +545,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             // generic `signing_key_registry_invalid` so tamper vectors can
             // pin them. Decode failures with no typed kind keep the
             // generic kind for back-compat with existing fixtures.
-            let kind = error
-                .kind()
-                .unwrap_or("signing_key_registry_invalid");
+            let kind = error.kind().unwrap_or("signing_key_registry_invalid");
             return VerificationReport::fatal(
                 kind,
                 format!("failed to decode signing-key registry: {error}"),
@@ -1916,9 +1912,7 @@ fn verify_interop_sidecars(
             Err(error) => {
                 return Err(VerificationReport::fatal(
                     "manifest_payload_invalid",
-                    format!(
-                        "interop_sidecars[{index}].derivation_version is invalid: {error}"
-                    ),
+                    format!("interop_sidecars[{index}].derivation_version is invalid: {error}"),
                 ));
             }
         };
@@ -1927,9 +1921,7 @@ fn verify_interop_sidecars(
             Err(error) => {
                 return Err(VerificationReport::fatal(
                     "manifest_payload_invalid",
-                    format!(
-                        "interop_sidecars[{index}].content_digest is invalid: {error}"
-                    ),
+                    format!("interop_sidecars[{index}].content_digest is invalid: {error}"),
                 ));
             }
         };
@@ -1942,9 +1934,7 @@ fn verify_interop_sidecars(
             Err(error) => {
                 return Err(VerificationReport::fatal(
                     "manifest_payload_invalid",
-                    format!(
-                        "interop_sidecars[{index}].source_ref is invalid: {error}"
-                    ),
+                    format!("interop_sidecars[{index}].source_ref is invalid: {error}"),
                 ));
             }
         }
@@ -1960,9 +1950,7 @@ fn verify_interop_sidecars(
         if !kind_registered {
             return Err(VerificationReport::fatal(
                 "interop_sidecar_kind_unknown",
-                format!(
-                    "interop_sidecars[{index}].kind {kind:?} is not in the ADR 0008 registry"
-                ),
+                format!("interop_sidecars[{index}].kind {kind:?} is not in the ADR 0008 registry"),
             ));
         }
 
@@ -1973,7 +1961,9 @@ fn verify_interop_sidecars(
             INTEROP_SIDECAR_KIND_C2PA_MANIFEST => INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS,
             _ => &[],
         };
-        if !supported_versions.contains(&derivation_version) && kind == INTEROP_SIDECAR_KIND_C2PA_MANIFEST {
+        if !supported_versions.contains(&derivation_version)
+            && kind == INTEROP_SIDECAR_KIND_C2PA_MANIFEST
+        {
             return Err(VerificationReport::fatal(
                 "interop_sidecar_derivation_version_unknown",
                 format!(
@@ -2199,8 +2189,11 @@ fn verify_event_set_with_classes(
     // 4 (identity resolution), 5 (signature verification), 6 (key-state
     // check), 7 (collision detection), 8 (operator-in-user-slot enforcement),
     // and 9 (outcome accumulation).
-    let mut user_content_attestation_payloads:
-        Vec<(usize, UserContentAttestationDetails, [u8; 32])> = Vec::new();
+    let mut user_content_attestation_payloads: Vec<(
+        usize,
+        UserContentAttestationDetails,
+        [u8; 32],
+    )> = Vec::new();
 
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
@@ -2212,8 +2205,7 @@ fn verify_event_set_with_classes(
                 // the canonical class-confusion attack surface; tenant-root
                 // / scope / subject kids signing ordinary events are also
                 // class violations under the unified taxonomy.
-                if let Some(non_signing) = non_signing_registry
-                    .and_then(|map| map.get(&event.kid))
+                if let Some(non_signing) = non_signing_registry.and_then(|map| map.get(&event.kid))
                 {
                     return VerificationReport::fatal(
                         "key_class_mismatch",
@@ -2432,8 +2424,7 @@ fn verify_event_set_with_classes(
             certificate_payloads.push((index, certificate, details.canonical_event_hash));
         }
         if let Some(uca) = details.user_content_attestation.clone() {
-            user_content_attestation_payloads
-                .push((index, uca, details.canonical_event_hash));
+            user_content_attestation_payloads.push((index, uca, details.canonical_event_hash));
         }
 
         if let Some(transition) = details.transition {
@@ -2533,11 +2524,8 @@ fn verify_event_set_with_classes(
     // recompute) defers to the export-bundle path; the genesis-append path
     // accumulates outcomes with `attachment_resolved = true` so the §19
     // step-9 fold doesn't false-positive on minimal-genesis fixtures.
-    let certificates_of_completion = finalize_certificates_of_completion(
-        &certificate_payloads,
-        events,
-        &mut event_failures,
-    );
+    let certificates_of_completion =
+        finalize_certificates_of_completion(&certificate_payloads, events, &mut event_failures);
 
     // ADR 0010 user-content-attestation finalization (Core §19 step 6d
     // steps 3 / 4 / 5 / 6 / 7 / 8 / 9 cross-event reasoning).
@@ -2693,11 +2681,15 @@ fn finalize_erasure_evidence(
         // Skip groups that already failed step 5 — propagating step-8 noise
         // on top of a destroyed_at conflict is misleading.
         if group_conflict_destroyed_at.contains(&outcome.kid_destroyed) {
-            outcome.failures.push("erasure_destroyed_at_conflict".into());
+            outcome
+                .failures
+                .push("erasure_destroyed_at_conflict".into());
             continue;
         }
         if group_conflict_key_class.contains(&outcome.kid_destroyed) {
-            outcome.failures.push("erasure_key_class_payload_conflict".into());
+            outcome
+                .failures
+                .push("erasure_key_class_payload_conflict".into());
             continue;
         }
         let class = group_key_class
@@ -2801,7 +2793,9 @@ fn finalize_certificates_of_completion(
     let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
     for event in events {
         if let Ok(details) = decode_event_details(event) {
-            event_by_hash.entry(details.canonical_event_hash).or_insert(details);
+            event_by_hash
+                .entry(details.canonical_event_hash)
+                .or_insert(details);
         }
     }
 
@@ -2834,8 +2828,7 @@ fn finalize_certificates_of_completion(
                     || prior.signing_events != payload.signing_events
                     || prior.chain_summary.signer_count != payload.chain_summary.signer_count
                     || prior.completed_at != payload.completed_at
-                    || prior.chain_summary.workflow_status
-                        != payload.chain_summary.workflow_status;
+                    || prior.chain_summary.workflow_status != payload.chain_summary.workflow_status;
                 if differs && id_collision_reported.insert(payload.certificate_id.clone()) {
                     event_failures.push(VerificationFailure::new(
                         "certificate_id_collision",
@@ -2912,7 +2905,9 @@ fn finalize_certificates_of_completion(
             let display = &payload.chain_summary.signer_display[i];
             if display.signed_at != target.authored_at {
                 outcome.chain_summary_consistent = false;
-                outcome.failures.push("signing_event_timestamp_mismatch".into());
+                outcome
+                    .failures
+                    .push("signing_event_timestamp_mismatch".into());
                 event_failures.push(VerificationFailure::new(
                     "signing_event_timestamp_mismatch",
                     hex_string(signing_event_hash),
@@ -2951,7 +2946,8 @@ fn finalize_certificates_of_completion(
                 let Ok(record) = parse_signature_affirmation_record(&payload_bytes) else {
                     continue;
                 };
-                let Ok(record_response_hash) = parse_sha256_text(&record.formspec_response_ref) else {
+                let Ok(record_response_hash) = parse_sha256_text(&record.formspec_response_ref)
+                else {
                     // The record's `formspecResponseRef` is per ADR 0007 a
                     // sha256: digest text. If it doesn't parse, surface as
                     // a response_ref_mismatch — the certificate claims a
@@ -2995,7 +2991,9 @@ fn finalize_certificates_of_completion(
             let display = &payload.chain_summary.signer_display[i];
             if display.principal_ref != record.signer_id {
                 outcome.chain_summary_consistent = false;
-                outcome.failures.push("certificate_chain_summary_mismatch".into());
+                outcome
+                    .failures
+                    .push("certificate_chain_summary_mismatch".into());
                 event_failures.push(VerificationFailure::new(
                     "certificate_chain_summary_mismatch",
                     hex_string(canonical_hash),
@@ -3217,7 +3215,11 @@ fn decode_key_bag_recipients(payload_map: &[(Value, Value)]) -> Result<Vec<Vec<u
     let entries = match entries_value {
         Value::Array(array) => array,
         Value::Null => return Ok(Vec::new()),
-        _ => return Err(VerifyError::new("key_bag.entries is neither an array nor null")),
+        _ => {
+            return Err(VerifyError::new(
+                "key_bag.entries is neither an array nor null",
+            ));
+        }
     };
     let mut recipients = Vec::with_capacity(entries.len());
     for entry in entries {
@@ -3234,7 +3236,8 @@ fn decode_transition_details(
     extensions: &[(Value, Value)],
 ) -> Result<Option<TransitionDetails>, VerifyError> {
     let custody = map_lookup_optional_value(extensions, "trellis.custody-model-transition.v1");
-    let disclosure = map_lookup_optional_value(extensions, "trellis.disclosure-profile-transition.v1");
+    let disclosure =
+        map_lookup_optional_value(extensions, "trellis.disclosure-profile-transition.v1");
     if custody.is_some() && disclosure.is_some() {
         return Err(VerifyError::new(
             "extensions MUST NOT contain both trellis.custody-model-transition.v1 and trellis.disclosure-profile-transition.v1 on the same event",
@@ -3626,8 +3629,7 @@ fn decode_certificate_payload(
     // shape (signer_count == len(signing_events) AND len(signer_display) ==
     // len(signing_events)). Mismatch flips integrity via the
     // `certificate_chain_summary_mismatch` tamper_kind.
-    if signer_count as usize != signing_events.len()
-        || signer_display.len() != signing_events.len()
+    if signer_count as usize != signing_events.len() || signer_display.len() != signing_events.len()
     {
         return Err(VerifyError::with_kind(
             format!(
@@ -3716,13 +3718,16 @@ fn decode_user_content_attestation_payload(
     else {
         return Ok(None);
     };
-    let extension_map = extension_value.as_map().ok_or_else(|| {
-        VerifyError::new("user-content-attestation extension is not a map")
-    })?;
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("user-content-attestation extension is not a map"))?;
 
     let attestation_id = map_lookup_text(extension_map, "attestation_id")?;
-    let attested_event_hash =
-        bytes_array(&map_lookup_fixed_bytes(extension_map, "attested_event_hash", 32)?);
+    let attested_event_hash = bytes_array(&map_lookup_fixed_bytes(
+        extension_map,
+        "attested_event_hash",
+        32,
+    )?);
     let attested_event_position = map_lookup_u64(extension_map, "attested_event_position")?;
     let attestor = map_lookup_text(extension_map, "attestor")?;
     let identity_attestation_ref =
@@ -3849,9 +3854,7 @@ fn is_syntactically_valid_uri(value: &str) -> bool {
     if !first.is_ascii_alphabetic() {
         return false;
     }
-    chars.all(|c| {
-        c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.'
-    })
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
 }
 
 /// Companion §6.4 operator-URI prefix check used for ADR 0010 §"Verifier
@@ -3861,8 +3864,7 @@ fn is_syntactically_valid_uri(value: &str) -> bool {
 /// substitute or extend this list via deployment-local lint per the ADR
 /// 0010 §"Adversary model" "operator masquerading as user" mitigation.
 fn is_operator_uri(value: &str) -> bool {
-    value.starts_with(OPERATOR_URI_PREFIX_TRELLIS)
-        || value.starts_with(OPERATOR_URI_PREFIX_WOS)
+    value.starts_with(OPERATOR_URI_PREFIX_TRELLIS) || value.starts_with(OPERATOR_URI_PREFIX_WOS)
 }
 
 /// Phase-1 identity-attestation event-type admission. Admits the
@@ -3933,10 +3935,8 @@ fn verify_user_content_attestation_signature(
     details: &UserContentAttestationDetails,
     public_key: &[u8; 32],
 ) -> bool {
-    let signed_hash = domain_separated_sha256(
-        USER_CONTENT_ATTESTATION_DOMAIN,
-        &details.canonical_preimage,
-    );
+    let signed_hash =
+        domain_separated_sha256(USER_CONTENT_ATTESTATION_DOMAIN, &details.canonical_preimage);
     let signature = Signature::from_bytes(&details.signature);
     let Ok(verifying_key) = VerifyingKey::from_bytes(public_key) else {
         return false;
@@ -4145,9 +4145,9 @@ fn finalize_user_content_attestations(
                             // Temporal precedence: identity proof MUST
                             // strictly precede the attestation.
                             outcome.identity_resolved = false;
-                            outcome
-                                .failures
-                                .push("user_content_attestation_identity_temporal_inversion".into());
+                            outcome.failures.push(
+                                "user_content_attestation_identity_temporal_inversion".into(),
+                            );
                             event_failures.push(VerificationFailure::new(
                                 "user_content_attestation_identity_temporal_inversion",
                                 hex_string(&identity_ref),
@@ -4957,9 +4957,9 @@ fn parse_erasure_catalog_entries(
             }
             let mut cascade_scopes = Vec::with_capacity(cascade_array.len());
             for scope_value in cascade_array {
-                let scope = scope_value
-                    .as_text()
-                    .ok_or_else(|| VerifyError::new("erasure catalog cascade_scope entry is not text"))?;
+                let scope = scope_value.as_text().ok_or_else(|| {
+                    VerifyError::new("erasure catalog cascade_scope entry is not text")
+                })?;
                 cascade_scopes.push(scope.to_string());
             }
             let kid_bytes = map_lookup_fixed_bytes(map, "kid_destroyed", 16)?;
@@ -5847,7 +5847,9 @@ fn parse_key_registry(
             None | Some("signing") => {
                 let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
                 let status = map_lookup_u64(map, "status")?;
-                let valid_to: Option<TrellisTimestamp> = match map_lookup_optional_value(map, "valid_to") {
+                let valid_to: Option<TrellisTimestamp> = match map_lookup_optional_value(
+                    map, "valid_to",
+                ) {
                     Some(Value::Array(arr)) => Some(decode_timestamp_array(arr)?),
                     Some(Value::Null) | None => None,
                     Some(Value::Integer(_)) => {
@@ -6357,27 +6359,21 @@ fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, VerifyE
 
 fn decode_timestamp_array(arr: &[Value]) -> Result<TrellisTimestamp, VerifyError> {
     if arr.len() != 2 {
-        return Err(VerifyError::new("timestamp array must have exactly 2 elements"));
+        return Err(VerifyError::new(
+            "timestamp array must have exactly 2 elements",
+        ));
     }
     let seconds = match &arr[0] {
-        Value::Integer(i) => u64::try_from(*i).map_err(|_| {
-            VerifyError::new("timestamp seconds out of u64 range")
-        })?,
-        _ => {
-            return Err(VerifyError::new(
-                "timestamp seconds must be uint",
-            ))
+        Value::Integer(i) => {
+            u64::try_from(*i).map_err(|_| VerifyError::new("timestamp seconds out of u64 range"))?
         }
+        _ => return Err(VerifyError::new("timestamp seconds must be uint")),
     };
     let nanos = match &arr[1] {
-        Value::Integer(i) => u32::try_from(*i).map_err(|_| {
-            VerifyError::new("timestamp nanos out of u32 range")
-        })?,
-        _ => {
-            return Err(VerifyError::new(
-                "timestamp nanos must be uint",
-            ))
+        Value::Integer(i) => {
+            u32::try_from(*i).map_err(|_| VerifyError::new("timestamp nanos out of u32 range"))?
         }
+        _ => return Err(VerifyError::new("timestamp nanos must be uint")),
     };
     if nanos > 999_999_999 {
         return Err(VerifyError::new(format!(
@@ -6522,10 +6518,9 @@ mod tests {
     use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
     use super::{
-        export_archive_for_tests, is_interop_sidecar_path_valid, parse_sign1_bytes,
-        parse_signing_key_registry, verify_event_set, verify_export_zip,
+        TrellisTimestamp, export_archive_for_tests, is_interop_sidecar_path_valid,
+        parse_sign1_bytes, parse_signing_key_registry, verify_event_set, verify_export_zip,
         verify_interop_sidecars, verify_single_event, verify_tampered_ledger,
-        TrellisTimestamp,
     };
 
     /// TR-CORE-167 — `interop_sidecar_path_invalid` predicate (ADR 0008
@@ -6536,8 +6531,12 @@ mod tests {
     #[test]
     fn interop_sidecar_path_prefix_invariant() {
         // Valid: starts with the literal byte prefix.
-        assert!(is_interop_sidecar_path_valid("interop-sidecars/c2pa-manifest/cert-001.c2pa"));
-        assert!(is_interop_sidecar_path_valid("interop-sidecars/scitt-receipt/ckpt.cbor"));
+        assert!(is_interop_sidecar_path_valid(
+            "interop-sidecars/c2pa-manifest/cert-001.c2pa"
+        ));
+        assert!(is_interop_sidecar_path_valid(
+            "interop-sidecars/scitt-receipt/ckpt.cbor"
+        ));
         // The trailing-empty case is a definitional edge — the prefix
         // alone is technically valid byte-prefix-wise but no real file
         // would land at a directory path. Predicate accepts; the
@@ -6558,7 +6557,7 @@ mod tests {
         assert!(!is_interop_sidecar_path_valid("../interop-sidecars/x"));
         assert!(!is_interop_sidecar_path_valid("nested/interop-sidecars/x"));
         assert!(!is_interop_sidecar_path_valid("Interop-sidecars/x")); // case-sensitive
-        assert!(!is_interop_sidecar_path_valid("interop-sidecar/x"));  // missing trailing 's/'
+        assert!(!is_interop_sidecar_path_valid("interop-sidecar/x")); // missing trailing 's/'
     }
 
     /// TR-CORE-167 — `interop_sidecar_path_invalid` through the real
@@ -7289,66 +7288,64 @@ mod tests {
             .into_iter()
             .map(|s| Value::Text(s.to_string()))
             .collect();
-        vec![
-            (
-                Value::Text("trellis.erasure-evidence.v1".into()),
-                Value::Map(vec![
-                    (
-                        Value::Text("evidence_id".into()),
-                        Value::Text("urn:trellis:erasure:test:1".into()),
-                    ),
-                    (
-                        Value::Text("kid_destroyed".into()),
-                        Value::Bytes(kid_destroyed.to_vec()),
-                    ),
-                    (
-                        Value::Text("key_class".into()),
-                        Value::Text(key_class.into()),
-                    ),
-                    (
-                        Value::Text("destroyed_at".into()),
-                        Value::Array(vec![
-                            Value::Integer(destroyed_at.into()),
-                            Value::Integer(0u32.into()),
-                        ]),
-                    ),
-                    (
-                        Value::Text("cascade_scopes".into()),
-                        Value::Array(cascade_array),
-                    ),
-                    (
-                        Value::Text("completion_mode".into()),
-                        Value::Text("complete".into()),
-                    ),
-                    (
-                        Value::Text("destruction_actor".into()),
-                        Value::Text("urn:trellis:principal:test-actor".into()),
-                    ),
-                    (
-                        Value::Text("policy_authority".into()),
-                        Value::Text("urn:trellis:authority:test-policy".into()),
-                    ),
-                    (
-                        Value::Text("reason_code".into()),
-                        Value::Integer(1u64.into()),
-                    ),
-                    (Value::Text("subject_scope".into()), subject_scope),
-                    (
-                        Value::Text("hsm_receipt".into()),
-                        hsm_receipt.unwrap_or(Value::Null),
-                    ),
-                    (
-                        Value::Text("hsm_receipt_kind".into()),
-                        hsm_receipt_kind.unwrap_or(Value::Null),
-                    ),
-                    (
-                        Value::Text("attestations".into()),
-                        Value::Array(attestations),
-                    ),
-                    (Value::Text("extensions".into()), Value::Null),
-                ]),
-            ),
-        ]
+        vec![(
+            Value::Text("trellis.erasure-evidence.v1".into()),
+            Value::Map(vec![
+                (
+                    Value::Text("evidence_id".into()),
+                    Value::Text("urn:trellis:erasure:test:1".into()),
+                ),
+                (
+                    Value::Text("kid_destroyed".into()),
+                    Value::Bytes(kid_destroyed.to_vec()),
+                ),
+                (
+                    Value::Text("key_class".into()),
+                    Value::Text(key_class.into()),
+                ),
+                (
+                    Value::Text("destroyed_at".into()),
+                    Value::Array(vec![
+                        Value::Integer(destroyed_at.into()),
+                        Value::Integer(0u32.into()),
+                    ]),
+                ),
+                (
+                    Value::Text("cascade_scopes".into()),
+                    Value::Array(cascade_array),
+                ),
+                (
+                    Value::Text("completion_mode".into()),
+                    Value::Text("complete".into()),
+                ),
+                (
+                    Value::Text("destruction_actor".into()),
+                    Value::Text("urn:trellis:principal:test-actor".into()),
+                ),
+                (
+                    Value::Text("policy_authority".into()),
+                    Value::Text("urn:trellis:authority:test-policy".into()),
+                ),
+                (
+                    Value::Text("reason_code".into()),
+                    Value::Integer(1u64.into()),
+                ),
+                (Value::Text("subject_scope".into()), subject_scope),
+                (
+                    Value::Text("hsm_receipt".into()),
+                    hsm_receipt.unwrap_or(Value::Null),
+                ),
+                (
+                    Value::Text("hsm_receipt_kind".into()),
+                    hsm_receipt_kind.unwrap_or(Value::Null),
+                ),
+                (
+                    Value::Text("attestations".into()),
+                    Value::Array(attestations),
+                ),
+                (Value::Text("extensions".into()), Value::Null),
+            ]),
+        )]
     }
 
     fn one_attestation(class: &str) -> Value {
@@ -7361,16 +7358,16 @@ mod tests {
                 Value::Text("authority_class".into()),
                 Value::Text(class.into()),
             ),
-            (
-                Value::Text("signature".into()),
-                Value::Bytes(vec![0u8; 64]),
-            ),
+            (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
         ])
     }
 
     fn per_subject_scope() -> Value {
         Value::Map(vec![
-            (Value::Text("kind".into()), Value::Text("per-subject".into())),
+            (
+                Value::Text("kind".into()),
+                Value::Text("per-subject".into()),
+            ),
             (
                 Value::Text("subject_refs".into()),
                 Value::Array(vec![Value::Text("urn:trellis:subject:test-1".into())]),
@@ -7402,7 +7399,10 @@ mod tests {
     #[test]
     fn validate_subject_scope_shape_per_subject_rejects_with_ledger_scopes() {
         let scope = Value::Map(vec![
-            (Value::Text("kind".into()), Value::Text("per-subject".into())),
+            (
+                Value::Text("kind".into()),
+                Value::Text("per-subject".into()),
+            ),
             (
                 Value::Text("subject_refs".into()),
                 Value::Array(vec![Value::Text("urn:trellis:subject:test-1".into())]),
@@ -7493,13 +7493,25 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
-            .unwrap()
-            .expect("erasure extension must decode");
+        let details = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap()
+        .expect("erasure extension must decode");
         assert_eq!(details.evidence_id, "urn:trellis:erasure:test:1");
         assert_eq!(details.kid_destroyed, kid.to_vec());
         assert_eq!(details.norm_key_class, "signing");
-        assert_eq!(details.destroyed_at, TrellisTimestamp { seconds: 1_745_000_000, nanos: 0 });
+        assert_eq!(
+            details.destroyed_at,
+            TrellisTimestamp {
+                seconds: 1_745_000_000,
+                nanos: 0
+            }
+        );
         assert_eq!(details.cascade_scopes, vec!["CS-03"]);
         assert_eq!(details.completion_mode, "complete");
         assert!(details.attestation_signatures_well_formed);
@@ -7511,8 +7523,14 @@ mod tests {
             Value::Text("trellis.custody-model-transition.v1".into()),
             Value::Map(vec![]),
         )];
-        let result =
-            super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_000, nanos: 0 }).unwrap();
+        let result = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_000,
+                nanos: 0,
+            },
+        )
+        .unwrap();
         assert!(result.is_none(), "no erasure-evidence ext → None");
     }
 
@@ -7531,9 +7549,15 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
-            .unwrap()
-            .unwrap();
+        let details = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(
             details.norm_key_class, "subject",
             "wire 'wrap' must normalize to 'subject' (Wave 17 / ADR 0006)",
@@ -7545,7 +7569,10 @@ mod tests {
         let kid = [0x02u8; 16];
         // per-subject kind but subject_refs null violates step 3.
         let bad_scope = Value::Map(vec![
-            (Value::Text("kind".into()), Value::Text("per-subject".into())),
+            (
+                Value::Text("kind".into()),
+                Value::Text("per-subject".into()),
+            ),
             (Value::Text("subject_refs".into()), Value::Null),
             (Value::Text("ledger_scopes".into()), Value::Null),
             (Value::Text("tenant_refs".into()), Value::Null),
@@ -7560,7 +7587,14 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("subject_scope"));
     }
 
@@ -7579,7 +7613,14 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert_eq!(err.kind(), Some("erasure_destroyed_at_after_host"));
     }
 
@@ -7596,7 +7637,14 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("hsm_receipt"));
     }
 
@@ -7613,7 +7661,14 @@ mod tests {
             Some(Value::Text("opaque-vendor-receipt-v1".into())),
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("hsm_receipt"));
     }
 
@@ -7630,9 +7685,15 @@ mod tests {
             Some(Value::Text("opaque-vendor-receipt-v1".into())),
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
-            .unwrap()
-            .unwrap();
+        let details = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(details.evidence_id, "urn:trellis:erasure:test:1");
     }
 
@@ -7666,9 +7727,15 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
-            .unwrap()
-            .unwrap();
+        let details = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
         assert!(!details.attestation_signatures_well_formed);
     }
 
@@ -7685,7 +7752,14 @@ mod tests {
             None,
             vec![], // empty
         );
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("cascade_scopes"));
     }
 
@@ -7702,7 +7776,14 @@ mod tests {
             None,
             vec!["CS-03"],
         );
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("attestations"));
     }
 
@@ -7759,7 +7840,14 @@ mod tests {
                 (Value::Text("extensions".into()), Value::Null),
             ]),
         )];
-        let err = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 }).unwrap_err();
+        let err = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("kid_destroyed"));
     }
 
@@ -7776,9 +7864,15 @@ mod tests {
             None,
             vec!["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"],
         );
-        let details = super::decode_erasure_evidence_details(&extensions, TrellisTimestamp { seconds: 1_745_000_100, nanos: 0 })
-            .unwrap()
-            .unwrap();
+        let details = super::decode_erasure_evidence_details(
+            &extensions,
+            TrellisTimestamp {
+                seconds: 1_745_000_100,
+                nanos: 0,
+            },
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(details.subject_scope_kind, "deployment-wide");
         assert_eq!(details.cascade_scopes.len(), 6);
         assert_eq!(details.attestation_classes, vec!["prior", "new"]);
@@ -7802,7 +7896,10 @@ mod tests {
             evidence_id: format!("urn:trellis:erasure:test:{}", kid[0]),
             kid_destroyed: kid,
             norm_key_class: norm_key_class.to_string(),
-            destroyed_at: super::TrellisTimestamp { seconds: destroyed_at, nanos: 0 },
+            destroyed_at: super::TrellisTimestamp {
+                seconds: destroyed_at,
+                nanos: 0,
+            },
             cascade_scopes: vec!["CS-03".to_string()],
             completion_mode: "complete".to_string(),
             attestation_signatures_well_formed: true,
@@ -7820,7 +7917,10 @@ mod tests {
     ) -> super::ChainEventSummary {
         super::ChainEventSummary {
             event_index: index,
-            authored_at: super::TrellisTimestamp { seconds: authored_at, nanos: 0 },
+            authored_at: super::TrellisTimestamp {
+                seconds: authored_at,
+                nanos: 0,
+            },
             signing_kid,
             wrap_recipients,
             canonical_event_hash,
@@ -7831,13 +7931,8 @@ mod tests {
     fn finalize_erasure_evidence_empty_input_produces_empty_outcome() {
         let registry = BTreeMap::new();
         let mut event_failures = Vec::new();
-        let outcomes = super::finalize_erasure_evidence(
-            &[],
-            &[],
-            &registry,
-            None,
-            &mut event_failures,
-        );
+        let outcomes =
+            super::finalize_erasure_evidence(&[], &[], &registry, None, &mut event_failures);
         assert!(outcomes.is_empty());
         assert!(event_failures.is_empty());
     }
@@ -7873,7 +7968,8 @@ mod tests {
         assert!(
             event_failures
                 .iter()
-                .any(|f| f.kind == "post_erasure_use" && f.location == super::hex_string(&later_hash))
+                .any(|f| f.kind == "post_erasure_use"
+                    && f.location == super::hex_string(&later_hash))
         );
     }
 
@@ -7890,13 +7986,7 @@ mod tests {
         let later_hash = [2u8; 32];
         let chain = vec![
             chain_summary(0, 100, signing_kid.clone(), vec![], canonical_hash),
-            chain_summary(
-                1,
-                200,
-                signing_kid.clone(),
-                vec![kid.clone()],
-                later_hash,
-            ),
+            chain_summary(1, 200, signing_kid.clone(), vec![kid.clone()], later_hash),
         ];
 
         let registry = BTreeMap::new();
@@ -7914,7 +8004,8 @@ mod tests {
         assert!(
             event_failures
                 .iter()
-                .any(|f| f.kind == "post_erasure_wrap" && f.location == super::hex_string(&later_hash))
+                .any(|f| f.kind == "post_erasure_wrap"
+                    && f.location == super::hex_string(&later_hash))
         );
     }
 
@@ -8176,10 +8267,7 @@ mod tests {
                 Value::Text("authority_class".into()),
                 Value::Text(class.into()),
             ),
-            (
-                Value::Text("signature".into()),
-                Value::Bytes(vec![0u8; 64]),
-            ),
+            (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
         ])
     }
 
@@ -8197,7 +8285,10 @@ mod tests {
                 Value::Text("media_type".into()),
                 Value::Text(media_type.into()),
             ),
-            (Value::Text("byte_length".into()), Value::Integer(1024u64.into())),
+            (
+                Value::Text("byte_length".into()),
+                Value::Integer(1024u64.into()),
+            ),
             (
                 Value::Text("attachment_id".into()),
                 Value::Text(attachment_id.into()),
@@ -8221,10 +8312,13 @@ mod tests {
                 Value::Text("Test Signer".into()),
             ),
             (Value::Text("display_role".into()), Value::Null),
-            (Value::Text("signed_at".into()), Value::Array(vec![
-                Value::Integer(signed_at.into()),
-                Value::Integer(0.into()),
-            ])),
+            (
+                Value::Text("signed_at".into()),
+                Value::Array(vec![
+                    Value::Integer(signed_at.into()),
+                    Value::Integer(0.into()),
+                ]),
+            ),
         ])
     }
 
@@ -8275,7 +8369,10 @@ mod tests {
                 (Value::Text("case_ref".into()), Value::Null),
                 (
                     Value::Text("completed_at".into()),
-                    Value::Array(vec![Value::Integer(1_745_100_000u64.into()), Value::Integer(0.into())]),
+                    Value::Array(vec![
+                        Value::Integer(1_745_100_000u64.into()),
+                        Value::Integer(0.into()),
+                    ]),
                 ),
                 (
                     Value::Text("presentation_artifact".into()),
@@ -8283,12 +8380,7 @@ mod tests {
                 ),
                 (
                     Value::Text("chain_summary".into()),
-                    chain_summary_value(
-                        signer_count,
-                        signer_displays,
-                        response_ref,
-                        "completed",
-                    ),
+                    chain_summary_value(signer_count, signer_displays, response_ref, "completed"),
                 ),
                 (
                     Value::Text("signing_events".into()),
@@ -8322,7 +8414,13 @@ mod tests {
             .unwrap()
             .expect("certificate extension must decode");
         assert_eq!(details.certificate_id, "urn:trellis:cert:test:1");
-        assert_eq!(details.completed_at, TrellisTimestamp { seconds: 1_745_100_000, nanos: 0 });
+        assert_eq!(
+            details.completed_at,
+            TrellisTimestamp {
+                seconds: 1_745_100_000,
+                nanos: 0
+            }
+        );
         assert_eq!(details.chain_summary.signer_count, 1);
         assert_eq!(details.signing_events.len(), 1);
         assert_eq!(details.signing_events[0], signing_event);
@@ -8532,13 +8630,19 @@ mod tests {
                 principal_ref: format!("urn:trellis:principal:test-{i}"),
                 display_name: "Test".to_string(),
                 display_role: None,
-                signed_at: TrellisTimestamp { seconds: 1_745_099_000 + i as u64, nanos: 0 },
+                signed_at: TrellisTimestamp {
+                    seconds: 1_745_099_000 + i as u64,
+                    nanos: 0,
+                },
             })
             .collect();
         super::CertificateDetails {
             certificate_id: certificate_id.to_string(),
             case_ref: None,
-            completed_at: TrellisTimestamp { seconds: 1_745_100_000, nanos: 0 },
+            completed_at: TrellisTimestamp {
+                seconds: 1_745_100_000,
+                nanos: 0,
+            },
             presentation_artifact: super::PresentationArtifactDetails {
                 content_hash: [0u8; 32],
                 media_type: "application/pdf".to_string(),
@@ -8575,15 +8679,18 @@ mod tests {
         let payloads = vec![(0usize, payload, canonical_hash)];
 
         let mut event_failures = Vec::new();
-        let outcomes = super::finalize_certificates_of_completion(
-            &payloads,
-            &[],
-            &mut event_failures,
-        );
+        let outcomes =
+            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].certificate_id, "cert-1");
         assert_eq!(outcomes[0].signer_count, 1);
-        assert_eq!(outcomes[0].completed_at, TrellisTimestamp { seconds: 1_745_100_000, nanos: 0 });
+        assert_eq!(
+            outcomes[0].completed_at,
+            TrellisTimestamp {
+                seconds: 1_745_100_000,
+                nanos: 0
+            }
+        );
         // Empty events slice → unresolvable signing event → step 5 flags.
         assert!(!outcomes[0].all_signing_events_resolved);
         assert!(
@@ -8614,11 +8721,8 @@ mod tests {
         let payloads = vec![(0usize, payload_a, hash_a), (1usize, payload_b, hash_b)];
 
         let mut event_failures = Vec::new();
-        let outcomes = super::finalize_certificates_of_completion(
-            &payloads,
-            &[],
-            &mut event_failures,
-        );
+        let outcomes =
+            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
         assert_eq!(outcomes.len(), 2);
         assert!(
             event_failures
@@ -8640,11 +8744,8 @@ mod tests {
         let payloads = vec![(0usize, payload_a, hash_a), (1usize, payload_b, hash_b)];
 
         let mut event_failures = Vec::new();
-        let _outcomes = super::finalize_certificates_of_completion(
-            &payloads,
-            &[],
-            &mut event_failures,
-        );
+        let _outcomes =
+            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
         assert!(
             !event_failures
                 .iter()
@@ -8665,11 +8766,8 @@ mod tests {
         let payloads = vec![(0usize, payload, canonical_hash)];
 
         let mut event_failures = Vec::new();
-        let outcomes = super::finalize_certificates_of_completion(
-            &payloads,
-            &[],
-            &mut event_failures,
-        );
+        let outcomes =
+            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].chain_summary_consistent);
         assert!(
@@ -8698,11 +8796,8 @@ mod tests {
         let payloads = vec![(0usize, payload, canonical_hash)];
 
         let mut event_failures = Vec::new();
-        let outcomes = super::finalize_certificates_of_completion(
-            &payloads,
-            &[],
-            &mut event_failures,
-        );
+        let outcomes =
+            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].attachment_resolved);
         assert!(
@@ -8733,7 +8828,10 @@ mod tests {
         signing_kid: Vec<u8>,
         identity_attestation_ref: Option<[u8; 32]>,
     ) -> super::UserContentAttestationDetails {
-        let attested_at_ts = super::TrellisTimestamp { seconds: attested_at, nanos: 0 };
+        let attested_at_ts = super::TrellisTimestamp {
+            seconds: attested_at,
+            nanos: 0,
+        };
         let attested_event_hash = [0xAAu8; 32];
         let attested_event_position = 0;
         let canonical_preimage = super::compute_user_content_attestation_preimage(
@@ -8764,9 +8862,15 @@ mod tests {
     fn is_syntactically_valid_uri_admits_urn() {
         // Trellis owns the bytes; WOS owns the meaning. URN-style intent
         // URIs (no authority) must pass the syntactic check.
-        assert!(super::is_syntactically_valid_uri("urn:trellis:intent:notarial-attestation"));
-        assert!(super::is_syntactically_valid_uri("urn:wos:signature-intent:applicant-affirmation"));
-        assert!(super::is_syntactically_valid_uri("https://example.invalid/intent/witness"));
+        assert!(super::is_syntactically_valid_uri(
+            "urn:trellis:intent:notarial-attestation"
+        ));
+        assert!(super::is_syntactically_valid_uri(
+            "urn:wos:signature-intent:applicant-affirmation"
+        ));
+        assert!(super::is_syntactically_valid_uri(
+            "https://example.invalid/intent/witness"
+        ));
     }
 
     #[test]
@@ -8786,10 +8890,14 @@ mod tests {
         // ADR 0010 §"Verifier obligations" step 8 — operator URIs forbidden
         // in `attestor` slot. Phase-1 conservative prefixes are
         // `urn:trellis:operator:` and `urn:wos:operator:`.
-        assert!(super::is_operator_uri("urn:trellis:operator:test-deployment"));
+        assert!(super::is_operator_uri(
+            "urn:trellis:operator:test-deployment"
+        ));
         assert!(super::is_operator_uri("urn:wos:operator:agency-of-record"));
         // User principal URIs MUST pass.
-        assert!(!super::is_operator_uri("urn:trellis:principal:applicant-001"));
+        assert!(!super::is_operator_uri(
+            "urn:trellis:principal:applicant-001"
+        ));
         assert!(!super::is_operator_uri("urn:wos:user:notary-002"));
         assert!(!super::is_operator_uri(""));
     }
@@ -8804,7 +8912,10 @@ mod tests {
         // Map without the field → false.
         let mut buf = Vec::new();
         ciborium::ser::into_writer(
-            &Value::Map(vec![(Value::Text("provider_readable".into()), Value::Bool(true))]),
+            &Value::Map(vec![(
+                Value::Text("provider_readable".into()),
+                Value::Bool(true),
+            )]),
             &mut buf,
         )
         .unwrap();
@@ -8990,7 +9101,10 @@ mod tests {
         );
         let mut b = a.clone();
         // Mutate an inner field so the canonical payloads disagree.
-        b.attested_at = super::TrellisTimestamp { seconds: 1_776_900_999, nanos: 0 };
+        b.attested_at = super::TrellisTimestamp {
+            seconds: 1_776_900_999,
+            nanos: 0,
+        };
         // Canonical preimages must reflect the divergence.
         a.canonical_preimage = super::compute_user_content_attestation_preimage(
             &a.attestation_id,
@@ -9011,10 +9125,7 @@ mod tests {
             b.attested_at,
         );
 
-        let payloads = vec![
-            (0usize, a, [0xCC; 32]),
-            (1usize, b, [0xCD; 32]),
-        ];
+        let payloads = vec![(0usize, a, [0xCC; 32]), (1usize, b, [0xCD; 32])];
         let registry = BTreeMap::new();
         let mut event_failures = Vec::new();
         super::finalize_user_content_attestations(
@@ -9045,10 +9156,7 @@ mod tests {
             Some([0xBBu8; 32]),
         );
         let b = a.clone();
-        let payloads = vec![
-            (0usize, a, [0xCC; 32]),
-            (1usize, b, [0xCD; 32]),
-        ];
+        let payloads = vec![(0usize, a, [0xCC; 32]), (1usize, b, [0xCD; 32])];
         let registry = BTreeMap::new();
         let mut event_failures = Vec::new();
         super::finalize_user_content_attestations(
@@ -9076,16 +9184,37 @@ mod tests {
         // `step_2_failure` for the finalize pass to raise.
         let kid_bytes: Vec<u8> = vec![0xC0u8; 16];
         let extension_value = Value::Map(vec![
-            (Value::Text("attestation_id".into()), Value::Text("uca-skew-1".into())),
-            (Value::Text("attested_event_hash".into()), Value::Bytes(vec![0xAA; 32])),
-            (Value::Text("attested_event_position".into()), Value::Integer(0u64.into())),
-            (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
-            (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
-            (Value::Text("signing_intent".into()), Value::Text("urn:trellis:intent:applicant".into())),
-            (Value::Text("attested_at".into()), Value::Array(vec![
-                Value::Integer(1_776_900_000u64.into()),
-                Value::Integer(0u32.into()),
-            ])),
+            (
+                Value::Text("attestation_id".into()),
+                Value::Text("uca-skew-1".into()),
+            ),
+            (
+                Value::Text("attested_event_hash".into()),
+                Value::Bytes(vec![0xAA; 32]),
+            ),
+            (
+                Value::Text("attested_event_position".into()),
+                Value::Integer(0u64.into()),
+            ),
+            (
+                Value::Text("attestor".into()),
+                Value::Text("urn:trellis:principal:applicant".into()),
+            ),
+            (
+                Value::Text("identity_attestation_ref".into()),
+                Value::Bytes(vec![0xBB; 32]),
+            ),
+            (
+                Value::Text("signing_intent".into()),
+                Value::Text("urn:trellis:intent:applicant".into()),
+            ),
+            (
+                Value::Text("attested_at".into()),
+                Value::Array(vec![
+                    Value::Integer(1_776_900_000u64.into()),
+                    Value::Integer(0u32.into()),
+                ]),
+            ),
             (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
             (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes)),
         ]);
@@ -9096,9 +9225,12 @@ mod tests {
         // Host envelope authored_at differs from payload attested_at.
         let decoded = super::decode_user_content_attestation_payload(
             &extensions,
-            super::TrellisTimestamp { seconds: 1_776_900_999, nanos: 0 },
+            super::TrellisTimestamp {
+                seconds: 1_776_900_999,
+                nanos: 0,
+            },
         )
-            .expect("step 2 failures decode cleanly; finalize raises them");
+        .expect("step 2 failures decode cleanly; finalize raises them");
         let details = decoded.expect("payload present");
         assert_eq!(
             details.step_2_failure,
@@ -9113,16 +9245,37 @@ mod tests {
         // `readability_verified` stays `true` per ADR 0010 step 2 prose.
         let kid_bytes: Vec<u8> = vec![0xC0u8; 16];
         let extension_value = Value::Map(vec![
-            (Value::Text("attestation_id".into()), Value::Text("uca-bad-intent".into())),
-            (Value::Text("attested_event_hash".into()), Value::Bytes(vec![0xAA; 32])),
-            (Value::Text("attested_event_position".into()), Value::Integer(0u64.into())),
-            (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
-            (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
-            (Value::Text("signing_intent".into()), Value::Text("not-a-uri".into())),
-            (Value::Text("attested_at".into()), Value::Array(vec![
-                Value::Integer(1_776_900_000u64.into()),
-                Value::Integer(0u32.into()),
-            ])),
+            (
+                Value::Text("attestation_id".into()),
+                Value::Text("uca-bad-intent".into()),
+            ),
+            (
+                Value::Text("attested_event_hash".into()),
+                Value::Bytes(vec![0xAA; 32]),
+            ),
+            (
+                Value::Text("attested_event_position".into()),
+                Value::Integer(0u64.into()),
+            ),
+            (
+                Value::Text("attestor".into()),
+                Value::Text("urn:trellis:principal:applicant".into()),
+            ),
+            (
+                Value::Text("identity_attestation_ref".into()),
+                Value::Bytes(vec![0xBB; 32]),
+            ),
+            (
+                Value::Text("signing_intent".into()),
+                Value::Text("not-a-uri".into()),
+            ),
+            (
+                Value::Text("attested_at".into()),
+                Value::Array(vec![
+                    Value::Integer(1_776_900_000u64.into()),
+                    Value::Integer(0u32.into()),
+                ]),
+            ),
             (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
             (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes)),
         ]);
@@ -9132,9 +9285,12 @@ mod tests {
         )];
         let decoded = super::decode_user_content_attestation_payload(
             &extensions,
-            super::TrellisTimestamp { seconds: 1_776_900_000, nanos: 0 },
+            super::TrellisTimestamp {
+                seconds: 1_776_900_000,
+                nanos: 0,
+            },
         )
-            .expect("step 2 failures decode cleanly; finalize raises them");
+        .expect("step 2 failures decode cleanly; finalize raises them");
         let details = decoded.expect("payload present");
         assert_eq!(
             details.step_2_failure,
@@ -9147,9 +9303,12 @@ mod tests {
         let extensions: Vec<(Value, Value)> = vec![];
         let decoded = super::decode_user_content_attestation_payload(
             &extensions,
-            super::TrellisTimestamp { seconds: 0, nanos: 0 },
+            super::TrellisTimestamp {
+                seconds: 0,
+                nanos: 0,
+            },
         )
-            .expect("absent extension is not an error");
+        .expect("absent extension is not an error");
         assert!(decoded.is_none());
     }
 
@@ -9157,18 +9316,42 @@ mod tests {
     fn decode_uca_payload_succeeds_with_well_formed_input() {
         let kid_bytes: Vec<u8> = vec![0xC0u8; 16];
         let extension_value = Value::Map(vec![
-            (Value::Text("attestation_id".into()), Value::Text("uca-ok-1".into())),
-            (Value::Text("attested_event_hash".into()), Value::Bytes(vec![0xAA; 32])),
-            (Value::Text("attested_event_position".into()), Value::Integer(0u64.into())),
-            (Value::Text("attestor".into()), Value::Text("urn:trellis:principal:applicant".into())),
-            (Value::Text("identity_attestation_ref".into()), Value::Bytes(vec![0xBB; 32])),
-            (Value::Text("signing_intent".into()), Value::Text("urn:trellis:intent:applicant".into())),
-            (Value::Text("attested_at".into()), Value::Array(vec![
-                Value::Integer(1_776_900_000u64.into()),
-                Value::Integer(0u32.into()),
-            ])),
+            (
+                Value::Text("attestation_id".into()),
+                Value::Text("uca-ok-1".into()),
+            ),
+            (
+                Value::Text("attested_event_hash".into()),
+                Value::Bytes(vec![0xAA; 32]),
+            ),
+            (
+                Value::Text("attested_event_position".into()),
+                Value::Integer(0u64.into()),
+            ),
+            (
+                Value::Text("attestor".into()),
+                Value::Text("urn:trellis:principal:applicant".into()),
+            ),
+            (
+                Value::Text("identity_attestation_ref".into()),
+                Value::Bytes(vec![0xBB; 32]),
+            ),
+            (
+                Value::Text("signing_intent".into()),
+                Value::Text("urn:trellis:intent:applicant".into()),
+            ),
+            (
+                Value::Text("attested_at".into()),
+                Value::Array(vec![
+                    Value::Integer(1_776_900_000u64.into()),
+                    Value::Integer(0u32.into()),
+                ]),
+            ),
             (Value::Text("signature".into()), Value::Bytes(vec![0u8; 64])),
-            (Value::Text("signing_kid".into()), Value::Bytes(kid_bytes.clone())),
+            (
+                Value::Text("signing_kid".into()),
+                Value::Bytes(kid_bytes.clone()),
+            ),
         ]);
         let extensions = vec![(
             Value::Text(super::USER_CONTENT_ATTESTATION_EVENT_EXTENSION.into()),
@@ -9176,10 +9359,13 @@ mod tests {
         )];
         let decoded = super::decode_user_content_attestation_payload(
             &extensions,
-            super::TrellisTimestamp { seconds: 1_776_900_000, nanos: 0 },
+            super::TrellisTimestamp {
+                seconds: 1_776_900_000,
+                nanos: 0,
+            },
         )
-            .expect("well-formed payload decodes")
-            .expect("extension is present");
+        .expect("well-formed payload decodes")
+        .expect("extension is present");
         assert_eq!(decoded.attestation_id, "uca-ok-1");
         assert_eq!(decoded.attestor, "urn:trellis:principal:applicant");
         assert_eq!(decoded.attested_event_position, 0);
@@ -9202,23 +9388,17 @@ mod tests {
         assert!(report.structure_verified);
         assert!(!report.integrity_verified);
         assert!(report.readability_verified);
-        assert_eq!(
-            report.event_failures[0].kind,
-            "timestamp_order_violation"
-        );
+        assert_eq!(report.event_failures[0].kind, "timestamp_order_violation");
     }
 
     #[test]
     fn verify_equal_timestamps_pass_temporal_check() {
-        let genesis_root =
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../fixtures/vectors/append/001-minimal-inline-payload");
-        let chain_root =
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../fixtures/vectors/append/005-prior-head-chain");
-        let registry_root =
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../fixtures/vectors/tamper/041-timestamp-backwards");
+        let genesis_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/append/001-minimal-inline-payload");
+        let chain_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/append/005-prior-head-chain");
+        let registry_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/tamper/041-timestamp-backwards");
 
         let genesis_event =
             parse_sign1_bytes(&fs::read(genesis_root.join("expected-event.cbor")).unwrap())
@@ -9252,10 +9432,22 @@ mod tests {
     #[test]
     fn verify_rejects_legacy_uint_timestamp_format() {
         let header: Vec<(Value, Value)> = vec![
-            (Value::Text("event_type".into()), Value::Bytes(b"x-trellis-test/append-minimal".to_vec())),
-            (Value::Text("authored_at".into()), Value::Integer(1745000000.into())),
-            (Value::Text("retention_tier".into()), Value::Integer(0.into())),
-            (Value::Text("classification".into()), Value::Bytes(b"x-trellis-test/unclassified".to_vec())),
+            (
+                Value::Text("event_type".into()),
+                Value::Bytes(b"x-trellis-test/append-minimal".to_vec()),
+            ),
+            (
+                Value::Text("authored_at".into()),
+                Value::Integer(1745000000.into()),
+            ),
+            (
+                Value::Text("retention_tier".into()),
+                Value::Integer(0.into()),
+            ),
+            (
+                Value::Text("classification".into()),
+                Value::Bytes(b"x-trellis-test/unclassified".to_vec()),
+            ),
             (Value::Text("outcome_commitment".into()), Value::Null),
             (Value::Text("subject_ref_commitment".into()), Value::Null),
             (Value::Text("tag_commitment".into()), Value::Null),

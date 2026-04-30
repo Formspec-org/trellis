@@ -304,7 +304,6 @@ fn map_lookup_fixed_bytes(
     Ok(bytes)
 }
 
-
 /// Extracts and validates the `idempotency_key` field per Core §6.1 + §17.2.
 ///
 /// The CBOR value MUST be a byte string; its length MUST satisfy `bstr .size

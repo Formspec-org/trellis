@@ -53,11 +53,7 @@ mod tests {
         let manifest = manifest_for(root);
         // F6 — deprecated tombstones preserve the `<op>/NNN` prefix for the
         // R16 pre-merge guard but carry no replayable bytes; skip them.
-        if manifest
-            .get("status")
-            .and_then(toml::Value::as_str)
-            == Some("deprecated")
-        {
+        if manifest.get("status").and_then(toml::Value::as_str) == Some("deprecated") {
             return;
         }
         let op = manifest

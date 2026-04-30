@@ -31,7 +31,10 @@ fn usage_top_level() -> String {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
-    let command = args.get(1).map(String::as_str).ok_or_else(usage_top_level)?;
+    let command = args
+        .get(1)
+        .map(String::as_str)
+        .ok_or_else(usage_top_level)?;
     match command {
         "erase-key" => erase_key_command(args),
         "seal-completion" => seal_completion_command(args),
@@ -281,12 +284,7 @@ mod tests {
 
     #[test]
     fn erase_key_help_succeeds() {
-        run(&[
-            "trellis-cli".into(),
-            "erase-key".into(),
-            "--help".into(),
-        ])
-        .unwrap();
+        run(&["trellis-cli".into(), "erase-key".into(), "--help".into()]).unwrap();
     }
 
     #[test]

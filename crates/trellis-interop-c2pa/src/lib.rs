@@ -102,8 +102,7 @@ const FIELD_CANONICAL_EVENT_HASH: &str = "trellis.canonical_event_hash";
 const FIELD_CERTIFICATE_ID: &str = "trellis.certificate_id";
 const FIELD_COSE_SIGN1_REF: &str = "trellis.cose_sign1_ref";
 const FIELD_KID: &str = "trellis.kid";
-const FIELD_PRESENTATION_ARTIFACT_CONTENT_HASH: &str =
-    "trellis.presentation_artifact.content_hash";
+const FIELD_PRESENTATION_ARTIFACT_CONTENT_HASH: &str = "trellis.presentation_artifact.content_hash";
 
 /// Decoded Trellis assertion. Carries the five-field cross-binding
 /// from a Certificate of Completion event to its presentation
@@ -676,14 +675,9 @@ mod tests {
     /// (and a fixture regeneration) rather than silently regressing.
     #[test]
     fn emit_canonical_key_order_is_kid_then_cert_then_cose_then_canonical_then_pa() {
-        let bytes = emit_c2pa_manifest_for_certificate(
-            "cert-test",
-            &[0; 32],
-            &[0; 32],
-            &[0; 16],
-            &[0; 32],
-        )
-        .expect("emit");
+        let bytes =
+            emit_c2pa_manifest_for_certificate("cert-test", &[0; 32], &[0; 32], &[0; 16], &[0; 32])
+                .expect("emit");
         let value: Value = ciborium::de::from_reader(Cursor::new(&bytes)).expect("decode");
         let entries = match value {
             Value::Map(entries) => entries,

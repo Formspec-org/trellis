@@ -41,8 +41,7 @@ const EXPECTED_EPHEMERAL_PUBKEY_HEX: &str =
     "34e42d4af5ef94a07a3a84201b889d4cd1a743cb27b11b6a10438a8feb8e5847";
 
 /// Committed HPKE-sealed DEK bytes (ciphertext || 16-byte tag).
-const EXPECTED_WRAPPED_DEK_HEX: &str =
-    "9f89d135c1594b3a52a9854609e8ac9387ec1d9a82865e8ab35fd43a2cf77028f848c833e9871ae9f43fef0b28b743fa";
+const EXPECTED_WRAPPED_DEK_HEX: &str = "9f89d135c1594b3a52a9854609e8ac9387ec1d9a82865e8ab35fd43a2cf77028f848c833e9871ae9f43fef0b28b743fa";
 
 fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -168,8 +167,8 @@ fn committed_fixture_wrapped_dek_unwraps_to_pinned_dek() {
 fn extract_keybag_entry_0(cbor: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     let eph = find_named_bstr(cbor, b"ephemeral_pubkey")
         .ok_or_else(|| "ephemeral_pubkey not found".to_string())?;
-    let wrapped = find_named_bstr(cbor, b"wrapped_dek")
-        .ok_or_else(|| "wrapped_dek not found".to_string())?;
+    let wrapped =
+        find_named_bstr(cbor, b"wrapped_dek").ok_or_else(|| "wrapped_dek not found".to_string())?;
     Ok((eph, wrapped))
 }
 
