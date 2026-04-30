@@ -37,20 +37,30 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # its dependency tree. ADR 0009 names these exactly.
 FORBIDDEN_RE='hpke|x25519-dalek|chacha20poly1305|hkdf'
 
-# `cargo tree` from the parent workspace root (the trellis crates live
-# under `trellis/crates/*` in the parent `Cargo.toml`'s workspace
-# members list). Run from $ROOT_DIR/.. so cargo finds the workspace.
-PARENT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
+# Always target Trellis's own workspace manifest directly. The parent
+# repository root is *not* guaranteed to expose `trellis-verify` as a
+# package ID, which causes `cargo tree -p trellis-verify` to fail before
+# we can evaluate forbidden deps.
+#
+# Test hook: `TRELLIS_MANIFEST_PATH` may override this path in unit tests.
+TRELLIS_MANIFEST="${TRELLIS_MANIFEST_PATH:-$ROOT_DIR/Cargo.toml}"
 
 echo "Asserting trellis-verify is HPKE-clean (Core §16; ADR 0009)..."
-echo "  workspace root: $PARENT_DIR"
+echo "  manifest: $TRELLIS_MANIFEST"
 echo "  forbidden: $FORBIDDEN_RE"
 
 # `cargo tree -p trellis-verify` lists every dep + transitive in the
 # graph. We grep for any forbidden crate name; a hit (exit 0) is a
 # regression. We invert by treating a hit as failure and absence
 # (`grep -E ... || true` returning empty) as success.
-TREE_OUTPUT="$(cd "$PARENT_DIR" && cargo tree -p trellis-verify --edges normal,build,dev 2>&1)"
+#
+# Test hook: if `TRELLIS_VERIFY_TREE_OUTPUT_FILE` is set, read the tree
+# output from that file rather than invoking cargo.
+if [ -n "${TRELLIS_VERIFY_TREE_OUTPUT_FILE:-}" ]; then
+    TREE_OUTPUT="$(cat "$TRELLIS_VERIFY_TREE_OUTPUT_FILE")"
+else
+    TREE_OUTPUT="$(cargo tree -p trellis-verify --edges normal,build,dev --manifest-path "$TRELLIS_MANIFEST" 2>&1)"
+fi
 
 # Filter the tree to lines that mention any of the forbidden crates.
 # Words may appear in `name vX.Y.Z` form or `(*)` repetition lines;
