@@ -1,50 +1,28 @@
-id          = "tamper/004-transition-declaration-digest-mismatch"
-op          = "tamper"
-status      = "active"
-description = """Posture-transition declaration-digest tamper. The tampered \
-export ships a Posture Declaration whose recomputed digest under the \
-`trellis-posture-declaration-v1` domain tag (Core §9.8) does NOT equal \
-the transition event's `declaration_doc_digest`. Core §19 step 6.c \
-names this explicitly as tamper evidence: the verifier sets BOTH \
-`declaration_resolved = false` AND `continuity_verified = false`, and \
-appends `declaration_digest_mismatch` to the outcome's failures list. \
-§19 step 9's integrity conjunction drops to false via the \
-`continuity_verified = false` clause. The intended declaration (the \
-one the event's digest was computed over) is committed as \
-`intended-posture-declaration.bin` for human reviewers; the export ships \
-`input-posture-declaration.bin` instead. The two declarations differ in \
-a single narrative field (`posture_honesty_statement`), producing \
-distinct SHA-256 digests under the domain tag. The tamper surfaces Decision 1 \
-of the O-5 design brief — co-publish is not enough on its own; the \
-co-published declaration must actually hash to the digest the transition \
-pinned."""
+id = "tamper/004-transition-declaration-digest-mismatch"
+op = "tamper"
+status = "active"
+description = "Posture-transition declaration-digest tamper. The tampered export ships a Posture Declaration whose recomputed digest under the `trellis-posture-declaration-v1` domain tag (Core §9.8) does NOT equal the transition event's `declaration_doc_digest`. Core §19 step 6.c names this explicitly as tamper evidence: the verifier sets BOTH `declaration_resolved = false` AND `continuity_verified = false`, and appends `declaration_digest_mismatch` to the outcome's failures list. §19 step 9's integrity conjunction drops to false via the `continuity_verified = false` clause. The intended declaration (the one the event's digest was computed over) is committed as `intended-posture-declaration.bin` for human reviewers; the export ships `input-posture-declaration.bin` instead. The two declarations differ in a single narrative field (`posture_honesty_statement`), producing distinct SHA-256 digests under the domain tag. The tamper surfaces Decision 1 of the O-5 design brief — co-publish is not enough on its own; the co-published declaration must actually hash to the digest the transition pinned."
 
 [coverage]
 tr_op = [
-    "TR-OP-044",  # verifier state-continuity + attestation + declaration-digest (Core §19 step 6)
-    "TR-OP-045",  # declaration-digest co-publish rule (OC-15; digest mismatch is tamper evidence)
+    "TR-OP-044",
+    "TR-OP-045",
 ]
 
 [inputs]
-ledger                         = "input-tampered-ledger.cbor"
-tampered_event                 = "input-tampered-event.cbor"
-signing_key_registry           = "input-signing-key-registry.cbor"
-initial_posture_declaration    = "input-initial-posture-declaration.bin"
-posture_declaration            = "input-posture-declaration.bin"
-# Human-review aid: the bytes the event's `declaration_doc_digest` was
-# computed over. NOT consumed by a conforming verifier (the verifier
-# sees only the shipped `posture_declaration`); included so a reviewer
-# can diff the intended and shipped declarations byte-for-byte and see
-# the single-field delta.
-intended_posture_declaration   = "intended-posture-declaration.bin"
+ledger = "input-tampered-ledger.cbor"
+tampered_event = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+initial_posture_declaration = "input-initial-posture-declaration.bin"
+posture_declaration = "input-posture-declaration.bin"
+intended_posture_declaration = "intended-posture-declaration.bin"
 
 [expected.report]
-structure_verified   = true
-integrity_verified   = false
+structure_verified = true
+integrity_verified = false
 readability_verified = true
-tamper_kind          = "posture_declaration_digest_mismatch"
-failing_event_id     = "07c6c7635878ce81a227fb3be3235254cf3ac5f1ceb9164bfcc3589396354207"
-
+tamper_kind = "posture_declaration_digest_mismatch"
+failing_event_id = "07c6c7635878ce81a227fb3be3235254cf3ac5f1ceb9164bfcc3589396354207"
 idempotency_key = "tamper-transition-004"
 
 [derivation]

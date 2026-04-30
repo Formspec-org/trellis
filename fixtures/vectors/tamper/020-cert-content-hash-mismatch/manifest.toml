@@ -1,7 +1,7 @@
-id          = "tamper/020-cert-content-hash-mismatch"
-op          = "tamper"
-status      = "active"
-description = """ADR 0007 §"Verifier obligations" step 4 violation: certificate `presentation_artifact.content_hash` is flipped from the correct `SHA-256(bytes, "trellis-presentation-artifact-v1")` digest. The export ZIP still ships the resolvable attachment lineage; `verify_certificate_attachment_lineage` recomputes the digest from the bound bytes, finds the mismatch, and flips `attachment_resolved = false` with `presentation_artifact_content_mismatch`. Generator: `_generator/gen_export_010_certificate_of_completion.py`."""
+id = "tamper/020-cert-content-hash-mismatch"
+op = "tamper"
+status = "active"
+description = "ADR 0007 §\"Verifier obligations\" step 4 violation: certificate `presentation_artifact.content_hash` is flipped from the correct `SHA-256(bytes, \"trellis-presentation-artifact-v1\")` digest. The export ZIP still ships the resolvable attachment lineage; `verify_certificate_attachment_lineage` recomputes the digest from the bound bytes, finds the mismatch, and flips `attachment_resolved = false` with `presentation_artifact_content_mismatch`. Generator: `_generator/gen_export_010_certificate_of_completion.py`."
 
 [coverage]
 tr_core = [
@@ -15,11 +15,11 @@ tr_core = [
 export_zip = "input-export.zip"
 
 [expected.report]
-structure_verified   = true
-integrity_verified   = false
+structure_verified = true
+integrity_verified = false
 readability_verified = true
-tamper_kind          = "presentation_artifact_content_mismatch"
-failing_event_id     = "be42cc839a397e2206fad46bee339eeec8de469616379c8be7cd7582c8516d30"
+tamper_kind = "presentation_artifact_content_mismatch"
+failing_event_id = "be42cc839a397e2206fad46bee339eeec8de469616379c8be7cd7582c8516d30"
 
 [derivation]
 document = "derivation.md"

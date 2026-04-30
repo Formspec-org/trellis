@@ -1,50 +1,25 @@
-id          = "tamper/023-key-class-mismatch-signing-as-recovery"
-op          = "tamper"
-status      = "active"
-description = """Class-confusion tamper for the unified `KeyEntry` taxonomy \
-(ADR 0006 / Core §8.7). The COSE_Sign1 protected header carries a `kid` that \
-resolves in the embedded registry to a `recovery`-class entry — a class that \
-ADR 0006 Phase-1 normative position holds is NOT acceptable as a signing kid \
-for ordinary events. The verifier loads the unified registry, dispatches on \
-the entry's `kind` field per Core §8.7.3 step 1, finds the kid maps to a \
-non-signing class via `parse_key_registry`, and emits `key_class_mismatch` \
-(Core §8.7.3 step 4) BEFORE attempting signature verification. \
-\
-The signature itself was produced by `issuer-001`'s seed against the \
-recovery-kid protected header, so the COSE_Sign1 envelope decodes cleanly \
-through tag-18 / RFC 9052 §4.4 `Sig_structure` reconstruction; the dispatch \
-short-circuits at the registry-lookup step. `structure_verified = false` \
-because §19's class-dispatch obligation rejects before per-event integrity \
-checks run. Distinct from `tamper/025` only by reserved class \
-(`recovery` here vs `subject` there); both fire the same dispatch path \
-under different reserved-class labels per Core §8.7.3 / TR-CORE-048."""
+id = "tamper/023-key-class-mismatch-signing-as-recovery"
+op = "tamper"
+status = "active"
+description = "Class-confusion tamper for the unified `KeyEntry` taxonomy (ADR 0006 / Core §8.7). The COSE_Sign1 protected header carries a `kid` that resolves in the embedded registry to a `recovery`-class entry — a class that ADR 0006 Phase-1 normative position holds is NOT acceptable as a signing kid for ordinary events. The verifier loads the unified registry, dispatches on the entry's `kind` field per Core §8.7.3 step 1, finds the kid maps to a non-signing class via `parse_key_registry`, and emits `key_class_mismatch` (Core §8.7.3 step 4) BEFORE attempting signature verification. The signature itself was produced by `issuer-001`'s seed against the recovery-kid protected header, so the COSE_Sign1 envelope decodes cleanly through tag-18 / RFC 9052 §4.4 `Sig_structure` reconstruction; the dispatch short-circuits at the registry-lookup step. `structure_verified = false` because §19's class-dispatch obligation rejects before per-event integrity checks run. Distinct from `tamper/025` only by reserved class (`recovery` here vs `subject` there); both fire the same dispatch path under different reserved-class labels per Core §8.7.3 / TR-CORE-048."
 
 [coverage]
 tr_core = [
-    "TR-CORE-039",  # ADR 0006 — unified KeyEntry taxonomy + verifier dispatch on `kind`.
-    "TR-CORE-048",  # Class-dispatch failure: `key_class_mismatch` for recovery-kid signing.
+    "TR-CORE-039",
+    "TR-CORE-048",
 ]
 
 [inputs]
-ledger               = "input-tampered-ledger.cbor"
-tampered_event       = "input-tampered-event.cbor"
+ledger = "input-tampered-ledger.cbor"
+tampered_event = "input-tampered-event.cbor"
 signing_key_registry = "input-signing-key-registry.cbor"
 
-# Expected verifier behavior. Matches the existing class-dispatch path in
-# `trellis-verify::verify_event_set_with_classes` (line ~1212) — the kid is
-# absent from the signing-key map, present in the non-signing map, fatal
-# `key_class_mismatch` returned with `structure_verified = false` and
-# location = "structure" (no per-event canonical_event_hash is computed).
 [expected.report]
-structure_verified   = false
-integrity_verified   = false
+structure_verified = false
+integrity_verified = false
 readability_verified = false
-tamper_kind          = "key_class_mismatch"
-failing_event_id     = "structure"
-
-# Tamper vectors carry no fact-producer identity (§17.2); pinned so the
-# directory remains self-identifying under any future
-# `(ledger_scope, tamper_directory)` uniqueness lint.
+tamper_kind = "key_class_mismatch"
+failing_event_id = "structure"
 idempotency_key = "tamper-key-class-recovery-023"
 
 [derivation]

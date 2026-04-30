@@ -1,50 +1,25 @@
-id          = "tamper/025-subject-key-wrap-after-valid-to"
-op          = "tamper"
-status      = "active"
-description = """Class-confusion + Phase-2+ enforcement seam tamper for the \
-unified `KeyEntry` taxonomy (ADR 0006 / Core §8.7). The COSE_Sign1 protected \
-header carries a `kid` that resolves to a `subject`-class entry whose \
-`SubjectKeyAttributes.valid_to` is past relative to the event's authored_at. \
-Phase-1 detection: signing under a non-signing class fires `key_class_mismatch` \
-(Core §8.7.3 step 4) — the same dispatch path as `tamper/023`. \
-\
-The wire bytes also carry the forward-compatible signal: the registry's \
-`subject` row has `valid_to = 1745130100`; the event's `authored_at = \
-1745131200` is strictly greater. ADR 0006 *Phase-1 runtime discipline* \
-defers `KeyBagEntry`-mediated `subject_wrap_after_valid_to` enforcement to \
-Phase-2+ (Phase-1 `KeyBagEntry.recipient` is opaque bytes per Core §9.4); \
-the verifier captures `subject.valid_to` into \
-`NonSigningKeyEntry.subject_valid_to` today so the future Phase-2+ check \
-runs without re-decoding the registry. The literal ADR 0006 fixture \
-description (\"`KeyBagEntry` wrap references a `subject` kid whose \
-`valid_to` has passed\") is *detectable when the subject-kind classes \
-activate*; this vector lands the wire shape today and pins \
-`key_class_mismatch` as the Phase-1 detection mode for misuse of subject \
-kids in any signing context. \
-\
-Distinct from `tamper/023` only by reserved class (`subject` here vs \
-`recovery` there) plus the `valid_to`-bearing registry attributes; both \
-fire the same dispatch path under different reserved-class labels per \
-Core §8.7.3 / TR-CORE-048."""
+id = "tamper/025-subject-key-wrap-after-valid-to"
+op = "tamper"
+status = "active"
+description = "Class-confusion + Phase-2+ enforcement seam tamper for the unified `KeyEntry` taxonomy (ADR 0006 / Core §8.7). The COSE_Sign1 protected header carries a `kid` that resolves to a `subject`-class entry whose `SubjectKeyAttributes.valid_to` is past relative to the event's authored_at. Phase-1 detection: signing under a non-signing class fires `key_class_mismatch` (Core §8.7.3 step 4) — the same dispatch path as `tamper/023`. The wire bytes also carry the forward-compatible signal: the registry's `subject` row has `valid_to = 1745130100`; the event's `authored_at = 1745131200` is strictly greater. ADR 0006 *Phase-1 runtime discipline* defers `KeyBagEntry`-mediated `subject_wrap_after_valid_to` enforcement to Phase-2+ (Phase-1 `KeyBagEntry.recipient` is opaque bytes per Core §9.4); the verifier captures `subject.valid_to` into `NonSigningKeyEntry.subject_valid_to` today so the future Phase-2+ check runs without re-decoding the registry. The literal ADR 0006 fixture description (\"`KeyBagEntry` wrap references a `subject` kid whose `valid_to` has passed\") is *detectable when the subject-kind classes activate*; this vector lands the wire shape today and pins `key_class_mismatch` as the Phase-1 detection mode for misuse of subject kids in any signing context. Distinct from `tamper/023` only by reserved class (`subject` here vs `recovery` there) plus the `valid_to`-bearing registry attributes; both fire the same dispatch path under different reserved-class labels per Core §8.7.3 / TR-CORE-048."
 
 [coverage]
 tr_core = [
-    "TR-CORE-039",  # ADR 0006 — unified KeyEntry taxonomy + verifier dispatch on `kind`.
-    "TR-CORE-048",  # Class-dispatch failure: `key_class_mismatch` for subject-kid signing.
+    "TR-CORE-039",
+    "TR-CORE-048",
 ]
 
 [inputs]
-ledger               = "input-tampered-ledger.cbor"
-tampered_event       = "input-tampered-event.cbor"
+ledger = "input-tampered-ledger.cbor"
+tampered_event = "input-tampered-event.cbor"
 signing_key_registry = "input-signing-key-registry.cbor"
 
 [expected.report]
-structure_verified   = false
-integrity_verified   = false
+structure_verified = false
+integrity_verified = false
 readability_verified = false
-tamper_kind          = "key_class_mismatch"
-failing_event_id     = "structure"
-
+tamper_kind = "key_class_mismatch"
+failing_event_id = "structure"
 idempotency_key = "tamper-subject-wrap-after-valid-to-025"
 
 [derivation]

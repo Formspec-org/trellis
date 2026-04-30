@@ -1,61 +1,34 @@
-id          = "tamper/035-idempotency-key-payload-mismatch"
-op          = "tamper"
-status      = "active"
-description = """Core §17.3 clause 3 + §17.5 IdempotencyKeyPayloadMismatch — \
-the tampered ledger is a two-element dCBOR array `[event_a, event_b]` where \
-both events sign legitimately under `issuer-001` and pass §19 step 4.a–4.h \
-individually (sequence monotonicity, prev_hash linkage, content / author / \
-canonical hash recomputation), but they share `(ledger_scope, idempotency_key) \
-= ("test-response-ledger", "idemp-tamper-035-collide")` while their plaintext \
-payloads differ — yielding distinct `content_hash`, `author_event_hash`, and \
-`canonical_event_hash`. A §17.3 / §17.5-aware verifier walks the ledger and \
-detects the duplicate idempotency identity at index 1 (the conflicting event), \
-flipping `integrity_verified = false` with `tamper_kind = \
-"idempotency_key_payload_mismatch"`. The duplicate identity is undefined \
-canonical order per §17.3. Distinct from `tamper/006-event-reorder` (chain \
-linkage break, both events otherwise correct) because chain linkage is \
-intact here; the only violation is at the wire-contract idempotency layer. \
-Demonstrates TR-CORE-160 (verifier rejection) and TR-CORE-162 (in-scope \
-duplicate identity is permanent and rejected, regardless of operator policy)."""
+id = "tamper/035-idempotency-key-payload-mismatch"
+op = "tamper"
+status = "active"
+description = "Core §17.3 clause 3 + §17.5 IdempotencyKeyPayloadMismatch — the tampered ledger is a two-element dCBOR array `[event_a, event_b]` where both events sign legitimately under `issuer-001` and pass §19 step 4.a–4.h individually (sequence monotonicity, prev_hash linkage, content / author / canonical hash recomputation), but they share `(ledger_scope, idempotency_key) = (\"test-response-ledger\", \"idemp-tamper-035-collide\")` while their plaintext payloads differ — yielding distinct `content_hash`, `author_event_hash`, and `canonical_event_hash`. A §17.3 / §17.5-aware verifier walks the ledger and detects the duplicate idempotency identity at index 1 (the conflicting event), flipping `integrity_verified = false` with `tamper_kind = \"idempotency_key_payload_mismatch\"`. The duplicate identity is undefined canonical order per §17.3. Distinct from `tamper/006-event-reorder` (chain linkage break, both events otherwise correct) because chain linkage is intact here; the only violation is at the wire-contract idempotency layer. Demonstrates TR-CORE-160 (verifier rejection) and TR-CORE-162 (in-scope duplicate identity is permanent and rejected, regardless of operator policy)."
 
 [coverage]
 tr_core = [
-    "TR-CORE-051",  # inv #13 — idempotency semantics
-    "TR-CORE-052",  # explicit / auditable rejection codes (§17.5)
-    "TR-CORE-053",  # verifier-visible idempotency consequences
-    "TR-CORE-160",  # NEW — §17.3 clause 3 verifier rejection on payload mismatch
-    "TR-CORE-162",  # NEW — §17.3 scope-permanence
+    "TR-CORE-051",
+    "TR-CORE-052",
+    "TR-CORE-053",
+    "TR-CORE-160",
+    "TR-CORE-162",
 ]
 
 [inputs]
-ledger                      = "input-tampered-ledger.cbor"
-tampered_event_at_index_0   = "input-tampered-event-at-index-0.cbor"
-tampered_event_at_index_1   = "input-tampered-event-at-index-1.cbor"
-signing_key_registry        = "input-signing-key-registry.cbor"
+ledger = "input-tampered-ledger.cbor"
+tampered_event_at_index_0 = "input-tampered-event-at-index-0.cbor"
+tampered_event_at_index_1 = "input-tampered-event-at-index-1.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
 
-# §19 verifier expectations:
-#   (a) structure_verified == true — both events are legitimate COSE_Sign1
-#       envelopes that decode through step 4.c.
-#   (b) integrity_verified == false — §17.3 clause 3 + §17.5 surface the
-#       duplicate idempotency identity with divergent canonical material.
-#   (c) readability_verified == true — Phase 1 PayloadInline structural-only;
-#       no decryption attempted, no readability obligation broken.
-#   (d) tamper_kind == "idempotency_key_payload_mismatch" — §17.5.
-#   (e) failing_event_id == canonical hash of the index-1 (conflicting) event.
 [expected.report]
-structure_verified   = true
-integrity_verified   = false
+structure_verified = true
+integrity_verified = false
 readability_verified = true
-tamper_kind          = "idempotency_key_payload_mismatch"
-failing_event_id     = "38c09828b9eb5670633240f3f959995576e5b2e8cbc6226a06023e995e289b12"
-
-# §17.2 — pin the colliding key and the two distinct content_hash values for
-# cross-implementation reproducibility.
+tamper_kind = "idempotency_key_payload_mismatch"
+failing_event_id = "38c09828b9eb5670633240f3f959995576e5b2e8cbc6226a06023e995e289b12"
 colliding_idempotency_key = "idemp-tamper-035-collide"
 event_0_canonical_event_hash = "19676b1219749f73029bb80e855de2133ae16dc65102ac014548341e353db55f"
 event_1_canonical_event_hash = "38c09828b9eb5670633240f3f959995576e5b2e8cbc6226a06023e995e289b12"
-event_0_content_hash         = "73952b7eca5028a92171f979985a4b918d07952ce0e19085629ab4140fd4cd7f"
-event_1_content_hash         = "a3e16af629cdaf815690c996d853a313532ea8158772a0fb955084a3c2f62f58"
+event_0_content_hash = "73952b7eca5028a92171f979985a4b918d07952ce0e19085629ab4140fd4cd7f"
+event_1_content_hash = "a3e16af629cdaf815690c996d853a313532ea8158772a0fb955084a3c2f62f58"
 
 [derivation]
 document = "derivation.md"

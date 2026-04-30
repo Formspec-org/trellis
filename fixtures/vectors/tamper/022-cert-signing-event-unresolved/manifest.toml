@@ -1,7 +1,7 @@
-id          = "tamper/022-cert-signing-event-unresolved"
-op          = "tamper"
-status      = "active"
-description = """ADR 0007 §"Verifier obligations" step 5 violation: certificate `signing_events[0]` is rewritten to a 32-byte all-`0xff` digest that no event in the chain carries. `finalize_certificates_of_completion` walks the chain, fails to resolve the digest to a SignatureAffirmation event, and emits `signing_event_unresolved`. Generator: `_generator/gen_export_010_certificate_of_completion.py`."""
+id = "tamper/022-cert-signing-event-unresolved"
+op = "tamper"
+status = "active"
+description = "ADR 0007 §\"Verifier obligations\" step 5 violation: certificate `signing_events[0]` is rewritten to a 32-byte all-`0xff` digest that no event in the chain carries. `finalize_certificates_of_completion` walks the chain, fails to resolve the digest to a SignatureAffirmation event, and emits `signing_event_unresolved`. Generator: `_generator/gen_export_010_certificate_of_completion.py`."
 
 [coverage]
 tr_core = [
@@ -15,11 +15,11 @@ tr_core = [
 export_zip = "input-export.zip"
 
 [expected.report]
-structure_verified   = true
-integrity_verified   = false
+structure_verified = true
+integrity_verified = false
 readability_verified = true
-tamper_kind          = "signing_event_unresolved"
-failing_event_id     = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+tamper_kind = "signing_event_unresolved"
+failing_event_id = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 
 [derivation]
 document = "derivation.md"

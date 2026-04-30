@@ -1,76 +1,27 @@
-id          = "tamper/006-event-reorder"
-op          = "tamper"
-status      = "active"
-description = """Chain-integrity tamper — event reorder. The tampered ledger \
-is a two-element dCBOR array `[append/005 event, append/001 event]`: both \
-events byte-exact from their upstream append vectors, but their order is \
-swapped so the `sequence = 1` follower sits at index 0 and the `sequence = \
-0` genesis sits at index 1. No event bytes are mutated — each event signs \
-and decodes cleanly under `issuer-001`, and each `author_event_hash` / \
-`canonical_event_hash` recomputation passes. Core §19 step 4.h surfaces the \
-tamper at index 0: the follower's recorded `prev_hash` (`ef2622f1…4ddb` = \
-append/001's canonical hash) does NOT equal `canonical_event_hash(events[0])` \
-which is the follower's OWN canonical hash (`3d3d5aeb…9f17`). Index 1 \
-passes step 4.h trivially (sequence = 0 → prev_hash == null). Pinned \
-`tamper_kind = event_reorder` per tamper/001's enum; distinct from \
-tamper/005-chain-truncation (one event absent vs. both present but \
-swapped). `integrity_verified = false`; `structure_verified = true`."""
+id = "tamper/006-event-reorder"
+op = "tamper"
+status = "active"
+description = "Chain-integrity tamper — event reorder. The tampered ledger is a two-element dCBOR array `[append/005 event, append/001 event]`: both events byte-exact from their upstream append vectors, but their order is swapped so the `sequence = 1` follower sits at index 0 and the `sequence = 0` genesis sits at index 1. No event bytes are mutated — each event signs and decodes cleanly under `issuer-001`, and each `author_event_hash` / `canonical_event_hash` recomputation passes. Core §19 step 4.h surfaces the tamper at index 0: the follower's recorded `prev_hash` (`ef2622f1…4ddb` = append/001's canonical hash) does NOT equal `canonical_event_hash(events[0])` which is the follower's OWN canonical hash (`3d3d5aeb…9f17`). Index 1 passes step 4.h trivially (sequence = 0 → prev_hash == null). Pinned `tamper_kind = event_reorder` per tamper/001's enum; distinct from tamper/005-chain-truncation (one event absent vs. both present but swapped). `integrity_verified = false`; `structure_verified = true`."
 
 [coverage]
-# Shares TR-CORE-020 + TR-CORE-023 with append/005 — together the two rows
-# span invariant #5's two facets: TR-CORE-020 "exactly one canonical
-# append-attested order per governed scope" (violated by the reorder
-# because sequence monotonicity is broken) and TR-CORE-023 "canonical
-# order determined solely by spec + binding; not wall-clock" (violated at
-# the inverse, since §10.2 pins order by prev_hash linkage — which the
-# reorder severs). append/005 pins the positive construction of both;
-# tamper/006 pins the verifier-side detection when either is violated.
-# The symmetric TR-CORE-023 claim on tamper/005 landed alongside this
-# vector's review-fix pass.
 tr_core = [
     "TR-CORE-020",
     "TR-CORE-023",
 ]
 
 [inputs]
-# Two-element dCBOR array carrying `[follower, genesis]` — follower at
-# index 0, genesis at index 1. §19 step 4 iterates in array order; at
-# index 0 step 4.h reads events[payload.sequence - 1] = events[0], which
-# IS the follower itself, and the prev_hash mismatch is surfaced.
-ledger                      = "input-tampered-ledger.cbor"
-# Byte-identical to upstream append/005 expected-event.cbor. Exposed as a
-# sibling for runners that process individual events.
-tampered_event_at_index_0   = "input-tampered-event-at-index-0.cbor"
-# Byte-identical to upstream append/001 expected-event.cbor.
-tampered_event_at_index_1   = "input-tampered-event-at-index-1.cbor"
-# Single issuer-001 entry, byte-identical in intent to tamper/005's registry.
-signing_key_registry        = "input-signing-key-registry.cbor"
+ledger = "input-tampered-ledger.cbor"
+tampered_event_at_index_0 = "input-tampered-event-at-index-0.cbor"
+tampered_event_at_index_1 = "input-tampered-event-at-index-1.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
 
-# Expected `VerificationReport` field values. Runner pass criterion:
-#   (a) structure_verified == true  — both events decode cleanly through
-#       §19 step 4.c (byte-exact upstream fixtures).
-#   (b) integrity_verified == false — step 4.h fails at index 0 (follower's
-#       prev_hash references a predecessor not in `events[0]`).
-#   (c) readability_verified == true — no payload decryption on Phase 1
-#       PayloadInline structural-only bytes.
-#   (d) tamper_kind == "event_reorder" — per tamper/001's enum.
-#   (e) failing_event_id == canonical hash of the event at index 0 = the
-#       follower (= append/005's canonical_event_hash).
 [expected.report]
-structure_verified   = true
-integrity_verified   = false
+structure_verified = true
+integrity_verified = false
 readability_verified = true
-tamper_kind          = "event_reorder"
-failing_event_id     = "7a8574461a5fb60b6ee60c552e414aaf45aefba3ca1b6cc71fa72d029537c020"
-
-# The dangling prev_hash pointer — the identity of the predecessor the
-# follower expects but cannot find at `events[0]`. Pinning it here lets a
-# runner cross-check against the recorded prev_hash without re-parsing
-# envelope bytes. Parallel to tamper/005's `omitted_event_id` field.
-dangling_prev_hash   = "bb2cdb1e0aa3bcae1d50cb72d68b26af45b92e088f820e901c3d6d1558694396"
-
-# §17.2 idempotency_key — tamper vectors have no fact-producer identity;
-# pinning a distinct opaque key keeps the vector directory self-identifying.
+tamper_kind = "event_reorder"
+failing_event_id = "7a8574461a5fb60b6ee60c552e414aaf45aefba3ca1b6cc71fa72d029537c020"
+dangling_prev_hash = "bb2cdb1e0aa3bcae1d50cb72d68b26af45b92e088f820e901c3d6d1558694396"
 idempotency_key = "tamper-event-reorder-006"
 
 [derivation]

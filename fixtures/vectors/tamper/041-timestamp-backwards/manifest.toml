@@ -1,22 +1,24 @@
-id          = "tamper/041-timestamp-backwards"
-op          = "tamper"
-status      = "active"
-description = """Mutates append/005's `authored_at` from 1745000001 to 1744999999 (1 second before the genesis event's 1745000000), recomputes `author_event_hash` and re-signs. The hash chain is valid and signatures verify, but timestamps decrease along chain order — ADR 0069 D-3 violation."""
+id = "tamper/041-timestamp-backwards"
+op = "tamper"
+status = "active"
+description = "Mutates append/005's `authored_at` from 1745000001 to 1744999999 (1 second before the genesis event's 1745000000), recomputes `author_event_hash` and re-signs. The hash chain is valid and signatures verify, but timestamps decrease along chain order — ADR 0069 D-3 violation."
 
 [coverage]
-tr_core = ["TR-CORE-092"]
+tr_core = [
+    "TR-CORE-092",
+]
 
 [inputs]
-ledger               = "input-tampered-ledger.cbor"
-tampered_event       = "input-tampered-event.cbor"
+ledger = "input-tampered-ledger.cbor"
+tampered_event = "input-tampered-event.cbor"
 signing_key_registry = "input-signing-key-registry.cbor"
 
 [expected.report]
-structure_verified   = true
-integrity_verified   = false
+structure_verified = true
+integrity_verified = false
 readability_verified = true
-tamper_kind          = "timestamp_order_violation"
-failing_event_id     = "fa5697b7335d42c2a937cc4d715645aa652eb56a4025d0e589e49cfac8607473"
+tamper_kind = "timestamp_order_violation"
+failing_event_id = "fa5697b7335d42c2a937cc4d715645aa652eb56a4025d0e589e49cfac8607473"
 
 [derivation]
 document = "derivation.md"
