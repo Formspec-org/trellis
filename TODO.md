@@ -229,11 +229,15 @@ consume amended responses.
     `vc-jose-cose-event` kind.
 
 17. **ADR 0068 execution — tenant in envelope and verifier** — **M**.
-    *Land after parent accepts ADR 0068 (gated on parent **PLN-0004**,
-    **PLN-0011**, **PLN-0013**, **PLN-0015**).* Envelope reserves capacity
-    under ADR 0003; activation is the runtime + verifier + vector work.
-    Parent backlog: **PLN-0002**, **PLN-0009**, **PLN-0023** (tenant portion),
-    **PLN-0030**.
+     *Gates closed:* **PLN-0004** (D-1.1 grammar), **PLN-0005** (D-1.2
+     payload.tenant authoritative), **PLN-0011** (D-4 tenant×ledger scoped),
+     **PLN-0013** (D-3 global identity + per-tenant authority), **PLN-0015**
+     (D-2 immutable tuple vs 0071 mutable pins). *Remaining gate:*
+     **PLN-0012** (supersession carry-forward, deferred to 0066 cluster).
+     Envelope reserves capacity under ADR 0003; activation is the runtime +
+     verifier + vector work.
+     Parent backlog: **PLN-0002**, **PLN-0009**, **PLN-0023** (tenant portion),
+     **PLN-0030**.
     + [ ] Required `tenant` field in envelope header and bundle metadata; CDDL
       + Rust + dCBOR ordering pinned per ADR 0004.
     + [ ] Verifier refusal when expected tenant ≠ chain/bundle tenant; failure
