@@ -9,12 +9,6 @@
 
 use sha2::{Digest, Sha256};
 
-/// HKDF info string for payload-inline nonce derivation (Core §9.4).
-pub const PAYLOAD_NONCE_INFO: &[u8] = b"trellis-payload-nonce-v1";
-
-/// Phase-1 ChaCha20-Poly1305 nonce length in bytes.
-pub const PAYLOAD_NONCE_LEN: usize = 12;
-
 /// Domain tag for `author_event_hash`.
 pub const AUTHOR_EVENT_DOMAIN: &str = "trellis-author-event-v1";
 
@@ -263,32 +257,6 @@ fn encode_major_len(major: u8, value: u64) -> Vec<u8> {
     }
 }
 
-/// Derives a deterministic 12-byte ChaCha20-Poly1305 nonce for `PayloadInline`.
-///
-/// Construction per Core §9.4:
-/// ```text
-/// nonce = HKDF-SHA256(
-///     salt = dCBOR(idempotency_key),
-///     ikm  = SHA-256(plaintext_payload),
-///     info = "trellis-payload-nonce-v1",
-///     length = 12
-/// )
-/// ```
-///
-/// # Errors
-/// Returns `None` if the HKDF expansion fails (should not happen for length 12).
-#[must_use]
-pub fn derive_payload_nonce(idempotency_key: &[u8], plaintext_payload: &[u8]) -> Option<[u8; PAYLOAD_NONCE_LEN]> {
-    use hkdf::Hkdf;
-    let salt = encode_bstr(idempotency_key);
-    let ikm = Sha256::digest(plaintext_payload);
-    let (prk, _) = Hkdf::<Sha256>::extract(Some(&salt), &ikm);
-    let hk = Hkdf::<Sha256>::from_prk(&prk).ok()?;
-    let mut okm = [0u8; PAYLOAD_NONCE_LEN];
-    hk.expand(PAYLOAD_NONCE_INFO, &mut okm).ok()?;
-    Some(okm)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{encode_cose_suite_id_label, encode_uint};
@@ -306,28 +274,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn derive_payload_nonce_is_deterministic_and_length_correct() {
-        use crate::{PAYLOAD_NONCE_LEN, derive_payload_nonce};
-        let key = b"idemp-append-041";
-        let plaintext = b"some-plaintext-bytes";
-        let n1 = derive_payload_nonce(key, plaintext).unwrap();
-        let n2 = derive_payload_nonce(key, plaintext).unwrap();
-        assert_eq!(n1.len(), PAYLOAD_NONCE_LEN);
-        assert_eq!(n1, n2);
-    }
-
-    #[test]
-    fn derive_payload_nonce_changes_with_key_or_plaintext() {
-        use crate::derive_payload_nonce;
-        let key_a = b"key-a";
-        let key_b = b"key-b";
-        let pt_x = b"plaintext-x";
-        let pt_y = b"plaintext-y";
-        let n_ax = derive_payload_nonce(key_a, pt_x).unwrap();
-        let n_ay = derive_payload_nonce(key_a, pt_y).unwrap();
-        let n_bx = derive_payload_nonce(key_b, pt_x).unwrap();
-        assert_ne!(n_ax, n_ay, "different plaintext should yield different nonce");
-        assert_ne!(n_ax, n_bx, "different key should yield different nonce");
-    }
 }
