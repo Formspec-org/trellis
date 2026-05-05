@@ -10,6 +10,17 @@ use trellis_types::{
     encode_tstr, encode_uint,
 };
 
+/// Canonical one-byte CBOR header for a three-pair map.
+const CBOR_MAP_3: u8 = 0xa3;
+/// Canonical one-byte CBOR header for a four-element array.
+const CBOR_ARRAY_4: u8 = 0x84;
+/// Canonical one-byte CBOR tag header for COSE_Sign1 tag 18.
+const CBOR_TAG_18_COSE_SIGN1: u8 = 0xd2;
+/// Canonical one-byte CBOR header for an empty byte string.
+const CBOR_EMPTY_BSTR: u8 = 0x40;
+/// Canonical one-byte CBOR header for an empty map.
+const CBOR_EMPTY_MAP: u8 = 0xa0;
+
 /// Derives the 16-byte `kid` from `suite_id` and the Ed25519 public key.
 ///
 /// The preimage uses canonical CBOR unsigned encoding for `suite_id`, matching
@@ -17,7 +28,7 @@ use trellis_types::{
 /// (and therefore differs from a raw single byte when `suite_id >= 24`).
 pub fn derive_kid(suite_id: u8, public_key: [u8; 32]) -> [u8; 16] {
     let mut hasher = Sha256::new();
-    hasher.update(&encode_uint(suite_id as u64));
+    hasher.update(encode_uint(suite_id as u64));
     hasher.update(public_key);
     let digest: [u8; 32] = hasher.finalize().into();
     let mut kid = [0u8; 16];
@@ -28,7 +39,7 @@ pub fn derive_kid(suite_id: u8, public_key: [u8; 32]) -> [u8; 16] {
 /// Builds the protected-header map bytes.
 pub fn protected_header_bytes(kid: [u8; 16]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(32);
-    bytes.push(0xa3);
+    bytes.push(CBOR_MAP_3);
     bytes.extend_from_slice(&encode_uint(1));
     bytes.extend_from_slice(&encode_cbor_negative_int(7));
     bytes.extend_from_slice(&encode_uint(4));
@@ -41,10 +52,10 @@ pub fn protected_header_bytes(kid: [u8; 16]) -> Vec<u8> {
 /// Builds the RFC 9052 `Sig_structure`.
 pub fn sig_structure_bytes(protected_header: &[u8], payload: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();
-    bytes.push(0x84);
+    bytes.push(CBOR_ARRAY_4);
     bytes.extend_from_slice(&encode_tstr("Signature1"));
     bytes.extend_from_slice(&encode_bstr(protected_header));
-    bytes.push(0x40);
+    bytes.push(CBOR_EMPTY_BSTR);
     bytes.extend_from_slice(&encode_bstr(payload));
     bytes
 }
@@ -59,10 +70,10 @@ pub fn sign_ed25519(private_seed: [u8; 32], sig_structure: &[u8]) -> [u8; 64] {
 /// Builds the tagged COSE_Sign1 envelope bytes.
 pub fn sign1_bytes(protected_header: &[u8], payload: &[u8], signature: [u8; 64]) -> Vec<u8> {
     let mut bytes = Vec::new();
-    bytes.push(0xd2);
-    bytes.push(0x84);
+    bytes.push(CBOR_TAG_18_COSE_SIGN1);
+    bytes.push(CBOR_ARRAY_4);
     bytes.extend_from_slice(&encode_bstr(protected_header));
-    bytes.push(0xa0);
+    bytes.push(CBOR_EMPTY_MAP);
     bytes.extend_from_slice(&encode_bstr(payload));
     bytes.extend_from_slice(&encode_bstr(&signature));
     bytes
