@@ -30,9 +30,11 @@ it and retag. The revision window stays open until real adopters close it.
 Ordered by `Importance × Debt`. Each item names its prerequisite inline.
 
 **Cross-repo pointer — parent PLANNING.md.** Stack-wide rows live as `PLN-XXXX`
-in [`/PLANNING.md`](../PLANNING.md). Items 5-10 + 17-25 cite parent rows;
-items 1-4 + 11-16 + 26 are Trellis-internal envelope/verifier discipline with
-no parent counterpart. The MVP-foundation cluster (PLN-0331..0349) consumes
+in [`/PLANNING.md`](../PLANNING.md). Items 10-15 + 22-30 cite parent rows;
+items 1-9 + 16-21 + 31 are Trellis-internal envelope/verifier discipline
+with no parent counterpart. Items 1-5 surfaced from the 2026-05-05 codebase
+audit (verify decomposition, panic-safety, dedup, allocation hygiene, constant
+hygiene). The MVP-foundation cluster (PLN-0331..0349) consumes
 `trellis-cose` / `trellis-verify` downstream — keep the public APIs stable for
 composition. Cross-submodule Cargo path-dep posture is parent **PLN-0368**;
 Trellis complies with the chosen pattern when it lands.
@@ -46,10 +48,10 @@ PLN-0368) at [`workspec-server/crates/wos-server/TODO.md`](../workspec-server/cr
 `append_event_in_tx` and migration discipline stable; no new TODO row unless a
 gap blocks the adapter.
 
-**Signature-stack cluster** (everything about signatures): items **#5** + **#6**
-(WOS-T4 + ADR 0073 shared-fixture residue), **#7** (identity attestation,
-supersedes PLN-0310 → PLN-0381), **#23** (external recipient lifecycle,
-parent PLN-0382), **#24** (tenant-scope export bundles spanning multiple
+**Signature-stack cluster** (everything about signatures): items **#10** + **#11**
+(WOS-T4 + ADR 0073 shared-fixture residue), **#12** (identity attestation,
+supersedes PLN-0310 → PLN-0381), **#28** (external recipient lifecycle,
+parent PLN-0382), **#29** (tenant-scope export bundles spanning multiple
 ledger scopes, parent PLN-0392).
 
 ADR 0010 user-content Attestation primitive (closed Wave 23,
@@ -70,10 +72,88 @@ center tasks for the core handoff. Processor and HTTP parity work lives in
 parent [`work-spec/TODO.md`](../work-spec/TODO.md) **#66** and
 [`workspec-server/crates/wos-server/TODO.md`](../workspec-server/crates/wos-server/TODO.md)
 **WS-011**, **WS-074–WS-075** (plus **WS-072** for ADR 0066 server surfaces
-once ratified). Items **#9** (ADR 0066) and **#14** (case ledger) may later
+once ratified). Items **#14** (ADR 0066) and **#19** (case ledger) may later
 consume amended responses.
 
-1. **`did-key-view` adapter — execute per ADR 0008** — **XS**.
+1. **`trellis-verify` + `trellis-cddl` panic-safety on input-validation paths**
+    — **S**.
+    *Three sites crash on malformed input despite prior guards.*
+    `trellis-verify:745`: `.expect("bound registry exists")` in
+    `verify_export_zip` → return `VerificationReport::fatal`. `trellis-cddl:176`:
+    `.expect("length is fixed to 32 above")` in `parse_canonical_event` →
+    `map_err`. `trellis-verify:492`: `error.kind().unwrap()` in
+    `verify_tampered_ledger` → `if let Some(kind)`. All guarded by prior checks
+    but `expect`/`unwrap` in crypto-verifier paths processing untrusted input
+    is a crash risk.
+
+2. **`trellis-verify` decomposition — 9,462-line single file → multi-module**
+    — **L**.
+    *Refactor-only; public API unchanged.* `trellis-verify/src/lib.rs` holds
+    20+ struct definitions, 241 functions, CBOR parsing, Merkle tree math,
+    checkpoint/erasure/certificate/UCA/interop/export verification, and hex
+    utilities — all interleaved. Decompose into ~10 modules: `types` (outcome
+    structs, `ParsedSign1`, `EventDetails`), `parse` (COSE_Sign1 + event
+    decoding, CBOR map helpers), `merkle` (tree root, leaf/interior hash,
+    inclusion/consistency proofs), `erasure`, `certificate`, `user_attestation`,
+    `interop_sidecar`, `export` (ZIP + manifest verifiers), `util` (hex, sha256,
+    `checkpoint_digest`, `custody_rank`), and `lib` (public API + re-exports).
+    ~9,500 lines redistributed; no behavior change.
+
+3. **Verify-engine dedup — CBOR helpers, utility functions, error-type enums**
+    — **M**.
+    *Three dedup concerns; can land independently.*
+    + [ ] CBOR map-lookup helpers (`map_lookup_bytes`, `map_lookup_u64`,
+      `map_lookup_fixed_bytes`, etc.) duplicated across `trellis-cddl:242-327`,
+      `trellis-verify:6303-6502` (15 variants), `trellis-interop-c2pa:362-399`,
+      and `trellis-conformance:558-603`. Structurally identical; only error type
+      differs. Extract to shared `trellis-types` module with generic error param
+      or closure-based approach. ~400 lines deduplicated.
+    + [ ] Utility functions duplicated: `checkpoint_digest` (verify:6063 vs
+      conformance:593 — byte-identical), `sha256_bytes` (verify returns `Vec<u8>`,
+      conformance returns `[u8; 32]` — same logic), `decode_value` (verify:6298
+      vs conformance:537).
+    + [ ] `VerifyError.kind` is `Option<&'static str>`,
+      `VerificationFailure.kind` is `String` — 40+ distinct failure-kind strings
+      that callers must string-compare. Convert both to `VerifyErrorKind` /
+      `VerificationFailureKind` enums (cf. `PostgresStoreErrorKind`,
+      `CddlErrorKind`).
+    + [ ] `verify_event_set_with_classes` takes 8 parameters behind
+      `#[allow(clippy::too_many_arguments)]` — introduce an options struct.
+
+4. **Verify-engine allocation hygiene — `.clone()` reduction + re-decode
+    elimination** — **M**.
+    *Performance-correctness refactor.*
+    + [ ] 86 `.clone()` calls in the verify hot path; notable patterns clone
+      entire `ErasureEvidenceDetails`, `CertificateDetails`,
+      `UserContentAttestationDetails` structs just to push into collectors.
+      Audit each; replace with references or `Cow` where possible.
+    + [ ] `finalize_certificates_of_completion` (line 2793) and
+      `finalize_user_content_attestations` (line 3983) re-decode all events
+      the main event loop already decoded. Pass decoded `EventDetails` to
+      finalize functions instead.
+    + [ ] `VerificationReport` integrity fold computed in 3 separate places
+      (lines 324-390, 1259-1307, and implicit in
+      `verify_event_set_with_classes`) with risk of silent divergence.
+      Consolidate to single computation site.
+    + [ ] Conformance tests: ~70 bare `.unwrap()` calls with no failure
+      localization (which vector directory, which field). Add fixture-name
+      context to assertion failures.
+
+5. **Cross-crate constant dedup + CLI parameterization + COSE named constants**
+    — **S**.
+    *Three small hygiene items.*
+    + [ ] `IDEMPOTENCY_KEY_MAX_LEN = 64` independently declared in
+      `trellis-types:138`, `trellis-store-postgres:64`, `trellis-store-memory:139`.
+      Stores import from `trellis_types`.
+    + [ ] `trellis-cli` duplicated command implementations: `append_001`/
+      `append_002`, `verify_001`/`verify_002`, `export_001`/`export_002` are
+      structurally identical except fixture directory name. Single parameterized
+      function per operation.
+    + [ ] `trellis-cose` builds CBOR bytes with hardcoded `0xa3`, `0x84`, `0xd2`
+      (map-3, array-4, tag-18). Name as constants or use `encode_major_len`
+      from `trellis_types`.
+
+6. **`did-key-view` adapter — execute per ADR 0008** — **XS**.
     *Co-lands with ADR 0006 (closed Wave 17 — prerequisite met).* Implements
     `trellis-interop-did` as a one-way labeling view mapping each signing-class
     `kid` to its `did:key` rendering under the Ed25519 multicodec. No signing,
@@ -81,19 +161,19 @@ consume amended responses.
     key). Unlocks the `did-key-view` kind. Non-signing key classes are out of
     scope; a `did-tenant-root-view` or similar gets a separate ADR.
 
-2. **Key-rotation grace-window semantics** — **XS**.
+7. **Key-rotation grace-window semantics** — **XS**.
     *Land proactively or with the first production rotation.* Core §8.4
     enumerates `Active / Rotating / Retired / Revoked` but does not pin the
     overlap window where both pre- and post-rotation keys verify. Companion
     §20 prose + one boundary-crossing vector + `trellis-verify` dual-key
     acceptance during `Rotating`.
 
-3. **Cadence subtypes beyond height-based** — **M**.
+8. **Cadence subtypes beyond height-based** — **M**.
     *Land with a non-height adopter, or proactively under fixture-corpus
     breadth work.* `projection/003` and `projection/004` cover height-based
     only; time-driven / event-driven / hybrid untested.
 
-4. **O-4 ledger-replay lint rules 7–13** — **M**.
+9. **O-4 ledger-replay lint rules 7–13** — **M**.
     *Land when the first external adopter publishes a declaration to verify
     against actual ledger emission history.* Seven declaration-vs-runtime
     checks: `max_agents_per_case` ceiling, `max_invocations_per_day` ceiling,
@@ -102,19 +182,19 @@ consume amended responses.
     emitted types ⊆ `audit.event_types`. Static rules 1–6 + 11 cover the
     declaration-internal surface; these add the runtime cross-check.
 
-5. **WOS-T4 residue — shared cross-repo fixture bundle re-seeding** — **S**.
+10. **WOS-T4 residue — shared cross-repo fixture bundle re-seeding** — **S**.
     *Land when parent standardizes a single shared cross-stack fixture bundle.*
     Trellis consumes those declarative inputs rather than seeding a parallel
     corpus. Coordination, not a Trellis-center gap. Parent backlog:
     **PLN-0067** (shared bundle), **PLN-0068** (response-hash mismatch
     negative), **PLN-0069** (CI/conformance gate).
 
-6. **ADR 0073 handoff residue — shared fixture alignment** — **S**.
-    *Same prerequisite as #7.* Workflow-initiated attach and public-intake
+11. **ADR 0073 handoff residue — shared fixture alignment** — **S**.
+    *Same prerequisite as #12.* Workflow-initiated attach and public-intake
     create vectors are live; the residue is consuming from one shared bundle
     rather than parallel corpora. Parent backlog: **PLN-0067**.
 
-7. **Identity attestation bundle shape** — **S**.
+12. **Identity attestation bundle shape** — **S**.
     *Land after parent ratifies the IdentityAttestation stack ADR per
     **PLN-0381**.* Synthesis-merge 2026-04-27 promoted identity attestation
     from Trigger to P0 center commitment; **PLN-0310 closed by supersession**.
@@ -125,13 +205,13 @@ consume amended responses.
     distinct from authentication-method). Cross-stack fixtures (Formspec → WOS
     provenance → Trellis envelope) prove composition.
 
-8. **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
+13. **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
     *Land after Formspec promotes §6.2 `eventHash` / `priorEventHash` from
     SHOULD → MUST.* Trellis spec amendment + conformance/lint follow.
     Parent backlog: **PLN-0311** (Respondent Ledger offline-authoring profile +
     chain semantics).
 
-9. **ADR 0066 execution — amendment / supersession / rescission / correction**
+14. **ADR 0066 execution — amendment / supersession / rescission / correction**
     — **L**.
     *Land after parent accepts ADR 0066* —
     [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
@@ -155,7 +235,7 @@ consume amended responses.
       failure (ADR default; Q2 alternative is linear-only).
     + [ ] Optional predecessor chain members in export bundle (ADR D-4).
 
-10. **ADR 0067 execution — statutory clocks** — **M**.
+15. **ADR 0067 execution — statutory clocks** — **M**.
     *Land after parent accepts ADR 0067.* Coordinate payload hashes with WOS
     `clockStarted` / `clockResolved` (parent
     [`work-spec/TODO.md`](../work-spec/TODO.md#adr-0067-exec-checklist)).
@@ -175,7 +255,7 @@ consume amended responses.
       `016-clock-elapsed`, `017-clock-paused-resumed` (+ matching export/verify
       hooks for byte-identity CI).
 
-11. **`trellis.external_anchor.v1` priority interaction** — **S**.
+16. **`trellis.external_anchor.v1` priority interaction** — **S**.
     *Land when external anchoring opens.* O-5 posture-transition events may
     want higher anchor priority in deployments with external-anchor chains.
     Anchor substrate is adapter-tier per the
@@ -186,7 +266,7 @@ consume amended responses.
     drives posture-transition priority when multiple adapters attest), declared
     in the Posture Declaration.
 
-12. **ADR 0005 follow-ons (erasure evidence)** — **M–L**.
+17. **ADR 0005 follow-ons (erasure evidence)** — **M–L**.
     Four open questions from
     [`thoughts/adr/0005-crypto-erasure-evidence.md`](thoughts/adr/0005-crypto-erasure-evidence.md):
     + [ ] LAK rotation × erasure interaction — re-wrap cascade or coupled
@@ -198,19 +278,19 @@ consume amended responses.
     + [ ] Multi-operator quorum attestation shape — co-lands with the first
       federated deployment.
 
-13. **Disclosure-profile scope granularity (per-case)** — **M**.
+18. **Disclosure-profile scope granularity (per-case)** — **M**.
     *Land when case-ledger composition opens.* Companion A.5.2 reserves an
     `extensions` slot for per-case refinement; current semantics are
     deployment-scope only.
 
-14. **Case ledger + agency log semantic definitions** — **M**.
+19. **Case ledger + agency log semantic definitions** — **M**.
     *Land when case-ledger / agency-log scoping opens.* Core §22 case ledger
     composes sealed response-ledger heads with WOS governance events; Core §24
     agency log is the operator-maintained log of case-ledger heads. Envelope
     hooks stay reserved under ADR 0003 with `MUST NOT populate` until this
     lands.
 
-15. **`scitt-receipt` adapter — execute per ADR 0008** — **M**.
+20. **`scitt-receipt` adapter — execute per ADR 0008** — **M**.
     *Land when SCITT Architecture draft reaches WG Last Call OR an adopter
     requires SCITT-compatible checkpoint receipts, whichever fires first.*
     Implements `trellis-interop-scitt` against ADR 0008 §"Registry" for
@@ -220,7 +300,7 @@ consume amended responses.
     adds round-trip byte-exact vectors. Follow-up: `derivation_version = 2`
     when SCITT adopts a byte-conformance profile.
 
-16. **`vc-jose-cose-event` adapter — execute per ADR 0008** — **M**.
+21. **`vc-jose-cose-event` adapter — execute per ADR 0008** — **M**.
     *Land when an SSI-native adopter (W3C VC 2.0 event envelopes) shows up.*
     Implements `trellis-interop-vc` per ADR 0008 §"Registry". Requires
     resolving three ADR 0008 open questions: VC `@context` hosting + content
@@ -228,7 +308,7 @@ consume amended responses.
     ISC-08 payload-disclosure honesty per kind. Unlocks the
     `vc-jose-cose-event` kind.
 
-17. **ADR 0068 execution — tenant in envelope and verifier** — **M**.
+22. **ADR 0068 execution — tenant in envelope and verifier** — **M**.
      *Gates closed:* **PLN-0004** (D-1.1 grammar), **PLN-0005** (D-1.2
      payload.tenant authoritative), **PLN-0011** (D-4 tenant×ledger scoped),
      **PLN-0013** (D-3 global identity + per-tenant authority), **PLN-0015**
@@ -245,7 +325,7 @@ consume amended responses.
     + [ ] Vectors: `tamper/0NN-tenant-mismatch`, `tamper/0NN-tenant-missing`,
       cross-tenant export-bundle rejection.
 
-18. **ADR 0071 execution — `CaseOpenPin` and migration transitions** — **M–L**.
+23. **ADR 0071 execution — `CaseOpenPin` and migration transitions** — **M–L**.
     *Land after parent accepts ADR 0071 (gated on parent **PLN-0019** wire
     home + **PLN-0095** wire encoding).* Coordinates with WOS
     `MigrationPinChanged` (parent **PLN-0021**) and ops guardrails (parent
@@ -258,7 +338,7 @@ consume amended responses.
     + [ ] Vectors: pin-set, pin-mutation-rejected, valid-pin-transition under
       `MigrationPinChanged`.
 
-19. **ADR 0070 execution — `CommitAttemptFailure` ProvenanceKind** — **M**.
+24. **ADR 0070 execution — `CommitAttemptFailure` ProvenanceKind** — **M**.
     *Land after parent accepts ADR 0070 (gated on parent **PLN-0035**
     failure-contract closure).* Trellis local append is the stack commit point
     per ADR 0070 D-1; this adds the Facts-tier evidence shape for retryable /
@@ -274,7 +354,7 @@ consume amended responses.
       `append/0NN-commit-failure-stalled`,
       `tamper/0NN-failures-json-mismatch`.
 
-20. **ADR 0069 execution — chain timestamp-order verification + CBOR wire migration** — **M**.
+25. **ADR 0069 execution — chain timestamp-order verification + CBOR wire migration** — **M**.
     *Land after parent accepts ADR 0069 (gated on parent **PLN-0073** +
     **PLN-0114** + **PLN-0115** + **PLN-0117**).* Parent backlog: **PLN-0077**,
     **PLN-0083**, **PLN-0131** (failure taxonomy), **PLN-0082** (cross-repo
@@ -297,7 +377,7 @@ consume amended responses.
     + [x] Vectors: `tamper/041-timestamp-backwards`, including the case where
       the hash chain is valid but temporal order fails.
 
-21. **ADR 0081 execution — content-addressed artifact identity** — **S**.
+26. **ADR 0081 execution — content-addressed artifact identity** — **S**.
     *Land after parent ratifies ADR 0081 (parent **PLN-0358**) and WOS lands
     the three-segment `*Ref` syntax (parent **PLN-0359**).* WOS emits a
     definition-hash event on `caseCreated` and `determination`; Trellis anchors
@@ -309,14 +389,14 @@ consume amended responses.
       cross-stack three-way agreement (WOS spec + Trellis verifier + reference
       adapter).
 
-22. **Stack-level security disclosure policy** — **S**, stack-coordination.
+27. **Stack-level security disclosure policy** — **S**, stack-coordination.
     *Coordinates parent **PLN-0308**.* Trellis is in the security perimeter
     (envelope, verifier, export attack surface); without a published intake
     channel and scope, security reports route through private conversation.
     Trellis-side action once stack governance picks the policy home:
     contribute scope notes (which crates and surfaces are in / out of scope).
 
-23. **External recipient lifecycle — Trellis-side ingestion** — **M**.
+28. **External recipient lifecycle — Trellis-side ingestion** — **M**.
     *Land after parent ratifies the stack ADR per **PLN-0382**.* Privacy
     Profile registers external systems as per-class recipients; ledgered
     `wos.governance.access-granted` / `access-revoked` events flow through
@@ -329,13 +409,13 @@ consume amended responses.
     (PLN-0382 done-criterion). Composes with `wos.governance.*` namespace
     ratification at parent **PLN-0384**.
 
-24. **Tenant-scope Trellis export shape** — **M**, Trigger.
+29. **Tenant-scope Trellis export shape** — **M**, Trigger.
     *Coordinates parent **PLN-0392**. Activate trigger:* first tenant-scope
     export use case. Core §18 ZIP layout is per-`ledger_scope`; tenant-scope
     spans many. Owner lean: option (a) — new `070-tenant-package-manifest.cbor`
     cataloging constituent per-scope ZIPs with cross-binding digests.
     Alternative (b): top-level package format nesting per-scope exports.
-    Depends on item #23 (export must cover recipient-rotation events).
+    Depends on item #28 (export must cover recipient-rotation events).
     Signature-stack: tenant-scope export bundles span signed events across
     ledger scopes — procurement + audit may demand a single bundle.
     + [ ] Choice ratified (lean: option (a)).
@@ -344,7 +424,7 @@ consume amended responses.
     + [ ] Verifier accepts; secret-exclusion list (per ADR-0013 absorption)
       enforced.
 
-25. **PLN-0379..0398 cluster drift audit** — **S**.
+30. **PLN-0379..0398 cluster drift audit** — **S**.
     *Land before authoring against any sibling row in the parent stack-closure
     cluster (proactive; no external trigger).* Wave 27 closure of PLN-0385
     surfaced a phantom four-field surface (`tag` / `payload` /
@@ -364,7 +444,7 @@ consume amended responses.
     drift discovery → three-commit cross-repo train) once per sibling row.
     See [`COMPLETED.md`](COMPLETED.md) Wave 27 for the discovery pattern.
 
-26. **`interop_sidecar_content_mismatch` failure-code split** — **XS**.
+31. **`interop_sidecar_content_mismatch` failure-code split** — **XS**.
     *Land when a `c2pa-manifest@v1` adopter consumes the Wave 25 dispatched
     verifier and hits a conflated diagnostic.* Current `verify_interop_sidecars`
     raises `interop_sidecar_content_mismatch` for both *missing file*
