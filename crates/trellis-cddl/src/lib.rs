@@ -6,10 +6,10 @@
 use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 
-use ciborium::Value;
 use trellis_types::{
-    IDEMPOTENCY_KEY_MAX_LEN, IDEMPOTENCY_KEY_MIN_LEN, encode_bstr, encode_tstr, encode_uint,
-    idempotency_key_length_in_bound,
+    CborHelperError, IDEMPOTENCY_KEY_MAX_LEN, IDEMPOTENCY_KEY_MIN_LEN, Value, encode_bstr,
+    encode_tstr, encode_uint, idempotency_key_length_in_bound, map_lookup_bytes,
+    map_lookup_fixed_bytes, map_lookup_integer_label_bytes, map_lookup_u64,
 };
 
 /// The authored-event fields needed by the Phase-1 append scaffold.
@@ -85,6 +85,12 @@ impl CddlError {
     /// Returns the discriminant for this decode failure.
     pub fn kind(&self) -> CddlErrorKind {
         self.kind
+    }
+}
+
+impl From<CborHelperError> for CddlError {
+    fn from(error: CborHelperError) -> Self {
+        CddlError::new(error.0)
     }
 }
 
@@ -239,69 +245,17 @@ pub fn append_head_bytes(scope: &[u8], sequence: u64, canonical_event_hash: [u8;
     bytes
 }
 
-fn map_lookup_bytes(map: &[(Value, Value)], key_name: &str) -> Result<Vec<u8>, CddlError> {
-    let value = map
-        .iter()
-        .find(|(key, _)| key.as_text().is_some_and(|text| text == key_name))
-        .map(|(_, value)| value)
-        .ok_or_else(|| CddlError::new(format!("missing `{key_name}` field")))?;
-    value
-        .as_bytes()
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| CddlError::new(format!("`{key_name}` is not a byte string")))
-}
-
-fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, CddlError> {
-    let value = map
-        .iter()
-        .find(|(key, _)| key.as_text().is_some_and(|text| text == key_name))
-        .map(|(_, value)| value)
-        .ok_or_else(|| CddlError::new(format!("missing `{key_name}` field")))?;
-
-    match value.as_integer() {
-        Some(integer) => integer
-            .try_into()
-            .map_err(|_| CddlError::new(format!("`{key_name}` is not an unsigned integer"))),
-        None => Err(CddlError::new(format!("`{key_name}` is not an integer"))),
-    }
-}
-
 fn fixed_label_bytes(
     map: &[(Value, Value)],
     label: i128,
     field_name: &str,
 ) -> Result<[u8; 32], CddlError> {
-    let value = map
-        .iter()
-        .find(|(key, _)| {
-            key.as_integer()
-                .is_some_and(|integer| i128::from(integer) == label)
-        })
-        .map(|(_, value)| value)
-        .ok_or_else(|| {
-            CddlError::new(format!("missing COSE_Key label {label} for {field_name}"))
-        })?;
-    let bytes = value
-        .as_bytes()
-        .ok_or_else(|| CddlError::new(format!("{field_name} is not a byte string")))?;
+    let bytes = map_lookup_integer_label_bytes(map, label)
+        .map_err(|_| CddlError::new(format!("missing COSE_Key label {label} for {field_name}")))?;
     bytes
         .as_slice()
         .try_into()
         .map_err(|_| CddlError::new(format!("{field_name} must be 32 bytes")))
-}
-
-fn map_lookup_fixed_bytes(
-    map: &[(Value, Value)],
-    key_name: &str,
-    expected_len: usize,
-) -> Result<Vec<u8>, CddlError> {
-    let bytes = map_lookup_bytes(map, key_name)?;
-    if bytes.len() != expected_len {
-        return Err(CddlError::new(format!(
-            "`{key_name}` must be {expected_len} bytes"
-        )));
-    }
-    Ok(bytes)
 }
 
 /// Extracts and validates the `idempotency_key` field per Core §6.1 + §17.2.
