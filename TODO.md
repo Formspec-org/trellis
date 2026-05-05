@@ -41,7 +41,7 @@ Trellis complies with the chosen pattern when it lands.
 store (Wave 16/18 hardening + `append_event_in_tx`) is the Trellis-side half of
 the composed reference-server write path. WOS-side work is the
 `wos-server-eventstore-postgres` adapter (parent **PLN-0332**, gated by
-PLN-0368) at [`flowspec-server/crates/wos-server/TODO.md`](../flowspec-server/crates/wos-server/TODO.md)
+PLN-0368) at [`workspec-server/crates/wos-server/TODO.md`](../workspec-server/crates/wos-server/TODO.md)
 **WS-095** (embedded / `trellis-store-memory` for single-process). Keep
 `append_event_in_tx` and migration discipline stable; no new TODO row unless a
 gap blocks the adapter.
@@ -68,7 +68,7 @@ reframe).
 **Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
 center tasks for the core handoff. Processor and HTTP parity work lives in
 parent [`wos-spec/TODO.md`](../wos-spec/TODO.md) **#66** and
-[`flowspec-server/crates/wos-server/TODO.md`](../flowspec-server/crates/wos-server/TODO.md)
+[`workspec-server/crates/wos-server/TODO.md`](../workspec-server/crates/wos-server/TODO.md)
 **WS-011**, **WS-074–WS-075** (plus **WS-072** for ADR 0066 server surfaces
 once ratified). Items **#9** (ADR 0066) and **#14** (case ledger) may later
 consume amended responses.
