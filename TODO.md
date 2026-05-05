@@ -32,9 +32,9 @@ Ordered by `Importance × Debt`. Each item names its prerequisite inline.
 **Cross-repo pointer — parent PLANNING.md.** Stack-wide rows live as `PLN-XXXX`
 in [`/PLANNING.md`](../PLANNING.md). Items 10-15 + 22-30 cite parent rows;
 items 1-9 + 16-21 + 31 are Trellis-internal envelope/verifier discipline
-with no parent counterpart. Items 1-5 surfaced from the 2026-05-05 codebase
-audit (verify decomposition, panic-safety, dedup, allocation hygiene, constant
-hygiene). The MVP-foundation cluster (PLN-0331..0349) consumes
+with no parent counterpart. **#1** (verify decomposition / layout) is **closed**;
+**#2–#5** surfaced from the 2026-05-05 codebase audit (dedup, allocation hygiene,
+constant hygiene). The MVP-foundation cluster (PLN-0331..0349) consumes
 `trellis-cose` / `trellis-verify` downstream — keep the public APIs stable for
 composition. Cross-submodule Cargo path-dep posture is parent **PLN-0368**;
 Trellis complies with the chosen pattern when it lands.
@@ -75,18 +75,15 @@ parent [`work-spec/TODO.md`](../work-spec/TODO.md) **#66** and
 once ratified). Items **#14** (ADR 0066) and **#19** (case ledger) may later
 consume amended responses.
 
-1. **`trellis-verify` decomposition — 9,462-line single file → multi-module**
-    — **L**.
-    *Refactor-only; public API unchanged.* `trellis-verify/src/lib.rs` holds
-    20+ struct definitions, 241 functions, CBOR parsing, Merkle tree math,
-    checkpoint/erasure/certificate/UCA/interop/export verification, and hex
-    utilities — all interleaved. Decompose into ~10 modules: `types` (outcome
-    structs, `ParsedSign1`, `EventDetails`), `parse` (COSE_Sign1 + event
-    decoding, CBOR map helpers), `merkle` (tree root, leaf/interior hash,
-    inclusion/consistency proofs), `erasure`, `certificate`, `user_attestation`,
-    `interop_sidecar`, `export` (ZIP + manifest verifiers), `util` (hex, sha256,
-    `checkpoint_digest`, `custody_rank`), and `lib` (public API + re-exports).
-    ~9,500 lines redistributed; no behavior change.
+1. **`trellis-verify` decomposition + crate hygiene** — **L**. **Closed**
+    (2026-05-05). Multi-module layout under `crates/trellis-verify/src/` (`types`,
+    `parse`, `merkle`, `erasure`, `certificate`, `user_attestation`,
+    `interop_sidecar`, `export`, `util`, `kinds`, `lib` orchestration); explicit
+    module `use` graph (no `pub(crate) use …::*` flattening); flattened `tests`
+    module; `cargo clippy -p trellis-verify --no-deps -- -D warnings` clean.
+    Downstream-facing API unchanged (`verify_single_event`, `verify_tampered_ledger`,
+    `verify_export_zip`, report / failure kinds). *Roll up narrative in*
+    [`COMPLETED.md`](COMPLETED.md) *on the next doc batch if not already present.*
 
 2. **Verify-engine dedup — CBOR helpers, utility functions, error-type enums**
     — **M**.
@@ -143,16 +140,18 @@ consume amended responses.
     tractable.*
 
 4. **Cross-crate constant dedup + CLI parameterization + COSE named constants**
-    — **S**.
+    — **S**. **Closed** (2026-05-05).
     *Three small hygiene items.*
-    + [ ] `IDEMPOTENCY_KEY_MAX_LEN = 64` independently declared in
+    + [x] `IDEMPOTENCY_KEY_MAX_LEN = 64` independently declared in
       `trellis-types:138`, `trellis-store-postgres:64`, `trellis-store-memory:139`.
       Stores import from `trellis_types`.
-    + [ ] `trellis-cli` duplicated command implementations: `append_001`/
+      *(Store crates now re-export the canonical `trellis_types` constant and
+      enforce bounds through `idempotency_key_length_in_bound`.)*
+    + [x] `trellis-cli` duplicated command implementations: `append_001`/
       `append_002`, `verify_001`/`verify_002`, `export_001`/`export_002` are
       structurally identical except fixture directory name. Single parameterized
       function per operation.
-    + [ ] `trellis-cose` builds CBOR bytes with hardcoded `0xa3`, `0x84`, `0xd2`
+    + [x] `trellis-cose` builds CBOR bytes with hardcoded `0xa3`, `0x84`, `0xd2`
       (map-3, array-4, tag-18). Name as constants or use `encode_major_len`
       from `trellis_types`.
 
