@@ -1694,10 +1694,24 @@ def _finalize_erasure_evidence(
     return outcomes
 
 
+def _affirmation_payload_bytes(
+    target: EventDetails, payload_blobs: Optional[dict[bytes, bytes]]
+) -> Optional[bytes]:
+    """Inline kernel bytes, or external bytes from `payload_blobs` keyed by
+    `content_hash` (mirrors Rust `affirmation_payload_cow`). When
+    `payload_blobs` is absent, external rows are not resolvable in steps 2 / 7."""
+    if target.payload_ref_inline is not None:
+        return target.payload_ref_inline
+    if target.payload_ref_external and payload_blobs is not None:
+        return payload_blobs.get(target.content_hash)
+    return None
+
+
 def _finalize_certificates_of_completion(
     payloads: list[tuple[int, CertificateDetails, bytes]],
     events: list[ParsedSign1],
     event_failures: list[VerificationFailure],
+    payload_blobs: Optional[dict[bytes, bytes]] = None,
 ) -> list[CertificateOfCompletionOutcome]:
     """ADR 0007 §"Verifier obligations" cross-event finalization. Step 1
     runs in `_decode_certificate_payload`; this pass runs steps 2 (id
@@ -1822,10 +1836,11 @@ def _finalize_certificates_of_completion(
                     continue
                 if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE:
                     continue
-                if target.payload_ref_inline is None:
+                affirmation = _affirmation_payload_bytes(target, payload_blobs)
+                if affirmation is None:
                     continue
                 try:
-                    record = _parse_signature_affirmation_record(target.payload_ref_inline)
+                    record = _parse_signature_affirmation_record(affirmation)
                 except VerifyError:
                     continue
                 try:
@@ -1852,10 +1867,11 @@ def _finalize_certificates_of_completion(
                 continue
             if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE:
                 continue
-            if target.payload_ref_inline is None:
+            affirmation = _affirmation_payload_bytes(target, payload_blobs)
+            if affirmation is None:
                 continue
             try:
-                record = _parse_signature_affirmation_record(target.payload_ref_inline)
+                record = _parse_signature_affirmation_record(affirmation)
             except VerifyError:
                 continue
             display = payload.chain_summary.signer_display[i]
@@ -2521,6 +2537,7 @@ def _verify_event_set(
         certificate_payloads,
         events,
         event_failures,
+        payload_blobs,
     )
     # ADR 0010 §"Verifier obligations" finalization — runs steps 3-9
     # cross-event after every event has been decoded.
