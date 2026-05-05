@@ -16,8 +16,24 @@ mod tests {
     use trellis_core::{AuthoredEvent, SigningKeyMaterial, append_event};
     use trellis_export::{ExportEntry, ExportPackage};
     use trellis_store_memory::MemoryStore;
-    use trellis_types::{EVENT_DOMAIN, domain_separated_sha256};
+    use trellis_types::{
+        EVENT_DOMAIN, checkpoint_digest, decode_cbor_value, domain_separated_sha256, sha256_bytes,
+    };
     use trellis_verify::{verify_export_zip, verify_tampered_ledger};
+
+    fn fixture_label(fixture: &Path) -> String {
+        format!("fixture `{}`", fixture.display())
+    }
+
+    fn read_fixture_bytes(fixture: &Path, path: &Path, operation: &str) -> Vec<u8> {
+        fs::read(path).unwrap_or_else(|err| {
+            panic!(
+                "{}: {operation} (`{}`): {err}",
+                fixture_label(fixture),
+                path.display()
+            )
+        })
+    }
 
     fn fixtures_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/vectors")
@@ -40,9 +56,23 @@ mod tests {
     }
 
     fn vector_dirs(op: &str) -> Vec<PathBuf> {
-        let mut dirs = fs::read_dir(fixtures_root().join(op))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
+        let base = fixtures_root().join(op);
+        let read_dir = fs::read_dir(&base).unwrap_or_else(|err| {
+            panic!(
+                "vector corpus discovery: read_dir `{}`: {err}",
+                base.display()
+            )
+        });
+        let mut dirs = read_dir
+            .map(|entry| {
+                entry.unwrap_or_else(|err| {
+                    panic!(
+                        "vector corpus discovery: directory entry under `{}`: {err}",
+                        base.display()
+                    )
+                })
+                .path()
+            })
             .filter(|path| path.is_dir() && path.join("manifest.toml").exists())
             .collect::<Vec<_>>();
         dirs.sort();
@@ -59,7 +89,9 @@ mod tests {
         let op = manifest
             .get("op")
             .and_then(toml::Value::as_str)
-            .expect("manifest must name an op");
+            .unwrap_or_else(|| {
+                panic!("{}: manifest must name an `op` field", fixture_label(root))
+            });
 
         match op {
             "append" => assert_append_fixture_matches(root, &manifest),
@@ -68,23 +100,65 @@ mod tests {
             "tamper" => assert_tamper_fixture_matches(root, &manifest),
             "projection" => assert_projection_fixture_matches(root, &manifest),
             "shred" => assert_shred_fixture_matches(root, &manifest),
-            other => panic!("unsupported vector op `{other}`"),
+            other => panic!("{}: unsupported vector op `{other}`", fixture_label(root)),
         }
     }
 
     fn manifest_for(dir: &Path) -> toml::Value {
-        toml::from_str(&fs::read_to_string(dir.join("manifest.toml")).unwrap()).unwrap()
+        let path = dir.join("manifest.toml");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|err| {
+            panic!(
+                "fixture `{}`: read manifest `{}`: {err}",
+                dir.display(),
+                path.display()
+            )
+        });
+        toml::from_str(&raw).unwrap_or_else(|err| {
+            panic!(
+                "fixture `{}`: TOML parse `{}`: {err}",
+                dir.display(),
+                path.display()
+            )
+        })
     }
 
     fn assert_append_fixture_matches(root: &Path, manifest: &toml::Value) {
-        let inputs = table(manifest, "inputs");
-        let authored_event = fs::read(root.join(path_field(inputs, "authored_event"))).unwrap();
-        let expected_author_hash = fs::read(root.join("author-event-hash.bin")).unwrap();
-        let expected_canonical_event = fs::read(root.join("expected-event-payload.cbor")).unwrap();
-        let expected_sig_structure = fs::read(root.join("sig-structure.bin")).unwrap();
-        let expected_signed_event = fs::read(root.join("expected-event.cbor")).unwrap();
-        let expected_append_head = fs::read(root.join("expected-append-head.cbor")).unwrap();
-        let signing_key = fs::read(root.join(signing_key_name(inputs))).unwrap();
+        let inputs = table(root, manifest, "inputs");
+        let authored_event = read_fixture_bytes(
+            root,
+            &root.join(path_field(root, inputs, "authored_event")),
+            "read authored_event",
+        );
+        let expected_author_hash = read_fixture_bytes(
+            root,
+            &root.join("author-event-hash.bin"),
+            "read author-event-hash.bin",
+        );
+        let expected_canonical_event = read_fixture_bytes(
+            root,
+            &root.join("expected-event-payload.cbor"),
+            "read expected-event-payload.cbor",
+        );
+        let expected_sig_structure = read_fixture_bytes(
+            root,
+            &root.join("sig-structure.bin"),
+            "read sig-structure.bin",
+        );
+        let expected_signed_event = read_fixture_bytes(
+            root,
+            &root.join("expected-event.cbor"),
+            "read expected-event.cbor",
+        );
+        let expected_append_head = read_fixture_bytes(
+            root,
+            &root.join("expected-append-head.cbor"),
+            "read expected-append-head.cbor",
+        );
+        let signing_key = read_fixture_bytes(
+            root,
+            &root.join(signing_key_name(root, inputs)),
+            "read signing key",
+        );
 
         let mut store = MemoryStore::new();
         let artifacts = append_event(
@@ -105,25 +179,35 @@ mod tests {
     }
 
     fn assert_export_fixture_matches(root: &Path, manifest: &toml::Value) {
-        let inputs = table(manifest, "inputs");
-        let expected = table(manifest, "expected");
-        let ledger_state =
-            decode_value(&fs::read(root.join(path_field(inputs, "ledger_state"))).unwrap());
+        let inputs = table(root, manifest, "inputs");
+        let expected = table(root, manifest, "expected");
+        let ledger_state = decode_cbor_value(&read_fixture_bytes(
+            root,
+            &root.join(path_field(root, inputs, "ledger_state")),
+            "read ledger_state",
+        ))
+        .unwrap();
         let ledger_state_map = ledger_state.as_map().unwrap();
-        let root_dir = value_text(map_value(ledger_state_map, "root_dir"));
-        let members = map_value(ledger_state_map, "members").as_array().unwrap();
+        let root_dir = value_text(root, map_value(root, ledger_state_map, "root_dir"));
+        let members = map_value(root, ledger_state_map, "members")
+            .as_array()
+            .unwrap();
 
         let mut package = ExportPackage::new();
         for member in members {
             let member_name = member.as_text().unwrap();
             package.add_entry(ExportEntry::new(
                 format!("{root_dir}/{member_name}"),
-                fs::read(root.join(member_name)).unwrap(),
+                read_fixture_bytes(root, &root.join(member_name), "export package member"),
             ));
         }
 
         let actual = package.to_zip_bytes().unwrap();
-        let expected_zip = fs::read(root.join(path_field(expected, "zip"))).unwrap();
+        let expected_zip = read_fixture_bytes(
+            root,
+            &root.join(path_field(root, expected, "zip")),
+            "read expected export zip",
+        );
         assert_eq!(
             actual,
             expected_zip,
@@ -133,22 +217,26 @@ mod tests {
     }
 
     fn assert_verify_fixture_matches(root: &Path, manifest: &toml::Value) {
-        let inputs = table(manifest, "inputs");
-        let expected_report = table_in_table(table(manifest, "expected"), "report");
-        let report =
-            verify_export_zip(&fs::read(root.join(path_field(inputs, "export_zip"))).unwrap());
+        let inputs = table(root, manifest, "inputs");
+        let expected_report =
+            table_in_table(root, table(root, manifest, "expected"), "report");
+        let report = verify_export_zip(&read_fixture_bytes(
+            root,
+            &root.join(path_field(root, inputs, "export_zip")),
+            "read export_zip",
+        ));
 
         assert_eq!(
             report.structure_verified,
-            bool_field(expected_report, "structure_verified")
+            bool_field(root, expected_report, "structure_verified")
         );
         assert_eq!(
             report.integrity_verified,
-            bool_field(expected_report, "integrity_verified")
+            bool_field(root, expected_report, "integrity_verified")
         );
         assert_eq!(
             report.readability_verified,
-            bool_field(expected_report, "readability_verified")
+            bool_field(root, expected_report, "readability_verified")
         );
         if let Some(expected_count) =
             optional_int_field(expected_report, "posture_transition_count")
@@ -170,19 +258,40 @@ mod tests {
     }
 
     fn assert_tamper_fixture_matches(root: &Path, manifest: &toml::Value) {
-        let inputs = table(manifest, "inputs");
-        let expected_report = table_in_table(table(manifest, "expected"), "report");
+        let inputs = table(root, manifest, "inputs");
+        let expected_report =
+            table_in_table(root, table(root, manifest, "expected"), "report");
         let report = if inputs.contains_key("export_zip") {
-            verify_export_zip(&fs::read(root.join(path_field(inputs, "export_zip"))).unwrap())
+            verify_export_zip(&read_fixture_bytes(
+                root,
+                &root.join(path_field(root, inputs, "export_zip")),
+                "read tamper export_zip",
+            ))
         } else {
             verify_tampered_ledger(
-                &fs::read(root.join(path_field(inputs, "signing_key_registry"))).unwrap(),
-                &fs::read(root.join(path_field(inputs, "ledger"))).unwrap(),
+                &read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, inputs, "signing_key_registry")),
+                    "read signing_key_registry",
+                ),
+                &read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, inputs, "ledger")),
+                    "read ledger",
+                ),
                 optional_path_field(inputs, "initial_posture_declaration")
-                    .map(|path| fs::read(root.join(path)).unwrap())
+                    .map(|path| {
+                        read_fixture_bytes(
+                            root,
+                            &root.join(path),
+                            "read initial_posture_declaration",
+                        )
+                    })
                     .as_deref(),
                 optional_path_field(inputs, "posture_declaration")
-                    .map(|path| fs::read(root.join(path)).unwrap())
+                    .map(|path| {
+                        read_fixture_bytes(root, &root.join(path), "read posture_declaration")
+                    })
                     .as_deref(),
             )
             .unwrap()
@@ -190,15 +299,15 @@ mod tests {
 
         assert_eq!(
             report.structure_verified,
-            bool_field(expected_report, "structure_verified")
+            bool_field(root, expected_report, "structure_verified")
         );
         assert_eq!(
             report.integrity_verified,
-            bool_field(expected_report, "integrity_verified")
+            bool_field(root, expected_report, "integrity_verified")
         );
         assert_eq!(
             report.readability_verified,
-            bool_field(expected_report, "readability_verified")
+            bool_field(root, expected_report, "readability_verified")
         );
 
         let expected_tamper_kind = pathless_string(expected_report, "tamper_kind");
@@ -227,33 +336,49 @@ mod tests {
     }
 
     fn assert_projection_fixture_matches(root: &Path, manifest: &toml::Value) {
-        let inputs = table(manifest, "inputs");
-        let expected = table(manifest, "expected");
+        let inputs = table(root, manifest, "inputs");
+        let expected = table(root, manifest, "expected");
 
         if expected.contains_key("watermark") {
-            let view = decode_value(&fs::read(root.join(path_field(inputs, "view"))).unwrap());
+            let view = decode_cbor_value(&read_fixture_bytes(
+                root,
+                &root.join(path_field(root, inputs, "view")),
+                "read view",
+            ))
+            .unwrap();
             let view_map = view.as_map().unwrap();
-            let watermark = map_value(view_map, "watermark").clone();
-            let watermark_bytes = encode_value(&watermark);
+            let watermark = map_value(root, view_map, "watermark").clone();
+            let watermark_bytes = encode_value(root, &watermark);
             assert_eq!(
                 watermark_bytes,
-                fs::read(root.join(path_field(expected, "watermark"))).unwrap()
+                read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, expected, "watermark")),
+                    "read expected watermark",
+                )
             );
 
             let checkpoint_payload = sign1_payload_bytes(
-                &fs::read(root.join(path_field(inputs, "checkpoint"))).unwrap(),
+                root,
+                &read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, inputs, "checkpoint")),
+                    "read checkpoint",
+                ),
             );
-            let checkpoint_payload_value = decode_value(&checkpoint_payload);
-            let checkpoint_scope = map_bytes(checkpoint_payload_value.as_map().unwrap(), "scope");
-            let checkpoint_digest = checkpoint_digest(&checkpoint_scope, &checkpoint_payload);
+            let checkpoint_payload_value = decode_cbor_value(&checkpoint_payload).unwrap();
+            let checkpoint_scope =
+                map_bytes(root, checkpoint_payload_value.as_map().unwrap(), "scope");
+            let checkpoint_digest_bytes =
+                checkpoint_digest(&checkpoint_scope, &checkpoint_payload);
             let watermark_map = watermark.as_map().unwrap();
             assert_eq!(
-                map_fixed_bytes(watermark_map, "checkpoint_ref", 32),
-                checkpoint_digest.to_vec(),
+                map_fixed_bytes(root, watermark_map, "checkpoint_ref", 32),
+                checkpoint_digest_bytes.to_vec(),
             );
 
             if expected.contains_key("staff_view_decision_binding") {
-                let fields = table(manifest, "staff_view_decision_binding_fields");
+                let fields = table(root, manifest, "staff_view_decision_binding_fields");
                 let binding = Value::Map(vec![
                     (Value::Text("watermark".into()), watermark.clone()),
                     (
@@ -270,29 +395,44 @@ mod tests {
                     ),
                     (
                         Value::Text("stale_acknowledged".into()),
-                        Value::Bool(bool_field(fields, "stale_acknowledged")),
+                        Value::Bool(bool_field(root, fields, "stale_acknowledged")),
                     ),
                 ]);
                 assert_eq!(
-                    encode_value(&binding),
-                    fs::read(root.join(path_field(expected, "staff_view_decision_binding")))
-                        .unwrap()
+                    encode_value(root, &binding),
+                    read_fixture_bytes(
+                        root,
+                        &root.join(path_field(
+                            root,
+                            expected,
+                            "staff_view_decision_binding",
+                        )),
+                        "read staff_view_decision_binding",
+                    )
                 );
             }
         }
 
         if expected.contains_key("view_rebuilt") {
-            let chain = decode_value(&fs::read(root.join(path_field(inputs, "chain"))).unwrap());
+            let chain = decode_cbor_value(&read_fixture_bytes(
+                root,
+                &root.join(path_field(root, inputs, "chain")),
+                "read chain",
+            ))
+            .unwrap();
             let events = chain.as_array().unwrap();
-            let last_payload =
-                decode_value(&sign1_payload_bytes_from_value(events.last().unwrap()));
+            let last_payload = decode_cbor_value(&sign1_payload_bytes_from_value(
+                root,
+                events.last().unwrap(),
+            ))
+            .unwrap();
             let last_payload_map = last_payload.as_map().unwrap();
-            let scope = map_bytes(last_payload_map, "ledger_scope");
+            let scope = map_bytes(root, last_payload_map, "ledger_scope");
             let canonical_hash = domain_separated_sha256(
                 EVENT_DOMAIN,
                 &canonical_event_hash_preimage(
                     &scope,
-                    &sign1_payload_bytes_from_value(events.last().unwrap()),
+                    &sign1_payload_bytes_from_value(root, events.last().unwrap()),
                 ),
             );
             let rebuilt = Value::Map(vec![
@@ -305,28 +445,39 @@ mod tests {
                     Value::Bytes(canonical_hash.to_vec()),
                 ),
             ]);
-            let rebuilt_bytes = encode_value(&rebuilt);
+            let rebuilt_bytes = encode_value(root, &rebuilt);
             assert_eq!(
                 rebuilt_bytes,
-                fs::read(root.join(path_field(expected, "view_rebuilt"))).unwrap()
+                read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, expected, "view_rebuilt")),
+                    "read view_rebuilt",
+                )
             );
             assert_eq!(
                 rebuilt_bytes,
-                fs::read(root.join(path_field(inputs, "view"))).unwrap()
+                read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, inputs, "view")),
+                    "read view (rebuilt parity)",
+                )
             );
         }
 
         if expected.contains_key("cadence_report") {
-            let cadence = table(manifest, "cadence");
-            let observed = table_paths(inputs, "checkpoints")
+            let cadence = table(root, manifest, "cadence");
+            let observed = table_paths(root, inputs, "checkpoints")
                 .into_iter()
                 .map(|path| {
-                    let payload = sign1_payload_bytes(&fs::read(root.join(path)).unwrap());
-                    let payload_value = decode_value(&payload);
-                    map_u64(payload_value.as_map().unwrap(), "tree_size")
+                    let payload = sign1_payload_bytes(
+                        root,
+                        &read_fixture_bytes(root, &root.join(path), "read checkpoint chain"),
+                    );
+                    let payload_value = decode_cbor_value(&payload).unwrap();
+                    map_u64(root, payload_value.as_map().unwrap(), "tree_size")
                 })
                 .collect::<Vec<_>>();
-            let required = integer_array(cadence, "required_tree_sizes");
+            let required = integer_array(root, cadence, "required_tree_sizes");
             let missing = required
                 .iter()
                 .copied()
@@ -335,7 +486,7 @@ mod tests {
             let report = Value::Map(vec![
                 (
                     Value::Text("interval".into()),
-                    Value::Integer((int_field(cadence, "interval")).into()),
+                    Value::Integer((int_field(root, cadence, "interval")).into()),
                 ),
                 (
                     Value::Text("cadence_kind".into()),
@@ -350,7 +501,7 @@ mod tests {
                 ),
                 (
                     Value::Text("cadence_satisfied".into()),
-                    Value::Bool(!bool_field(cadence, "expect_failure")),
+                    Value::Bool(!bool_field(root, cadence, "expect_failure")),
                 ),
                 (
                     Value::Text("missing_tree_sizes".into()),
@@ -381,30 +532,45 @@ mod tests {
                 ),
             ]);
             assert_eq!(
-                encode_value(&report),
-                fs::read(root.join(path_field(expected, "cadence_report"))).unwrap()
+                encode_value(root, &report),
+                read_fixture_bytes(
+                    root,
+                    &root.join(path_field(root, expected, "cadence_report")),
+                    "read cadence_report",
+                )
             );
         }
     }
 
     fn assert_shred_fixture_matches(root: &Path, manifest: &toml::Value) {
-        let inputs = table(manifest, "inputs");
-        let expected = table(manifest, "expected");
-        let procedure = table(manifest, "procedure");
-        let chain = decode_value(&fs::read(root.join(path_field(inputs, "chain"))).unwrap());
+        let inputs = table(root, manifest, "inputs");
+        let expected = table(root, manifest, "expected");
+        let procedure = table(root, manifest, "procedure");
+        let chain = decode_cbor_value(&read_fixture_bytes(
+            root,
+            &root.join(path_field(root, inputs, "chain")),
+            "read chain",
+        ))
+        .unwrap();
         let events = chain.as_array().unwrap();
-        let target_event_payload = decode_value(&sign1_payload_bytes_from_value(&events[0]));
-        let target_content_hash =
-            map_fixed_bytes(target_event_payload.as_map().unwrap(), "content_hash", 32);
+        let target_event_payload =
+            decode_cbor_value(&sign1_payload_bytes_from_value(root, &events[0])).unwrap();
+        let target_content_hash = map_fixed_bytes(
+            root,
+            target_event_payload.as_map().unwrap(),
+            "content_hash",
+            32,
+        );
 
-        let declared_scope = table_paths_as_strings(procedure, "cascade_scope");
+        let declared_scope = table_paths_as_strings(root, procedure, "cascade_scope");
         let mut report_entries = vec![(
             Value::Text("declared_scope".into()),
             Value::Array(declared_scope.iter().cloned().map(Value::Text).collect()),
         )];
 
         if let Some(snapshot_path) = optional_path_field(inputs, "backup_snapshot") {
-            let snapshot_bytes = fs::read(root.join(snapshot_path)).unwrap();
+            let snapshot_bytes =
+                read_fixture_bytes(root, &root.join(snapshot_path), "read backup_snapshot");
             report_entries.push((
                 Value::Text("backup_snapshot_ref".into()),
                 Value::Bytes(sha256_bytes(&snapshot_bytes).to_vec()),
@@ -458,39 +624,74 @@ mod tests {
 
         let report = Value::Map(report_entries);
         assert_eq!(
-            encode_value(&report),
-            fs::read(root.join(path_field(expected, "cascade_report"))).unwrap()
+            encode_value(root, &report),
+            read_fixture_bytes(
+                root,
+                &root.join(path_field(root, expected, "cascade_report")),
+                "read cascade_report",
+            )
         );
     }
 
-    fn signing_key_name(inputs: &toml::value::Table) -> &str {
+    fn signing_key_name<'a>(fixture: &Path, inputs: &'a toml::value::Table) -> &'a str {
         optional_path_field(inputs, "signing_key")
             .or_else(|| optional_path_field(inputs, "signing_key_b"))
-            .expect("append manifest must name a signing key")
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: append manifest must name `signing_key` or `signing_key_b`",
+                    fixture_label(fixture)
+                )
+            })
     }
 
-    fn table<'a>(value: &'a toml::Value, key: &str) -> &'a toml::value::Table {
-        value.get(key).and_then(toml::Value::as_table).unwrap()
+    fn table<'a>(fixture: &Path, value: &'a toml::Value, key: &str) -> &'a toml::value::Table {
+        value.get(key).and_then(toml::Value::as_table).unwrap_or_else(|| {
+            panic!("{}: manifest missing `{key}` table", fixture_label(fixture))
+        })
     }
 
-    fn table_in_table<'a>(table: &'a toml::value::Table, key: &str) -> &'a toml::value::Table {
-        table.get(key).and_then(toml::Value::as_table).unwrap()
+    fn table_in_table<'a>(
+        fixture: &Path,
+        table: &'a toml::value::Table,
+        key: &str,
+    ) -> &'a toml::value::Table {
+        table.get(key).and_then(toml::Value::as_table).unwrap_or_else(|| {
+            panic!(
+                "{}: manifest missing `{key}` nested table",
+                fixture_label(fixture)
+            )
+        })
     }
 
-    fn path_field<'a>(table: &'a toml::value::Table, key: &str) -> &'a str {
-        table.get(key).and_then(toml::Value::as_str).unwrap()
+    fn path_field<'a>(fixture: &Path, table: &'a toml::value::Table, key: &str) -> &'a str {
+        table.get(key).and_then(toml::Value::as_str).unwrap_or_else(|| {
+            panic!(
+                "{}: manifest missing string field `{key}`",
+                fixture_label(fixture)
+            )
+        })
     }
 
     fn optional_path_field<'a>(table: &'a toml::value::Table, key: &str) -> Option<&'a str> {
         table.get(key).and_then(toml::Value::as_str)
     }
 
-    fn bool_field(table: &toml::value::Table, key: &str) -> bool {
-        table.get(key).and_then(toml::Value::as_bool).unwrap()
+    fn bool_field(fixture: &Path, table: &toml::value::Table, key: &str) -> bool {
+        table.get(key).and_then(toml::Value::as_bool).unwrap_or_else(|| {
+            panic!(
+                "{}: manifest missing bool `{key}`",
+                fixture_label(fixture)
+            )
+        })
     }
 
-    fn int_field(table: &toml::value::Table, key: &str) -> i64 {
-        table.get(key).and_then(toml::Value::as_integer).unwrap()
+    fn int_field(fixture: &Path, table: &toml::value::Table, key: &str) -> i64 {
+        table.get(key).and_then(toml::Value::as_integer).unwrap_or_else(|| {
+            panic!(
+                "{}: manifest missing integer `{key}`",
+                fixture_label(fixture)
+            )
+        })
     }
 
     fn optional_int_field(table: &toml::value::Table, key: &str) -> Option<i64> {
@@ -504,119 +705,177 @@ mod tests {
             .map(ToOwned::to_owned)
     }
 
-    fn table_paths(table: &toml::value::Table, key: &str) -> Vec<String> {
+    fn table_paths(fixture: &Path, table: &toml::value::Table, key: &str) -> Vec<String> {
         table
             .get(key)
             .and_then(toml::Value::as_array)
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: manifest missing `{key}` array",
+                    fixture_label(fixture)
+                )
+            })
             .iter()
-            .map(|value| value.as_str().unwrap().to_string())
+            .map(|value| {
+                value.as_str().unwrap_or_else(|| {
+                    panic!(
+                        "{}: `{key}` array entries must be strings",
+                        fixture_label(fixture)
+                    )
+                })
+            })
+            .map(ToOwned::to_owned)
             .collect()
     }
 
-    fn table_paths_as_strings(table: &toml::value::Table, key: &str) -> Vec<String> {
+    fn table_paths_as_strings(
+        fixture: &Path,
+        table: &toml::value::Table,
+        key: &str,
+    ) -> Vec<String> {
+        table_paths(fixture, table, key)
+    }
+
+    fn integer_array(fixture: &Path, table: &toml::value::Table, key: &str) -> Vec<u64> {
         table
             .get(key)
             .and_then(toml::Value::as_array)
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: manifest missing `{key}` integer array",
+                    fixture_label(fixture)
+                )
+            })
             .iter()
-            .map(|value| value.as_str().unwrap().to_string())
+            .map(|value| {
+                value.as_integer().unwrap_or_else(|| {
+                    panic!(
+                        "{}: `{key}` array entries must be integers",
+                        fixture_label(fixture)
+                    )
+                }) as u64
+            })
             .collect()
     }
 
-    fn integer_array(table: &toml::value::Table, key: &str) -> Vec<u64> {
-        table
-            .get(key)
-            .and_then(toml::Value::as_array)
-            .unwrap()
-            .iter()
-            .map(|value| value.as_integer().unwrap() as u64)
-            .collect()
-    }
-
-    fn decode_value(bytes: &[u8]) -> Value {
-        ciborium::from_reader(bytes).unwrap()
-    }
-
-    fn encode_value(value: &Value) -> Vec<u8> {
+    fn encode_value(fixture: &Path, value: &Value) -> Vec<u8> {
         let mut bytes = Vec::new();
-        ciborium::into_writer(value, &mut bytes).unwrap();
+        ciborium::into_writer(value, &mut bytes).unwrap_or_else(|err| {
+            panic!("{}: CBOR encode: {err}", fixture_label(fixture))
+        });
         bytes
     }
 
-    fn sign1_payload_bytes(bytes: &[u8]) -> Vec<u8> {
-        sign1_payload_value(&decode_value(bytes))
+    fn sign1_payload_bytes(fixture: &Path, bytes: &[u8]) -> Vec<u8> {
+        let decoded = decode_cbor_value(bytes).unwrap_or_else(|err| {
+            panic!(
+                "{}: decode Sign1 wrapper CBOR: {err}",
+                fixture_label(fixture)
+            )
+        });
+        sign1_payload_value(fixture, &decoded)
             .as_bytes()
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: Sign1 payload field is not bytes",
+                    fixture_label(fixture)
+                )
+            })
             .clone()
     }
 
-    fn sign1_payload_bytes_from_value(value: &Value) -> Vec<u8> {
-        sign1_payload_value(value).as_bytes().unwrap().clone()
+    fn sign1_payload_bytes_from_value(fixture: &Path, value: &Value) -> Vec<u8> {
+        sign1_payload_value(fixture, value)
+            .as_bytes()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: Sign1 payload field is not bytes",
+                    fixture_label(fixture)
+                )
+            })
+            .clone()
     }
 
-    fn sign1_payload_value(value: &Value) -> &Value {
+    fn sign1_payload_value<'a>(fixture: &Path, value: &'a Value) -> &'a Value {
         match value {
-            Value::Tag(18, inner) => &inner.as_array().unwrap()[2],
-            _ => panic!("expected tag-18 COSE_Sign1 value"),
+            Value::Tag(18, inner) => {
+                let items = inner.as_array().unwrap_or_else(|| {
+                    panic!(
+                        "{}: Sign1 tag payload must be a CBOR array",
+                        fixture_label(fixture)
+                    )
+                });
+                items.get(2).unwrap_or_else(|| {
+                    panic!(
+                        "{}: Sign1 array too short (missing payload at index 2)",
+                        fixture_label(fixture)
+                    )
+                })
+            }
+            _ => panic!(
+                "{}: expected tag-18 COSE_Sign1 value",
+                fixture_label(fixture)
+            ),
         }
     }
 
-    fn map_value<'a>(map: &'a [(Value, Value)], key: &str) -> &'a Value {
+    fn map_value<'a>(fixture: &Path, map: &'a [(Value, Value)], key: &str) -> &'a Value {
         map.iter()
             .find(|(candidate, _)| candidate.as_text().is_some_and(|text| text == key))
             .map(|(_, value)| value)
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: CBOR map missing key `{key}`",
+                    fixture_label(fixture)
+                )
+            })
     }
 
-    fn value_text(value: &Value) -> String {
-        value.as_text().unwrap().to_string()
+    fn value_text(fixture: &Path, value: &Value) -> String {
+        value
+            .as_text()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: expected CBOR text value",
+                    fixture_label(fixture)
+                )
+            })
+            .to_string()
     }
 
-    fn map_bytes(map: &[(Value, Value)], key: &str) -> Vec<u8> {
-        map_value(map, key).as_bytes().unwrap().clone()
+    fn map_bytes(fixture: &Path, map: &[(Value, Value)], key: &str) -> Vec<u8> {
+        map_value(fixture, map, key)
+            .as_bytes()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: map[{key}] is not bytes",
+                    fixture_label(fixture)
+                )
+            })
+            .clone()
     }
 
-    fn map_fixed_bytes(map: &[(Value, Value)], key: &str, expected_len: usize) -> Vec<u8> {
-        let bytes = map_bytes(map, key);
+    fn map_fixed_bytes(
+        fixture: &Path,
+        map: &[(Value, Value)],
+        key: &str,
+        expected_len: usize,
+    ) -> Vec<u8> {
+        let bytes = map_bytes(fixture, map, key);
         assert_eq!(bytes.len(), expected_len);
         bytes
     }
 
-    fn map_u64(map: &[(Value, Value)], key: &str) -> u64 {
-        map_value(map, key)
+    fn map_u64(fixture: &Path, map: &[(Value, Value)], key: &str) -> u64 {
+        map_value(fixture, map, key)
             .as_integer()
             .and_then(|value| value.try_into().ok())
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: map[{key}] is not a UInt-compatible integer",
+                    fixture_label(fixture)
+                )
+            })
     }
 
-    fn checkpoint_digest(scope: &[u8], payload_bytes: &[u8]) -> [u8; 32] {
-        let mut preimage = Vec::new();
-        preimage.push(0xa3);
-        preimage.extend_from_slice(&encode_tstr("scope"));
-        preimage.extend_from_slice(&encode_bstr(scope));
-        preimage.extend_from_slice(&encode_tstr("version"));
-        preimage.extend_from_slice(&encode_uint(1));
-        preimage.extend_from_slice(&encode_tstr("checkpoint_payload"));
-        preimage.extend_from_slice(payload_bytes);
-        trellis_types::domain_separated_sha256("trellis-checkpoint-v1", &preimage)
-    }
-
-    fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
-        use sha2::{Digest, Sha256};
-
-        Sha256::digest(bytes).into()
-    }
-
-    fn encode_bstr(bytes: &[u8]) -> Vec<u8> {
-        trellis_types::encode_bstr(bytes)
-    }
-
-    fn encode_tstr(text: &str) -> Vec<u8> {
-        trellis_types::encode_tstr(text)
-    }
-
-    fn encode_uint(value: u64) -> Vec<u8> {
-        trellis_types::encode_uint(value)
-    }
 }
