@@ -91,42 +91,56 @@ consume amended responses.
 2. **Verify-engine dedup — CBOR helpers, utility functions, error-type enums**
     — **M**.
     *Three dedup concerns; can land independently.*
-    + [ ] CBOR map-lookup helpers (`map_lookup_bytes`, `map_lookup_u64`,
+    + [x] CBOR map-lookup helpers (`map_lookup_bytes`, `map_lookup_u64`,
       `map_lookup_fixed_bytes`, etc.) duplicated across `trellis-cddl:242-327`,
       `trellis-verify:6303-6502` (15 variants), `trellis-interop-c2pa:362-399`,
       and `trellis-conformance:558-603`. Structurally identical; only error type
       differs. Extract to shared `trellis-types` module with generic error param
       or closure-based approach. ~400 lines deduplicated.
-    + [ ] Utility functions duplicated: `checkpoint_digest` (verify:6063 vs
+    + [x] Utility functions duplicated: `checkpoint_digest` (verify:6063 vs
       conformance:593 — byte-identical), `sha256_bytes` (verify returns `Vec<u8>`,
       conformance returns `[u8; 32]` — same logic), `decode_value` (verify:6298
       vs conformance:537).
-    + [ ] `VerifyError.kind` is `Option<&'static str>`,
+    + [x] `VerifyError.kind` is `Option<&'static str>`,
       `VerificationFailure.kind` is `String` — 40+ distinct failure-kind strings
       that callers must string-compare. Convert both to `VerifyErrorKind` /
       `VerificationFailureKind` enums (cf. `PostgresStoreErrorKind`,
       `CddlErrorKind`).
-    + [ ] `verify_event_set_with_classes` takes 8 parameters behind
+    + [x] `verify_event_set_with_classes` takes 8 parameters behind
       `#[allow(clippy::too_many_arguments)]` — introduce an options struct.
+    + [x] Post-dedup review: `decode_value` routes CBOR helper errors through
+      `From<CborHelperError>`; `kinds.rs` unit tests lock wire strings for every
+      `VerificationFailureKind` plus `VerifyErrorKind` bridge parity.
 
 3. **Verify-engine allocation hygiene — `.clone()` reduction + re-decode
     elimination** — **M**.
     *Performance-correctness refactor.*
-    + [ ] 86 `.clone()` calls in the verify hot path; notable patterns clone
+    + [x] 86 `.clone()` calls in the verify hot path; notable patterns clone
       entire `ErasureEvidenceDetails`, `CertificateDetails`,
       `UserContentAttestationDetails` structs just to push into collectors.
       Audit each; replace with references or `Cow` where possible.
-    + [ ] `finalize_certificates_of_completion` (line 2793) and
-      `finalize_user_content_attestations` (line 3983) re-decode all events
+      *(Hot-path collectors now `take()` extension payloads from the decoded
+      event instead of cloning; certificate finalize avoids cloning inline
+      affirmation payload bytes.)*
+    + [x] `finalize_certificates_of_completion` and
+      `finalize_user_content_attestations` re-decode all events
       the main event loop already decoded. Pass decoded `EventDetails` to
       finalize functions instead.
-    + [ ] `VerificationReport` integrity fold computed in 3 separate places
-      (lines 324-390, 1259-1307, and implicit in
-      `verify_event_set_with_classes`) with risk of silent divergence.
+      *(`build_event_details_lookup` seeds from per-index main-loop decodes;
+      remaining indices decode once for legacy parity.)*
+    + [x] `VerificationReport` integrity fold computed in 3 separate places
+      with risk of silent divergence.
       Consolidate to single computation site.
-    + [ ] Conformance tests: ~70 bare `.unwrap()` calls with no failure
+      *(`VerificationReport::integrity_verified_from_parts` — export ZIP path,
+      `from_integrity_state`, and interop fold aligned.)*
+    + [x] Conformance tests: ~70 bare `.unwrap()` calls with no failure
       localization (which vector directory, which field). Add fixture-name
-      context to assertion failures.
+      context to assertion failures. (Same pain called out in the 2026-05-05
+      verify-engine dedup code review; lands with this hygiene pass.)
+      *(Per-fixture thread-local + contextual panics in shared helpers.)*
+    *Merge hygiene: when splitting work into PRs, keep kinds/CBOR dedup (§2)
+    and §3 allocation hygiene in **separate commits** so `git bisect` stays
+    tractable.*
 
 4. **Cross-crate constant dedup + CLI parameterization + COSE named constants**
     — **S**.
@@ -481,4 +495,3 @@ architectural debt. Nothing is released.
 | Green check | `python3 scripts/check-specs.py && cargo nextest run --workspace && python -m trellis_py.conformance` |
 
 Spec-sized work: move substance to [`thoughts/specs/`](thoughts/specs/), keep a pointer here. Landed work: move to [`COMPLETED.md`](COMPLETED.md).
-
