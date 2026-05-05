@@ -234,6 +234,219 @@ pub fn domain_separated_sha256(tag: &str, component: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Computes the SHA-256 digest of `bytes`.
+pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
+}
+
+/// Domain tag for `checkpoint_digest`.
+pub const CHECKPOINT_DOMAIN: &str = "trellis-checkpoint-v1";
+
+/// Computes a standard Trellis checkpoint digest per Core §18.2.
+pub fn checkpoint_digest(scope: &[u8], payload_bytes: &[u8]) -> [u8; 32] {
+    let mut preimage = Vec::new();
+    preimage.push(0xa3);
+    preimage.extend_from_slice(&encode_tstr("scope"));
+    preimage.extend_from_slice(&encode_bstr(scope));
+    preimage.extend_from_slice(&encode_tstr("version"));
+    preimage.extend_from_slice(&encode_uint(1));
+    preimage.extend_from_slice(&encode_tstr("checkpoint_payload"));
+    preimage.extend_from_slice(payload_bytes);
+    domain_separated_sha256(CHECKPOINT_DOMAIN, &preimage)
+}
+
+/// Error returned by shared CBOR map lookup helpers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CborHelperError(pub String);
+
+impl std::fmt::Display for CborHelperError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for CborHelperError {}
+
+/// Re-export `ciborium::Value` for use in shared helpers.
+pub use ciborium::Value;
+
+/// Decodes `bytes` as a single CBOR [`Value`].
+pub fn decode_cbor_value(bytes: &[u8]) -> Result<Value, CborHelperError> {
+    ciborium::from_reader(bytes).map_err(|error| {
+        CborHelperError(format!("failed to decode CBOR: {error}"))
+    })
+}
+
+/// Performs a case-sensitive map lookup for a text key.
+pub fn map_lookup_optional_value<'a>(
+    map: &'a [(Value, Value)],
+    key_name: &str,
+) -> Option<&'a Value> {
+    map.iter()
+        .find(|(key, _)| key.as_text().is_some_and(|text| text == key_name))
+        .map(|(_, value)| value)
+}
+
+/// Performs a case-sensitive map lookup for a text key, returning an error if missing.
+pub fn map_lookup_value<'a>(map: &'a [(Value, Value)], key_name: &str) -> Result<&'a Value, CborHelperError> {
+    map_lookup_optional_value(map, key_name)
+        .ok_or_else(|| CborHelperError(format!("missing `{key_name}` value")))
+}
+
+/// Looks up a byte string field in a map.
+pub fn map_lookup_bytes(map: &[(Value, Value)], key_name: &str) -> Result<Vec<u8>, CborHelperError> {
+    map_lookup_value(map, key_name).and_then(|value| {
+        value
+            .as_bytes()
+            .cloned()
+            .ok_or_else(|| CborHelperError(format!("`{key_name}` is not a byte string")))
+    })
+}
+
+/// Looks up a fixed-length byte string field in a map.
+pub fn map_lookup_fixed_bytes(
+    map: &[(Value, Value)],
+    key_name: &str,
+    expected_len: usize,
+) -> Result<Vec<u8>, CborHelperError> {
+    let bytes = map_lookup_bytes(map, key_name)?;
+    if bytes.len() != expected_len {
+        return Err(CborHelperError(format!(
+            "`{key_name}` must be {expected_len} bytes"
+        )));
+    }
+    Ok(bytes)
+}
+
+/// Looks up an optional byte string field in a map.
+pub fn map_lookup_optional_bytes(
+    map: &[(Value, Value)],
+    key_name: &str,
+) -> Result<Option<Vec<u8>>, CborHelperError> {
+    match map_lookup_optional_value(map, key_name) {
+        Some(Value::Bytes(bytes)) => Ok(Some(bytes.clone())),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => Err(CborHelperError(format!(
+            "`{key_name}` is neither bytes nor null"
+        ))),
+    }
+}
+
+/// Looks up an optional fixed-length byte string field in a map.
+pub fn map_lookup_optional_fixed_bytes(
+    map: &[(Value, Value)],
+    key_name: &str,
+    expected_len: usize,
+) -> Result<Option<Vec<u8>>, CborHelperError> {
+    match map_lookup_optional_bytes(map, key_name)? {
+        Some(bytes) if bytes.len() == expected_len => Ok(Some(bytes)),
+        Some(_) => Err(CborHelperError(format!(
+            "`{key_name}` must be {expected_len} bytes"
+        ))),
+        None => Ok(None),
+    }
+}
+
+/// Looks up an unsigned integer field in a map.
+pub fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, CborHelperError> {
+    let value = map_lookup_value(map, key_name)?;
+    value
+        .as_integer()
+        .and_then(|integer| integer.try_into().ok())
+        .ok_or_else(|| CborHelperError(format!("`{key_name}` is not an unsigned integer")))
+}
+
+/// Looks up a boolean field in a map.
+pub fn map_lookup_bool(map: &[(Value, Value)], key_name: &str) -> Result<bool, CborHelperError> {
+    map_lookup_value(map, key_name).and_then(|value| {
+        value
+            .as_bool()
+            .ok_or_else(|| CborHelperError(format!("`{key_name}` is not a boolean")))
+    })
+}
+
+/// Looks up a text string field in a map.
+pub fn map_lookup_text(map: &[(Value, Value)], key_name: &str) -> Result<String, CborHelperError> {
+    map_lookup_value(map, key_name).and_then(|value| {
+        value
+            .as_text()
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| CborHelperError(format!("`{key_name}` is not a text string")))
+    })
+}
+
+/// Looks up an optional text string field in a map.
+pub fn map_lookup_optional_text(
+    map: &[(Value, Value)],
+    key_name: &str,
+) -> Result<Option<String>, CborHelperError> {
+    match map_lookup_optional_value(map, key_name) {
+        Some(Value::Text(value)) => Ok(Some(value.clone())),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => Err(CborHelperError(format!(
+            "`{key_name}` is neither text nor null"
+        ))),
+    }
+}
+
+/// Looks up a map field in a map.
+pub fn map_lookup_map<'a>(
+    map: &'a [(Value, Value)],
+    key_name: &str,
+) -> Result<&'a [(Value, Value)], CborHelperError> {
+    map_lookup_value(map, key_name).and_then(|value| {
+        value
+            .as_map()
+            .map(Vec::as_slice)
+            .ok_or_else(|| CborHelperError(format!("`{key_name}` is not a map")))
+    })
+}
+
+/// Looks up an optional map field in a map.
+pub fn map_lookup_optional_map<'a>(
+    map: &'a [(Value, Value)],
+    key_name: &str,
+) -> Result<Option<&'a [(Value, Value)]>, CborHelperError> {
+    match map_lookup_optional_value(map, key_name) {
+        Some(Value::Null) | None => Ok(None),
+        Some(value) => value
+            .as_map()
+            .map(Vec::as_slice)
+            .map(Some)
+            .ok_or_else(|| CborHelperError(format!("`{key_name}` is not a map"))),
+    }
+}
+
+/// Looks up an array field in a map.
+pub fn map_lookup_array<'a>(map: &'a [(Value, Value)], key_name: &str) -> Result<&'a [Value], CborHelperError> {
+    map_lookup_value(map, key_name).and_then(|value| {
+        value
+            .as_array()
+            .map(Vec::as_slice)
+            .ok_or_else(|| CborHelperError(format!("`{key_name}` is not an array")))
+    })
+}
+
+/// Performs a map lookup for an integer label (as used in COSE).
+pub fn map_lookup_integer_label_value<'a>(
+    map: &'a [(Value, Value)],
+    label: i128,
+) -> Option<&'a Value> {
+    map.iter()
+        .find(|(key, _)| {
+            key.as_integer()
+                .is_some_and(|value| i128::from(value) == label)
+        })
+        .map(|(_, value)| value)
+}
+
+/// Looks up an integer-labeled byte string field in a map (as used in COSE).
+pub fn map_lookup_integer_label_bytes(map: &[(Value, Value)], label: i128) -> Result<Vec<u8>, CborHelperError> {
+    map_lookup_integer_label_value(map, label)
+        .and_then(|value| value.as_bytes().cloned())
+        .ok_or_else(|| CborHelperError(format!("missing COSE label {label} bytes")))
+}
+
 fn encode_major_len(major: u8, value: u64) -> Vec<u8> {
     let header = major << 5;
     match value {
