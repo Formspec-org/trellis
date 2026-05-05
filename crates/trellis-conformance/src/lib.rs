@@ -65,13 +65,14 @@ mod tests {
         });
         let mut dirs = read_dir
             .map(|entry| {
-                entry.unwrap_or_else(|err| {
-                    panic!(
-                        "vector corpus discovery: directory entry under `{}`: {err}",
-                        base.display()
-                    )
-                })
-                .path()
+                entry
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "vector corpus discovery: directory entry under `{}`: {err}",
+                            base.display()
+                        )
+                    })
+                    .path()
             })
             .filter(|path| path.is_dir() && path.join("manifest.toml").exists())
             .collect::<Vec<_>>();
@@ -89,9 +90,7 @@ mod tests {
         let op = manifest
             .get("op")
             .and_then(toml::Value::as_str)
-            .unwrap_or_else(|| {
-                panic!("{}: manifest must name an `op` field", fixture_label(root))
-            });
+            .unwrap_or_else(|| panic!("{}: manifest must name an `op` field", fixture_label(root)));
 
         match op {
             "append" => assert_append_fixture_matches(root, &manifest),
@@ -218,8 +217,7 @@ mod tests {
 
     fn assert_verify_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(root, manifest, "inputs");
-        let expected_report =
-            table_in_table(root, table(root, manifest, "expected"), "report");
+        let expected_report = table_in_table(root, table(root, manifest, "expected"), "report");
         let report = verify_export_zip(&read_fixture_bytes(
             root,
             &root.join(path_field(root, inputs, "export_zip")),
@@ -259,8 +257,7 @@ mod tests {
 
     fn assert_tamper_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(root, manifest, "inputs");
-        let expected_report =
-            table_in_table(root, table(root, manifest, "expected"), "report");
+        let expected_report = table_in_table(root, table(root, manifest, "expected"), "report");
         let report = if inputs.contains_key("export_zip") {
             verify_export_zip(&read_fixture_bytes(
                 root,
@@ -369,8 +366,7 @@ mod tests {
             let checkpoint_payload_value = decode_cbor_value(&checkpoint_payload).unwrap();
             let checkpoint_scope =
                 map_bytes(root, checkpoint_payload_value.as_map().unwrap(), "scope");
-            let checkpoint_digest_bytes =
-                checkpoint_digest(&checkpoint_scope, &checkpoint_payload);
+            let checkpoint_digest_bytes = checkpoint_digest(&checkpoint_scope, &checkpoint_payload);
             let watermark_map = watermark.as_map().unwrap();
             assert_eq!(
                 map_fixed_bytes(root, watermark_map, "checkpoint_ref", 32),
@@ -402,11 +398,7 @@ mod tests {
                     encode_value(root, &binding),
                     read_fixture_bytes(
                         root,
-                        &root.join(path_field(
-                            root,
-                            expected,
-                            "staff_view_decision_binding",
-                        )),
+                        &root.join(path_field(root, expected, "staff_view_decision_binding",)),
                         "read staff_view_decision_binding",
                     )
                 );
@@ -645,9 +637,10 @@ mod tests {
     }
 
     fn table<'a>(fixture: &Path, value: &'a toml::Value, key: &str) -> &'a toml::value::Table {
-        value.get(key).and_then(toml::Value::as_table).unwrap_or_else(|| {
-            panic!("{}: manifest missing `{key}` table", fixture_label(fixture))
-        })
+        value
+            .get(key)
+            .and_then(toml::Value::as_table)
+            .unwrap_or_else(|| panic!("{}: manifest missing `{key}` table", fixture_label(fixture)))
     }
 
     fn table_in_table<'a>(
@@ -655,21 +648,27 @@ mod tests {
         table: &'a toml::value::Table,
         key: &str,
     ) -> &'a toml::value::Table {
-        table.get(key).and_then(toml::Value::as_table).unwrap_or_else(|| {
-            panic!(
-                "{}: manifest missing `{key}` nested table",
-                fixture_label(fixture)
-            )
-        })
+        table
+            .get(key)
+            .and_then(toml::Value::as_table)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: manifest missing `{key}` nested table",
+                    fixture_label(fixture)
+                )
+            })
     }
 
     fn path_field<'a>(fixture: &Path, table: &'a toml::value::Table, key: &str) -> &'a str {
-        table.get(key).and_then(toml::Value::as_str).unwrap_or_else(|| {
-            panic!(
-                "{}: manifest missing string field `{key}`",
-                fixture_label(fixture)
-            )
-        })
+        table
+            .get(key)
+            .and_then(toml::Value::as_str)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: manifest missing string field `{key}`",
+                    fixture_label(fixture)
+                )
+            })
     }
 
     fn optional_path_field<'a>(table: &'a toml::value::Table, key: &str) -> Option<&'a str> {
@@ -677,21 +676,22 @@ mod tests {
     }
 
     fn bool_field(fixture: &Path, table: &toml::value::Table, key: &str) -> bool {
-        table.get(key).and_then(toml::Value::as_bool).unwrap_or_else(|| {
-            panic!(
-                "{}: manifest missing bool `{key}`",
-                fixture_label(fixture)
-            )
-        })
+        table
+            .get(key)
+            .and_then(toml::Value::as_bool)
+            .unwrap_or_else(|| panic!("{}: manifest missing bool `{key}`", fixture_label(fixture)))
     }
 
     fn int_field(fixture: &Path, table: &toml::value::Table, key: &str) -> i64 {
-        table.get(key).and_then(toml::Value::as_integer).unwrap_or_else(|| {
-            panic!(
-                "{}: manifest missing integer `{key}`",
-                fixture_label(fixture)
-            )
-        })
+        table
+            .get(key)
+            .and_then(toml::Value::as_integer)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: manifest missing integer `{key}`",
+                    fixture_label(fixture)
+                )
+            })
     }
 
     fn optional_int_field(table: &toml::value::Table, key: &str) -> Option<i64> {
@@ -709,12 +709,7 @@ mod tests {
         table
             .get(key)
             .and_then(toml::Value::as_array)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: manifest missing `{key}` array",
-                    fixture_label(fixture)
-                )
-            })
+            .unwrap_or_else(|| panic!("{}: manifest missing `{key}` array", fixture_label(fixture)))
             .iter()
             .map(|value| {
                 value.as_str().unwrap_or_else(|| {
@@ -760,9 +755,8 @@ mod tests {
 
     fn encode_value(fixture: &Path, value: &Value) -> Vec<u8> {
         let mut bytes = Vec::new();
-        ciborium::into_writer(value, &mut bytes).unwrap_or_else(|err| {
-            panic!("{}: CBOR encode: {err}", fixture_label(fixture))
-        });
+        ciborium::into_writer(value, &mut bytes)
+            .unwrap_or_else(|err| panic!("{}: CBOR encode: {err}", fixture_label(fixture)));
         bytes
     }
 
@@ -823,35 +817,20 @@ mod tests {
         map.iter()
             .find(|(candidate, _)| candidate.as_text().is_some_and(|text| text == key))
             .map(|(_, value)| value)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: CBOR map missing key `{key}`",
-                    fixture_label(fixture)
-                )
-            })
+            .unwrap_or_else(|| panic!("{}: CBOR map missing key `{key}`", fixture_label(fixture)))
     }
 
     fn value_text(fixture: &Path, value: &Value) -> String {
         value
             .as_text()
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: expected CBOR text value",
-                    fixture_label(fixture)
-                )
-            })
+            .unwrap_or_else(|| panic!("{}: expected CBOR text value", fixture_label(fixture)))
             .to_string()
     }
 
     fn map_bytes(fixture: &Path, map: &[(Value, Value)], key: &str) -> Vec<u8> {
         map_value(fixture, map, key)
             .as_bytes()
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: map[{key}] is not bytes",
-                    fixture_label(fixture)
-                )
-            })
+            .unwrap_or_else(|| panic!("{}: map[{key}] is not bytes", fixture_label(fixture)))
             .clone()
     }
 
@@ -877,5 +856,4 @@ mod tests {
                 )
             })
     }
-
 }

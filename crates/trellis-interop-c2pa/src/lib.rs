@@ -65,9 +65,7 @@ use std::io::Cursor;
 
 use ciborium::Value;
 use thiserror::Error;
-use trellis_types::{
-    CONTENT_DOMAIN, domain_separated_sha256, map_lookup_optional_value,
-};
+use trellis_types::{CONTENT_DOMAIN, domain_separated_sha256, map_lookup_optional_value};
 
 /// Vendor-prefix C2PA assertion label (ADR 0008 Open Q3 resolution,
 /// Wave 25). Consumer C2PA SDKs look this label up in the manifest's
