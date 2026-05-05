@@ -54,14 +54,11 @@ use postgres_native_tls::MakeTlsConnector;
 use r2d2::{Pool, PooledConnection};
 use r2d2_postgres::PostgresConnectionManager;
 use trellis_core::LedgerStore;
-use trellis_types::StoredEvent;
+use trellis_types::{StoredEvent, idempotency_key_length_in_bound};
 
 mod migrations;
 
-/// Maximum byte length of an `idempotency_key` per Trellis Core §6.1 / §17.2
-/// (`bstr .size (1..64)`). Postgres-side enforcement; full Rust threading
-/// (parsing, hash preimage, verifier) is item #24 in `trellis/TODO.md`.
-pub const IDEMPOTENCY_KEY_MAX_LEN: usize = 64;
+pub use trellis_types::IDEMPOTENCY_KEY_MAX_LEN;
 
 /// Error returned when the Postgres store cannot complete an operation.
 #[derive(Debug)]
@@ -304,7 +301,7 @@ pub fn append_event_in_tx(
     idempotency_key: Option<&[u8]>,
 ) -> Result<(), PostgresStoreError> {
     if let Some(key) = idempotency_key
-        && (key.is_empty() || key.len() > IDEMPOTENCY_KEY_MAX_LEN)
+        && !idempotency_key_length_in_bound(key)
     {
         return Err(PostgresStoreError::new(
             PostgresStoreErrorKind::IdempotencyKeyTooLong,

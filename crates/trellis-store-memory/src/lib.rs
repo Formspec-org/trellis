@@ -12,7 +12,9 @@
 use std::convert::Infallible;
 
 use trellis_core::LedgerStore;
-use trellis_types::StoredEvent;
+use trellis_types::{StoredEvent, idempotency_key_length_in_bound};
+
+pub use trellis_types::IDEMPOTENCY_KEY_MAX_LEN;
 
 /// Stores appended events in memory for conformance tests.
 #[derive(Default, Debug)]
@@ -110,7 +112,7 @@ pub fn append_event_in_tx(
     idempotency_key: Option<&[u8]>,
 ) -> Result<(), MemoryAppendError> {
     if let Some(key) = idempotency_key {
-        if key.is_empty() || key.len() > IDEMPOTENCY_KEY_MAX_LEN {
+        if !idempotency_key_length_in_bound(key) {
             return Err(MemoryAppendError::IdempotencyKeyTooLong(key.len()));
         }
         let collides_in_store = tx
@@ -134,9 +136,6 @@ pub fn append_event_in_tx(
     tx.buffered.push(event.clone());
     Ok(())
 }
-
-/// Maximum byte length of `idempotency_key` per Core §6.1 / §17.2.
-pub const IDEMPOTENCY_KEY_MAX_LEN: usize = 64;
 
 /// Failure cases for [`append_event_in_tx`].
 #[derive(Debug, PartialEq, Eq)]
