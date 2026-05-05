@@ -4,7 +4,7 @@
 **Status:** Accepted (pending implementation)
 **Supersedes:** —
 **Superseded by:** —
-**Related:** ADR 0001-0004 (DAG envelope + Rust byte authority); ADR 0006 (KeyEntry signing class); ADR 0007 (certificate-of-completion — top-level artifact that cites this primitive in its `attestations[]`); WOS [Signature Profile §2.8 SignatureAffirmation](../../../wos-spec/specs/profiles/signature.md) (workflow-level provenance record that carries this primitive); proposed parent-repo identity-attestation stack ADR (PLN-0381); proposed `wos-spec/specs/profiles/signature.md` §1.3 reopen + extension (PLN-0380).
+**Related:** ADR 0001-0004 (DAG envelope + Rust byte authority); ADR 0006 (KeyEntry signing class); ADR 0007 (certificate-of-completion — top-level artifact that cites this primitive in its `attestations[]`); WOS [Signature Profile §2.8 SignatureAffirmation](../../../work-spec/specs/profiles/signature.md) (workflow-level provenance record that carries this primitive); proposed parent-repo identity-attestation stack ADR (PLN-0381); proposed `work-spec/specs/profiles/signature.md` §1.3 reopen + extension (PLN-0380).
 
 ## Decision
 

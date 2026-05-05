@@ -48,16 +48,16 @@ the TODO asked for ALREADY existed as
 `append/010-wos-custody-hook-state-transition` (and siblings
 `append/019-022`). The verifier round-trip ALREADY existed as the
 trellis-conformance replay. The companion file at
-`wos-spec/specs/kernel/custody-hook-encoding.md` was at
+`work-spec/specs/kernel/custody-hook-encoding.md` was at
 `1.0.0-draft.1`/`draft` — ratifying it to `1.0.0`/`accepted` plus
 adding two paragraphs binding §3.4/§3.5 to the existing fixture
 corpus, plus correcting the PLN-0385 four-field reference in three
 places (parent PLANNING.md + 2 cross-references in
 wos-server/TODO.md), closes the work cleanly.
 
-Train (1 wos-spec commit + 1 trellis commit + 1 parent commit):
+Train (1 work-spec commit + 1 trellis commit + 1 parent commit):
 
-- wos-spec `3497a1b` — `docs: ratify custody-hook-encoding.md v1.0;
+- work-spec `3497a1b` — `docs: ratify custody-hook-encoding.md v1.0;
   correct PLN-0385 wire-shape drift`. Companion frontmatter +
   body header: `1.0.0-draft.1`/`draft` → `1.0.0`/`accepted`.
   §3.4 paragraph binds the cross-stack ingestion fixture corpus
@@ -70,7 +70,7 @@ Train (1 wos-spec commit + 1 trellis commit + 1 parent commit):
   `producer_signature` removed from cluster prose. "Items 5-10 +
   17-25" → "Items 5-10 + 17-24". "Depends on item #24" → "Depends
   on item #23".
-- parent `<commit-3-sha>` — submodule bump (wos-spec + trellis) +
+- parent `<commit-3-sha>` — submodule bump (work-spec + trellis) +
   PLANNING.md PLN-0385 four-field reference correction +
   `producer_signature` phantom removed.
 
@@ -98,7 +98,7 @@ Anti-monkeypatching wins:
    shaped) was the architecturally clean call; PLN-0385's drift
    reached for an "every record needs a signature" intuition that
    was already covered three different ways at adjacent layers.
-4. **Submodule WIP isolation.** wos-spec submodule had ~120 files
+4. **Submodule WIP isolation.** work-spec submodule had ~120 files
    of unrelated WIP from prior sessions. Stash-and-replay landed
    only the Wave 27 prose edits in commit `3497a1b`; pre-existing
    WIP preserved untouched in working tree.
@@ -431,7 +431,7 @@ Sub-task status:
 WOS `custodyHook` binding (parent ADR 0061 §2.4 — `(caseId, recordId)` →
 `SHA-256(len_prefix("trellis-wos-idempotency-v1") || dCBOR(...))`): the
 Rust `(scope, key)` enforcement composes cleanly. Parent runtime wiring
-tracks separately at `wos-spec/TODO.md`.
+tracks separately at `work-spec/TODO.md`.
 
 Findings flagged but not fixed (out-of-scope per the brief):
 
@@ -447,7 +447,7 @@ Sequenced sibling to ADR 0007 (Wave 22). Lands the byte-level primitive
 (non-operator) signs to attest to in-chain content with a declared
 `signing_intent` URI. Distinct from Companion §A.5 operator-actor Attestation
 (distinct domain tag `trellis-user-content-attestation-v1`). WOS-side
-meaning ratifies in parallel via PLN-0380 (`wos-spec` SHAs `d7d6845..026eac8`).
+meaning ratifies in parallel via PLN-0380 (`work-spec` SHAs `d7d6845..026eac8`).
 
 Train (`b1b23ce..74cd52d`, 6 commits):
 - ADR 0010 (~265 lines) authored with 11-vector fixture plan + 9-step
@@ -1300,7 +1300,7 @@ the post-Wave-15 TODO. Run in parallel — no file overlap (HPKE in
 - **Item #31 — `trellis-store-postgres` production hardening — canonical-side of composed `EventStore`.**
   Six sub-bullets landed (TLS / transaction-composition / idempotency-key uniqueness /
   versioned migrations / parity tests / connection pool); supersedes the canonical-side
-  scope of parent `wos-spec/crates/wos-server/TODO.md` **WS-020** + **WS-090** (two-port
+  scope of parent `work-spec/crates/wos-server/TODO.md` **WS-020** + **WS-090** (two-port
   `Storage` + `AuditSink` split that VISION.md §VIII rejects) — wos-server-side reconciliation
   is a follow-up handle for the wos-server-spec owner.
   + **TLS wiring.** `connect` now refuses non-loopback DSNs (`UnsafeDsn` error class);

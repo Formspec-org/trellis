@@ -243,7 +243,7 @@ This companion normatively cross-references the following documents. Where this 
 - **Trellis Core Specification** (`trellis/specs/core/trellis-core.md`) — constitutional semantics, canonical truth, admission, hash construction, verification requirements; source of `TRELLIS-INV-1` through `TRELLIS-INV-6` (§6.2).
 - **Trellis Projection companion** (`trellis/specs/projection/...`) — source of `TRELLIS-PRD-01` (§5), `TRELLIS-PRD-05`–`TRELLIS-PRD-08` (§10), and `TRELLIS-PRD-13` (§14).
 - **Trellis Monitoring companion** (`trellis/specs/monitoring/...`) — source of `TRELLIS-MONITOR-1` (§S3) and `TRELLIS-MONITOR-2` (§S9).
-- **[WOS Assurance]** (`wos-spec/specs/assurance/assurance.md`) — identity, attestation, assurance level, disclosure posture, subject continuity, assurance-upgrade facts (§§2–6) inherited by Trellis deployments.
+- **[WOS Assurance]** (`work-spec/specs/assurance/assurance.md`) — identity, attestation, assurance level, disclosure posture, subject continuity, assurance-upgrade facts (§§2–6) inherited by Trellis deployments.
 - **[Formspec Respondent Ledger]** (`specs/audit/respondent-ledger-spec.md`) — Formspec-layer respondent identity, authored signatures, and ledger-scoped obligations (§§6.6–6.8).
 
 ---

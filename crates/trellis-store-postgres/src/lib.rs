@@ -2,7 +2,7 @@
 //! Postgres-backed Trellis event storage — production-hardened canonical schema.
 //!
 //! This crate owns the canonical-side of the wos-server `EventStore`
-//! composition (per [`wos-spec/crates/wos-server/VISION.md`] §IV / §VI):
+//! composition (per [`work-spec/crates/wos-server/VISION.md`] §IV / §VI):
 //! `trellis_events` is the Trellis-shaped, hash-chained, signed canonical
 //! schema, written in the same Postgres transaction as wos-server's
 //! `projections` schema. Single Postgres database, two schemas, one
@@ -289,7 +289,7 @@ impl LedgerStore for PostgresStore {
 /// threads it through `StoredEvent::with_idempotency_key`, and the
 /// `LedgerStore::append_event` impl above forwards it here. wos-server's
 /// `(caseId, recordId)`-derived key per
-/// [WOS ADR 0061](../../../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
+/// [WOS ADR 0061](../../../work-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
 /// composes through this same surface.
 ///
 /// # Errors

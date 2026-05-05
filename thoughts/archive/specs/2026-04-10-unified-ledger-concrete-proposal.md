@@ -1781,7 +1781,7 @@ Phase 3: Conformance fixture migration
 
 ### Scope boundary
 
-The unified ledger is a Formspec + WOS artifact. It lives in the Formspec codebase (`crates/ledger-*`), not in `wos-spec/crates/`. WOS specs reference the ledger through the `provenanceLayer` seam (Kernel S10.3). The kernel does not depend on or specify the ledger's cryptographic format — it specifies what provenance records must contain (S8.2). The ledger is an implementation of the provenance storage layer, not a modification of the kernel's processing model.
+The unified ledger is a Formspec + WOS artifact. It lives in the Formspec codebase (`crates/ledger-*`), not in `work-spec/crates/`. WOS specs reference the ledger through the `provenanceLayer` seam (Kernel S10.3). The kernel does not depend on or specify the ledger's cryptographic format — it specifies what provenance records must contain (S8.2). The ledger is an implementation of the provenance storage layer, not a modification of the kernel's processing model.
 
 ---
 

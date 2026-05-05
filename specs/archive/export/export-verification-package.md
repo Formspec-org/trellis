@@ -200,9 +200,9 @@ A Disclosure and Export Profile SHOULD state which of the following claim classe
 | **Authorship** | Was this fact originated by the claimed actor under the active authentication model? | Authored signatures or equivalent authored authentication; verification keys or immutable key references. |
 | **Append / inclusion** | Was this canonical record admitted into canonical order within the declared append scope? | Canonical record; canonical append attestation; inclusion proof; append-head reference. |
 | **Payload integrity** | Has the protected payload, or its reference, remained bit-for-bit consistent with what was canonically admitted? | Payload body or immutable payload reference; schema or semantic digest; attestation linking payload digest to canonical record. |
-| **Authorization history** | What grants, revocations, and delegations were canonical at a given append-head? | See [WOS Governance §provenanceLayer attachment (§§1.4, 11)] (`wos-spec/specs/governance/workflow-governance.md`) for grant/revocation/delegation provenance; package material for these facts is canonical-fact append proofs (§4 item 7). |
+| **Authorization history** | What grants, revocations, and delegations were canonical at a given append-head? | See [WOS Governance §provenanceLayer attachment (§§1.4, 11)] (`work-spec/specs/governance/workflow-governance.md`) for grant/revocation/delegation provenance; package material for these facts is canonical-fact append proofs (§4 item 7). |
 | **Disclosure** | What was disclosed to this audience, and with what redaction posture? | See `trellis/specs/export/disclosure-manifest.md`; provenance links MUST satisfy §7. |
-| **Lifecycle / compliance** | What retention, legal-hold, sealing, or export-issuance state was canonical at a given boundary? | See [Formspec Respondent Ledger §6.6.1 Assurance levels] (`/specs/audit/respondent-ledger-spec.md`) and [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] (`wos-spec/specs/assurance/assurance.md`) for the upstream lifecycle and assurance vocabulary; package material is the corresponding canonical lifecycle facts (§4 item 7) and their append proofs. |
+| **Lifecycle / compliance** | What retention, legal-hold, sealing, or export-issuance state was canonical at a given boundary? | See [Formspec Respondent Ledger §6.6.1 Assurance levels] (`/specs/audit/respondent-ledger-spec.md`) and [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] (`work-spec/specs/assurance/assurance.md`) for the upstream lifecycle and assurance vocabulary; package material is the corresponding canonical lifecycle facts (§4 item 7) and their append proofs. |
 
 A package MUST NOT imply support for a claim class that it cannot verify. An implementation MUST NOT describe a package as verifying a claim class unless the package contents are sufficient, under §5, to discharge the Verifier obligation corresponding to that class.
 
@@ -250,7 +250,7 @@ See also: `trellis/specs/trust/key-lifecycle-operating-model.md` for key and alg
 
 A profile-scoped export MAY present a profile-specific timeline, delta history, or audience-specific interpretation, but MUST preserve the provenance distinctions of §7 and MUST NOT imply stronger confidentiality, weaker provider visibility, or weaker recovery capability than the active Trust Profile supports (see `trellis/specs/trust/trust-profiles.md`).
 
-The generic no-overclaim discipline that bounds what a profile-scoped artifact may assert about workflow, governance, compliance, or disclosure coverage is defined upstream; see [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] (`wos-spec/specs/assurance/assurance.md`). This companion does not restate that discipline.
+The generic no-overclaim discipline that bounds what a profile-scoped artifact may assert about workflow, governance, compliance, or disclosure coverage is defined upstream; see [WOS Assurance §6 Legal-Sufficiency Disclosure Obligations] (`work-spec/specs/assurance/assurance.md`). This companion does not restate that discipline.
 
 ---
 
@@ -296,7 +296,7 @@ The **manifest-vs-package boundary**: the manifest governs **disclosure policy a
 - Payload-absent claim honesty (§6.1) is a privacy requirement as well as an integrity requirement. A package MUST NOT reveal the existence, count, or position of redacted claims beyond what the disclosure policy declares.
 - Cross-implementation verification (§12) SHOULD be performed in isolated environments to avoid side-channel leakage between Verifier implementations.
 - Metadata visible in the package (for example, schema identifiers, profile identifiers, or append-head positions) SHOULD be minimized to what is required for verification, consistent with the metadata-minimization obligations of the Trellis family.
-- Generic privacy-disclosure obligations (legal-sufficiency disclaimers, audience-scoped disclosure honesty independent of ledger mechanics) are defined upstream; see [WOS Assurance §6] (`wos-spec/specs/assurance/assurance.md`).
+- Generic privacy-disclosure obligations (legal-sufficiency disclaimers, audience-scoped disclosure honesty independent of ledger mechanics) are defined upstream; see [WOS Assurance §6] (`work-spec/specs/assurance/assurance.md`).
 
 ---
 
@@ -312,9 +312,9 @@ The **manifest-vs-package boundary**: the manifest governs **disclosure policy a
 
 ### 15.2 Upstream specifications
 
-- **WOS Kernel:** `wos-spec/specs/kernel/spec.md` — the workflow processing model whose Facts tier underlies canonical truth.
-- **WOS Governance:** `wos-spec/specs/governance/workflow-governance.md` — `provenanceLayer` seam (§§1.4, 6.5) that hosts authorization-history facts (§8 claim-class table).
-- **WOS Assurance:** `wos-spec/specs/assurance/assurance.md` — assurance levels, subject continuity, no-overclaim discipline (§§5–6) referenced from §11 and §14.2.
+- **WOS Kernel:** `work-spec/specs/kernel/spec.md` — the workflow processing model whose Facts tier underlies canonical truth.
+- **WOS Governance:** `work-spec/specs/governance/workflow-governance.md` — `provenanceLayer` seam (§§1.4, 6.5) that hosts authorization-history facts (§8 claim-class table).
+- **WOS Assurance:** `work-spec/specs/assurance/assurance.md` — assurance levels, subject continuity, no-overclaim discipline (§§5–6) referenced from §11 and §14.2.
 - **Formspec Core:** `/specs/core/spec.md` — definition versioning and Pinning Rule VP-01 (§6.4) referenced from §5 step 4.
 - **Formspec Changelog:** `/specs/registry/changelog-spec.md` — change classification (§4) referenced from §5 step 4 for schema-digest semantics.
 - **Formspec Respondent Ledger:** `/specs/audit/respondent-ledger-spec.md` — assurance-level vocabulary (§6.6.1) referenced from §8 lifecycle/compliance row.

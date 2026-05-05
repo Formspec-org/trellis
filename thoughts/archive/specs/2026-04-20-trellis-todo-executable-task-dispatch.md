@@ -169,7 +169,7 @@ blocked for its own dependency reasons, not because the architecture is open.
 |---|---|---|---|
 | C6-01 | BLOCKED-EXTERNAL | Confirm the joint-design boundary with WOS so Trellis does not invent WOS-side primitives. | Cross-submodule scope is agreed. |
 | C6-02 | COMPLETED | Draft the Trellis-side half of the joint ADR: envelope composition, hash surface, and anchor-target shape. | `thoughts/specs/2026-04-21-trellis-wos-custody-hook-wire-format.md` landed. |
-| C6-03 | COMPLETED | Draft the WOS-side half: recordKind/lifecycle-reference semantics. | `../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md` landed. |
+| C6-03 | COMPLETED | Draft the WOS-side half: recordKind/lifecycle-reference semantics. | `../work-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md` landed. |
 | C6-04 | COMPLETED | Land a mirrored ADR in both repos and link it from each TODO. | Same wire-format ADR is committed in both submodules and linked from each TODO. |
 
 ## Stream 6 — O-gate close-out tasks

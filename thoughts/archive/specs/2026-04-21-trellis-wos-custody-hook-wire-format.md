@@ -5,7 +5,7 @@
 §23 and Operational Companion §24.9 stop leaving the WOS-owned append surface
 implicit.
 
-**Primary ADR:** [`../../../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md`](../../../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
+**Primary ADR:** [`../../../work-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md`](../../../work-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
 
 ---
 
@@ -112,7 +112,7 @@ the ADR and updates when the ADR is accepted.
    references the earlier 12-field draft or 3-tuple idempotency construction,
    update.
 3. **Coordinate acceptance** with the WOS-side acceptance gate in
-   [`0061-custody-hook-trellis-wire-format.md`](../../../wos-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
+   [`0061-custody-hook-trellis-wire-format.md`](../../../work-spec/thoughts/adr/0061-custody-hook-trellis-wire-format.md)
    §5. Trellis-side fixture regeneration does not block on WOS's
    emission-site TypeID wiring (that is WOS-internal) but does block on the
    conversion algorithm being pinned in WOS prose and the round-trip fixture

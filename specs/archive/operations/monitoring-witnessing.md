@@ -496,8 +496,8 @@ This companion is intended to be read alongside:
 
 Upstream normative references:
 
-- **[WOS Kernel]** — upstream substrate defining observer, custodian, and witness roles at the kernel layer. Trellis is a ledger-substrate specialization of the WOS substrate; monitor, witness, and anchor sub-roles in this companion are ledger-level specializations layered over the kernel's substrate-generic observer and custodian semantics. See `wos-spec/specs/kernel/spec.md`.
-- **[WOS Assurance §2]** — upstream assurance-level taxonomy. Assurance-level claims carried by or composed from witness attestations (S7.6) and independent-witness counts tuned to assurance thresholds (S13.4) are governed by this upstream taxonomy. See `wos-spec/specs/assurance/assurance.md` §2.
+- **[WOS Kernel]** — upstream substrate defining observer, custodian, and witness roles at the kernel layer. Trellis is a ledger-substrate specialization of the WOS substrate; monitor, witness, and anchor sub-roles in this companion are ledger-level specializations layered over the kernel's substrate-generic observer and custodian semantics. See `work-spec/specs/kernel/spec.md`.
+- **[WOS Assurance §2]** — upstream assurance-level taxonomy. Assurance-level claims carried by or composed from witness attestations (S7.6) and independent-witness counts tuned to assurance thresholds (S13.4) are governed by this upstream taxonomy. See `work-spec/specs/assurance/assurance.md` §2.
 
 ---
 

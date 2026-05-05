@@ -4,7 +4,7 @@
 **Status:** Accepted (pending implementation)
 **Supersedes:** —
 **Superseded by:** —
-**Related:** ADR 0005 (crypto-erasure evidence — mirrors this doc's wire pattern); ADR 0008 (interop sidecar discipline — the `c2pa-manifest` interop sidecar kind binds this ADR's `PresentationArtifact`); WOS-T4 `SignatureAffirmation` work (Core §6.7 `trellis.export.signature-affirmations.v1`); ADR 0072 (evidence integrity + attachment binding) at parent; WOS [ADR 0062](../../../wos-spec/thoughts/adr/0062-signature-profile-workflow-semantics.md) (Signature Profile workflow semantics); STACK.md end-state commitment #3 (one meaning of signing) + DocuSign-replacement positioning.
+**Related:** ADR 0005 (crypto-erasure evidence — mirrors this doc's wire pattern); ADR 0008 (interop sidecar discipline — the `c2pa-manifest` interop sidecar kind binds this ADR's `PresentationArtifact`); WOS-T4 `SignatureAffirmation` work (Core §6.7 `trellis.export.signature-affirmations.v1`); ADR 0072 (evidence integrity + attachment binding) at parent; WOS [ADR 0062](../../../work-spec/thoughts/adr/0062-signature-profile-workflow-semantics.md) (Signature Profile workflow semantics); STACK.md end-state commitment #3 (one meaning of signing) + DocuSign-replacement positioning.
 
 ## Decision
 

@@ -439,7 +439,7 @@ Advanced privacy-preserving disclosure mechanisms, including BBS+-style selectiv
 
 Normative cross-references:
 
-- **WOS Assurance §4 Invariant 6** — `../../../wos-spec/specs/assurance/assurance.md`. Constitutional independence of disclosure posture and assurance level (Sections 4.7, 7.1, 11).
+- **WOS Assurance §4 Invariant 6** — `../../../work-spec/specs/assurance/assurance.md`. Constitutional independence of disclosure posture and assurance level (Sections 4.7, 7.1, 11).
 - **WOS Assurance §6** — same path. Generic privacy-disclosure obligations (Section 13).
 - **Formspec Respondent Ledger §6.6 `privacyTier`** — `../../../specs/audit/respondent-ledger-spec.md`. Canonical disclosure-posture enumeration (Sections 4.3, 5.1 field 4, 7.1).
 - **Formspec Respondent Ledger §6.6A** — same path. Subject continuity definition (Sections 4.4, 7.3, 13.1).

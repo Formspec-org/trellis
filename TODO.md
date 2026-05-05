@@ -67,7 +67,7 @@ reframe).
 
 **Cross-repo pointer — WOS Runtime §15 (Formspec coprocessor):** no Trellis-
 center tasks for the core handoff. Processor and HTTP parity work lives in
-parent [`wos-spec/TODO.md`](../wos-spec/TODO.md) **#66** and
+parent [`work-spec/TODO.md`](../work-spec/TODO.md) **#66** and
 [`workspec-server/crates/wos-server/TODO.md`](../workspec-server/crates/wos-server/TODO.md)
 **WS-011**, **WS-074–WS-075** (plus **WS-072** for ADR 0066 server surfaces
 once ratified). Items **#9** (ADR 0066) and **#14** (case ledger) may later
@@ -136,7 +136,7 @@ consume amended responses.
     *Land after parent accepts ADR 0066* —
     [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md).
     WOS checklist:
-    [`../wos-spec/TODO.md#adr-0066-exec-checklist`](../wos-spec/TODO.md#adr-0066-exec-checklist).
+    [`../work-spec/TODO.md#adr-0066-exec-checklist`](../work-spec/TODO.md#adr-0066-exec-checklist).
     Parent backlog: **PLN-0055**, **PLN-0056**, **PLN-0050**
     (`ResponseCorrection` linkage), **PLN-0051** (supersession-start linkage).
     + [ ] `EventPayload.extensions` carries **`trellis.supersedes-chain-id.v1`**
@@ -158,7 +158,7 @@ consume amended responses.
 10. **ADR 0067 execution — statutory clocks** — **M**.
     *Land after parent accepts ADR 0067.* Coordinate payload hashes with WOS
     `clockStarted` / `clockResolved` (parent
-    [`wos-spec/TODO.md`](../wos-spec/TODO.md#adr-0067-exec-checklist)).
+    [`work-spec/TODO.md`](../work-spec/TODO.md#adr-0067-exec-checklist)).
     Parent backlog: **PLN-0159** (`open-clocks.json` export), **PLN-0160**
     (verifier diagnostics, severity per **PLN-0170**), **PLN-0161**
     (pause/resume composition), **PLN-0162** (vectors), **PLN-0164**
@@ -357,7 +357,7 @@ consume amended responses.
     were authored from the same wos-server-centric mental model and plausibly
     carry parallel drift. Audit each sibling: cross-reference cited wire
     surface, schema names, event-type strings, and field labels against
-    Trellis CDDL §28, wos-spec schemas, custody-hook companion, and ADR-0061.
+    Trellis CDDL §28, work-spec schemas, custody-hook companion, and ADR-0061.
     Output: per-row corrections applied in-place to PLANNING.md + the
     referenced source docs (mirroring the Wave 27 train pattern). Prevents
     repeating Wave 27 archaeology cost (cross-stack-scout dispatch → Fork-B

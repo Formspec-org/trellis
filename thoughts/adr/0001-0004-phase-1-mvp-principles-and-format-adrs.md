@@ -13,7 +13,7 @@
 >
 > Header stamp added 2026-04-23 per the design-doc audit at [`thoughts/audit-2026-04-23-design-docs-vs-specs-and-code.md`](../audit-2026-04-23-design-docs-vs-specs-and-code.md) §13.
 
-**Aligned narrative:** Phase 1 wire discipline supports the **Phase 3 unified case ledger** target in [ADR-0059 program summary](../../../wos-spec/thoughts/plans/0059-unified-ledger-as-canonical-event-store.md) and [`trellis/thoughts/product-vision.md`](../product-vision.md) (strict superset; no envelope break at Phase 3).
+**Aligned narrative:** Phase 1 wire discipline supports the **Phase 3 unified case ledger** target in [ADR-0059 program summary](../../../work-spec/thoughts/plans/0059-unified-ledger-as-canonical-event-store.md) and [`trellis/thoughts/product-vision.md`](../product-vision.md) (strict superset; no envelope break at Phase 3).
 
 Captures the vision model used to decide the three open format lock-ins
 (event topology, anchor cardinality, federation hooks) and the
