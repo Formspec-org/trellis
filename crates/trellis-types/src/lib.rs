@@ -272,9 +272,8 @@ pub use ciborium::Value;
 
 /// Decodes `bytes` as a single CBOR [`Value`].
 pub fn decode_cbor_value(bytes: &[u8]) -> Result<Value, CborHelperError> {
-    ciborium::from_reader(bytes).map_err(|error| {
-        CborHelperError(format!("failed to decode CBOR: {error}"))
-    })
+    ciborium::from_reader(bytes)
+        .map_err(|error| CborHelperError(format!("failed to decode CBOR: {error}")))
 }
 
 /// Performs a case-sensitive map lookup for a text key.
@@ -288,13 +287,19 @@ pub fn map_lookup_optional_value<'a>(
 }
 
 /// Performs a case-sensitive map lookup for a text key, returning an error if missing.
-pub fn map_lookup_value<'a>(map: &'a [(Value, Value)], key_name: &str) -> Result<&'a Value, CborHelperError> {
+pub fn map_lookup_value<'a>(
+    map: &'a [(Value, Value)],
+    key_name: &str,
+) -> Result<&'a Value, CborHelperError> {
     map_lookup_optional_value(map, key_name)
         .ok_or_else(|| CborHelperError(format!("missing `{key_name}` value")))
 }
 
 /// Looks up a byte string field in a map.
-pub fn map_lookup_bytes(map: &[(Value, Value)], key_name: &str) -> Result<Vec<u8>, CborHelperError> {
+pub fn map_lookup_bytes(
+    map: &[(Value, Value)],
+    key_name: &str,
+) -> Result<Vec<u8>, CborHelperError> {
     map_lookup_value(map, key_name).and_then(|value| {
         value
             .as_bytes()
@@ -418,7 +423,10 @@ pub fn map_lookup_optional_map<'a>(
 }
 
 /// Looks up an array field in a map.
-pub fn map_lookup_array<'a>(map: &'a [(Value, Value)], key_name: &str) -> Result<&'a [Value], CborHelperError> {
+pub fn map_lookup_array<'a>(
+    map: &'a [(Value, Value)],
+    key_name: &str,
+) -> Result<&'a [Value], CborHelperError> {
     map_lookup_value(map, key_name).and_then(|value| {
         value
             .as_array()
@@ -428,10 +436,7 @@ pub fn map_lookup_array<'a>(map: &'a [(Value, Value)], key_name: &str) -> Result
 }
 
 /// Performs a map lookup for an integer label (as used in COSE).
-pub fn map_lookup_integer_label_value<'a>(
-    map: &'a [(Value, Value)],
-    label: i128,
-) -> Option<&'a Value> {
+pub fn map_lookup_integer_label_value(map: &[(Value, Value)], label: i128) -> Option<&Value> {
     map.iter()
         .find(|(key, _)| {
             key.as_integer()
@@ -441,7 +446,10 @@ pub fn map_lookup_integer_label_value<'a>(
 }
 
 /// Looks up an integer-labeled byte string field in a map (as used in COSE).
-pub fn map_lookup_integer_label_bytes(map: &[(Value, Value)], label: i128) -> Result<Vec<u8>, CborHelperError> {
+pub fn map_lookup_integer_label_bytes(
+    map: &[(Value, Value)],
+    label: i128,
+) -> Result<Vec<u8>, CborHelperError> {
     map_lookup_integer_label_value(map, label)
         .and_then(|value| value.as_bytes().cloned())
         .ok_or_else(|| CborHelperError(format!("missing COSE label {label} bytes")))
