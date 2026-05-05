@@ -487,13 +487,15 @@ pub fn verify_tampered_ledger(
     // tamper-detectable way" from "we could not parse the bytes at all".
     let (registry, non_signing) = match parse_key_registry(signing_key_registry) {
         Ok(maps) => maps,
-        Err(error) if error.kind().is_some() => {
-            return Ok(VerificationReport::fatal(
-                error.kind().unwrap(),
-                format!("failed to decode signing-key registry: {error}"),
-            ));
+        Err(error) => {
+            if let Some(kind) = error.kind() {
+                return Ok(VerificationReport::fatal(
+                    kind,
+                    format!("failed to decode signing-key registry: {error}"),
+                ));
+            }
+            return Err(error);
         }
-        Err(error) => return Err(error),
     };
     let events = parse_sign1_array(ledger).unwrap_or_else(|_| Vec::new());
     if events.is_empty() {
@@ -739,10 +741,15 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     let mut parsed_registries = BTreeMap::new();
     for binding in &parsed_bindings {
         let member_name = format!("050-registries/{}.cbor", binding.digest_hex);
-        let registry_bytes = archive
-            .members
-            .get(&member_name)
-            .expect("bound registry exists");
+        let registry_bytes = match archive.members.get(&member_name) {
+            Some(bytes) => bytes,
+            None => {
+                return VerificationReport::fatal(
+                    "archive_integrity_failure",
+                    format!("export is missing bound registry member {member_name}"),
+                );
+            }
+        };
         match parse_bound_registry(registry_bytes) {
             Ok(registry) => {
                 parsed_registries.insert(binding.digest_hex.clone(), registry);

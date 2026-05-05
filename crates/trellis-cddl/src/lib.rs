@@ -173,7 +173,7 @@ pub fn parse_canonical_event(bytes: &[u8]) -> Result<ParsedCanonicalEvent, CddlE
         author_event_hash: author_event_hash
             .as_slice()
             .try_into()
-            .expect("length is fixed to 32 above"),
+            .map_err(|_| CddlError::new("author_event_hash is not 32 bytes"))?,
         idempotency_key,
     })
 }

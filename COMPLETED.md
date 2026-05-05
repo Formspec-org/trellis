@@ -18,6 +18,23 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 28 (2026-05-05) — TODO #1 panic-safety fixes
+
+Closes Trellis TODO item #1 by resolving three potential panic sites in the
+verifier and CDDL parser. While guarded by prior checks in the reference
+impl, these `.expect()` and `.unwrap()` calls on untrusted input paths
+posed a crash risk for the verifier.
+
+Train:
+- `trellis-cddl` — `parse_canonical_event` replaces `.expect()` on 32-byte
+  conversion with `.map_err()`.
+- `trellis-verify` — `verify_tampered_ledger` replaces `.unwrap()` on
+  `error.kind()` with a safe `if let Some(kind)` binding.
+- `trellis-verify` — `verify_export_zip` replaces `.expect("bound registry
+  exists")` with a match returning `VerificationReport::fatal`.
+
+Verified by `cargo nextest run --workspace` (152 tests passed).
+
 ### Wave 27 (2026-04-29) — TODO #23 close-out: PLN-0385 wire-shape drift discovery + Fork-B resolution
 
 Closes Trellis TODO item #23 (`custody-hook-encoding.md` v1.0 +
