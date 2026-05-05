@@ -64,9 +64,10 @@
 use std::io::Cursor;
 
 use ciborium::Value;
-use sha2::{Digest, Sha256};
 use thiserror::Error;
-use trellis_types::{CONTENT_DOMAIN, domain_separated_sha256};
+use trellis_types::{
+    CONTENT_DOMAIN, domain_separated_sha256, map_lookup_optional_value,
+};
 
 /// Vendor-prefix C2PA assertion label (ADR 0008 Open Q3 resolution,
 /// Wave 25). Consumer C2PA SDKs look this label up in the manifest's
@@ -356,14 +357,14 @@ pub fn compute_cose_sign1_ref(cose_sign1_bytes: &[u8]) -> [u8; 32] {
 /// fields, use the appropriate domain tag instead.
 #[must_use]
 pub fn sha256_plain(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
+    trellis_types::sha256_bytes(bytes)
 }
 
 fn lookup_text(map: &[(Value, Value)], key: &'static str) -> Result<String, AdapterError> {
-    let value = lookup(map, key)?;
-    match value {
-        Value::Text(text) => Ok(text.clone()),
-        _ => Err(AdapterError::AssertionFieldType { field: key }),
+    match map_lookup_optional_value(map, key) {
+        None => Err(AdapterError::AssertionFieldMissing { field: key }),
+        Some(Value::Text(text)) => Ok(text.clone()),
+        Some(_) => Err(AdapterError::AssertionFieldType { field: key }),
     }
 }
 
@@ -372,10 +373,10 @@ fn lookup_fixed_bytes(
     key: &'static str,
     expected: usize,
 ) -> Result<Vec<u8>, AdapterError> {
-    let value = lookup(map, key)?;
-    let bytes = match value {
-        Value::Bytes(bytes) => bytes,
-        _ => return Err(AdapterError::AssertionFieldType { field: key }),
+    let bytes = match map_lookup_optional_value(map, key) {
+        None => return Err(AdapterError::AssertionFieldMissing { field: key }),
+        Some(Value::Bytes(bytes)) => bytes.clone(),
+        Some(_) => return Err(AdapterError::AssertionFieldType { field: key }),
     };
     if bytes.len() != expected {
         return Err(AdapterError::AssertionFieldLength {
@@ -384,18 +385,7 @@ fn lookup_fixed_bytes(
             actual: bytes.len(),
         });
     }
-    Ok(bytes.clone())
-}
-
-fn lookup<'a>(map: &'a [(Value, Value)], key: &'static str) -> Result<&'a Value, AdapterError> {
-    for (k, v) in map {
-        if let Value::Text(text) = k {
-            if text == key {
-                return Ok(v);
-            }
-        }
-    }
-    Err(AdapterError::AssertionFieldMissing { field: key })
+    Ok(bytes)
 }
 
 #[cfg(test)]
