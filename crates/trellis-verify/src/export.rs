@@ -1,0 +1,1280 @@
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Cursor;
+
+use trellis_types::{
+    checkpoint_digest, map_lookup_array, map_lookup_bytes, map_lookup_fixed_bytes, map_lookup_u64,
+    sha256_bytes,
+};
+use zip::ZipArchive;
+
+use super::{
+    ALG_EDDSA, SUITE_ID_PHASE_1_I128, WOS_CASE_CREATED_EVENT_TYPE, WOS_INTAKE_ACCEPTED_EVENT_TYPE,
+    WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE, attachment_entry_matches_binding,
+    case_created_record_matches_handoff, intake_entry_matches_record,
+    signature_entry_matches_record, verify_event_set_with_classes, verify_signature,
+};
+use crate::certificate::{verify_certificate_attachment_lineage, verify_certificate_catalog};
+use crate::erasure::verify_erasure_evidence_catalog;
+use crate::interop_sidecar::verify_interop_sidecars;
+use crate::kinds::{VerificationFailureKind, VerifyErrorKind};
+use crate::merkle::{
+    digest_path_from_values, merkle_leaf_hash, merkle_root, root_from_consistency_proof,
+    root_from_inclusion_proof,
+};
+use crate::parse::{
+    decode_event_details, decode_value, event_identity, parse_attachment_export_extension,
+    parse_attachment_manifest_entries, parse_bound_registry, parse_case_created_record,
+    parse_certificate_export_extension, parse_erasure_evidence_export_extension,
+    parse_intake_accepted_record, parse_intake_export_extension, parse_intake_manifest_entries,
+    parse_key_registry, parse_sign1_array, parse_sign1_bytes, parse_signature_affirmation_record,
+    parse_signature_export_extension, parse_signature_manifest_entries, readable_payload_bytes,
+};
+use crate::types::*;
+use crate::util::{
+    binding_lineage_graph_has_cycle, bytes_array, hex_decode, hex_string, response_hash_matches,
+};
+
+/// Verifies a complete export ZIP.
+pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
+    let archive = match parse_export_zip(export_zip) {
+        Ok(archive) => archive,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ExportZipInvalid,
+                format!("failed to open export ZIP: {error}"),
+            );
+        }
+    };
+
+    let signing_key_registry_bytes = match archive.members.get("030-signing-key-registry.cbor") {
+        Some(bytes) => bytes,
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::MissingSigningKeyRegistry,
+                "export is missing 030-signing-key-registry.cbor",
+            );
+        }
+    };
+    let (registry, non_signing_registry) = match parse_key_registry(signing_key_registry_bytes) {
+        Ok(maps) => maps,
+        Err(error) => {
+            // Core §8.7.3 step 3 / TR-CORE-048: structural shape failures
+            // surface as their typed `tamper_kind` (e.g.
+            // `key_entry_attributes_shape_mismatch`) rather than the
+            // generic `signing_key_registry_invalid` so tamper vectors can
+            // pin them. Decode failures with no typed kind keep the
+            // generic kind for back-compat with existing fixtures.
+            let failure_kind = error
+                .kind()
+                .map(VerifyErrorKind::verification_failure_kind)
+                .unwrap_or(VerificationFailureKind::SigningKeyRegistryInvalid);
+            return VerificationReport::fatal(
+                failure_kind,
+                format!("failed to decode signing-key registry: {error}"),
+            );
+        }
+    };
+
+    let manifest_bytes = match archive.members.get("000-manifest.cbor") {
+        Some(bytes) => bytes,
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::MissingManifest,
+                "export is missing 000-manifest.cbor",
+            );
+        }
+    };
+    let manifest = match parse_sign1_bytes(manifest_bytes) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestStructureInvalid,
+                format!("manifest is not a valid COSE_Sign1 envelope: {error}"),
+            );
+        }
+    };
+
+    if manifest.alg != ALG_EDDSA || manifest.suite_id != SUITE_ID_PHASE_1_I128 {
+        return VerificationReport::fatal(
+            VerificationFailureKind::UnsupportedSuite,
+            "manifest protected header does not match the Trellis Phase-1 suite",
+        );
+    }
+
+    let manifest_public_key = match registry.get(&manifest.kid) {
+        Some(entry) => entry.public_key,
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::UnresolvableManifestKid,
+                "manifest kid is not resolvable via the embedded signing-key registry",
+            );
+        }
+    };
+    if !verify_signature(&manifest, manifest_public_key) {
+        return VerificationReport::fatal(
+            VerificationFailureKind::ManifestSignatureInvalid,
+            "manifest COSE signature is invalid",
+        );
+    }
+
+    let manifest_payload_bytes = match &manifest.payload {
+        Some(bytes) => bytes,
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadMissing,
+                "manifest payload is detached, which is out of scope for Phase 1",
+            );
+        }
+    };
+    let manifest_payload = match decode_value(manifest_payload_bytes) {
+        Ok(value) => value,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("failed to decode manifest payload: {error}"),
+            );
+        }
+    };
+    let manifest_map = match manifest_payload.as_map() {
+        Some(map) => map,
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                "manifest payload root is not a map",
+            );
+        }
+    };
+
+    // ADR 0008 §"Phase-1 verifier obligation" — Wave 25 dispatched
+    // verifier. Path-(b): digest-binds only, no `source_ref`
+    // resolution. The `c2pa-manifest@v1` kind dispatches; the three
+    // other registered kinds (`scitt-receipt`, `vc-jose-cose-event`,
+    // `did-key-view`) remain Phase-1 locked-off and short-circuit with
+    // `interop_sidecar_phase_1_locked`. Outcomes accumulate into
+    // `interop_sidecars` for the dispatched-kind entries; lock-off,
+    // unknown-kind, derivation-version-unknown, path-invalid,
+    // content-mismatch, and unlisted-file all short-circuit via
+    // `VerificationReport::fatal` (Core §19.1 / TR-CORE-145, 163..167).
+    let interop_sidecars = match verify_interop_sidecars(manifest_map, &archive) {
+        Ok(outcomes) => outcomes,
+        Err(report) => return report,
+    };
+
+    let required_digests = [
+        ("010-events.cbor", "events_digest"),
+        ("020-inclusion-proofs.cbor", "inclusion_proofs_digest"),
+        ("025-consistency-proofs.cbor", "consistency_proofs_digest"),
+        (
+            "030-signing-key-registry.cbor",
+            "signing_key_registry_digest",
+        ),
+        ("040-checkpoints.cbor", "checkpoints_digest"),
+    ];
+    for (member_name, field_name) in required_digests {
+        let expected = match map_lookup_fixed_bytes(manifest_map, field_name, 32) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ManifestPayloadInvalid,
+                    format!("manifest is missing {field_name}: {error}"),
+                );
+            }
+        };
+        let actual = match archive.members.get(member_name) {
+            Some(bytes) => sha256_bytes(bytes),
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ArchiveIntegrityFailure,
+                    format!("export is missing required member {member_name}"),
+                );
+            }
+        };
+        if expected.as_slice() != actual {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ArchiveIntegrityFailure,
+                format!("manifest digest mismatch for {member_name}"),
+            );
+        }
+    }
+
+    let registry_bindings = match map_lookup_array(manifest_map, "registry_bindings") {
+        Ok(bindings) => bindings,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("manifest registry_bindings are invalid: {error}"),
+            );
+        }
+    };
+    let mut parsed_bindings = Vec::new();
+    for binding in registry_bindings {
+        let binding_map = match binding.as_map() {
+            Some(map) => map,
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ManifestPayloadInvalid,
+                    "registry binding is not a map",
+                );
+            }
+        };
+        let digest = match map_lookup_fixed_bytes(binding_map, "registry_digest", 32) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ManifestPayloadInvalid,
+                    format!("registry binding digest is invalid: {error}"),
+                );
+            }
+        };
+        let member_name = format!("050-registries/{}.cbor", hex_string(&digest));
+        let actual = match archive.members.get(&member_name) {
+            Some(bytes) => sha256_bytes(bytes),
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ArchiveIntegrityFailure,
+                    format!("export is missing bound registry member {member_name}"),
+                );
+            }
+        };
+        if actual != digest.as_slice() {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ArchiveIntegrityFailure,
+                format!("bound registry digest mismatch for {member_name}"),
+            );
+        }
+        let bound_at_sequence = match map_lookup_u64(binding_map, "bound_at_sequence") {
+            Ok(value) => value,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ManifestPayloadInvalid,
+                    format!("registry binding bound_at_sequence is invalid: {error}"),
+                );
+            }
+        };
+        parsed_bindings.push(RegistryBindingInfo {
+            digest_hex: hex_string(&digest),
+            bound_at_sequence,
+        });
+    }
+    parsed_bindings.sort_by_key(|binding| binding.bound_at_sequence);
+
+    let mut parsed_registries = BTreeMap::new();
+    for binding in &parsed_bindings {
+        let member_name = format!("050-registries/{}.cbor", binding.digest_hex);
+        let registry_bytes = match archive.members.get(&member_name) {
+            Some(bytes) => bytes,
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ArchiveIntegrityFailure,
+                    format!("export is missing bound registry member {member_name}"),
+                );
+            }
+        };
+        match parse_bound_registry(registry_bytes) {
+            Ok(registry) => {
+                parsed_registries.insert(binding.digest_hex.clone(), registry);
+            }
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::BoundRegistryInvalid,
+                    format!("failed to decode {member_name}: {error}"),
+                );
+            }
+        }
+    }
+
+    let scope = match map_lookup_bytes(manifest_map, "scope") {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("manifest scope is invalid: {error}"),
+            );
+        }
+    };
+
+    let events = match archive.members.get("010-events.cbor") {
+        Some(bytes) => match parse_sign1_array(bytes) {
+            Ok(events) => events,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::EventsInvalid,
+                    format!("failed to decode 010-events.cbor: {error}"),
+                );
+            }
+        },
+        None => unreachable!("required member already checked"),
+    };
+    let payload_blobs = archive
+        .members
+        .iter()
+        .filter_map(|(name, bytes)| {
+            let digest_hex = name.strip_prefix("060-payloads/")?.strip_suffix(".bin")?;
+            let digest_bytes = hex_decode(digest_hex).ok()?;
+            let digest: [u8; 32] = digest_bytes.try_into().ok()?;
+            Some((digest, bytes.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut report = verify_event_set_with_classes(
+        &events,
+        &registry,
+        VerifyEventSetOptions {
+            non_signing_registry: Some(&non_signing_registry),
+            initial_posture_declaration: None,
+            posture_declaration: None,
+            classify_tamper: false,
+            expected_ledger_scope: Some(scope.as_slice()),
+            payload_blobs: Some(&payload_blobs),
+        },
+    );
+    // ADR 0008 / Core §18.3a — Wave 25 dispatched-verifier outcomes
+    // accumulate here. `verify_interop_sidecars` already short-circuited
+    // any fatal lock-off / unknown-kind / digest-mismatch / unlisted-file
+    // / path-invalid / version-unknown failures via `VerificationReport::fatal`,
+    // so what reaches this site is the per-entry success slice. The
+    // export-archive integrity fold below treats absent failures as
+    // pass-through; non-fatal failures localize per-entry in
+    // `outcome.failures` and collapse to integrity-true (the dispatched
+    // path-(b) is digest-binds-only — there is no sub-fatal failure
+    // surface today).
+    report.interop_sidecars = interop_sidecars;
+    if let Some(extension) = match parse_attachment_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("attachment export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_attachment_manifest(&archive, &events, &extension, &mut report);
+    }
+    if let Some(extension) = match parse_signature_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("signature export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_signature_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
+    }
+    if let Some(extension) = match parse_intake_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("intake export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_intake_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
+    }
+    if let Some(extension) = match parse_erasure_evidence_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("erasure export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_erasure_evidence_catalog(&archive, &events, &extension, &mut report);
+    }
+    // ADR 0007 §"Verifier obligations" step 4 — export-bundle context
+    // resolves attachment lineage + recomputes content hash. Runs
+    // unconditionally so certificate events that travel without the
+    // optional manifest catalog still get step-4 enforcement.
+    verify_certificate_attachment_lineage(&events, &payload_blobs, &mut report);
+    if let Some(extension) = match parse_certificate_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("certificate export extension is invalid: {error}"),
+            );
+        }
+    } {
+        verify_certificate_catalog(&archive, &events, &extension, &mut report);
+    }
+    for failure in &mut report.event_failures {
+        if failure.kind == VerificationFailureKind::ScopeMismatch {
+            failure.location = format!("manifest-scope/{}", failure.location);
+        }
+    }
+    for event in &events {
+        let details = match decode_event_details(event) {
+            Ok(details) => details,
+            Err(_) => continue,
+        };
+        let Some(binding) = parsed_bindings
+            .iter()
+            .filter(|binding| binding.bound_at_sequence <= details.sequence)
+            .max_by_key(|binding| binding.bound_at_sequence)
+        else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::RegistryDigestMismatch,
+                hex_string(&details.canonical_event_hash),
+            ));
+            continue;
+        };
+        let Some(bound_registry) = parsed_registries.get(&binding.digest_hex) else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::RegistryDigestMismatch,
+                hex_string(&details.canonical_event_hash),
+            ));
+            continue;
+        };
+        if !bound_registry
+            .event_types
+            .iter()
+            .any(|value| value == &details.event_type)
+            || !bound_registry
+                .classifications
+                .iter()
+                .any(|value| value == &details.classification)
+        {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::RegistryDigestMismatch,
+                hex_string(&details.canonical_event_hash),
+            ));
+        }
+    }
+
+    let canonical_hashes = events
+        .iter()
+        .filter_map(|event| event_identity(event).ok())
+        .map(|(_, canonical_hash)| canonical_hash)
+        .collect::<Vec<_>>();
+    let leaf_hashes = canonical_hashes
+        .iter()
+        .copied()
+        .map(merkle_leaf_hash)
+        .collect::<Vec<_>>();
+
+    let checkpoints = match archive.members.get("040-checkpoints.cbor") {
+        Some(bytes) => match parse_sign1_array(bytes) {
+            Ok(checkpoints) => checkpoints,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointsInvalid,
+                    format!("failed to decode 040-checkpoints.cbor: {error}"),
+                );
+            }
+        },
+        None => unreachable!("required member already checked"),
+    };
+
+    let mut prior_checkpoint_digest: Option<[u8; 32]> = None;
+    let mut head_checkpoint_root: Option<[u8; 32]> = None;
+    for checkpoint in &checkpoints {
+        let public_key = match registry.get(&checkpoint.kid) {
+            Some(entry) => entry.public_key,
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::UnresolvableManifestKid,
+                    "checkpoint kid is not resolvable via the embedded signing-key registry",
+                );
+            }
+        };
+        if !verify_signature(checkpoint, public_key) {
+            return VerificationReport::fatal(
+                VerificationFailureKind::CheckpointSignatureInvalid,
+                "checkpoint COSE signature is invalid",
+            );
+        }
+
+        let payload_bytes = checkpoint.payload.as_ref().expect("checkpoints are inline");
+        let payload = match decode_value(payload_bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointPayloadInvalid,
+                    format!("failed to decode checkpoint payload: {error}"),
+                );
+            }
+        };
+        let payload_map = match payload.as_map() {
+            Some(map) => map,
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointPayloadInvalid,
+                    "checkpoint payload root is not a map",
+                );
+            }
+        };
+
+        let checkpoint_scope = match map_lookup_bytes(payload_map, "scope") {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointPayloadInvalid,
+                    format!("checkpoint scope is invalid: {error}"),
+                );
+            }
+        };
+        if checkpoint_scope != scope {
+            report.checkpoint_failures.push(VerificationFailure::new(
+                VerificationFailureKind::ScopeMismatch,
+                "checkpoint/scope",
+            ));
+            continue;
+        }
+
+        let tree_size = match map_lookup_u64(payload_map, "tree_size") {
+            Ok(value) => value as usize,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointPayloadInvalid,
+                    format!("checkpoint tree_size is invalid: {error}"),
+                );
+            }
+        };
+        if tree_size == 0 || tree_size > leaf_hashes.len() {
+            report.checkpoint_failures.push(VerificationFailure::new(
+                VerificationFailureKind::TreeSizeInvalid,
+                format!("checkpoint/tree_size/{tree_size}"),
+            ));
+            continue;
+        }
+
+        let expected_root = merkle_root(&leaf_hashes[..tree_size]);
+        let actual_root = match map_lookup_fixed_bytes(payload_map, "tree_head_hash", 32) {
+            Ok(bytes) => bytes_array(&bytes),
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointPayloadInvalid,
+                    format!("checkpoint tree_head_hash is invalid: {error}"),
+                );
+            }
+        };
+        if expected_root != actual_root {
+            report.checkpoint_failures.push(VerificationFailure::new(
+                VerificationFailureKind::CheckpointRootMismatch,
+                format!("checkpoint/tree_size/{tree_size}"),
+            ));
+        }
+
+        let digest = checkpoint_digest(&scope, payload_bytes);
+        if let Some(previous) = prior_checkpoint_digest {
+            let actual_prev = match map_lookup_fixed_bytes(payload_map, "prev_checkpoint_hash", 32)
+            {
+                Ok(bytes) => bytes_array(&bytes),
+                Err(error) => {
+                    return VerificationReport::fatal(
+                        VerificationFailureKind::CheckpointPayloadInvalid,
+                        format!("checkpoint prev_checkpoint_hash is invalid: {error}"),
+                    );
+                }
+            };
+            if previous != actual_prev {
+                report.checkpoint_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::PrevCheckpointHashMismatch,
+                    format!("checkpoint/tree_size/{tree_size}"),
+                ));
+            }
+        }
+        prior_checkpoint_digest = Some(digest);
+        head_checkpoint_root = Some(actual_root);
+    }
+
+    let head_checkpoint_digest =
+        match map_lookup_fixed_bytes(manifest_map, "head_checkpoint_digest", 32) {
+            Ok(bytes) => bytes_array(&bytes),
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ManifestPayloadInvalid,
+                    format!("manifest head_checkpoint_digest is invalid: {error}"),
+                );
+            }
+        };
+    if prior_checkpoint_digest != Some(head_checkpoint_digest) {
+        report.checkpoint_failures.push(VerificationFailure::new(
+            VerificationFailureKind::HeadCheckpointDigestMismatch,
+            "manifest/head_checkpoint_digest",
+        ));
+    }
+
+    let inclusion_map = match archive.members.get("020-inclusion-proofs.cbor") {
+        Some(bytes) => match decode_value(bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::InclusionProofsInvalid,
+                    format!("failed to decode 020-inclusion-proofs.cbor: {error}"),
+                );
+            }
+        },
+        None => unreachable!("required member already checked"),
+    };
+    if let Some(proofs) = inclusion_map.as_map() {
+        let expected_root = head_checkpoint_root.unwrap_or([0u8; 32]);
+        for (_, proof_value) in proofs {
+            let proof_map = match proof_value.as_map() {
+                Some(map) => map,
+                None => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::InclusionProofInvalid,
+                        "proof/map",
+                    ));
+                    continue;
+                }
+            };
+            let tree_size = match map_lookup_u64(proof_map, "tree_size") {
+                Ok(value) => value as usize,
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::InclusionProofInvalid,
+                        "proof/tree_size",
+                    ));
+                    continue;
+                }
+            };
+            if tree_size != leaf_hashes.len() {
+                report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::InclusionProofInvalid,
+                    format!("proof/tree_size/{tree_size}"),
+                ));
+                continue;
+            }
+            let leaf_index = match map_lookup_u64(proof_map, "leaf_index") {
+                Ok(value) => value as usize,
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::InclusionProofInvalid,
+                        "proof/leaf_index",
+                    ));
+                    continue;
+                }
+            };
+            if leaf_index >= leaf_hashes.len() {
+                report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::InclusionProofInvalid,
+                    format!("proof/index/{leaf_index}"),
+                ));
+                continue;
+            }
+            let leaf_hash = match map_lookup_fixed_bytes(proof_map, "leaf_hash", 32) {
+                Ok(bytes) => bytes_array(&bytes),
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::InclusionProofInvalid,
+                        format!("proof/index/{leaf_index}"),
+                    ));
+                    continue;
+                }
+            };
+            let audit_path_values = match map_lookup_array(proof_map, "audit_path") {
+                Ok(path) => path,
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::InclusionProofInvalid,
+                        format!("proof/index/{leaf_index}"),
+                    ));
+                    continue;
+                }
+            };
+            let audit_path = match digest_path_from_values(audit_path_values) {
+                Ok(nodes) => nodes,
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::InclusionProofInvalid,
+                        format!("proof/index/{leaf_index}/audit_path"),
+                    ));
+                    continue;
+                }
+            };
+            let matches_leaf = leaf_hash == leaf_hashes[leaf_index];
+            let matches_root = root_from_inclusion_proof(
+                leaf_index as u64,
+                tree_size as u64,
+                leaf_hash,
+                &audit_path,
+            )
+            .is_ok_and(|root| root == expected_root);
+            if !matches_leaf || !matches_root {
+                report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::InclusionProofMismatch,
+                    format!("proof/index/{leaf_index}"),
+                ));
+            }
+        }
+    }
+
+    let consistency_value = match archive.members.get("025-consistency-proofs.cbor") {
+        Some(bytes) => match decode_value(bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::ConsistencyProofsInvalid,
+                    format!("failed to decode 025-consistency-proofs.cbor: {error}"),
+                );
+            }
+        },
+        None => unreachable!("required member already checked"),
+    };
+    if let Some(records) = consistency_value.as_array() {
+        for record in records {
+            let record_map = match record.as_map() {
+                Some(map) => map,
+                None => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::ConsistencyProofInvalid,
+                        "consistency/map",
+                    ));
+                    continue;
+                }
+            };
+            let from_tree_size = map_lookup_u64(record_map, "from_tree_size").unwrap_or(0) as usize;
+            let to_tree_size = map_lookup_u64(record_map, "to_tree_size").unwrap_or(0) as usize;
+            let proof_path_values = match map_lookup_array(record_map, "proof_path") {
+                Ok(path) => path,
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::ConsistencyProofInvalid,
+                        format!("consistency/{from_tree_size}-{to_tree_size}/proof_path"),
+                    ));
+                    continue;
+                }
+            };
+            let location = format!("consistency/{from_tree_size}-{to_tree_size}");
+            if from_tree_size == 0 {
+                report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::ConsistencyProofInvalid,
+                    format!("{location}/from_zero"),
+                ));
+                continue;
+            }
+            if from_tree_size >= to_tree_size || to_tree_size > leaf_hashes.len() {
+                report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::ConsistencyProofInvalid,
+                    location.clone(),
+                ));
+                continue;
+            }
+            let proof_path = match digest_path_from_values(proof_path_values) {
+                Ok(nodes) => nodes,
+                Err(_) => {
+                    report.proof_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::ConsistencyProofInvalid,
+                        format!("{location}/proof_path"),
+                    ));
+                    continue;
+                }
+            };
+            let root_old = merkle_root(&leaf_hashes[..from_tree_size]);
+            let root_new = merkle_root(&leaf_hashes[..to_tree_size]);
+            match root_from_consistency_proof(
+                from_tree_size as u64,
+                to_tree_size as u64,
+                root_old,
+                &proof_path,
+            ) {
+                Ok(computed) if computed == root_new => {}
+                Ok(_) => report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::ConsistencyProofMismatch,
+                    location,
+                )),
+                Err(_) => report.proof_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::ConsistencyProofInvalid,
+                    location,
+                )),
+            }
+        }
+    }
+
+    report.structure_verified = true;
+    report.integrity_verified = VerificationReport::integrity_verified_from_parts(
+        &report.event_failures,
+        &report.checkpoint_failures,
+        &report.proof_failures,
+        &report.posture_transitions,
+        &report.erasure_evidence,
+        &report.certificates_of_completion,
+        &report.user_content_attestations,
+        &report.interop_sidecars,
+    );
+    report.readability_verified = true;
+    report
+}
+
+#[cfg(test)]
+pub(crate) fn export_archive_for_tests(members: BTreeMap<String, Vec<u8>>) -> ExportArchive {
+    ExportArchive { members }
+}
+
+/// Parses a Trellis export ZIP into [`ExportArchive`] members.
+///
+/// **Layout contract:** each ZIP entry name must contain exactly one `/`
+/// separating `{export_root}/` from the relative member path. Top-level
+/// entries, extra leading segments, or nested roots are rejected so member
+/// paths stay stable across toolchains.
+pub(crate) fn parse_export_zip(bytes: &[u8]) -> Result<ExportArchive, VerifyError> {
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| VerifyError::new(format!("failed to parse ZIP: {error}")))?;
+    let mut members = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|error| VerifyError::new(format!("failed to read ZIP member: {error}")))?;
+        let name = file.name().to_string();
+        let Some((_, relative_name)) = name.split_once('/') else {
+            return Err(VerifyError::new(
+                "ZIP member does not live under one export root",
+            ));
+        };
+        let mut data = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut data).map_err(|error| {
+            VerifyError::new(format!("failed to read ZIP member bytes: {error}"))
+        })?;
+        members.insert(relative_name.to_string(), data);
+    }
+    Ok(ExportArchive { members })
+}
+
+/// ADR 0072 topology: duplicate manifest rows, prior resolution, strict prior-before-binding
+/// order in the exported event array, and cycles in the prior-pointer graph.
+pub(crate) fn attachment_manifest_topology_failures(
+    entries: &[AttachmentManifestEntry],
+    hash_to_index: &BTreeMap<[u8; 32], usize>,
+) -> Vec<VerificationFailure> {
+    let mut failures = Vec::new();
+
+    let mut seen_bindings = BTreeSet::new();
+    for entry in entries {
+        if !seen_bindings.insert(entry.binding_event_hash) {
+            failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentManifestDuplicateBinding,
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+    }
+
+    let mut adj: BTreeMap<[u8; 32], Vec<[u8; 32]>> = BTreeMap::new();
+    for entry in entries {
+        let Some(prior_hash) = entry.prior_binding_hash else {
+            continue;
+        };
+        if hash_to_index.contains_key(&entry.binding_event_hash)
+            && hash_to_index.contains_key(&prior_hash)
+        {
+            adj.entry(entry.binding_event_hash)
+                .or_default()
+                .push(prior_hash);
+        }
+    }
+    if binding_lineage_graph_has_cycle(&adj) {
+        failures.push(VerificationFailure::new(
+            VerificationFailureKind::AttachmentBindingLineageCycle,
+            "061-attachments.cbor",
+        ));
+    }
+
+    for entry in entries {
+        let Some(&current_idx) = hash_to_index.get(&entry.binding_event_hash) else {
+            continue;
+        };
+        let Some(prior_hash) = entry.prior_binding_hash else {
+            continue;
+        };
+        let Some(&prior_idx) = hash_to_index.get(&prior_hash) else {
+            failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentPriorBindingUnresolved,
+                hex_string(&entry.binding_event_hash),
+            ));
+            continue;
+        };
+        if prior_idx >= current_idx {
+            failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentPriorBindingForwardReference,
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+    }
+
+    failures
+}
+
+pub(crate) fn verify_attachment_manifest(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    extension: &AttachmentExportExtension,
+    report: &mut VerificationReport,
+) {
+    let Some(manifest_bytes) = archive.members.get("061-attachments.cbor") else {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::MissingAttachmentManifest,
+            "061-attachments.cbor",
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(manifest_bytes);
+    if actual_digest.as_slice() != extension.manifest_digest {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::AttachmentManifestDigestMismatch,
+            "061-attachments.cbor",
+        ));
+    }
+
+    let entries = match parse_attachment_manifest_entries(manifest_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentManifestInvalid,
+                format!("061-attachments.cbor/{error}"),
+            ));
+            return;
+        }
+    };
+    let event_details = events
+        .iter()
+        .filter_map(|event| decode_event_details(event).ok())
+        .collect::<Vec<_>>();
+
+    let mut hash_to_index: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+    for (index, event) in events.iter().enumerate() {
+        if let Ok(details) = decode_event_details(event) {
+            hash_to_index.insert(details.canonical_event_hash, index);
+        }
+    }
+    for failure in attachment_manifest_topology_failures(&entries, &hash_to_index) {
+        report.event_failures.push(failure);
+    }
+
+    for entry in &entries {
+        let matching_events = event_details
+            .iter()
+            .filter(|details| details.canonical_event_hash == entry.binding_event_hash)
+            .collect::<Vec<_>>();
+        if matching_events.len() != 1 {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentBindingEventUnresolved,
+                hex_string(&entry.binding_event_hash),
+            ));
+            continue;
+        }
+        let details = matching_events[0];
+        let Some(binding) = &details.attachment_binding else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentBindingMissing,
+                hex_string(&entry.binding_event_hash),
+            ));
+            continue;
+        };
+        if !attachment_entry_matches_binding(entry, binding) {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentBindingMismatch,
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+        if entry.payload_content_hash != details.content_hash
+            || binding.payload_content_hash != details.content_hash
+        {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::AttachmentPayloadHashMismatch,
+                hex_string(&entry.binding_event_hash),
+            ));
+        }
+        if extension.inline_attachments {
+            let member = format!(
+                "060-payloads/{}.bin",
+                hex_string(&entry.payload_content_hash)
+            );
+            if !archive.members.contains_key(&member) {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::MissingAttachmentBody,
+                    member,
+                ));
+            }
+        }
+    }
+}
+
+pub(crate) fn verify_signature_catalog(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
+    extension: &SignatureExportExtension,
+    report: &mut VerificationReport,
+) {
+    let Some(catalog_bytes) = archive.members.get("062-signature-affirmations.cbor") else {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::MissingSignatureCatalog,
+            "062-signature-affirmations.cbor",
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(catalog_bytes);
+    if actual_digest.as_slice() != extension.catalog_digest {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::SignatureCatalogDigestMismatch,
+            "062-signature-affirmations.cbor",
+        ));
+    }
+
+    let entries = match parse_signature_manifest_entries(catalog_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureCatalogInvalid,
+                format!("062-signature-affirmations.cbor/{error}"),
+            ));
+            return;
+        }
+    };
+
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            match event_by_hash.entry(details.canonical_event_hash) {
+                Entry::Vacant(slot) => {
+                    slot.insert(details);
+                }
+                Entry::Occupied(_) => {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_hashes = BTreeSet::new();
+    for entry in &entries {
+        if !seen_hashes.insert(entry.canonical_event_hash) {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureCatalogDuplicateEvent,
+                hex_string(&entry.canonical_event_hash),
+            ));
+        }
+    }
+
+    for entry in &entries {
+        let Some(details) = event_by_hash.get(&entry.canonical_event_hash) else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureCatalogEventUnresolved,
+                hex_string(&entry.canonical_event_hash),
+            ));
+            continue;
+        };
+        if details.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureCatalogEventTypeMismatch,
+                hex_string(&entry.canonical_event_hash),
+            ));
+            continue;
+        }
+        let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureAffirmationPayloadUnreadable,
+                hex_string(&entry.canonical_event_hash),
+            ));
+            continue;
+        };
+        let record = match parse_signature_affirmation_record(&payload_bytes) {
+            Ok(record) => record,
+            Err(error) => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::SignatureAffirmationPayloadInvalid,
+                    format!("{}/{}", hex_string(&entry.canonical_event_hash), error),
+                ));
+                continue;
+            }
+        };
+        if !signature_entry_matches_record(entry, &record) {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureCatalogMismatch,
+                hex_string(&entry.canonical_event_hash),
+            ));
+        }
+    }
+}
+
+pub(crate) fn verify_intake_catalog(
+    archive: &ExportArchive,
+    events: &[ParsedSign1],
+    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
+    extension: &IntakeExportExtension,
+    report: &mut VerificationReport,
+) {
+    let Some(catalog_bytes) = archive.members.get("063-intake-handoffs.cbor") else {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::MissingIntakeHandoffCatalog,
+            "063-intake-handoffs.cbor",
+        ));
+        return;
+    };
+    let actual_digest = sha256_bytes(catalog_bytes);
+    if actual_digest.as_slice() != extension.catalog_digest {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::IntakeHandoffCatalogDigestMismatch,
+            "063-intake-handoffs.cbor",
+        ));
+    }
+
+    let entries = match parse_intake_manifest_entries(catalog_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::IntakeHandoffCatalogInvalid,
+                format!("063-intake-handoffs.cbor/{error}"),
+            ));
+            return;
+        }
+    };
+
+    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
+    for event in events {
+        if let Ok(details) = decode_event_details(event) {
+            match event_by_hash.entry(details.canonical_event_hash) {
+                Entry::Vacant(slot) => {
+                    slot.insert(details);
+                }
+                Entry::Occupied(_) => {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
+                        hex_string(&details.canonical_event_hash),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut seen_hashes = BTreeSet::new();
+    for entry in &entries {
+        if !seen_hashes.insert(entry.intake_event_hash) {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::IntakeHandoffCatalogDuplicateEvent,
+                hex_string(&entry.intake_event_hash),
+            ));
+        }
+    }
+
+    for entry in &entries {
+        let Some(details) = event_by_hash.get(&entry.intake_event_hash) else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::IntakeEventUnresolved,
+                hex_string(&entry.intake_event_hash),
+            ));
+            continue;
+        };
+        if details.event_type != WOS_INTAKE_ACCEPTED_EVENT_TYPE {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::IntakeEventTypeMismatch,
+                hex_string(&entry.intake_event_hash),
+            ));
+            continue;
+        }
+        let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::IntakePayloadUnreadable,
+                hex_string(&entry.intake_event_hash),
+            ));
+            continue;
+        };
+        let intake_record = match parse_intake_accepted_record(&payload_bytes) {
+            Ok(record) => record,
+            Err(error) => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::IntakePayloadInvalid,
+                    format!("{}/{}", hex_string(&entry.intake_event_hash), error),
+                ));
+                continue;
+            }
+        };
+        if !intake_entry_matches_record(entry, &intake_record) {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::IntakeHandoffMismatch,
+                hex_string(&entry.intake_event_hash),
+            ));
+        }
+        match response_hash_matches(&entry.handoff.response_hash, &entry.response_bytes) {
+            Ok(true) => {}
+            Ok(false) => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::IntakeResponseHashMismatch,
+                    hex_string(&entry.intake_event_hash),
+                ));
+            }
+            Err(error) => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::IntakeHandoffCatalogInvalid,
+                    format!("{}/{}", hex_string(&entry.intake_event_hash), error),
+                ));
+            }
+        }
+
+        match (
+            entry.handoff.initiation_mode.as_str(),
+            entry.case_created_event_hash,
+        ) {
+            ("workflowInitiated", Some(_)) => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::CaseCreatedHandoffMismatch,
+                    hex_string(&entry.intake_event_hash),
+                ));
+                continue;
+            }
+            ("workflowInitiated", None) => continue,
+            ("publicIntake", None) => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::CaseCreatedHandoffMismatch,
+                    hex_string(&entry.intake_event_hash),
+                ));
+                continue;
+            }
+            ("publicIntake", Some(case_created_hash)) => {
+                let Some(case_details) = event_by_hash.get(&case_created_hash) else {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::CaseCreatedEventUnresolved,
+                        hex_string(&case_created_hash),
+                    ));
+                    continue;
+                };
+                if case_details.event_type != WOS_CASE_CREATED_EVENT_TYPE {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::CaseCreatedEventTypeMismatch,
+                        hex_string(&case_created_hash),
+                    ));
+                    continue;
+                }
+                let Some(case_payload_bytes) = readable_payload_bytes(case_details, payload_blobs)
+                else {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::CaseCreatedPayloadUnreadable,
+                        hex_string(&case_created_hash),
+                    ));
+                    continue;
+                };
+                let case_record = match parse_case_created_record(&case_payload_bytes) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        report.event_failures.push(VerificationFailure::new(
+                            VerificationFailureKind::CaseCreatedPayloadInvalid,
+                            format!("{}/{}", hex_string(&case_created_hash), error),
+                        ));
+                        continue;
+                    }
+                };
+                if !case_created_record_matches_handoff(entry, &intake_record, &case_record) {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::CaseCreatedHandoffMismatch,
+                        hex_string(&case_created_hash),
+                    ));
+                }
+            }
+            _ => {
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::IntakeHandoffCatalogInvalid,
+                    format!(
+                        "{}/unknown-initiation-mode",
+                        hex_string(&entry.intake_event_hash)
+                    ),
+                ));
+            }
+        }
+    }
+}
