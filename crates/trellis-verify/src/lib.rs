@@ -3,7 +3,12 @@
 
 #![forbid(unsafe_code)]
 
+mod kinds;
+
+pub use kinds::{VerificationFailureKind, VerifyErrorKind};
+
 use std::backtrace::Backtrace;
+use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
@@ -12,11 +17,15 @@ use std::io::Cursor;
 use ciborium::Value;
 use ed25519_dalek::ed25519::signature::Verifier;
 use ed25519_dalek::{Signature, VerifyingKey};
-use sha2::{Digest, Sha256};
 use trellis_cose::sig_structure_bytes;
 use trellis_types::{
-    AUTHOR_EVENT_DOMAIN, CONTENT_DOMAIN, COSE_LABEL_SUITE_ID, EVENT_DOMAIN, SUITE_ID_PHASE_1,
-    domain_separated_sha256, encode_bstr, encode_tstr, encode_uint,
+    checkpoint_digest, decode_cbor_value, domain_separated_sha256, encode_bstr, encode_tstr,
+    encode_uint, map_lookup_array, map_lookup_bool, map_lookup_bytes, map_lookup_fixed_bytes,
+    map_lookup_integer_label_bytes, map_lookup_integer_label_value, map_lookup_map,
+    map_lookup_optional_bytes, map_lookup_optional_fixed_bytes, map_lookup_optional_map,
+    map_lookup_optional_text, map_lookup_optional_value, map_lookup_text, map_lookup_u64,
+    map_lookup_value, sha256_bytes, CborHelperError, AUTHOR_EVENT_DOMAIN, CONTENT_DOMAIN,
+    COSE_LABEL_SUITE_ID, EVENT_DOMAIN, SUITE_ID_PHASE_1,
 };
 use zip::ZipArchive;
 
@@ -24,7 +33,6 @@ const SUITE_ID_PHASE_1_I128: i128 = SUITE_ID_PHASE_1 as i128;
 const ALG_EDDSA: i128 = -8;
 const COSE_LABEL_ALG: i128 = 1;
 const COSE_LABEL_KID: i128 = 4;
-const CHECKPOINT_DOMAIN: &str = "trellis-checkpoint-v1";
 const MERKLE_LEAF_DOMAIN: &str = "trellis-merkle-leaf-v1";
 const MERKLE_INTERIOR_DOMAIN: &str = "trellis-merkle-interior-v1";
 const POSTURE_DECLARATION_DOMAIN: &str = "trellis-posture-declaration-v1";
@@ -151,14 +159,14 @@ const INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS: &[u8] = &[1];
 /// Verification failure localized to one artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerificationFailure {
-    pub kind: String,
+    pub kind: VerificationFailureKind,
     pub location: String,
 }
 
 impl VerificationFailure {
-    fn new(kind: impl Into<String>, location: impl Into<String>) -> Self {
+    fn new(kind: VerificationFailureKind, location: impl Into<String>) -> Self {
         Self {
-            kind: kind.into(),
+            kind,
             location: location.into(),
         }
     }
@@ -292,9 +300,8 @@ pub struct VerificationReport {
 }
 
 impl VerificationReport {
-    fn fatal(kind: impl Into<String>, warning: impl Into<String>) -> Self {
+    fn fatal(kind: VerificationFailureKind, warning: impl Into<String>) -> Self {
         let warning = warning.into();
-        let kind = kind.into();
         Self {
             structure_verified: false,
             integrity_verified: false,
@@ -311,6 +318,57 @@ impl VerificationReport {
         }
     }
 
+    /// Single Core §19 step-9 integrity fold shared by genesis-append and
+    /// export-bundle paths so posture / erasure / certificate / UCA /
+    /// interop predicates cannot drift across call sites.
+    fn integrity_verified_from_parts(
+        event_failures: &[VerificationFailure],
+        checkpoint_failures: &[VerificationFailure],
+        proof_failures: &[VerificationFailure],
+        posture_transitions: &[PostureTransitionOutcome],
+        erasure_evidence: &[ErasureEvidenceOutcome],
+        certificates_of_completion: &[CertificateOfCompletionOutcome],
+        user_content_attestations: &[UserContentAttestationOutcome],
+        interop_sidecars: &[InteropSidecarVerificationEntry],
+    ) -> bool {
+        let posture_ok = posture_transitions.iter().all(|outcome| {
+            outcome.continuity_verified
+                && outcome.declaration_resolved
+                && outcome.attestations_verified
+        });
+        let erasure_ok = erasure_evidence.iter().all(|outcome| {
+            outcome.signature_verified
+                && outcome.post_erasure_uses == 0
+                && outcome.post_erasure_wraps == 0
+        });
+        let certificate_ok = certificates_of_completion.iter().all(|outcome| {
+            outcome.chain_summary_consistent
+                && outcome.attachment_resolved
+                && outcome.all_signing_events_resolved
+        });
+        let user_content_attestation_ok = user_content_attestations.iter().all(|outcome| {
+            outcome.chain_position_resolved
+                && outcome.identity_resolved
+                && outcome.signature_verified
+                && outcome.key_active
+        });
+        let interop_ok = interop_sidecars.iter().all(|outcome| {
+            outcome.content_digest_ok
+                && outcome.kind_registered
+                && !outcome.phase_1_locked
+                && outcome.failures.is_empty()
+        });
+
+        event_failures.is_empty()
+            && checkpoint_failures.is_empty()
+            && proof_failures.is_empty()
+            && posture_ok
+            && erasure_ok
+            && certificate_ok
+            && user_content_attestation_ok
+            && interop_ok
+    }
+
     fn from_integrity_state(
         event_failures: Vec<VerificationFailure>,
         checkpoint_failures: Vec<VerificationFailure>,
@@ -321,57 +379,20 @@ impl VerificationReport {
         user_content_attestations: Vec<UserContentAttestationOutcome>,
         warnings: Vec<String>,
     ) -> Self {
-        let posture_ok = posture_transitions.iter().all(|outcome| {
-            outcome.continuity_verified
-                && outcome.declaration_resolved
-                && outcome.attestations_verified
-        });
-        // ADR 0005 step 10 fold: any erasure-evidence outcome with
-        // `signature_verified = false`, `post_erasure_uses > 0`, or
-        // `post_erasure_wraps > 0` flips integrity. Structure failures
-        // (steps 1-6) already accumulated into `event_failures` so they
-        // also gate via the `event_failures.is_empty()` predicate below.
-        // Cascade violations remain warnings in Phase 1 (step 9 best-effort).
-        let erasure_ok = erasure_evidence.iter().all(|outcome| {
-            outcome.signature_verified
-                && outcome.post_erasure_uses == 0
-                && outcome.post_erasure_wraps == 0
-        });
-        // ADR 0007 §"Verifier obligations" + Core §19 step 9 fold: a
-        // certificate-of-completion outcome with `chain_summary_consistent =
-        // false`, `attachment_resolved = false`, or
-        // `all_signing_events_resolved = false` flips integrity. Step-3
-        // attestation failures and step-6/7 timestamp / response_ref
-        // failures already land in `event_failures` so they gate via the
-        // `event_failures.is_empty()` predicate.
-        let certificate_ok = certificates_of_completion.iter().all(|outcome| {
-            outcome.chain_summary_consistent
-                && outcome.attachment_resolved
-                && outcome.all_signing_events_resolved
-        });
-        // ADR 0010 §"Verifier obligations" step 9 (Global integrity —
-        // user-content-attestation slice): outcome with any of
-        // `chain_position_resolved = false`, `identity_resolved = false`,
-        // `signature_verified = false`, or `key_active = false` flips
-        // integrity. Step-7 (id_collision) and step-8 (operator-in-user-slot)
-        // failures already land in `event_failures` and gate via the
-        // `event_failures.is_empty()` predicate.
-        let user_content_attestation_ok = user_content_attestations.iter().all(|outcome| {
-            outcome.chain_position_resolved
-                && outcome.identity_resolved
-                && outcome.signature_verified
-                && outcome.key_active
-        });
+        let integrity_verified = Self::integrity_verified_from_parts(
+            &event_failures,
+            &checkpoint_failures,
+            &proof_failures,
+            &posture_transitions,
+            &erasure_evidence,
+            &certificates_of_completion,
+            &user_content_attestations,
+            &[],
+        );
 
         Self {
             structure_verified: true,
-            integrity_verified: event_failures.is_empty()
-                && checkpoint_failures.is_empty()
-                && proof_failures.is_empty()
-                && posture_ok
-                && erasure_ok
-                && certificate_ok
-                && user_content_attestation_ok,
+            integrity_verified,
             readability_verified: true,
             event_failures,
             checkpoint_failures,
@@ -394,12 +415,8 @@ impl VerificationReport {
 #[derive(Debug)]
 pub struct VerifyError {
     message: String,
-    /// Optional structural-failure kind tag, used by registry / decode
-    /// paths so callers can map the error to a [`VerificationReport`] with
-    /// the correct `tamper_kind` (e.g., `key_entry_attributes_shape_mismatch`
-    /// for ADR 0006 §8.7.1 violations) instead of the generic
-    /// `signing_key_registry_invalid`.
-    kind: Option<&'static str>,
+    /// Optional structural-failure discriminant for registry / decode paths.
+    kind: Option<VerifyErrorKind>,
     backtrace: Backtrace,
 }
 
@@ -412,7 +429,7 @@ impl VerifyError {
         }
     }
 
-    fn with_kind(message: impl Into<String>, kind: &'static str) -> Self {
+    fn with_kind(message: impl Into<String>, kind: VerifyErrorKind) -> Self {
         Self {
             message: message.into(),
             kind: Some(kind),
@@ -420,8 +437,8 @@ impl VerifyError {
         }
     }
 
-    /// Returns the structural-failure kind tag, if one was set.
-    pub fn kind(&self) -> Option<&'static str> {
+    /// Returns the structural-failure discriminant, if one was set.
+    pub fn kind(&self) -> Option<VerifyErrorKind> {
         self.kind
     }
 
@@ -438,6 +455,12 @@ impl Display for VerifyError {
 }
 
 impl std::error::Error for VerifyError {}
+
+impl From<CborHelperError> for VerifyError {
+    fn from(error: CborHelperError) -> Self {
+        VerifyError::new(error.0)
+    }
+}
 
 /// Verifies one COSE_Sign1 event against one Ed25519 public key.
 ///
@@ -490,7 +513,7 @@ pub fn verify_tampered_ledger(
         Err(error) => {
             if let Some(kind) = error.kind() {
                 return Ok(VerificationReport::fatal(
-                    kind,
+                    kind.verification_failure_kind(),
                     format!("failed to decode signing-key registry: {error}"),
                 ));
             }
@@ -500,7 +523,7 @@ pub fn verify_tampered_ledger(
     let events = parse_sign1_array(ledger).unwrap_or_else(|_| Vec::new());
     if events.is_empty() {
         return Ok(VerificationReport::fatal(
-            "malformed_cose",
+            VerificationFailureKind::MalformedCose,
             "ledger is not a non-empty dCBOR array of COSE_Sign1 events",
         ));
     }
@@ -508,12 +531,14 @@ pub fn verify_tampered_ledger(
     Ok(verify_event_set_with_classes(
         &events,
         &registry,
-        Some(&non_signing),
-        initial_posture_declaration,
-        posture_declaration,
-        true,
-        None,
-        None,
+        VerifyEventSetOptions {
+            non_signing_registry: Some(&non_signing),
+            initial_posture_declaration,
+            posture_declaration,
+            classify_tamper: true,
+            expected_ledger_scope: None,
+            payload_blobs: None,
+        },
     ))
 }
 
@@ -523,7 +548,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(archive) => archive,
         Err(error) => {
             return VerificationReport::fatal(
-                "export_zip_invalid",
+                VerificationFailureKind::ExportZipInvalid,
                 format!("failed to open export ZIP: {error}"),
             );
         }
@@ -533,7 +558,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Some(bytes) => bytes,
         None => {
             return VerificationReport::fatal(
-                "missing_signing_key_registry",
+                VerificationFailureKind::MissingSigningKeyRegistry,
                 "export is missing 030-signing-key-registry.cbor",
             );
         }
@@ -547,9 +572,12 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             // generic `signing_key_registry_invalid` so tamper vectors can
             // pin them. Decode failures with no typed kind keep the
             // generic kind for back-compat with existing fixtures.
-            let kind = error.kind().unwrap_or("signing_key_registry_invalid");
+            let failure_kind = error
+                .kind()
+                .map(VerifyErrorKind::verification_failure_kind)
+                .unwrap_or(VerificationFailureKind::SigningKeyRegistryInvalid);
             return VerificationReport::fatal(
-                kind,
+                failure_kind,
                 format!("failed to decode signing-key registry: {error}"),
             );
         }
@@ -559,7 +587,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Some(bytes) => bytes,
         None => {
             return VerificationReport::fatal(
-                "missing_manifest",
+                VerificationFailureKind::MissingManifest,
                 "export is missing 000-manifest.cbor",
             );
         }
@@ -568,7 +596,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(manifest) => manifest,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_structure_invalid",
+                VerificationFailureKind::ManifestStructureInvalid,
                 format!("manifest is not a valid COSE_Sign1 envelope: {error}"),
             );
         }
@@ -576,7 +604,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
 
     if manifest.alg != ALG_EDDSA || manifest.suite_id != SUITE_ID_PHASE_1_I128 {
         return VerificationReport::fatal(
-            "unsupported_suite",
+            VerificationFailureKind::UnsupportedSuite,
             "manifest protected header does not match the Trellis Phase-1 suite",
         );
     }
@@ -585,14 +613,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Some(entry) => entry.public_key,
         None => {
             return VerificationReport::fatal(
-                "unresolvable_manifest_kid",
+                VerificationFailureKind::UnresolvableManifestKid,
                 "manifest kid is not resolvable via the embedded signing-key registry",
             );
         }
     };
     if !verify_signature(&manifest, manifest_public_key) {
         return VerificationReport::fatal(
-            "manifest_signature_invalid",
+            VerificationFailureKind::ManifestSignatureInvalid,
             "manifest COSE signature is invalid",
         );
     }
@@ -601,7 +629,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Some(bytes) => bytes,
         None => {
             return VerificationReport::fatal(
-                "manifest_payload_missing",
+                VerificationFailureKind::ManifestPayloadMissing,
                 "manifest payload is detached, which is out of scope for Phase 1",
             );
         }
@@ -610,7 +638,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(value) => value,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("failed to decode manifest payload: {error}"),
             );
         }
@@ -619,7 +647,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Some(map) => map,
         None => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 "manifest payload root is not a map",
             );
         }
@@ -655,7 +683,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(bytes) => bytes,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("manifest is missing {field_name}: {error}"),
                 );
             }
@@ -664,14 +692,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some(bytes) => sha256_bytes(bytes),
             None => {
                 return VerificationReport::fatal(
-                    "archive_integrity_failure",
+                    VerificationFailureKind::ArchiveIntegrityFailure,
                     format!("export is missing required member {member_name}"),
                 );
             }
         };
         if expected.as_slice() != actual {
             return VerificationReport::fatal(
-                "archive_integrity_failure",
+                VerificationFailureKind::ArchiveIntegrityFailure,
                 format!("manifest digest mismatch for {member_name}"),
             );
         }
@@ -681,7 +709,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(bindings) => bindings,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("manifest registry_bindings are invalid: {error}"),
             );
         }
@@ -692,7 +720,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some(map) => map,
             None => {
                 return VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     "registry binding is not a map",
                 );
             }
@@ -701,7 +729,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(bytes) => bytes,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("registry binding digest is invalid: {error}"),
                 );
             }
@@ -711,14 +739,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some(bytes) => sha256_bytes(bytes),
             None => {
                 return VerificationReport::fatal(
-                    "archive_integrity_failure",
+                    VerificationFailureKind::ArchiveIntegrityFailure,
                     format!("export is missing bound registry member {member_name}"),
                 );
             }
         };
         if actual != digest.as_slice() {
             return VerificationReport::fatal(
-                "archive_integrity_failure",
+                VerificationFailureKind::ArchiveIntegrityFailure,
                 format!("bound registry digest mismatch for {member_name}"),
             );
         }
@@ -726,7 +754,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(value) => value,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("registry binding bound_at_sequence is invalid: {error}"),
                 );
             }
@@ -745,7 +773,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some(bytes) => bytes,
             None => {
                 return VerificationReport::fatal(
-                    "archive_integrity_failure",
+                    VerificationFailureKind::ArchiveIntegrityFailure,
                     format!("export is missing bound registry member {member_name}"),
                 );
             }
@@ -756,7 +784,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             }
             Err(error) => {
                 return VerificationReport::fatal(
-                    "bound_registry_invalid",
+                    VerificationFailureKind::BoundRegistryInvalid,
                     format!("failed to decode {member_name}: {error}"),
                 );
             }
@@ -767,7 +795,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(bytes) => bytes,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("manifest scope is invalid: {error}"),
             );
         }
@@ -778,7 +806,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(events) => events,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "events_invalid",
+                    VerificationFailureKind::EventsInvalid,
                     format!("failed to decode 010-events.cbor: {error}"),
                 );
             }
@@ -798,12 +826,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     let mut report = verify_event_set_with_classes(
         &events,
         &registry,
-        Some(&non_signing_registry),
-        None,
-        None,
-        false,
-        Some(scope.as_slice()),
-        Some(&payload_blobs),
+        VerifyEventSetOptions {
+            non_signing_registry: Some(&non_signing_registry),
+            initial_posture_declaration: None,
+            posture_declaration: None,
+            classify_tamper: false,
+            expected_ledger_scope: Some(scope.as_slice()),
+            payload_blobs: Some(&payload_blobs),
+        },
     );
     // ADR 0008 / Core §18.3a — Wave 25 dispatched-verifier outcomes
     // accumulate here. `verify_interop_sidecars` already short-circuited
@@ -820,7 +850,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(extension) => extension,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("attachment export extension is invalid: {error}"),
             );
         }
@@ -831,7 +861,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(extension) => extension,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("signature export extension is invalid: {error}"),
             );
         }
@@ -842,7 +872,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(extension) => extension,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("intake export extension is invalid: {error}"),
             );
         }
@@ -853,7 +883,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(extension) => extension,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("erasure export extension is invalid: {error}"),
             );
         }
@@ -869,7 +899,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         Ok(extension) => extension,
         Err(error) => {
             return VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 format!("certificate export extension is invalid: {error}"),
             );
         }
@@ -877,7 +907,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         verify_certificate_catalog(&archive, &events, &extension, &mut report);
     }
     for failure in &mut report.event_failures {
-        if failure.kind == "scope_mismatch" {
+        if failure.kind == VerificationFailureKind::ScopeMismatch {
             failure.location = format!("manifest-scope/{}", failure.location);
         }
     }
@@ -892,14 +922,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             .max_by_key(|binding| binding.bound_at_sequence)
         else {
             report.event_failures.push(VerificationFailure::new(
-                "registry_digest_mismatch",
+                VerificationFailureKind::RegistryDigestMismatch,
                 hex_string(&details.canonical_event_hash),
             ));
             continue;
         };
         let Some(bound_registry) = parsed_registries.get(&binding.digest_hex) else {
             report.event_failures.push(VerificationFailure::new(
-                "registry_digest_mismatch",
+                VerificationFailureKind::RegistryDigestMismatch,
                 hex_string(&details.canonical_event_hash),
             ));
             continue;
@@ -914,7 +944,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 .any(|value| value == &details.classification)
         {
             report.event_failures.push(VerificationFailure::new(
-                "registry_digest_mismatch",
+                VerificationFailureKind::RegistryDigestMismatch,
                 hex_string(&details.canonical_event_hash),
             ));
         }
@@ -936,7 +966,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(checkpoints) => checkpoints,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "checkpoints_invalid",
+                    VerificationFailureKind::CheckpointsInvalid,
                     format!("failed to decode 040-checkpoints.cbor: {error}"),
                 );
             }
@@ -951,14 +981,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some(entry) => entry.public_key,
             None => {
                 return VerificationReport::fatal(
-                    "unresolvable_manifest_kid",
+                    VerificationFailureKind::UnresolvableManifestKid,
                     "checkpoint kid is not resolvable via the embedded signing-key registry",
                 );
             }
         };
         if !verify_signature(checkpoint, public_key) {
             return VerificationReport::fatal(
-                "checkpoint_signature_invalid",
+                VerificationFailureKind::CheckpointSignatureInvalid,
                 "checkpoint COSE signature is invalid",
             );
         }
@@ -968,7 +998,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(value) => value,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "checkpoint_payload_invalid",
+                    VerificationFailureKind::CheckpointPayloadInvalid,
                     format!("failed to decode checkpoint payload: {error}"),
                 );
             }
@@ -977,7 +1007,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Some(map) => map,
             None => {
                 return VerificationReport::fatal(
-                    "checkpoint_payload_invalid",
+                    VerificationFailureKind::CheckpointPayloadInvalid,
                     "checkpoint payload root is not a map",
                 );
             }
@@ -987,14 +1017,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(bytes) => bytes,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "checkpoint_payload_invalid",
+                    VerificationFailureKind::CheckpointPayloadInvalid,
                     format!("checkpoint scope is invalid: {error}"),
                 );
             }
         };
         if checkpoint_scope != scope {
             report.checkpoint_failures.push(VerificationFailure::new(
-                "scope_mismatch",
+                VerificationFailureKind::ScopeMismatch,
                 "checkpoint/scope",
             ));
             continue;
@@ -1004,14 +1034,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(value) => value as usize,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "checkpoint_payload_invalid",
+                    VerificationFailureKind::CheckpointPayloadInvalid,
                     format!("checkpoint tree_size is invalid: {error}"),
                 );
             }
         };
         if tree_size == 0 || tree_size > leaf_hashes.len() {
             report.checkpoint_failures.push(VerificationFailure::new(
-                "tree_size_invalid",
+                VerificationFailureKind::TreeSizeInvalid,
                 format!("checkpoint/tree_size/{tree_size}"),
             ));
             continue;
@@ -1022,14 +1052,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(bytes) => bytes_array(&bytes),
             Err(error) => {
                 return VerificationReport::fatal(
-                    "checkpoint_payload_invalid",
+                    VerificationFailureKind::CheckpointPayloadInvalid,
                     format!("checkpoint tree_head_hash is invalid: {error}"),
                 );
             }
         };
         if expected_root != actual_root {
             report.checkpoint_failures.push(VerificationFailure::new(
-                "checkpoint_root_mismatch",
+                VerificationFailureKind::CheckpointRootMismatch,
                 format!("checkpoint/tree_size/{tree_size}"),
             ));
         }
@@ -1041,14 +1071,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(bytes) => bytes_array(&bytes),
                 Err(error) => {
                     return VerificationReport::fatal(
-                        "checkpoint_payload_invalid",
+                        VerificationFailureKind::CheckpointPayloadInvalid,
                         format!("checkpoint prev_checkpoint_hash is invalid: {error}"),
                     );
                 }
             };
             if previous != actual_prev {
                 report.checkpoint_failures.push(VerificationFailure::new(
-                    "prev_checkpoint_hash_mismatch",
+                    VerificationFailureKind::PrevCheckpointHashMismatch,
                     format!("checkpoint/tree_size/{tree_size}"),
                 ));
             }
@@ -1062,14 +1092,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(bytes) => bytes_array(&bytes),
             Err(error) => {
                 return VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("manifest head_checkpoint_digest is invalid: {error}"),
                 );
             }
         };
     if prior_checkpoint_digest != Some(head_checkpoint_digest) {
         report.checkpoint_failures.push(VerificationFailure::new(
-            "head_checkpoint_digest_mismatch",
+            VerificationFailureKind::HeadCheckpointDigestMismatch,
             "manifest/head_checkpoint_digest",
         ));
     }
@@ -1079,7 +1109,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(value) => value,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "inclusion_proofs_invalid",
+                    VerificationFailureKind::InclusionProofsInvalid,
                     format!("failed to decode 020-inclusion-proofs.cbor: {error}"),
                 );
             }
@@ -1093,7 +1123,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Some(map) => map,
                 None => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "inclusion_proof_invalid",
+                        VerificationFailureKind::InclusionProofInvalid,
                         "proof/map",
                     ));
                     continue;
@@ -1103,7 +1133,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(value) => value as usize,
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "inclusion_proof_invalid",
+                        VerificationFailureKind::InclusionProofInvalid,
                         "proof/tree_size",
                     ));
                     continue;
@@ -1111,7 +1141,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             };
             if tree_size != leaf_hashes.len() {
                 report.proof_failures.push(VerificationFailure::new(
-                    "inclusion_proof_invalid",
+                    VerificationFailureKind::InclusionProofInvalid,
                     format!("proof/tree_size/{tree_size}"),
                 ));
                 continue;
@@ -1120,7 +1150,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(value) => value as usize,
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "inclusion_proof_invalid",
+                        VerificationFailureKind::InclusionProofInvalid,
                         "proof/leaf_index",
                     ));
                     continue;
@@ -1128,7 +1158,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             };
             if leaf_index >= leaf_hashes.len() {
                 report.proof_failures.push(VerificationFailure::new(
-                    "inclusion_proof_invalid",
+                    VerificationFailureKind::InclusionProofInvalid,
                     format!("proof/index/{leaf_index}"),
                 ));
                 continue;
@@ -1137,7 +1167,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(bytes) => bytes_array(&bytes),
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "inclusion_proof_invalid",
+                        VerificationFailureKind::InclusionProofInvalid,
                         format!("proof/index/{leaf_index}"),
                     ));
                     continue;
@@ -1147,7 +1177,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(path) => path,
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "inclusion_proof_invalid",
+                        VerificationFailureKind::InclusionProofInvalid,
                         format!("proof/index/{leaf_index}"),
                     ));
                     continue;
@@ -1157,7 +1187,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(nodes) => nodes,
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "inclusion_proof_invalid",
+                        VerificationFailureKind::InclusionProofInvalid,
                         format!("proof/index/{leaf_index}/audit_path"),
                     ));
                     continue;
@@ -1173,7 +1203,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             .is_ok_and(|root| root == expected_root);
             if !matches_leaf || !matches_root {
                 report.proof_failures.push(VerificationFailure::new(
-                    "inclusion_proof_mismatch",
+                    VerificationFailureKind::InclusionProofMismatch,
                     format!("proof/index/{leaf_index}"),
                 ));
             }
@@ -1185,7 +1215,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             Ok(value) => value,
             Err(error) => {
                 return VerificationReport::fatal(
-                    "consistency_proofs_invalid",
+                    VerificationFailureKind::ConsistencyProofsInvalid,
                     format!("failed to decode 025-consistency-proofs.cbor: {error}"),
                 );
             }
@@ -1198,7 +1228,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Some(map) => map,
                 None => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "consistency_proof_invalid",
+                        VerificationFailureKind::ConsistencyProofInvalid,
                         "consistency/map",
                     ));
                     continue;
@@ -1210,7 +1240,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(path) => path,
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "consistency_proof_invalid",
+                        VerificationFailureKind::ConsistencyProofInvalid,
                         format!("consistency/{from_tree_size}-{to_tree_size}/proof_path"),
                     ));
                     continue;
@@ -1219,14 +1249,14 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             let location = format!("consistency/{from_tree_size}-{to_tree_size}");
             if from_tree_size == 0 {
                 report.proof_failures.push(VerificationFailure::new(
-                    "consistency_proof_invalid",
+                    VerificationFailureKind::ConsistencyProofInvalid,
                     format!("{location}/from_zero"),
                 ));
                 continue;
             }
             if from_tree_size >= to_tree_size || to_tree_size > leaf_hashes.len() {
                 report.proof_failures.push(VerificationFailure::new(
-                    "consistency_proof_invalid",
+                    VerificationFailureKind::ConsistencyProofInvalid,
                     location.clone(),
                 ));
                 continue;
@@ -1235,7 +1265,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 Ok(nodes) => nodes,
                 Err(_) => {
                     report.proof_failures.push(VerificationFailure::new(
-                        "consistency_proof_invalid",
+                        VerificationFailureKind::ConsistencyProofInvalid,
                         format!("{location}/proof_path"),
                     ));
                     continue;
@@ -1251,11 +1281,11 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             ) {
                 Ok(computed) if computed == root_new => {}
                 Ok(_) => report.proof_failures.push(VerificationFailure::new(
-                    "consistency_proof_mismatch",
+                    VerificationFailureKind::ConsistencyProofMismatch,
                     location,
                 )),
                 Err(_) => report.proof_failures.push(VerificationFailure::new(
-                    "consistency_proof_invalid",
+                    VerificationFailureKind::ConsistencyProofInvalid,
                     location,
                 )),
             }
@@ -1263,55 +1293,16 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     }
 
     report.structure_verified = true;
-    report.integrity_verified = report.event_failures.is_empty()
-        && report.checkpoint_failures.is_empty()
-        && report.proof_failures.is_empty()
-        && report.posture_transitions.iter().all(|outcome| {
-            outcome.continuity_verified
-                && outcome.declaration_resolved
-                && outcome.attestations_verified
-        })
-        // ADR 0005 step 10 fold — mirrors `from_integrity_state` so the
-        // export-bundle path computes integrity identically to the
-        // genesis path.
-        && report.erasure_evidence.iter().all(|outcome| {
-            outcome.signature_verified
-                && outcome.post_erasure_uses == 0
-                && outcome.post_erasure_wraps == 0
-        })
-        // ADR 0007 §"Verifier obligations" + Core §19 step 9 fold —
-        // certificate-of-completion outcomes flip integrity when chain
-        // summary, attachment lineage, or signing-event resolution failed.
-        && report.certificates_of_completion.iter().all(|outcome| {
-            outcome.chain_summary_consistent
-                && outcome.attachment_resolved
-                && outcome.all_signing_events_resolved
-        })
-        // ADR 0010 §"Verifier obligations" step 9 fold — user-content
-        // attestation outcomes flip integrity when chain-position binding,
-        // identity resolution, signature verification, or key-state check
-        // failed. Step-7 collision and step-8 operator-in-user-slot
-        // failures already land in `event_failures` above.
-        && report.user_content_attestations.iter().all(|outcome| {
-            outcome.chain_position_resolved
-                && outcome.identity_resolved
-                && outcome.signature_verified
-                && outcome.key_active
-        })
-        // ADR 0008 §"Phase-1 verifier obligation" / Core §18.3a fold —
-        // an interop-sidecar outcome with `content_digest_ok = false`
-        // OR `kind_registered = false` OR localized `failures` would
-        // flip integrity. Today every non-pass condition short-circuits
-        // via `VerificationReport::fatal` before this slice is built;
-        // this fold is defensive against a future sub-fatal failure
-        // surface (e.g., `c2pa-manifest@v2` dispatching to a richer
-        // path-(b) with localized warnings).
-        && report.interop_sidecars.iter().all(|outcome| {
-            outcome.content_digest_ok
-                && outcome.kind_registered
-                && !outcome.phase_1_locked
-                && outcome.failures.is_empty()
-        });
+    report.integrity_verified = VerificationReport::integrity_verified_from_parts(
+        &report.event_failures,
+        &report.checkpoint_failures,
+        &report.proof_failures,
+        &report.posture_transitions,
+        &report.erasure_evidence,
+        &report.certificates_of_completion,
+        &report.user_content_attestations,
+        &report.interop_sidecars,
+    );
     report.readability_verified = true;
     report
 }
@@ -1655,7 +1646,7 @@ struct UserContentAttestationDetails {
     /// 0010 — they are NOT structure failures and MUST NOT flip
     /// `readability_verified`. The finalize pass raises the marker as an
     /// `event_failure` and skips remaining checks for the event.
-    step_2_failure: Option<&'static str>,
+    step_2_failure: Option<VerificationFailureKind>,
 }
 
 /// Decoded `SignerDisplayEntry` (ADR 0007 §"Wire shape").
@@ -1868,7 +1859,7 @@ fn verify_interop_sidecars(
         Some(arr) => arr,
         None => {
             return Err(VerificationReport::fatal(
-                "manifest_payload_invalid",
+                VerificationFailureKind::ManifestPayloadInvalid,
                 "interop_sidecars must be an array or null",
             ));
         }
@@ -1882,7 +1873,7 @@ fn verify_interop_sidecars(
             Some(map) => map,
             None => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("interop_sidecars[{index}] is not a map"),
                 ));
             }
@@ -1892,7 +1883,7 @@ fn verify_interop_sidecars(
             Ok(kind) => kind,
             Err(error) => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("interop_sidecars[{index}].kind is invalid: {error}"),
                 ));
             }
@@ -1901,7 +1892,7 @@ fn verify_interop_sidecars(
             Ok(path) => path,
             Err(error) => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("interop_sidecars[{index}].path is invalid: {error}"),
                 ));
             }
@@ -1910,7 +1901,7 @@ fn verify_interop_sidecars(
             Ok(value) if value <= u8::MAX as u64 => value as u8,
             Ok(value) => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!(
                         "interop_sidecars[{index}].derivation_version {value} exceeds uint .size 1"
                     ),
@@ -1918,7 +1909,7 @@ fn verify_interop_sidecars(
             }
             Err(error) => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("interop_sidecars[{index}].derivation_version is invalid: {error}"),
                 ));
             }
@@ -1927,7 +1918,7 @@ fn verify_interop_sidecars(
             Ok(bytes) => bytes,
             Err(error) => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("interop_sidecars[{index}].content_digest is invalid: {error}"),
                 ));
             }
@@ -1940,7 +1931,7 @@ fn verify_interop_sidecars(
             Ok(_) => {}
             Err(error) => {
                 return Err(VerificationReport::fatal(
-                    "manifest_payload_invalid",
+                    VerificationFailureKind::ManifestPayloadInvalid,
                     format!("interop_sidecars[{index}].source_ref is invalid: {error}"),
                 ));
             }
@@ -1956,7 +1947,7 @@ fn verify_interop_sidecars(
         );
         if !kind_registered {
             return Err(VerificationReport::fatal(
-                "interop_sidecar_kind_unknown",
+                VerificationFailureKind::InteropSidecarKindUnknown,
                 format!("interop_sidecars[{index}].kind {kind:?} is not in the ADR 0008 registry"),
             ));
         }
@@ -1972,7 +1963,7 @@ fn verify_interop_sidecars(
             && kind == INTEROP_SIDECAR_KIND_C2PA_MANIFEST
         {
             return Err(VerificationReport::fatal(
-                "interop_sidecar_derivation_version_unknown",
+                VerificationFailureKind::InteropSidecarDerivationVersionUnknown,
                 format!(
                     "interop_sidecars[{index}] kind={kind:?} derivation_version={derivation_version} not in supported set"
                 ),
@@ -1984,7 +1975,7 @@ fn verify_interop_sidecars(
         // `verify_interop_sidecars_rejects_manifest_path_outside_interop_tree`.
         if !is_interop_sidecar_path_valid(&path) {
             return Err(VerificationReport::fatal(
-                "interop_sidecar_path_invalid",
+                VerificationFailureKind::InteropSidecarPathInvalid,
                 format!(
                     "interop_sidecars[{index}].path {path:?} does not start with {INTEROP_SIDECARS_PATH_PREFIX:?}"
                 ),
@@ -1999,7 +1990,7 @@ fn verify_interop_sidecars(
         let phase_1_locked = !matches!(kind.as_str(), INTEROP_SIDECAR_KIND_C2PA_MANIFEST);
         if phase_1_locked {
             return Err(VerificationReport::fatal(
-                "interop_sidecar_phase_1_locked",
+                VerificationFailureKind::InteropSidecarPhase1Locked,
                 format!(
                     "interop_sidecars[{index}] kind={kind:?} is still Phase-1 locked-off (ADR 0008 / ADR 0003)"
                 ),
@@ -2016,7 +2007,7 @@ fn verify_interop_sidecars(
             Some(bytes) => bytes,
             None => {
                 return Err(VerificationReport::fatal(
-                    "interop_sidecar_content_mismatch",
+                    VerificationFailureKind::InteropSidecarContentMismatch,
                     format!(
                         "interop_sidecars[{index}].path {path:?} is missing from the export ZIP"
                     ),
@@ -2027,7 +2018,7 @@ fn verify_interop_sidecars(
         let content_digest_ok = actual_digest.as_slice() == content_digest.as_slice();
         if !content_digest_ok {
             return Err(VerificationReport::fatal(
-                "interop_sidecar_content_mismatch",
+                VerificationFailureKind::InteropSidecarContentMismatch,
                 format!(
                     "interop_sidecars[{index}].content_digest does not match SHA-256(trellis-content-v1, {path:?})"
                 ),
@@ -2061,7 +2052,7 @@ fn verify_interop_sidecars(
             continue;
         }
         return Err(VerificationReport::fatal(
-            "interop_sidecar_unlisted_file",
+            VerificationFailureKind::InteropSidecarUnlistedFile,
             format!(
                 "{member_path:?} is present under interop-sidecars/ but not catalogued in manifest.interop_sidecars"
             ),
@@ -2115,6 +2106,15 @@ fn parse_export_zip(bytes: &[u8]) -> Result<ExportArchive, VerifyError> {
     Ok(ExportArchive { members })
 }
 
+struct VerifyEventSetOptions<'a> {
+    non_signing_registry: Option<&'a BTreeMap<Vec<u8>, NonSigningKeyEntry>>,
+    initial_posture_declaration: Option<&'a [u8]>,
+    posture_declaration: Option<&'a [u8]>,
+    classify_tamper: bool,
+    expected_ledger_scope: Option<&'a [u8]>,
+    payload_blobs: Option<&'a BTreeMap<[u8; 32], Vec<u8>>>,
+}
+
 fn verify_event_set(
     events: &[ParsedSign1],
     registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
@@ -2127,26 +2127,30 @@ fn verify_event_set(
     verify_event_set_with_classes(
         events,
         registry,
-        None,
+        VerifyEventSetOptions {
+            non_signing_registry: None,
+            initial_posture_declaration,
+            posture_declaration,
+            classify_tamper,
+            expected_ledger_scope,
+            payload_blobs,
+        },
+    )
+}
+
+fn verify_event_set_with_classes(
+    events: &[ParsedSign1],
+    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
+    options: VerifyEventSetOptions<'_>,
+) -> VerificationReport {
+    let VerifyEventSetOptions {
+        non_signing_registry,
         initial_posture_declaration,
         posture_declaration,
         classify_tamper,
         expected_ledger_scope,
         payload_blobs,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn verify_event_set_with_classes(
-    events: &[ParsedSign1],
-    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
-    non_signing_registry: Option<&BTreeMap<Vec<u8>, NonSigningKeyEntry>>,
-    initial_posture_declaration: Option<&[u8]>,
-    posture_declaration: Option<&[u8]>,
-    classify_tamper: bool,
-    expected_ledger_scope: Option<&[u8]>,
-    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
-) -> VerificationReport {
+    } = options;
     let mut event_failures = Vec::new();
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
@@ -2202,6 +2206,13 @@ fn verify_event_set_with_classes(
         [u8; 32],
     )> = Vec::new();
 
+    // Decoded event payloads indexed by chain position. Finalize passes reuse
+    // these instead of re-decoding every `ParsedSign1`; indices the main loop
+    // skipped still decode here so digest-resolution matches the legacy path
+    // for events that failed signature verification but remain structurally
+    // parseable.
+    let mut decoded_per_index: Vec<Option<EventDetails>> = vec![None; events.len()];
+
     for (index, event) in events.iter().enumerate() {
         let key_entry = match registry.get(&event.kid) {
             Some(entry) => entry,
@@ -2215,7 +2226,7 @@ fn verify_event_set_with_classes(
                 if let Some(non_signing) = non_signing_registry.and_then(|map| map.get(&event.kid))
                 {
                     return VerificationReport::fatal(
-                        "key_class_mismatch",
+                        VerificationFailureKind::KeyClassMismatch,
                         format!(
                             "event signed under a `{}`-class kid; only `signing` keys may sign canonical events (Core §8.7.3 step 4)",
                             non_signing.class
@@ -2223,14 +2234,14 @@ fn verify_event_set_with_classes(
                     );
                 }
                 return VerificationReport::fatal(
-                    "unresolvable_manifest_kid",
+                    VerificationFailureKind::UnresolvableManifestKid,
                     "event kid is not resolvable via the provided signing-key registry",
                 );
             }
         };
         if event.alg != ALG_EDDSA || event.suite_id != SUITE_ID_PHASE_1_I128 {
             return VerificationReport::fatal(
-                "unsupported_suite",
+                VerificationFailureKind::UnsupportedSuite,
                 "event protected header does not match the Trellis Phase-1 suite",
             );
         }
@@ -2238,11 +2249,14 @@ fn verify_event_set_with_classes(
             let location = event_identity(event)
                 .map(|(_, hash)| hex_string(&hash))
                 .unwrap_or_else(|_| format!("event[{index}]"));
-            event_failures.push(VerificationFailure::new("signature_invalid", location));
+            event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SignatureInvalid,
+                location,
+            ));
             continue;
         }
 
-        let details = match decode_event_details(event) {
+        let decoded = match decode_event_details(event) {
             Ok(details) => details,
             Err(error) => {
                 // Surface typed structural-failure kinds (e.g.
@@ -2250,27 +2264,32 @@ fn verify_event_set_with_classes(
                 // as the report's `tamper_kind`. Untyped decode errors
                 // continue to land as the generic `malformed_cose` for
                 // back-compat with existing fixtures.
-                let kind = error.kind().unwrap_or("malformed_cose");
+                let failure_kind = error
+                    .kind()
+                    .map(VerifyErrorKind::verification_failure_kind)
+                    .unwrap_or(VerificationFailureKind::MalformedCose);
                 let warning = if error.kind().is_some() {
                     error.to_string()
                 } else {
                     "event payload does not decode as a canonical Trellis event".to_string()
                 };
-                return VerificationReport::fatal(kind, warning);
+                return VerificationReport::fatal(failure_kind, warning);
             }
         };
+        decoded_per_index[index] = Some(decoded);
+        let details = decoded_per_index[index].as_mut().expect("just inserted");
 
         if key_entry.status == 3 {
             match key_entry.valid_to {
                 Some(valid_to) if details.authored_at > valid_to => {
                     event_failures.push(VerificationFailure::new(
-                        "revoked_authority",
+                        VerificationFailureKind::RevokedAuthority,
                         hex_string(&details.canonical_event_hash),
                     ));
                 }
                 None => {
                     return VerificationReport::fatal(
-                        "signing_key_registry_invalid",
+                        VerificationFailureKind::SigningKeyRegistryInvalid,
                         "revoked signing-key registry entry is missing valid_to",
                     );
                 }
@@ -2283,7 +2302,7 @@ fn verify_event_set_with_classes(
         if let Some(expected) = expected_ledger_scope {
             if details.scope.as_slice() != expected {
                 event_failures.push(VerificationFailure::new(
-                    "scope_mismatch",
+                    VerificationFailureKind::ScopeMismatch,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
@@ -2300,7 +2319,7 @@ fn verify_event_set_with_classes(
         match idempotency_index.get(&identity_key) {
             Some(prior_hash) if *prior_hash != details.canonical_event_hash => {
                 event_failures.push(VerificationFailure::new(
-                    "idempotency_key_payload_mismatch",
+                    VerificationFailureKind::IdempotencyKeyPayloadMismatch,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
@@ -2320,7 +2339,7 @@ fn verify_event_set_with_classes(
                 let expected_content_hash = domain_separated_sha256(CONTENT_DOMAIN, ciphertext);
                 if expected_content_hash != details.content_hash {
                     event_failures.push(VerificationFailure::new(
-                        "content_hash_mismatch",
+                        VerificationFailureKind::ContentHashMismatch,
                         hex_string(&details.canonical_event_hash),
                     ));
                 }
@@ -2333,7 +2352,7 @@ fn verify_event_set_with_classes(
                         domain_separated_sha256(CONTENT_DOMAIN, payload_bytes);
                     if expected_content_hash != details.content_hash {
                         event_failures.push(VerificationFailure::new(
-                            "content_hash_mismatch",
+                            VerificationFailureKind::ContentHashMismatch,
                             hex_string(&details.canonical_event_hash),
                         ));
                     }
@@ -2345,7 +2364,7 @@ fn verify_event_set_with_classes(
             Some(bytes) => bytes.as_slice(),
             None => {
                 event_failures.push(VerificationFailure::new(
-                    "malformed_cose",
+                    VerificationFailureKind::MalformedCose,
                     format!("event[{index}]"),
                 ));
                 continue;
@@ -2355,13 +2374,13 @@ fn verify_event_set_with_classes(
             Some(expected_author_hash) if expected_author_hash == details.author_event_hash => {}
             Some(_) => {
                 event_failures.push(VerificationFailure::new(
-                    "hash_mismatch",
+                    VerificationFailureKind::HashMismatch,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
             None => {
                 event_failures.push(VerificationFailure::new(
-                    "author_preimage_invalid",
+                    VerificationFailureKind::AuthorPreimageInvalid,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
@@ -2371,9 +2390,9 @@ fn verify_event_set_with_classes(
         } else if details.sequence == 0 {
             if details.prev_hash.is_some() {
                 let kind = if classify_tamper {
-                    "event_reorder"
+                    VerificationFailureKind::EventReorder
                 } else {
-                    "prev_hash_mismatch"
+                    VerificationFailureKind::PrevHashMismatch
                 };
                 event_failures.push(VerificationFailure::new(
                     kind,
@@ -2383,14 +2402,14 @@ fn verify_event_set_with_classes(
         } else if previous_hash != details.prev_hash {
             let kind = if classify_tamper {
                 if previous_hash.is_none() && events.len() == 1 {
-                    "event_truncation"
+                    VerificationFailureKind::EventTruncation
                 } else if previous_hash.is_none() {
-                    "event_reorder"
+                    VerificationFailureKind::EventReorder
                 } else {
-                    "prev_hash_break"
+                    VerificationFailureKind::PrevHashBreak
                 }
             } else {
-                "prev_hash_mismatch"
+                VerificationFailureKind::PrevHashMismatch
             };
             event_failures.push(VerificationFailure::new(
                 kind,
@@ -2406,7 +2425,7 @@ fn verify_event_set_with_classes(
         if let Some(prev_at) = previous_authored_at {
             if details.authored_at < prev_at {
                 event_failures.push(VerificationFailure::new(
-                    "timestamp_order_violation",
+                    VerificationFailureKind::TimestampOrderViolation,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
@@ -2424,17 +2443,17 @@ fn verify_event_set_with_classes(
             wrap_recipients: details.wrap_recipients.clone(),
             canonical_event_hash: details.canonical_event_hash,
         });
-        if let Some(erasure) = details.erasure.clone() {
+        if let Some(erasure) = details.erasure.take() {
             erasure_payloads.push((index, erasure, details.canonical_event_hash));
         }
-        if let Some(certificate) = details.certificate.clone() {
+        if let Some(certificate) = details.certificate.take() {
             certificate_payloads.push((index, certificate, details.canonical_event_hash));
         }
-        if let Some(uca) = details.user_content_attestation.clone() {
+        if let Some(uca) = details.user_content_attestation.take() {
             user_content_attestation_payloads.push((index, uca, details.canonical_event_hash));
         }
 
-        if let Some(transition) = details.transition {
+        if let Some(transition) = details.transition.take() {
             let mut outcome = PostureTransitionOutcome {
                 transition_id: transition.transition_id.clone(),
                 kind: transition.kind.as_report_str().to_string(),
@@ -2501,8 +2520,16 @@ fn verify_event_set_with_classes(
             }
 
             if let Some(first_failure) = outcome.failures.first() {
+                let failure_kind = match first_failure.as_str() {
+                    "state_continuity_mismatch" => VerificationFailureKind::StateContinuityMismatch,
+                    "posture_declaration_digest_mismatch" => {
+                        VerificationFailureKind::PostureDeclarationDigestMismatch
+                    }
+                    "attestation_insufficient" => VerificationFailureKind::AttestationInsufficient,
+                    _ => VerificationFailureKind::MalformedCose,
+                };
                 event_failures.push(VerificationFailure::new(
-                    first_failure.clone(),
+                    failure_kind,
                     hex_string(&details.canonical_event_hash),
                 ));
             }
@@ -2526,19 +2553,29 @@ fn verify_event_set_with_classes(
         &mut event_failures,
     );
 
+    let (event_lookup_pool, event_by_hash_idx, event_by_position_idx) =
+        build_event_details_lookup(events, decoded_per_index);
+
     // ADR 0007 certificate-of-completion finalization (steps 2 / 5 / 6 / 7 /
     // 8 cross-event reasoning). Step 4 (attachment lineage + content
     // recompute) defers to the export-bundle path; the genesis-append path
     // accumulates outcomes with `attachment_resolved = true` so the §19
     // step-9 fold doesn't false-positive on minimal-genesis fixtures.
-    let certificates_of_completion =
-        finalize_certificates_of_completion(&certificate_payloads, events, &mut event_failures);
+    let certificates_of_completion = finalize_certificates_of_completion(
+        &certificate_payloads,
+        &event_lookup_pool,
+        &event_by_hash_idx,
+        payload_blobs,
+        &mut event_failures,
+    );
 
     // ADR 0010 user-content-attestation finalization (Core §19 step 6d
     // steps 3 / 4 / 5 / 6 / 7 / 8 / 9 cross-event reasoning).
     let user_content_attestations = finalize_user_content_attestations(
         &user_content_attestation_payloads,
-        events,
+        &event_lookup_pool,
+        &event_by_hash_idx,
+        &event_by_position_idx,
         registry,
         posture_declaration,
         &mut event_failures,
@@ -2625,7 +2662,7 @@ fn finalize_erasure_evidence(
             && expected_class != payload.norm_key_class
         {
             event_failures.push(VerificationFailure::new(
-                "erasure_key_class_registry_mismatch",
+                VerificationFailureKind::ErasureKeyClassRegistryMismatch,
                 hex_string(canonical_hash),
             ));
         }
@@ -2641,7 +2678,7 @@ fn finalize_erasure_evidence(
                     && !group_conflict_destroyed_at.contains(&payload.kid_destroyed)
                 {
                     event_failures.push(VerificationFailure::new(
-                        "erasure_destroyed_at_conflict",
+                        VerificationFailureKind::ErasureDestroyedAtConflict,
                         hex_string(canonical_hash),
                     ));
                     group_conflict_destroyed_at.insert(payload.kid_destroyed.clone());
@@ -2657,7 +2694,7 @@ fn finalize_erasure_evidence(
                     && !group_conflict_key_class.contains(&payload.kid_destroyed)
                 {
                     event_failures.push(VerificationFailure::new(
-                        "erasure_key_class_payload_conflict",
+                        VerificationFailureKind::ErasureKeyClassPayloadConflict,
                         hex_string(canonical_hash),
                     ));
                     group_conflict_key_class.insert(payload.kid_destroyed.clone());
@@ -2722,7 +2759,7 @@ fn finalize_erasure_evidence(
                 outcome.post_erasure_uses += 1;
                 outcome.failures.push("post_erasure_use".into());
                 event_failures.push(VerificationFailure::new(
-                    "post_erasure_use",
+                    VerificationFailureKind::PostErasureUse,
                     hex_string(&event.canonical_event_hash),
                 ));
             }
@@ -2734,7 +2771,7 @@ fn finalize_erasure_evidence(
                 outcome.post_erasure_wraps += 1;
                 outcome.failures.push("post_erasure_wrap".into());
                 event_failures.push(VerificationFailure::new(
-                    "post_erasure_wrap",
+                    VerificationFailureKind::PostErasureWrap,
                     hex_string(&event.canonical_event_hash),
                 ));
             }
@@ -2748,13 +2785,51 @@ fn finalize_erasure_evidence(
     for outcome in outcomes.iter() {
         if !outcome.signature_verified {
             event_failures.push(VerificationFailure::new(
-                "erasure_attestation_signature_invalid",
+                VerificationFailureKind::ErasureAttestationSignatureInvalid,
                 hex_string(&[0u8; 32]),
             ));
         }
     }
 
     outcomes
+}
+
+/// Indexes decoded [`EventDetails`] for certificate / user-content-attestation
+/// finalize passes. Prefers per-event decodes from [`verify_event_set_with_classes`];
+/// fills gaps by decoding wire events so behavior matches the legacy
+/// finalize-only path for chain indices the main loop never decoded.
+fn build_event_details_lookup(
+    events: &[ParsedSign1],
+    mut decoded_per_index: Vec<Option<EventDetails>>,
+) -> (
+    Vec<EventDetails>,
+    BTreeMap<[u8; 32], usize>,
+    BTreeMap<(Vec<u8>, u64), usize>,
+) {
+    let mut pool: Vec<EventDetails> = Vec::with_capacity(events.len());
+    let mut by_hash: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+    let mut by_position: BTreeMap<(Vec<u8>, u64), usize> = BTreeMap::new();
+
+    for idx in 0..events.len() {
+        let decoded = match decoded_per_index.get_mut(idx).and_then(|slot| slot.take()) {
+            Some(details) => details,
+            None => match decode_event_details(&events[idx]) {
+                Ok(details) => details,
+                Err(_) => continue,
+            },
+        };
+        let canon = decoded.canonical_event_hash;
+        if by_hash.contains_key(&canon) {
+            continue;
+        }
+        let pos_key = (decoded.scope.clone(), decoded.sequence);
+        let entry_idx = pool.len();
+        pool.push(decoded);
+        by_hash.insert(canon, entry_idx);
+        by_position.entry(pos_key).or_insert(entry_idx);
+    }
+
+    (pool, by_hash, by_position)
 }
 
 /// ADR 0007 §"Verifier obligations" cross-event finalization. Step 1 runs
@@ -2787,24 +2862,17 @@ fn finalize_erasure_evidence(
 /// reserve their tamper_kind in §19.1 for that evolution.
 fn finalize_certificates_of_completion(
     payloads: &[(usize, CertificateDetails, [u8; 32])],
-    events: &[ParsedSign1],
+    event_lookup_pool: &[EventDetails],
+    event_by_hash_idx: &BTreeMap<[u8; 32], usize>,
+    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
     event_failures: &mut Vec<VerificationFailure>,
 ) -> Vec<CertificateOfCompletionOutcome> {
     if payloads.is_empty() {
         return Vec::new();
     }
 
-    // Build a (canonical_event_hash → EventDetails) lookup once. Reused for
-    // step 5 (signing-event resolution), step 6 (timestamp equivalence),
-    // and step 7 (response_ref equivalence).
-    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
-    for event in events {
-        if let Ok(details) = decode_event_details(event) {
-            event_by_hash
-                .entry(details.canonical_event_hash)
-                .or_insert(details);
-        }
-    }
+    let event_by_hash =
+        |hash: &[u8; 32]| event_by_hash_idx.get(hash).map(|&idx| &event_lookup_pool[idx]);
 
     // Step 2 first sub-clause (per-index principal_ref equivalence) requires
     // the resolved SignatureAffirmation event's payload to extract its
@@ -2838,7 +2906,7 @@ fn finalize_certificates_of_completion(
                     || prior.chain_summary.workflow_status != payload.chain_summary.workflow_status;
                 if differs && id_collision_reported.insert(payload.certificate_id.clone()) {
                     event_failures.push(VerificationFailure::new(
-                        "certificate_id_collision",
+                        VerificationFailureKind::CertificateIdCollision,
                         hex_string(canonical_hash),
                     ));
                 }
@@ -2874,7 +2942,7 @@ fn finalize_certificates_of_completion(
             outcome.chain_summary_consistent = false;
             outcome.failures.push("attestation_insufficient".into());
             event_failures.push(VerificationFailure::new(
-                "attestation_insufficient",
+                VerificationFailureKind::AttestationInsufficient,
                 hex_string(canonical_hash),
             ));
         }
@@ -2886,12 +2954,12 @@ fn finalize_certificates_of_completion(
         // the full chain. Genesis-append context lacks chain visibility;
         // see the docstring on this fn.
         for (i, signing_event_hash) in payload.signing_events.iter().enumerate() {
-            let resolved = event_by_hash.get(signing_event_hash);
+            let resolved = event_by_hash(signing_event_hash);
             let Some(target) = resolved else {
                 outcome.all_signing_events_resolved = false;
                 outcome.failures.push("signing_event_unresolved".into());
                 event_failures.push(VerificationFailure::new(
-                    "signing_event_unresolved",
+                    VerificationFailureKind::SigningEventUnresolved,
                     hex_string(signing_event_hash),
                 ));
                 continue;
@@ -2903,7 +2971,7 @@ fn finalize_certificates_of_completion(
                 outcome.all_signing_events_resolved = false;
                 outcome.failures.push("signing_event_unresolved".into());
                 event_failures.push(VerificationFailure::new(
-                    "signing_event_unresolved",
+                    VerificationFailureKind::SigningEventUnresolved,
                     hex_string(signing_event_hash),
                 ));
                 continue;
@@ -2916,7 +2984,7 @@ fn finalize_certificates_of_completion(
                     .failures
                     .push("signing_event_timestamp_mismatch".into());
                 event_failures.push(VerificationFailure::new(
-                    "signing_event_timestamp_mismatch",
+                    VerificationFailureKind::SigningEventTimestampMismatch,
                     hex_string(signing_event_hash),
                 ));
             }
@@ -2924,9 +2992,10 @@ fn finalize_certificates_of_completion(
 
         // Step 7: when `chain_summary.response_ref` is non-null, lookup the
         // resolved SignatureAffirmation event's payload and compare its
-        // `data.formspecResponseRef` digest. The reference verifier reads
-        // inline payloads (Phase-1 minimal-genesis posture); external
-        // payloads via `payload_blobs` ride the export-bundle path.
+        // `data.formspecResponseRef` digest. Inline payloads decode
+        // directly; external payloads resolve through `payload_blobs` when
+        // the export-bundle caller passes the map (same as
+        // `readable_payload_bytes` / catalog paths).
         if let Some(response_ref) = payload.chain_summary.response_ref {
             // Pick the first signing event as the canonical link target —
             // ADR 0007 §"Field semantics" `response_ref` clause: "the same
@@ -2940,17 +3009,16 @@ fn finalize_certificates_of_completion(
             let mut matched = false;
             let mut had_resolvable_response = false;
             for signing_event_hash in &payload.signing_events {
-                let Some(target) = event_by_hash.get(signing_event_hash) else {
+                let Some(target) = event_by_hash(signing_event_hash) else {
                     continue;
                 };
                 if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
                     continue;
                 }
-                let payload_bytes = match &target.payload_ref {
-                    PayloadRef::Inline(bytes) => bytes.clone(),
-                    PayloadRef::External => continue,
+                let Some(payload_cow) = affirmation_payload_cow(target, payload_blobs) else {
+                    continue;
                 };
-                let Ok(record) = parse_signature_affirmation_record(&payload_bytes) else {
+                let Ok(record) = parse_signature_affirmation_record(payload_cow.as_ref()) else {
                     continue;
                 };
                 let Ok(record_response_hash) = parse_sha256_text(&record.formspec_response_ref)
@@ -2971,28 +3039,28 @@ fn finalize_certificates_of_completion(
                 outcome.chain_summary_consistent = false;
                 outcome.failures.push("response_ref_mismatch".into());
                 event_failures.push(VerificationFailure::new(
-                    "response_ref_mismatch",
+                    VerificationFailureKind::ResponseRefMismatch,
                     hex_string(canonical_hash),
                 ));
             }
         }
 
         // Step 2 (per-index principal_ref equivalence) — when the signing
-        // event is resolvable AND its inline payload decodes, compare the
-        // declared principal on the SignatureAffirmation against the
-        // certificate's signer_display row.
+        // event is resolvable AND its affirmation payload decodes (inline or
+        // via `payload_blobs` for external), compare the declared principal
+        // on the SignatureAffirmation against the certificate's
+        // `signer_display` row.
         for (i, signing_event_hash) in payload.signing_events.iter().enumerate() {
-            let Some(target) = event_by_hash.get(signing_event_hash) else {
+            let Some(target) = event_by_hash(signing_event_hash) else {
                 continue;
             };
             if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
                 continue;
             }
-            let payload_bytes = match &target.payload_ref {
-                PayloadRef::Inline(bytes) => bytes.clone(),
-                PayloadRef::External => continue,
+            let Some(payload_cow) = affirmation_payload_cow(target, payload_blobs) else {
+                continue;
             };
-            let Ok(record) = parse_signature_affirmation_record(&payload_bytes) else {
+            let Ok(record) = parse_signature_affirmation_record(payload_cow.as_ref()) else {
                 continue;
             };
             let display = &payload.chain_summary.signer_display[i];
@@ -3002,7 +3070,7 @@ fn finalize_certificates_of_completion(
                     .failures
                     .push("certificate_chain_summary_mismatch".into());
                 event_failures.push(VerificationFailure::new(
-                    "certificate_chain_summary_mismatch",
+                    VerificationFailureKind::CertificateChainSummaryMismatch,
                     hex_string(canonical_hash),
                 ));
                 break;
@@ -3056,8 +3124,16 @@ fn parse_sign1_value(value: &Value) -> Result<ParsedSign1, VerifyError> {
         .as_map()
         .ok_or_else(|| VerifyError::new("protected header does not decode to a map"))?;
     let kid = map_lookup_integer_label_bytes(protected_map, COSE_LABEL_KID)?;
-    let alg = map_lookup_integer_label(protected_map, COSE_LABEL_ALG)?;
-    let suite_id = map_lookup_integer_label(protected_map, COSE_LABEL_SUITE_ID)?;
+    let alg = map_lookup_integer_label_value(protected_map, COSE_LABEL_ALG)
+        .and_then(|value| value.as_integer())
+        .map(i128::from)
+        .ok_or_else(|| VerifyError::new(format!("missing COSE label {COSE_LABEL_ALG} integer")))?;
+    let suite_id = map_lookup_integer_label_value(protected_map, COSE_LABEL_SUITE_ID)
+        .and_then(|value| value.as_integer())
+        .map(i128::from)
+        .ok_or_else(|| {
+            VerifyError::new(format!("missing COSE label {COSE_LABEL_SUITE_ID} integer"))
+        })?;
 
     match &items[1] {
         Value::Map(entries) if entries.is_empty() => {}
@@ -3136,7 +3212,7 @@ fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, VerifyError
                 "idempotency_key length {} outside Core §6.1 / §17.2 bound 1..=64",
                 idempotency_key.len(),
             ),
-            "idempotency_key_length_invalid",
+            VerifyErrorKind::IdempotencyKeyLengthInvalid,
         ));
     }
 
@@ -3416,7 +3492,7 @@ fn decode_erasure_evidence_details(
             format!(
                 "erasure-evidence `destroyed_at` ({destroyed_at}) exceeds hosting event `authored_at` ({host_authored_at}) (Companion OC-144 / ADR 0005 step 4)"
             ),
-            "erasure_destroyed_at_after_host",
+            VerifyErrorKind::ErasureDestroyedAtAfterHost,
         ));
     }
 
@@ -3556,7 +3632,7 @@ fn decode_certificate_payload(
     if pa_media_type == "text/html" && pa_template_hash.is_none() {
         return Err(VerifyError::with_kind(
             "certificate presentation_artifact: media_type=text/html requires template_hash to be non-null (ADR 0007 §Wire shape)",
-            "malformed_cose",
+            VerifyErrorKind::MalformedCose,
         ));
     }
 
@@ -3645,7 +3721,7 @@ fn decode_certificate_payload(
                 signing_events.len(),
                 signer_display.len()
             ),
-            "certificate_chain_summary_mismatch",
+            VerifyErrorKind::CertificateChainSummaryMismatch,
         ));
     }
 
@@ -3760,10 +3836,10 @@ fn decode_user_content_attestation_payload(
     // `verify_tampered_ledger` fatal-decode path. First-detected wins;
     // additional invariants land via the same marker pattern if the corpus
     // grows.
-    let step_2_failure: Option<&'static str> = if attested_at != host_authored_at {
-        Some("user_content_attestation_timestamp_mismatch")
+    let step_2_failure: Option<VerificationFailureKind> = if attested_at != host_authored_at {
+        Some(VerificationFailureKind::UserContentAttestationTimestampMismatch)
     } else if !is_syntactically_valid_uri(&signing_intent) {
-        Some("user_content_attestation_intent_malformed")
+        Some(VerificationFailureKind::UserContentAttestationIntentMalformed)
     } else {
         None
     };
@@ -3972,7 +4048,9 @@ fn verify_user_content_attestation_signature(
 /// MUST equal `attestor`.
 fn finalize_user_content_attestations(
     payloads: &[(usize, UserContentAttestationDetails, [u8; 32])],
-    events: &[ParsedSign1],
+    event_lookup_pool: &[EventDetails],
+    event_by_hash_idx: &BTreeMap<[u8; 32], usize>,
+    event_by_position_idx: &BTreeMap<(Vec<u8>, u64), usize>,
     registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
     posture_declaration: Option<&[u8]>,
     event_failures: &mut Vec<VerificationFailure>,
@@ -3981,22 +4059,8 @@ fn finalize_user_content_attestations(
         return Vec::new();
     }
 
-    // Build chain lookups. `event_by_hash` resolves chain-present events
-    // by their canonical_event_hash (step 3: `attested_event_hash` lookup).
-    // `event_by_position` resolves by `(scope, sequence)` so step 3 can
-    // verify position-binding consistency. Both indexed once.
-    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
-    let mut event_by_position: BTreeMap<(Vec<u8>, u64), EventDetails> = BTreeMap::new();
-    for event in events {
-        if let Ok(details) = decode_event_details(event) {
-            event_by_hash
-                .entry(details.canonical_event_hash)
-                .or_insert_with(|| details.clone());
-            event_by_position
-                .entry((details.scope.clone(), details.sequence))
-                .or_insert(details);
-        }
-    }
+    let event_by_hash =
+        |hash: &[u8; 32]| event_by_hash_idx.get(hash).map(|&idx| &event_lookup_pool[idx]);
 
     // Step 7 collision detection. Two events sharing `attestation_id` with
     // disagreeing canonical payload fail closed. Use the same load-bearing
@@ -4021,7 +4085,7 @@ fn finalize_user_content_attestations(
                     || prior.attested_at != payload.attested_at;
                 if differs && id_collision_reported.insert(payload.attestation_id.clone()) {
                     event_failures.push(VerificationFailure::new(
-                        "user_content_attestation_id_collision",
+                        VerificationFailureKind::UserContentAttestationIdCollision,
                         hex_string(canonical_hash),
                     ));
                 }
@@ -4056,7 +4120,7 @@ fn finalize_user_content_attestations(
         // reflects it; subsequent per-step booleans stay `true` because
         // the steps weren't run, not because they passed.
         if let Some(kind) = payload.step_2_failure {
-            outcome.failures.push(kind.into());
+            outcome.failures.push(kind.as_str().to_string());
             event_failures.push(VerificationFailure::new(kind, hex_string(canonical_hash)));
             outcomes.push(outcome);
             continue;
@@ -4070,7 +4134,7 @@ fn finalize_user_content_attestations(
                 .failures
                 .push("user_content_attestation_operator_in_user_slot".into());
             event_failures.push(VerificationFailure::new(
-                "user_content_attestation_operator_in_user_slot",
+                VerificationFailureKind::UserContentAttestationOperatorInUserSlot,
                 hex_string(canonical_hash),
             ));
         }
@@ -4086,12 +4150,14 @@ fn finalize_user_content_attestations(
         // because `payloads` doesn't carry scope alongside the attestation
         // canonical hash directly; the chain-loop already populated that
         // index above.
-        let attestation_scope = event_by_hash
-            .get(canonical_hash)
+        let attestation_scope = event_by_hash(canonical_hash)
             .map(|d| d.scope.clone())
             .unwrap_or_default();
         let host_lookup_key = (attestation_scope, payload.attested_event_position);
-        match event_by_position.get(&host_lookup_key) {
+        match event_by_position_idx
+            .get(&host_lookup_key)
+            .map(|&idx| &event_lookup_pool[idx])
+        {
             Some(host) if host.canonical_event_hash == payload.attested_event_hash => {}
             Some(_) | None => {
                 outcome.chain_position_resolved = false;
@@ -4099,7 +4165,7 @@ fn finalize_user_content_attestations(
                     .failures
                     .push("user_content_attestation_chain_position_mismatch".into());
                 event_failures.push(VerificationFailure::new(
-                    "user_content_attestation_chain_position_mismatch",
+                    VerificationFailureKind::UserContentAttestationChainPositionMismatch,
                     hex_string(canonical_hash),
                 ));
             }
@@ -4111,14 +4177,14 @@ fn finalize_user_content_attestations(
             // registered identity-attestation event type, scope match,
             // sequence-strictly-less-than-attested_event_position, subject
             // equals attestor.
-            match event_by_hash.get(&identity_ref) {
+            match event_by_hash(&identity_ref) {
                 None => {
                     outcome.identity_resolved = false;
                     outcome
                         .failures
                         .push("user_content_attestation_identity_unresolved".into());
                     event_failures.push(VerificationFailure::new(
-                        "user_content_attestation_identity_unresolved",
+                        VerificationFailureKind::UserContentAttestationIdentityUnresolved,
                         hex_string(&identity_ref),
                     ));
                 }
@@ -4129,14 +4195,13 @@ fn finalize_user_content_attestations(
                             .failures
                             .push("user_content_attestation_identity_unresolved".into());
                         event_failures.push(VerificationFailure::new(
-                            "user_content_attestation_identity_unresolved",
+                            VerificationFailureKind::UserContentAttestationIdentityUnresolved,
                             hex_string(&identity_ref),
                         ));
                     } else {
                         // Scope match check. The attestation's scope (from
                         // `event_by_hash`) must equal the identity event's.
-                        let attestation_scope_for_identity = event_by_hash
-                            .get(canonical_hash)
+                        let attestation_scope_for_identity = event_by_hash(canonical_hash)
                             .map(|d| d.scope.clone())
                             .unwrap_or_default();
                         if identity_event.scope != attestation_scope_for_identity {
@@ -4145,7 +4210,7 @@ fn finalize_user_content_attestations(
                                 .failures
                                 .push("user_content_attestation_identity_unresolved".into());
                             event_failures.push(VerificationFailure::new(
-                                "user_content_attestation_identity_unresolved",
+                                VerificationFailureKind::UserContentAttestationIdentityUnresolved,
                                 hex_string(&identity_ref),
                             ));
                         } else if identity_event.sequence >= payload.attested_event_position {
@@ -4156,7 +4221,7 @@ fn finalize_user_content_attestations(
                                 "user_content_attestation_identity_temporal_inversion".into(),
                             );
                             event_failures.push(VerificationFailure::new(
-                                "user_content_attestation_identity_temporal_inversion",
+                                VerificationFailureKind::UserContentAttestationIdentityTemporalInversion,
                                 hex_string(&identity_ref),
                             ));
                         } else {
@@ -4174,7 +4239,7 @@ fn finalize_user_content_attestations(
                                         "user_content_attestation_identity_subject_mismatch".into(),
                                     );
                                     event_failures.push(VerificationFailure::new(
-                                        "user_content_attestation_identity_subject_mismatch",
+                                        VerificationFailureKind::UserContentAttestationIdentitySubjectMismatch,
                                         hex_string(&identity_ref),
                                     ));
                                 }
@@ -4197,7 +4262,7 @@ fn finalize_user_content_attestations(
                     .failures
                     .push("user_content_attestation_identity_required".into());
                 event_failures.push(VerificationFailure::new(
-                    "user_content_attestation_identity_required",
+                    VerificationFailureKind::UserContentAttestationIdentityRequired,
                     hex_string(canonical_hash),
                 ));
             }
@@ -4230,7 +4295,7 @@ fn finalize_user_content_attestations(
                 .failures
                 .push("user_content_attestation_key_not_active".into());
             event_failures.push(VerificationFailure::new(
-                "user_content_attestation_key_not_active",
+                VerificationFailureKind::UserContentAttestationKeyNotActive,
                 hex_string(canonical_hash),
             ));
         }
@@ -4251,7 +4316,7 @@ fn finalize_user_content_attestations(
                     .failures
                     .push("user_content_attestation_signature_invalid".into());
                 event_failures.push(VerificationFailure::new(
-                    "user_content_attestation_signature_invalid",
+                    VerificationFailureKind::UserContentAttestationSignatureInvalid,
                     hex_string(canonical_hash),
                 ));
             }
@@ -4380,7 +4445,7 @@ fn attachment_manifest_topology_failures(
     for entry in entries {
         if !seen_bindings.insert(entry.binding_event_hash) {
             failures.push(VerificationFailure::new(
-                "attachment_manifest_duplicate_binding",
+                VerificationFailureKind::AttachmentManifestDuplicateBinding,
                 hex_string(&entry.binding_event_hash),
             ));
         }
@@ -4401,7 +4466,7 @@ fn attachment_manifest_topology_failures(
     }
     if binding_lineage_graph_has_cycle(&adj) {
         failures.push(VerificationFailure::new(
-            "attachment_binding_lineage_cycle",
+            VerificationFailureKind::AttachmentBindingLineageCycle,
             "061-attachments.cbor",
         ));
     }
@@ -4415,14 +4480,14 @@ fn attachment_manifest_topology_failures(
         };
         let Some(&prior_idx) = hash_to_index.get(&prior_hash) else {
             failures.push(VerificationFailure::new(
-                "attachment_prior_binding_unresolved",
+                VerificationFailureKind::AttachmentPriorBindingUnresolved,
                 hex_string(&entry.binding_event_hash),
             ));
             continue;
         };
         if prior_idx >= current_idx {
             failures.push(VerificationFailure::new(
-                "attachment_prior_binding_forward_reference",
+                VerificationFailureKind::AttachmentPriorBindingForwardReference,
                 hex_string(&entry.binding_event_hash),
             ));
         }
@@ -4570,7 +4635,7 @@ fn verify_attachment_manifest(
 ) {
     let Some(manifest_bytes) = archive.members.get("061-attachments.cbor") else {
         report.event_failures.push(VerificationFailure::new(
-            "missing_attachment_manifest",
+            VerificationFailureKind::MissingAttachmentManifest,
             "061-attachments.cbor",
         ));
         return;
@@ -4578,7 +4643,7 @@ fn verify_attachment_manifest(
     let actual_digest = sha256_bytes(manifest_bytes);
     if actual_digest.as_slice() != extension.manifest_digest {
         report.event_failures.push(VerificationFailure::new(
-            "attachment_manifest_digest_mismatch",
+            VerificationFailureKind::AttachmentManifestDigestMismatch,
             "061-attachments.cbor",
         ));
     }
@@ -4587,7 +4652,7 @@ fn verify_attachment_manifest(
         Ok(entries) => entries,
         Err(error) => {
             report.event_failures.push(VerificationFailure::new(
-                "attachment_manifest_invalid",
+                VerificationFailureKind::AttachmentManifestInvalid,
                 format!("061-attachments.cbor/{error}"),
             ));
             return;
@@ -4615,7 +4680,7 @@ fn verify_attachment_manifest(
             .collect::<Vec<_>>();
         if matching_events.len() != 1 {
             report.event_failures.push(VerificationFailure::new(
-                "attachment_binding_event_unresolved",
+                VerificationFailureKind::AttachmentBindingEventUnresolved,
                 hex_string(&entry.binding_event_hash),
             ));
             continue;
@@ -4623,14 +4688,14 @@ fn verify_attachment_manifest(
         let details = matching_events[0];
         let Some(binding) = &details.attachment_binding else {
             report.event_failures.push(VerificationFailure::new(
-                "attachment_binding_missing",
+                VerificationFailureKind::AttachmentBindingMissing,
                 hex_string(&entry.binding_event_hash),
             ));
             continue;
         };
         if !attachment_entry_matches_binding(entry, binding) {
             report.event_failures.push(VerificationFailure::new(
-                "attachment_binding_mismatch",
+                VerificationFailureKind::AttachmentBindingMismatch,
                 hex_string(&entry.binding_event_hash),
             ));
         }
@@ -4638,7 +4703,7 @@ fn verify_attachment_manifest(
             || binding.payload_content_hash != details.content_hash
         {
             report.event_failures.push(VerificationFailure::new(
-                "attachment_payload_hash_mismatch",
+                VerificationFailureKind::AttachmentPayloadHashMismatch,
                 hex_string(&entry.binding_event_hash),
             ));
         }
@@ -4648,9 +4713,10 @@ fn verify_attachment_manifest(
                 hex_string(&entry.payload_content_hash)
             );
             if !archive.members.contains_key(&member) {
-                report
-                    .event_failures
-                    .push(VerificationFailure::new("missing_attachment_body", member));
+                report.event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::MissingAttachmentBody,
+                    member,
+                ));
             }
         }
     }
@@ -4665,7 +4731,7 @@ fn verify_signature_catalog(
 ) {
     let Some(catalog_bytes) = archive.members.get("062-signature-affirmations.cbor") else {
         report.event_failures.push(VerificationFailure::new(
-            "missing_signature_catalog",
+            VerificationFailureKind::MissingSignatureCatalog,
             "062-signature-affirmations.cbor",
         ));
         return;
@@ -4673,7 +4739,7 @@ fn verify_signature_catalog(
     let actual_digest = sha256_bytes(catalog_bytes);
     if actual_digest.as_slice() != extension.catalog_digest {
         report.event_failures.push(VerificationFailure::new(
-            "signature_catalog_digest_mismatch",
+            VerificationFailureKind::SignatureCatalogDigestMismatch,
             "062-signature-affirmations.cbor",
         ));
     }
@@ -4682,7 +4748,7 @@ fn verify_signature_catalog(
         Ok(entries) => entries,
         Err(error) => {
             report.event_failures.push(VerificationFailure::new(
-                "signature_catalog_invalid",
+                VerificationFailureKind::SignatureCatalogInvalid,
                 format!("062-signature-affirmations.cbor/{error}"),
             ));
             return;
@@ -4698,7 +4764,7 @@ fn verify_signature_catalog(
                 }
                 Entry::Occupied(_) => {
                     report.event_failures.push(VerificationFailure::new(
-                        "export_events_duplicate_canonical_hash",
+                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
                         hex_string(&details.canonical_event_hash),
                     ));
                 }
@@ -4710,7 +4776,7 @@ fn verify_signature_catalog(
     for entry in &entries {
         if !seen_hashes.insert(entry.canonical_event_hash) {
             report.event_failures.push(VerificationFailure::new(
-                "signature_catalog_duplicate_event",
+                VerificationFailureKind::SignatureCatalogDuplicateEvent,
                 hex_string(&entry.canonical_event_hash),
             ));
         }
@@ -4719,21 +4785,21 @@ fn verify_signature_catalog(
     for entry in &entries {
         let Some(details) = event_by_hash.get(&entry.canonical_event_hash) else {
             report.event_failures.push(VerificationFailure::new(
-                "signature_catalog_event_unresolved",
+                VerificationFailureKind::SignatureCatalogEventUnresolved,
                 hex_string(&entry.canonical_event_hash),
             ));
             continue;
         };
         if details.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
             report.event_failures.push(VerificationFailure::new(
-                "signature_catalog_event_type_mismatch",
+                VerificationFailureKind::SignatureCatalogEventTypeMismatch,
                 hex_string(&entry.canonical_event_hash),
             ));
             continue;
         }
         let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
             report.event_failures.push(VerificationFailure::new(
-                "signature_affirmation_payload_unreadable",
+                VerificationFailureKind::SignatureAffirmationPayloadUnreadable,
                 hex_string(&entry.canonical_event_hash),
             ));
             continue;
@@ -4742,7 +4808,7 @@ fn verify_signature_catalog(
             Ok(record) => record,
             Err(error) => {
                 report.event_failures.push(VerificationFailure::new(
-                    "signature_affirmation_payload_invalid",
+                    VerificationFailureKind::SignatureAffirmationPayloadInvalid,
                     format!("{}/{}", hex_string(&entry.canonical_event_hash), error),
                 ));
                 continue;
@@ -4750,7 +4816,7 @@ fn verify_signature_catalog(
         };
         if !signature_entry_matches_record(entry, &record) {
             report.event_failures.push(VerificationFailure::new(
-                "signature_catalog_mismatch",
+                VerificationFailureKind::SignatureCatalogMismatch,
                 hex_string(&entry.canonical_event_hash),
             ));
         }
@@ -4766,7 +4832,7 @@ fn verify_intake_catalog(
 ) {
     let Some(catalog_bytes) = archive.members.get("063-intake-handoffs.cbor") else {
         report.event_failures.push(VerificationFailure::new(
-            "missing_intake_handoff_catalog",
+            VerificationFailureKind::MissingIntakeHandoffCatalog,
             "063-intake-handoffs.cbor",
         ));
         return;
@@ -4774,7 +4840,7 @@ fn verify_intake_catalog(
     let actual_digest = sha256_bytes(catalog_bytes);
     if actual_digest.as_slice() != extension.catalog_digest {
         report.event_failures.push(VerificationFailure::new(
-            "intake_handoff_catalog_digest_mismatch",
+            VerificationFailureKind::IntakeHandoffCatalogDigestMismatch,
             "063-intake-handoffs.cbor",
         ));
     }
@@ -4783,7 +4849,7 @@ fn verify_intake_catalog(
         Ok(entries) => entries,
         Err(error) => {
             report.event_failures.push(VerificationFailure::new(
-                "intake_handoff_catalog_invalid",
+                VerificationFailureKind::IntakeHandoffCatalogInvalid,
                 format!("063-intake-handoffs.cbor/{error}"),
             ));
             return;
@@ -4799,7 +4865,7 @@ fn verify_intake_catalog(
                 }
                 Entry::Occupied(_) => {
                     report.event_failures.push(VerificationFailure::new(
-                        "export_events_duplicate_canonical_hash",
+                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
                         hex_string(&details.canonical_event_hash),
                     ));
                 }
@@ -4811,7 +4877,7 @@ fn verify_intake_catalog(
     for entry in &entries {
         if !seen_hashes.insert(entry.intake_event_hash) {
             report.event_failures.push(VerificationFailure::new(
-                "intake_handoff_catalog_duplicate_event",
+                VerificationFailureKind::IntakeHandoffCatalogDuplicateEvent,
                 hex_string(&entry.intake_event_hash),
             ));
         }
@@ -4820,21 +4886,21 @@ fn verify_intake_catalog(
     for entry in &entries {
         let Some(details) = event_by_hash.get(&entry.intake_event_hash) else {
             report.event_failures.push(VerificationFailure::new(
-                "intake_event_unresolved",
+                VerificationFailureKind::IntakeEventUnresolved,
                 hex_string(&entry.intake_event_hash),
             ));
             continue;
         };
         if details.event_type != WOS_INTAKE_ACCEPTED_EVENT_TYPE {
             report.event_failures.push(VerificationFailure::new(
-                "intake_event_type_mismatch",
+                VerificationFailureKind::IntakeEventTypeMismatch,
                 hex_string(&entry.intake_event_hash),
             ));
             continue;
         }
         let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
             report.event_failures.push(VerificationFailure::new(
-                "intake_payload_unreadable",
+                VerificationFailureKind::IntakePayloadUnreadable,
                 hex_string(&entry.intake_event_hash),
             ));
             continue;
@@ -4843,7 +4909,7 @@ fn verify_intake_catalog(
             Ok(record) => record,
             Err(error) => {
                 report.event_failures.push(VerificationFailure::new(
-                    "intake_payload_invalid",
+                    VerificationFailureKind::IntakePayloadInvalid,
                     format!("{}/{}", hex_string(&entry.intake_event_hash), error),
                 ));
                 continue;
@@ -4851,7 +4917,7 @@ fn verify_intake_catalog(
         };
         if !intake_entry_matches_record(entry, &intake_record) {
             report.event_failures.push(VerificationFailure::new(
-                "intake_handoff_mismatch",
+                VerificationFailureKind::IntakeHandoffMismatch,
                 hex_string(&entry.intake_event_hash),
             ));
         }
@@ -4859,13 +4925,13 @@ fn verify_intake_catalog(
             Ok(true) => {}
             Ok(false) => {
                 report.event_failures.push(VerificationFailure::new(
-                    "intake_response_hash_mismatch",
+                    VerificationFailureKind::IntakeResponseHashMismatch,
                     hex_string(&entry.intake_event_hash),
                 ));
             }
             Err(error) => {
                 report.event_failures.push(VerificationFailure::new(
-                    "intake_handoff_catalog_invalid",
+                    VerificationFailureKind::IntakeHandoffCatalogInvalid,
                     format!("{}/{}", hex_string(&entry.intake_event_hash), error),
                 ));
             }
@@ -4877,7 +4943,7 @@ fn verify_intake_catalog(
         ) {
             ("workflowInitiated", Some(_)) => {
                 report.event_failures.push(VerificationFailure::new(
-                    "case_created_handoff_mismatch",
+                    VerificationFailureKind::CaseCreatedHandoffMismatch,
                     hex_string(&entry.intake_event_hash),
                 ));
                 continue;
@@ -4885,7 +4951,7 @@ fn verify_intake_catalog(
             ("workflowInitiated", None) => continue,
             ("publicIntake", None) => {
                 report.event_failures.push(VerificationFailure::new(
-                    "case_created_handoff_mismatch",
+                    VerificationFailureKind::CaseCreatedHandoffMismatch,
                     hex_string(&entry.intake_event_hash),
                 ));
                 continue;
@@ -4893,14 +4959,14 @@ fn verify_intake_catalog(
             ("publicIntake", Some(case_created_hash)) => {
                 let Some(case_details) = event_by_hash.get(&case_created_hash) else {
                     report.event_failures.push(VerificationFailure::new(
-                        "case_created_event_unresolved",
+                        VerificationFailureKind::CaseCreatedEventUnresolved,
                         hex_string(&case_created_hash),
                     ));
                     continue;
                 };
                 if case_details.event_type != WOS_CASE_CREATED_EVENT_TYPE {
                     report.event_failures.push(VerificationFailure::new(
-                        "case_created_event_type_mismatch",
+                        VerificationFailureKind::CaseCreatedEventTypeMismatch,
                         hex_string(&case_created_hash),
                     ));
                     continue;
@@ -4908,7 +4974,7 @@ fn verify_intake_catalog(
                 let Some(case_payload_bytes) = readable_payload_bytes(case_details, payload_blobs)
                 else {
                     report.event_failures.push(VerificationFailure::new(
-                        "case_created_payload_unreadable",
+                        VerificationFailureKind::CaseCreatedPayloadUnreadable,
                         hex_string(&case_created_hash),
                     ));
                     continue;
@@ -4917,7 +4983,7 @@ fn verify_intake_catalog(
                     Ok(record) => record,
                     Err(error) => {
                         report.event_failures.push(VerificationFailure::new(
-                            "case_created_payload_invalid",
+                            VerificationFailureKind::CaseCreatedPayloadInvalid,
                             format!("{}/{}", hex_string(&case_created_hash), error),
                         ));
                         continue;
@@ -4925,14 +4991,14 @@ fn verify_intake_catalog(
                 };
                 if !case_created_record_matches_handoff(entry, &intake_record, &case_record) {
                     report.event_failures.push(VerificationFailure::new(
-                        "case_created_handoff_mismatch",
+                        VerificationFailureKind::CaseCreatedHandoffMismatch,
                         hex_string(&case_created_hash),
                     ));
                 }
             }
             _ => {
                 report.event_failures.push(VerificationFailure::new(
-                    "intake_handoff_catalog_invalid",
+                    VerificationFailureKind::IntakeHandoffCatalogInvalid,
                     format!(
                         "{}/unknown-initiation-mode",
                         hex_string(&entry.intake_event_hash)
@@ -5031,7 +5097,7 @@ fn verify_erasure_evidence_catalog(
     let member_name = extension.catalog_ref.as_str();
     let Some(catalog_bytes) = archive.members.get(member_name) else {
         report.event_failures.push(VerificationFailure::new(
-            "missing_erasure_evidence_catalog",
+            VerificationFailureKind::MissingErasureEvidenceCatalog,
             member_name.to_string(),
         ));
         return;
@@ -5039,7 +5105,7 @@ fn verify_erasure_evidence_catalog(
     let actual_digest = sha256_bytes(catalog_bytes);
     if actual_digest.as_slice() != extension.catalog_digest.as_slice() {
         report.event_failures.push(VerificationFailure::new(
-            "erasure_evidence_catalog_digest_mismatch",
+            VerificationFailureKind::ErasureEvidenceCatalogDigestMismatch,
             member_name.to_string(),
         ));
     }
@@ -5048,7 +5114,7 @@ fn verify_erasure_evidence_catalog(
         Ok(entries) => entries,
         Err(error) => {
             report.event_failures.push(VerificationFailure::new(
-                "erasure_evidence_catalog_invalid",
+                VerificationFailureKind::ErasureEvidenceCatalogInvalid,
                 format!("{member_name}/{error}"),
             ));
             return;
@@ -5057,7 +5123,7 @@ fn verify_erasure_evidence_catalog(
 
     if entries.len() as u64 != extension.entry_count {
         report.event_failures.push(VerificationFailure::new(
-            "erasure_evidence_catalog_invalid",
+            VerificationFailureKind::ErasureEvidenceCatalogInvalid,
             format!("{member_name}/entry_count"),
         ));
     }
@@ -5071,7 +5137,7 @@ fn verify_erasure_evidence_catalog(
                 }
                 Entry::Occupied(_) => {
                     report.event_failures.push(VerificationFailure::new(
-                        "export_events_duplicate_canonical_hash",
+                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
                         hex_string(&details.canonical_event_hash),
                     ));
                 }
@@ -5083,7 +5149,7 @@ fn verify_erasure_evidence_catalog(
     for row in &entries {
         if !seen_hashes.insert(row.canonical_event_hash) {
             report.event_failures.push(VerificationFailure::new(
-                "erasure_evidence_catalog_duplicate_event",
+                VerificationFailureKind::ErasureEvidenceCatalogDuplicateEvent,
                 hex_string(&row.canonical_event_hash),
             ));
         }
@@ -5092,21 +5158,21 @@ fn verify_erasure_evidence_catalog(
     for row in &entries {
         let Some(details) = event_by_hash.get(&row.canonical_event_hash) else {
             report.event_failures.push(VerificationFailure::new(
-                "erasure_evidence_catalog_event_unresolved",
+                VerificationFailureKind::ErasureEvidenceCatalogEventUnresolved,
                 hex_string(&row.canonical_event_hash),
             ));
             continue;
         };
         if details.event_type != ERASURE_EVIDENCE_EVENT_EXTENSION {
             report.event_failures.push(VerificationFailure::new(
-                "erasure_evidence_catalog_event_type_mismatch",
+                VerificationFailureKind::ErasureEvidenceCatalogEventTypeMismatch,
                 hex_string(&row.canonical_event_hash),
             ));
             continue;
         }
         if !erasure_catalog_row_matches_details(row, details) {
             report.event_failures.push(VerificationFailure::new(
-                "erasure_evidence_catalog_mismatch",
+                VerificationFailureKind::ErasureEvidenceCatalogMismatch,
                 hex_string(&row.canonical_event_hash),
             ));
         }
@@ -5192,7 +5258,7 @@ fn verify_certificate_catalog(
     let member_name = extension.catalog_ref.as_str();
     let Some(catalog_bytes) = archive.members.get(member_name) else {
         report.event_failures.push(VerificationFailure::new(
-            "missing_certificate_catalog",
+            VerificationFailureKind::MissingCertificateCatalog,
             member_name.to_string(),
         ));
         return;
@@ -5204,7 +5270,7 @@ fn verify_certificate_catalog(
     let actual_digest = sha256_bytes(catalog_bytes);
     if actual_digest.as_slice() != extension.catalog_digest.as_slice() {
         report.event_failures.push(VerificationFailure::new(
-            "certificate_catalog_digest_mismatch",
+            VerificationFailureKind::CertificateCatalogDigestMismatch,
             member_name.to_string(),
         ));
     }
@@ -5213,7 +5279,7 @@ fn verify_certificate_catalog(
         Ok(entries) => entries,
         Err(error) => {
             report.event_failures.push(VerificationFailure::new(
-                "certificate_catalog_invalid",
+                VerificationFailureKind::CertificateCatalogInvalid,
                 format!("{member_name}/{error}"),
             ));
             return;
@@ -5222,7 +5288,7 @@ fn verify_certificate_catalog(
 
     if entries.len() as u64 != extension.entry_count {
         report.event_failures.push(VerificationFailure::new(
-            "certificate_catalog_invalid",
+            VerificationFailureKind::CertificateCatalogInvalid,
             format!("{member_name}/entry_count"),
         ));
     }
@@ -5236,7 +5302,7 @@ fn verify_certificate_catalog(
                 }
                 Entry::Occupied(_) => {
                     report.event_failures.push(VerificationFailure::new(
-                        "export_events_duplicate_canonical_hash",
+                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
                         hex_string(&details.canonical_event_hash),
                     ));
                 }
@@ -5248,7 +5314,7 @@ fn verify_certificate_catalog(
     for row in &entries {
         if !seen_hashes.insert(row.canonical_event_hash) {
             report.event_failures.push(VerificationFailure::new(
-                "certificate_catalog_duplicate_event",
+                VerificationFailureKind::CertificateCatalogDuplicateEvent,
                 hex_string(&row.canonical_event_hash),
             ));
         }
@@ -5257,7 +5323,7 @@ fn verify_certificate_catalog(
     for row in &entries {
         let Some(details) = event_by_hash.get(&row.canonical_event_hash) else {
             report.event_failures.push(VerificationFailure::new(
-                "certificate_catalog_event_unresolved",
+                VerificationFailureKind::CertificateCatalogEventUnresolved,
                 hex_string(&row.canonical_event_hash),
             ));
             continue;
@@ -5268,14 +5334,14 @@ fn verify_certificate_catalog(
         // ERASURE_EVIDENCE_EVENT_EXTENSION`.
         if details.event_type != CERTIFICATE_EVENT_EXTENSION {
             report.event_failures.push(VerificationFailure::new(
-                "certificate_catalog_event_type_mismatch",
+                VerificationFailureKind::CertificateCatalogEventTypeMismatch,
                 hex_string(&row.canonical_event_hash),
             ));
             continue;
         }
         if !certificate_catalog_row_matches_details(row, details) {
             report.event_failures.push(VerificationFailure::new(
-                "certificate_catalog_mismatch",
+                VerificationFailureKind::CertificateCatalogMismatch,
                 hex_string(&row.canonical_event_hash),
             ));
         }
@@ -5356,7 +5422,7 @@ fn verify_certificate_attachment_lineage(
                 .failures
                 .push("presentation_artifact_attachment_missing".into());
             report.event_failures.push(VerificationFailure::new(
-                "presentation_artifact_attachment_missing",
+                VerificationFailureKind::PresentationArtifactAttachmentMissing,
                 outcome.certificate_id.clone(),
             ));
             continue;
@@ -5374,7 +5440,7 @@ fn verify_certificate_attachment_lineage(
                 .failures
                 .push("presentation_artifact_attachment_missing".into());
             report.event_failures.push(VerificationFailure::new(
-                "presentation_artifact_attachment_missing",
+                VerificationFailureKind::PresentationArtifactAttachmentMissing,
                 canonical_hash_hex,
             ));
             continue;
@@ -5390,7 +5456,7 @@ fn verify_certificate_attachment_lineage(
                 .failures
                 .push("presentation_artifact_attachment_missing".into());
             report.event_failures.push(VerificationFailure::new(
-                "presentation_artifact_attachment_missing",
+                VerificationFailureKind::PresentationArtifactAttachmentMissing,
                 canonical_hash_hex,
             ));
             continue;
@@ -5405,7 +5471,7 @@ fn verify_certificate_attachment_lineage(
                 .failures
                 .push("presentation_artifact_content_mismatch".into());
             report.event_failures.push(VerificationFailure::new(
-                "presentation_artifact_content_mismatch",
+                VerificationFailureKind::PresentationArtifactContentMismatch,
                 canonical_hash_hex,
             ));
         }
@@ -5534,6 +5600,25 @@ fn readable_payload_bytes(
     match &details.payload_ref {
         PayloadRef::Inline(bytes) => Some(bytes.clone()),
         PayloadRef::External => payload_blobs.get(&details.content_hash).cloned(),
+    }
+}
+
+/// Inline affirmation bytes, or external bytes from `payload_blobs` keyed by
+/// `content_hash` (same contract as [`readable_payload_bytes`]). When
+/// `payload_blobs` is absent, external payloads are not resolvable here —
+/// genesis-append callers pass `None` and steps 2 / 7 skip external rows.
+fn affirmation_payload_cow<'a>(
+    target: &'a EventDetails,
+    payload_blobs: Option<&'a BTreeMap<[u8; 32], Vec<u8>>>,
+) -> Option<Cow<'a, [u8]>> {
+    match &target.payload_ref {
+        PayloadRef::Inline(bytes) => Some(Cow::Borrowed(bytes.as_slice())),
+        PayloadRef::External => {
+            let blobs = payload_blobs?;
+            Some(Cow::Borrowed(
+                blobs.get(&target.content_hash)?.as_slice(),
+            ))
+        }
     }
 }
 
@@ -5857,12 +5942,12 @@ fn parse_key_registry(
                 let valid_to: Option<TrellisTimestamp> = match map_lookup_optional_value(
                     map, "valid_to",
                 ) {
-                    Some(Value::Array(arr)) => Some(decode_timestamp_array(arr)?),
+                    Some(Value::Array(arr)) => Some(decode_timestamp_array(&arr)?),
                     Some(Value::Null) | None => None,
                     Some(Value::Integer(_)) => {
                         return Err(VerifyError::with_kind(
                             "signing-key registry valid_to is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1",
-                            "legacy_timestamp_format",
+                            VerifyErrorKind::LegacyTimestampFormat,
                         ));
                     }
                     Some(_) => {
@@ -5902,7 +5987,7 @@ fn parse_key_registry(
                                 "key_entry_attributes_shape_mismatch: KeyEntry of \
                                  kind=\"{class}\" missing required `attributes` map (Core §8.7.1)"
                             ),
-                            "key_entry_attributes_shape_mismatch",
+                            VerifyErrorKind::KeyEntryAttributesShapeMismatch,
                         ));
                     }
                     Some(_) => {
@@ -5911,7 +5996,7 @@ fn parse_key_registry(
                                 "key_entry_attributes_shape_mismatch: KeyEntry of \
                                  kind=\"{class}\" `attributes` is not a map (Core §8.7.1)"
                             ),
-                            "key_entry_attributes_shape_mismatch",
+                            VerifyErrorKind::KeyEntryAttributesShapeMismatch,
                         ));
                     }
                 };
@@ -5924,20 +6009,20 @@ fn parse_key_registry(
                     let valid_to_field = attributes_map
                         .and_then(|m| m.iter().find(|(k, _)| k.as_text() == Some("valid_to")));
                     match valid_to_field {
-                        Some((_, Value::Array(arr))) => Some(decode_timestamp_array(arr)?),
+                        Some((_, Value::Array(arr))) => Some(decode_timestamp_array(&arr)?),
                         Some((_, Value::Null)) | None => None,
                         Some((_, Value::Integer(_))) => {
                             return Err(VerifyError::with_kind(
                                 "key_entry_attributes_shape_mismatch: subject \
                                  `valid_to` is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1",
-                                "key_entry_attributes_shape_mismatch",
+                                VerifyErrorKind::KeyEntryAttributesShapeMismatch,
                             ));
                         }
                         Some(_) => {
                             return Err(VerifyError::with_kind(
                                 "key_entry_attributes_shape_mismatch: subject \
                                  `valid_to` is neither timestamp array nor null (Core §8.7.2)",
-                                "key_entry_attributes_shape_mismatch",
+                                VerifyErrorKind::KeyEntryAttributesShapeMismatch,
                             ));
                         }
                     }
@@ -6006,7 +6091,7 @@ fn parse_custody_model(bytes: &[u8]) -> Result<String, VerifyError> {
         .as_map()
         .ok_or_else(|| VerifyError::new("posture declaration root is not a map"))?;
     let custody_model = map_lookup_map(map, "custody_model")?;
-    map_lookup_text(custody_model, "custody_model_id")
+    Ok(map_lookup_text(custody_model, "custody_model_id")?)
 }
 
 fn parse_disclosure_profile(bytes: &[u8]) -> Result<String, VerifyError> {
@@ -6014,7 +6099,7 @@ fn parse_disclosure_profile(bytes: &[u8]) -> Result<String, VerifyError> {
     let map = value
         .as_map()
         .ok_or_else(|| VerifyError::new("posture declaration root is not a map"))?;
-    map_lookup_text(map, "disclosure_profile")
+    Ok(map_lookup_text(map, "disclosure_profile")?)
 }
 
 fn event_identity(event: &ParsedSign1) -> Result<(Vec<u8>, [u8; 32]), VerifyError> {
@@ -6065,18 +6150,6 @@ fn recompute_canonical_event_hash(scope: &[u8], canonical_event_bytes: &[u8]) ->
     preimage.extend_from_slice(&encode_tstr("event_payload"));
     preimage.extend_from_slice(canonical_event_bytes);
     domain_separated_sha256(EVENT_DOMAIN, &preimage)
-}
-
-fn checkpoint_digest(scope: &[u8], payload_bytes: &[u8]) -> [u8; 32] {
-    let mut preimage = Vec::new();
-    preimage.push(0xa3);
-    preimage.extend_from_slice(&encode_tstr("scope"));
-    preimage.extend_from_slice(&encode_bstr(scope));
-    preimage.extend_from_slice(&encode_tstr("version"));
-    preimage.extend_from_slice(&encode_uint(1));
-    preimage.extend_from_slice(&encode_tstr("checkpoint_payload"));
-    preimage.extend_from_slice(payload_bytes);
-    domain_separated_sha256(CHECKPOINT_DOMAIN, &preimage)
 }
 
 fn merkle_leaf_hash(canonical_hash: [u8; 32]) -> [u8; 32] {
@@ -6248,10 +6321,6 @@ fn custody_rank(value: &str) -> i32 {
     }
 }
 
-fn sha256_bytes(bytes: &[u8]) -> Vec<u8> {
-    Sha256::digest(bytes).to_vec()
-}
-
 fn hex_string(bytes: &[u8]) -> String {
     let mut text = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -6303,65 +6372,7 @@ fn bytes_array(bytes: &[u8]) -> [u8; 32] {
 }
 
 fn decode_value(bytes: &[u8]) -> Result<Value, VerifyError> {
-    ciborium::from_reader(bytes)
-        .map_err(|error| VerifyError::new(format!("failed to decode CBOR: {error}")))
-}
-
-fn map_lookup_bytes(map: &[(Value, Value)], key_name: &str) -> Result<Vec<u8>, VerifyError> {
-    map_lookup_optional_value(map, key_name)
-        .and_then(|value| value.as_bytes().cloned())
-        .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` byte string")))
-}
-
-fn map_lookup_fixed_bytes(
-    map: &[(Value, Value)],
-    key_name: &str,
-    expected_len: usize,
-) -> Result<Vec<u8>, VerifyError> {
-    let bytes = map_lookup_bytes(map, key_name)?;
-    if bytes.len() != expected_len {
-        return Err(VerifyError::new(format!(
-            "`{key_name}` must be {expected_len} bytes"
-        )));
-    }
-    Ok(bytes)
-}
-
-fn map_lookup_optional_bytes(
-    map: &[(Value, Value)],
-    key_name: &str,
-) -> Result<Option<Vec<u8>>, VerifyError> {
-    match map_lookup_optional_value(map, key_name) {
-        Some(Value::Bytes(bytes)) => Ok(Some(bytes.clone())),
-        Some(Value::Null) => Ok(None),
-        None => Ok(None),
-        Some(_) => Err(VerifyError::new(format!(
-            "`{key_name}` is neither bytes nor null"
-        ))),
-    }
-}
-
-fn map_lookup_optional_fixed_bytes(
-    map: &[(Value, Value)],
-    key_name: &str,
-    expected_len: usize,
-) -> Result<Option<Vec<u8>>, VerifyError> {
-    match map_lookup_optional_bytes(map, key_name)? {
-        Some(bytes) if bytes.len() == expected_len => Ok(Some(bytes)),
-        Some(_) => Err(VerifyError::new(format!(
-            "`{key_name}` must be {expected_len} bytes"
-        ))),
-        None => Ok(None),
-    }
-}
-
-fn map_lookup_u64(map: &[(Value, Value)], key_name: &str) -> Result<u64, VerifyError> {
-    let value = map_lookup_optional_value(map, key_name)
-        .ok_or_else(|| VerifyError::new(format!("missing `{key_name}`")))?;
-    value
-        .as_integer()
-        .and_then(|integer| integer.try_into().ok())
-        .ok_or_else(|| VerifyError::new(format!("`{key_name}` is not an unsigned integer")))
+    decode_cbor_value(bytes).map_err(Into::into)
 }
 
 fn decode_timestamp_array(arr: &[Value]) -> Result<TrellisTimestamp, VerifyError> {
@@ -6397,76 +6408,17 @@ fn map_lookup_timestamp(
     let value = map_lookup_optional_value(map, key_name)
         .ok_or_else(|| VerifyError::new(format!("missing `{key_name}`")))?;
     match value {
-        Value::Array(arr) => decode_timestamp_array(arr),
+        Value::Array(arr) => decode_timestamp_array(&arr),
         Value::Integer(_) => Err(VerifyError::with_kind(
             format!(
                 "{key_name} is legacy uint format; expected [seconds, nanos] array per ADR 0069 D-2.1"
             ),
-            "legacy_timestamp_format",
+            VerifyErrorKind::LegacyTimestampFormat,
         )),
         _ => Err(VerifyError::new(format!(
             "{key_name} must be [uint, uint] array"
         ))),
     }
-}
-
-fn map_lookup_bool(map: &[(Value, Value)], key_name: &str) -> Result<bool, VerifyError> {
-    map_lookup_optional_value(map, key_name)
-        .and_then(Value::as_bool)
-        .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` bool")))
-}
-
-fn map_lookup_text(map: &[(Value, Value)], key_name: &str) -> Result<String, VerifyError> {
-    map_lookup_optional_value(map, key_name)
-        .and_then(|value| value.as_text().map(ToOwned::to_owned))
-        .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` text")))
-}
-
-fn map_lookup_optional_text(
-    map: &[(Value, Value)],
-    key_name: &str,
-) -> Result<Option<String>, VerifyError> {
-    match map_lookup_optional_value(map, key_name) {
-        Some(Value::Text(value)) => Ok(Some(value.clone())),
-        Some(Value::Null) | None => Ok(None),
-        Some(_) => Err(VerifyError::new(format!(
-            "`{key_name}` is neither text nor null"
-        ))),
-    }
-}
-
-fn map_lookup_map<'a>(
-    map: &'a [(Value, Value)],
-    key_name: &str,
-) -> Result<&'a [(Value, Value)], VerifyError> {
-    map_lookup_optional_value(map, key_name)
-        .and_then(Value::as_map)
-        .map(Vec::as_slice)
-        .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` map")))
-}
-
-fn map_lookup_optional_map<'a>(
-    map: &'a [(Value, Value)],
-    key_name: &str,
-) -> Result<Option<&'a [(Value, Value)]>, VerifyError> {
-    match map_lookup_optional_value(map, key_name) {
-        Some(Value::Null) | None => Ok(None),
-        Some(value) => value
-            .as_map()
-            .map(Vec::as_slice)
-            .map(Some)
-            .ok_or_else(|| VerifyError::new(format!("`{key_name}` is not a map"))),
-    }
-}
-
-fn map_lookup_array<'a>(
-    map: &'a [(Value, Value)],
-    key_name: &str,
-) -> Result<&'a [Value], VerifyError> {
-    map_lookup_optional_value(map, key_name)
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .ok_or_else(|| VerifyError::new(format!("missing or invalid `{key_name}` array")))
 }
 
 fn first_array_text(values: &[Value]) -> Option<String> {
@@ -6476,40 +6428,8 @@ fn first_array_text(values: &[Value]) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn map_lookup_integer_label_bytes(
-    map: &[(Value, Value)],
-    label: i128,
-) -> Result<Vec<u8>, VerifyError> {
-    map.iter()
-        .find(|(key, _)| {
-            key.as_integer()
-                .is_some_and(|value| i128::from(value) == label)
-        })
-        .and_then(|(_, value)| value.as_bytes().cloned())
-        .ok_or_else(|| VerifyError::new(format!("missing COSE label {label} bytes")))
-}
-
-fn map_lookup_integer_label(map: &[(Value, Value)], label: i128) -> Result<i128, VerifyError> {
-    map.iter()
-        .find(|(key, _)| {
-            key.as_integer()
-                .is_some_and(|value| i128::from(value) == label)
-        })
-        .and_then(|(_, value)| value.as_integer())
-        .map(i128::from)
-        .ok_or_else(|| VerifyError::new(format!("missing COSE label {label} integer")))
-}
-
-fn map_lookup_optional_value<'a>(map: &'a [(Value, Value)], key_name: &str) -> Option<&'a Value> {
-    map.iter()
-        .find(|(key, _)| key.as_text().is_some_and(|text| text == key_name))
-        .map(|(_, value)| value)
-}
-
 fn map_lookup_value_clone(map: &[(Value, Value)], key_name: &str) -> Result<Value, VerifyError> {
-    map_lookup_optional_value(map, key_name)
-        .cloned()
-        .ok_or_else(|| VerifyError::new(format!("missing `{key_name}` value")))
+    Ok(map_lookup_value(map, key_name)?.clone())
 }
 
 #[cfg(test)]
@@ -6525,9 +6445,10 @@ mod tests {
     use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
     use super::{
-        TrellisTimestamp, export_archive_for_tests, is_interop_sidecar_path_valid,
-        parse_sign1_bytes, parse_signing_key_registry, verify_event_set, verify_export_zip,
-        verify_interop_sidecars, verify_single_event, verify_tampered_ledger,
+        export_archive_for_tests, is_interop_sidecar_path_valid, parse_sign1_bytes,
+        parse_signing_key_registry, verify_event_set, verify_export_zip, verify_interop_sidecars,
+        verify_single_event, verify_tampered_ledger, TrellisTimestamp, VerificationFailureKind,
+        VerifyErrorKind,
     };
 
     /// TR-CORE-167 — `interop_sidecar_path_invalid` predicate (ADR 0008
@@ -6603,7 +6524,8 @@ mod tests {
         let report = verify_interop_sidecars(&manifest_map, &archive).expect_err("bad path prefix");
         assert_eq!(report.event_failures.len(), 1);
         assert_eq!(
-            report.event_failures[0].kind, "interop_sidecar_path_invalid",
+            report.event_failures[0].kind,
+            VerificationFailureKind::InteropSidecarPathInvalid,
             "must not reach digest check (empty archive would otherwise be content_mismatch)"
         );
     }
@@ -6794,7 +6716,10 @@ mod tests {
     #[test]
     fn verify_export_zip_rejects_invalid_zip_bytes() {
         let report = verify_export_zip(&[1, 2, 3, 4]);
-        assert_eq!(report.event_failures[0].kind, "export_zip_invalid");
+        assert_eq!(
+            report.event_failures[0].kind,
+            VerificationFailureKind::ExportZipInvalid
+        );
     }
 
     #[test]
@@ -6809,7 +6734,10 @@ mod tests {
             zip.finish().unwrap();
         }
         let report = verify_export_zip(&buf);
-        assert_eq!(report.event_failures[0].kind, "export_zip_invalid");
+        assert_eq!(
+            report.event_failures[0].kind,
+            VerificationFailureKind::ExportZipInvalid
+        );
         assert!(
             report.warnings[0].contains("export root")
                 || report.warnings[0].contains("failed to parse ZIP"),
@@ -6827,7 +6755,10 @@ mod tests {
             .unwrap();
         let zip = rebuild_export_zip(&template, &[], &["000-manifest.cbor"]);
         let report = verify_export_zip(&zip);
-        assert_eq!(report.event_failures[0].kind, "missing_manifest");
+        assert_eq!(
+            report.event_failures[0].kind,
+            VerificationFailureKind::MissingManifest
+        );
     }
 
     #[test]
@@ -6840,7 +6771,8 @@ mod tests {
         let zip = rebuild_export_zip(&template, &[("010-events.cbor", &[0xff])], &[]);
         let report = verify_export_zip(&zip);
         assert_eq!(
-            report.event_failures[0].kind, "archive_integrity_failure",
+            report.event_failures[0].kind,
+            VerificationFailureKind::ArchiveIntegrityFailure,
             "manifest member digests are checked before 010-events.cbor is parsed"
         );
     }
@@ -6916,7 +6848,10 @@ mod tests {
         assert!(report.structure_verified);
         assert!(!report.integrity_verified);
         assert!(report.readability_verified);
-        assert_eq!(report.event_failures[0].kind, "signature_invalid");
+        assert_eq!(
+            report.event_failures[0].kind,
+            VerificationFailureKind::SignatureInvalid
+        );
     }
 
     #[test]
@@ -6948,7 +6883,10 @@ mod tests {
         assert!(report.structure_verified);
         assert!(!report.integrity_verified);
         assert!(report.readability_verified);
-        assert_eq!(report.event_failures[0].kind, "revoked_authority");
+        assert_eq!(
+            report.event_failures[0].kind,
+            VerificationFailureKind::RevokedAuthority
+        );
     }
 
     #[test]
@@ -7072,10 +7010,9 @@ mod tests {
         let mut m = std::collections::BTreeMap::new();
         m.insert(h, 0usize);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(
-            f.iter()
-                .any(|e| e.kind == "attachment_manifest_duplicate_binding")
-        );
+        assert!(f
+            .iter()
+            .any(|e| e.kind == VerificationFailureKind::AttachmentManifestDuplicateBinding));
     }
 
     #[test]
@@ -7087,10 +7024,9 @@ mod tests {
         let mut m = std::collections::BTreeMap::new();
         m.insert(h0, 0usize);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(
-            f.iter()
-                .any(|e| e.kind == "attachment_prior_binding_unresolved")
-        );
+        assert!(f
+            .iter()
+            .any(|e| e.kind == VerificationFailureKind::AttachmentPriorBindingUnresolved));
     }
 
     #[test]
@@ -7103,10 +7039,9 @@ mod tests {
         m.insert(h0, 0usize);
         m.insert(h1, 1);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(
-            f.iter()
-                .any(|e| e.kind == "attachment_prior_binding_forward_reference")
-        );
+        assert!(f
+            .iter()
+            .any(|e| e.kind == VerificationFailureKind::AttachmentPriorBindingForwardReference));
     }
 
     #[test]
@@ -7119,10 +7054,9 @@ mod tests {
         m.insert(h0, 0usize);
         m.insert(h1, 1);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(
-            f.iter()
-                .any(|e| e.kind == "attachment_binding_lineage_cycle")
-        );
+        assert!(f
+            .iter()
+            .any(|e| e.kind == VerificationFailureKind::AttachmentBindingLineageCycle));
     }
 
     #[test]
@@ -7137,10 +7071,9 @@ mod tests {
         m.insert(h1, 1);
         m.insert(h2, 2);
         let f = super::attachment_manifest_topology_failures(&entries, &m);
-        assert!(
-            f.iter()
-                .any(|e| e.kind == "attachment_binding_lineage_cycle")
-        );
+        assert!(f
+            .iter()
+            .any(|e| e.kind == VerificationFailureKind::AttachmentBindingLineageCycle));
     }
 
     #[test]
@@ -7628,7 +7561,10 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert_eq!(err.kind(), Some("erasure_destroyed_at_after_host"));
+        assert_eq!(
+            err.kind(),
+            Some(VerifyErrorKind::ErasureDestroyedAtAfterHost)
+        );
     }
 
     #[test]
@@ -7972,12 +7908,10 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].post_erasure_uses, 1);
         assert_eq!(outcomes[0].post_erasure_wraps, 0);
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "post_erasure_use"
-                    && f.location == super::hex_string(&later_hash))
-        );
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::PostErasureUse
+                && f.location == super::hex_string(&later_hash)));
     }
 
     #[test]
@@ -8008,12 +7942,10 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].post_erasure_uses, 0);
         assert_eq!(outcomes[0].post_erasure_wraps, 1);
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "post_erasure_wrap"
-                    && f.location == super::hex_string(&later_hash))
-        );
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::PostErasureWrap
+                && f.location == super::hex_string(&later_hash)));
     }
 
     #[test]
@@ -8047,7 +7979,9 @@ mod tests {
         assert_eq!(outcomes[0].post_erasure_uses, 0, "recovery class skipped");
         assert_eq!(outcomes[0].post_erasure_wraps, 0);
         assert!(
-            !event_failures.iter().any(|f| f.kind == "post_erasure_use"),
+            !event_failures
+                .iter()
+                .any(|f| f.kind == VerificationFailureKind::PostErasureUse),
             "Phase-1 must not flag post_erasure_use for recovery class",
         );
     }
@@ -8078,18 +8012,14 @@ mod tests {
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 2);
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "erasure_destroyed_at_conflict")
-        );
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::ErasureDestroyedAtConflict));
         // The second outcome carries the conflict failure tag.
-        assert!(
-            outcomes[1]
-                .failures
-                .iter()
-                .any(|s| s == "erasure_destroyed_at_conflict")
-        );
+        assert!(outcomes[1]
+            .failures
+            .iter()
+            .any(|s| s == "erasure_destroyed_at_conflict"));
     }
 
     #[test]
@@ -8118,11 +8048,9 @@ mod tests {
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 2);
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "erasure_key_class_payload_conflict")
-        );
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::ErasureKeyClassPayloadConflict));
     }
 
     #[test]
@@ -8153,11 +8081,9 @@ mod tests {
             None,
             &mut event_failures,
         );
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "erasure_key_class_registry_mismatch")
-        );
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::ErasureKeyClassRegistryMismatch));
     }
 
     #[test]
@@ -8189,11 +8115,9 @@ mod tests {
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 1);
-        assert!(
-            !event_failures
-                .iter()
-                .any(|f| f.kind == "erasure_key_class_registry_mismatch")
-        );
+        assert!(!event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::ErasureKeyClassRegistryMismatch));
     }
 
     #[test]
@@ -8220,11 +8144,9 @@ mod tests {
         );
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].signature_verified);
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "erasure_attestation_signature_invalid")
-        );
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::ErasureAttestationSignatureInvalid));
     }
 
     #[test]
@@ -8462,7 +8384,10 @@ mod tests {
             Value::Null,
         );
         let err = super::decode_certificate_payload(&extensions).unwrap_err();
-        assert_eq!(err.kind(), Some("certificate_chain_summary_mismatch"));
+        assert_eq!(
+            err.kind(),
+            Some(VerifyErrorKind::CertificateChainSummaryMismatch)
+        );
     }
 
     #[test]
@@ -8482,7 +8407,10 @@ mod tests {
             Value::Null,
         );
         let err = super::decode_certificate_payload(&extensions).unwrap_err();
-        assert_eq!(err.kind(), Some("certificate_chain_summary_mismatch"));
+        assert_eq!(
+            err.kind(),
+            Some(VerifyErrorKind::CertificateChainSummaryMismatch)
+        );
     }
 
     #[test]
@@ -8503,7 +8431,7 @@ mod tests {
             Value::Null,
         );
         let err = super::decode_certificate_payload(&extensions).unwrap_err();
-        assert_eq!(err.kind(), Some("malformed_cose"));
+        assert_eq!(err.kind(), Some(VerifyErrorKind::MalformedCose));
         assert!(err.to_string().contains("template_hash"));
     }
 
@@ -8687,7 +8615,13 @@ mod tests {
 
         let mut event_failures = Vec::new();
         let outcomes =
-            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
+            super::finalize_certificates_of_completion(
+                &payloads,
+                &[],
+                &BTreeMap::new(),
+                None,
+                &mut event_failures,
+            );
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].certificate_id, "cert-1");
         assert_eq!(outcomes[0].signer_count, 1);
@@ -8700,17 +8634,13 @@ mod tests {
         );
         // Empty events slice → unresolvable signing event → step 5 flags.
         assert!(!outcomes[0].all_signing_events_resolved);
-        assert!(
-            outcomes[0]
-                .failures
-                .iter()
-                .any(|f| f == "signing_event_unresolved")
-        );
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "signing_event_unresolved")
-        );
+        assert!(outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "signing_event_unresolved"));
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::SigningEventUnresolved));
     }
 
     #[test]
@@ -8729,12 +8659,18 @@ mod tests {
 
         let mut event_failures = Vec::new();
         let outcomes =
-            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
+            super::finalize_certificates_of_completion(
+                &payloads,
+                &[],
+                &BTreeMap::new(),
+                None,
+                &mut event_failures,
+            );
         assert_eq!(outcomes.len(), 2);
         assert!(
             event_failures
                 .iter()
-                .any(|f| f.kind == "certificate_id_collision"),
+                .any(|f| f.kind == VerificationFailureKind::CertificateIdCollision),
             "step 2 second sub-clause: duplicate certificate_id with disagreeing payload",
         );
     }
@@ -8752,12 +8688,16 @@ mod tests {
 
         let mut event_failures = Vec::new();
         let _outcomes =
-            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
-        assert!(
-            !event_failures
-                .iter()
-                .any(|f| f.kind == "certificate_id_collision")
-        );
+            super::finalize_certificates_of_completion(
+                &payloads,
+                &[],
+                &BTreeMap::new(),
+                None,
+                &mut event_failures,
+            );
+        assert!(!event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::CertificateIdCollision));
     }
 
     #[test]
@@ -8774,20 +8714,22 @@ mod tests {
 
         let mut event_failures = Vec::new();
         let outcomes =
-            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
+            super::finalize_certificates_of_completion(
+                &payloads,
+                &[],
+                &BTreeMap::new(),
+                None,
+                &mut event_failures,
+            );
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].chain_summary_consistent);
-        assert!(
-            outcomes[0]
-                .failures
-                .iter()
-                .any(|f| f == "attestation_insufficient")
-        );
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "attestation_insufficient")
-        );
+        assert!(outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "attestation_insufficient"));
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::AttestationInsufficient));
     }
 
     #[test]
@@ -8804,7 +8746,13 @@ mod tests {
 
         let mut event_failures = Vec::new();
         let outcomes =
-            super::finalize_certificates_of_completion(&payloads, &[], &mut event_failures);
+            super::finalize_certificates_of_completion(
+                &payloads,
+                &[],
+                &BTreeMap::new(),
+                None,
+                &mut event_failures,
+            );
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].attachment_resolved);
         assert!(
@@ -8814,6 +8762,107 @@ mod tests {
                 .any(|f| f == "presentation_artifact_attachment_missing"),
             "Phase-1 genesis path must not emit attachment-missing failures",
         );
+    }
+
+    #[test]
+    fn finalize_certificates_lookup_resolves_fixture_signature_affirmation_inline() {
+        // Exercises `event_by_hash` hit path + step 5/6 + step 2 principal
+        // compare using real `append/019` SignatureAffirmation bytes.
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../fixtures/vectors/append/019-wos-signature-affirmation/expected-event.cbor",
+        );
+        let signed = fs::read(&fixture).unwrap();
+        let parsed = super::parse_sign1_bytes(&signed).unwrap();
+        let details = super::decode_event_details(&parsed).unwrap();
+        assert_eq!(details.event_type, super::WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE);
+
+        let affirm_canon = details.canonical_event_hash;
+        let pool = vec![details];
+        let mut by_hash: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+        by_hash.insert(affirm_canon, 0);
+
+        let payload_bytes = match &pool[0].payload_ref {
+            super::PayloadRef::Inline(b) => b.as_slice(),
+            _ => panic!("append/019 uses inline kernel payload"),
+        };
+        let record = super::parse_signature_affirmation_record(payload_bytes).unwrap();
+
+        let mut payload =
+            certificate_details_for_test("cert-019-inline-lookup", vec![affirm_canon], 1);
+        payload.chain_summary.signer_display[0].principal_ref = record.signer_id.clone();
+        payload.chain_summary.signer_display[0].signed_at = pool[0].authored_at;
+
+        let cert_canon = [0xABu8; 32];
+        let payloads = vec![(0usize, payload, cert_canon)];
+        let mut failures = Vec::new();
+        let outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &pool,
+            &by_hash,
+            None,
+            &mut failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(
+            outcomes[0].all_signing_events_resolved,
+            "failures={:?}",
+            outcomes[0].failures
+        );
+        assert!(outcomes[0].chain_summary_consistent, "{:?}", outcomes[0].failures);
+        assert!(!failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::SigningEventUnresolved));
+    }
+
+    #[test]
+    fn finalize_certificates_principal_ref_resolves_external_affirmation_via_blobs() {
+        // Step 2 principal compare with `PayloadRef::External`: wire bytes only
+        // in `payload_blobs` (append/019 `formspecResponseRef` is not a
+        // `sha256:` digest, so step 7 is not exercised here).
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../fixtures/vectors/append/019-wos-signature-affirmation/expected-event.cbor",
+        );
+        let signed = fs::read(&fixture).unwrap();
+        let parsed = super::parse_sign1_bytes(&signed).unwrap();
+        let mut details = super::decode_event_details(&parsed).unwrap();
+        let affirm_canon = details.canonical_event_hash;
+
+        let inline_bytes = match &details.payload_ref {
+            super::PayloadRef::Inline(b) => b.clone(),
+            _ => panic!("fixture uses inline payload"),
+        };
+        let record = super::parse_signature_affirmation_record(&inline_bytes).unwrap();
+
+        let content_hash = details.content_hash;
+        details.payload_ref = super::PayloadRef::External;
+
+        let pool = vec![details];
+        let mut by_hash: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+        by_hash.insert(affirm_canon, 0usize);
+
+        let mut blobs = BTreeMap::new();
+        blobs.insert(content_hash, inline_bytes);
+
+        let mut payload =
+            certificate_details_for_test("cert-019-ext-blobs", vec![affirm_canon], 1);
+        payload.chain_summary.signer_display[0].principal_ref = record.signer_id.clone();
+        payload.chain_summary.signer_display[0].signed_at = pool[0].authored_at;
+
+        let cert_canon = [0xCDu8; 32];
+        let payloads = vec![(0usize, payload, cert_canon)];
+        let mut failures = Vec::new();
+        let outcomes = super::finalize_certificates_of_completion(
+            &payloads,
+            &pool,
+            &by_hash,
+            Some(&blobs),
+            &mut failures,
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert!(outcomes[0].chain_summary_consistent, "{:?}", outcomes[0].failures);
+        assert!(!failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::CertificateChainSummaryMismatch));
     }
 
     // ---------------------------------------------------------------
@@ -8916,7 +8965,7 @@ mod tests {
         // a malformed Posture Declaration cannot silently relax the gate.
         assert!(!super::parse_admit_unverified_user_attestations(&[]));
         assert!(!super::parse_admit_unverified_user_attestations(&[0x40])); // bstr, not a map
-        // Map without the field → false.
+                                                                            // Map without the field → false.
         let mut buf = Vec::new();
         ciborium::ser::into_writer(
             &Value::Map(vec![(
@@ -8961,22 +9010,20 @@ mod tests {
         let outcomes = super::finalize_user_content_attestations(
             &payloads,
             &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
             &registry,
             None,
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 1);
-        assert!(
-            outcomes[0]
-                .failures
-                .iter()
-                .any(|f| f == "user_content_attestation_operator_in_user_slot")
-        );
-        assert!(
-            event_failures
-                .iter()
-                .any(|f| f.kind == "user_content_attestation_operator_in_user_slot")
-        );
+        assert!(outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "user_content_attestation_operator_in_user_slot"));
+        assert!(event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::UserContentAttestationOperatorInUserSlot));
     }
 
     #[test]
@@ -9000,18 +9047,18 @@ mod tests {
         let outcomes = super::finalize_user_content_attestations(
             &payloads,
             &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
             &registry,
             None, // no Posture Declaration → default required
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].identity_resolved);
-        assert!(
-            outcomes[0]
-                .failures
-                .iter()
-                .any(|f| f == "user_content_attestation_identity_required")
-        );
+        assert!(outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "user_content_attestation_identity_required"));
     }
 
     #[test]
@@ -9046,18 +9093,18 @@ mod tests {
         let outcomes = super::finalize_user_content_attestations(
             &payloads,
             &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
             &registry,
             Some(&posture_bytes),
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 1);
         // No identity-required failure under permissive posture.
-        assert!(
-            !outcomes[0]
-                .failures
-                .iter()
-                .any(|f| f == "user_content_attestation_identity_required")
-        );
+        assert!(!outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "user_content_attestation_identity_required"));
     }
 
     #[test]
@@ -9080,18 +9127,18 @@ mod tests {
         let outcomes = super::finalize_user_content_attestations(
             &payloads,
             &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
             &registry,
             None,
             &mut event_failures,
         );
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].key_active);
-        assert!(
-            outcomes[0]
-                .failures
-                .iter()
-                .any(|f| f == "user_content_attestation_key_not_active")
-        );
+        assert!(outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "user_content_attestation_key_not_active"));
     }
 
     #[test]
@@ -9138,6 +9185,8 @@ mod tests {
         super::finalize_user_content_attestations(
             &payloads,
             &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
             &registry,
             None,
             &mut event_failures,
@@ -9145,7 +9194,7 @@ mod tests {
         assert!(
             event_failures
                 .iter()
-                .any(|f| f.kind == "user_content_attestation_id_collision"),
+                .any(|f| f.kind == VerificationFailureKind::UserContentAttestationIdCollision),
             "step 7 must flag id_collision for disagreeing payloads",
         );
     }
@@ -9169,6 +9218,8 @@ mod tests {
         super::finalize_user_content_attestations(
             &payloads,
             &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
             &registry,
             None,
             &mut event_failures,
@@ -9176,7 +9227,7 @@ mod tests {
         assert!(
             !event_failures
                 .iter()
-                .any(|f| f.kind == "user_content_attestation_id_collision"),
+                .any(|f| f.kind == VerificationFailureKind::UserContentAttestationIdCollision),
             "byte-identical re-emission must not flip id_collision",
         );
     }
@@ -9241,7 +9292,7 @@ mod tests {
         let details = decoded.expect("payload present");
         assert_eq!(
             details.step_2_failure,
-            Some("user_content_attestation_timestamp_mismatch")
+            Some(VerificationFailureKind::UserContentAttestationTimestampMismatch)
         );
     }
 
@@ -9301,7 +9352,7 @@ mod tests {
         let details = decoded.expect("payload present");
         assert_eq!(
             details.step_2_failure,
-            Some("user_content_attestation_intent_malformed")
+            Some(VerificationFailureKind::UserContentAttestationIntentMalformed)
         );
     }
 
@@ -9395,7 +9446,10 @@ mod tests {
         assert!(report.structure_verified);
         assert!(!report.integrity_verified);
         assert!(report.readability_verified);
-        assert_eq!(report.event_failures[0].kind, "timestamp_order_violation");
+        assert_eq!(
+            report.event_failures[0].kind,
+            VerificationFailureKind::TimestampOrderViolation
+        );
     }
 
     #[test]
@@ -9455,15 +9509,10 @@ mod tests {
                 Value::Text("classification".into()),
                 Value::Bytes(b"x-trellis-test/unclassified".to_vec()),
             ),
-            (Value::Text("outcome_commitment".into()), Value::Null),
-            (Value::Text("subject_ref_commitment".into()), Value::Null),
-            (Value::Text("tag_commitment".into()), Value::Null),
-            (Value::Text("witness_ref".into()), Value::Null),
-            (Value::Text("extensions".into()), Value::Null),
         ];
         let result = super::map_lookup_timestamp(&header, "authored_at");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), Some("legacy_timestamp_format"));
+        assert_eq!(err.kind(), Some(VerifyErrorKind::LegacyTimestampFormat));
     }
 }
