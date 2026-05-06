@@ -87,7 +87,8 @@ pub enum PostgresStoreErrorKind {
     IdempotencyKeyPayloadMismatch,
     /// Stored data did not fit Phase-1 type bounds (e.g. sequence overflow).
     DomainViolation,
-    /// `idempotency_key` exceeded `bstr .size (1..64)` per Core §6.1.
+    /// `idempotency_key` outside `bstr .size (1..64)` per Core §6.1 (empty or
+    /// too long). Variant name is historical; error messages state the bound.
     IdempotencyKeyTooLong,
     /// Connection pool failure (acquire / build).
     PoolFailed,
@@ -290,7 +291,8 @@ impl LedgerStore for PostgresStore {
 /// composes through this same surface.
 ///
 /// # Errors
-/// - [`PostgresStoreErrorKind::IdempotencyKeyTooLong`] if `key.len() > 64`.
+/// - [`PostgresStoreErrorKind::IdempotencyKeyTooLong`] if `key` is empty or
+///   longer than 64 bytes (outside Core §6.1 `1..=64`).
 /// - [`PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch`] when the
 ///   `(scope, idempotency_key)` partial unique index rejects the insert.
 /// - [`PostgresStoreErrorKind::DomainViolation`] when the sequence does not fit i64.
@@ -1057,6 +1059,28 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.kind(), PostgresStoreErrorKind::IdempotencyKeyTooLong);
+    }
+
+    #[test]
+    fn idempotency_key_boundary_lengths_accepted() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+        let mut tx = store.begin().unwrap();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope-1b".to_vec(), 0, vec![], vec![]),
+            Some(&[0xab]),
+        )
+        .unwrap();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope-64b".to_vec(), 0, vec![], vec![]),
+            Some(&[0x55_u8; 64]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(store.load_scope_events(b"scope-1b").unwrap().len(), 1);
+        assert_eq!(store.load_scope_events(b"scope-64b").unwrap().len(), 1);
     }
 
     #[test]

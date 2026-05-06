@@ -140,7 +140,8 @@ pub fn append_event_in_tx(
 /// Failure cases for [`append_event_in_tx`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum MemoryAppendError {
-    /// `idempotency_key` length outside the Core §6.1 bound.
+    /// `idempotency_key` length outside the Core §6.1 bound (empty or too long).
+    /// Variant name is historical; [`Display`](std::fmt::Display) states `1..=64`.
     IdempotencyKeyTooLong(usize),
     /// Same `(scope, idempotency_key)` already appended.
     IdempotencyKeyConflict,
@@ -282,5 +283,25 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, MemoryAppendError::IdempotencyKeyTooLong(0));
+    }
+
+    #[test]
+    fn idempotency_key_boundary_lengths_accepted() {
+        let mut store = MemoryStore::new();
+        let mut tx = store.begin();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope-1b".to_vec(), 0, vec![], vec![]),
+            Some(&[0xab]),
+        )
+        .unwrap();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope-64b".to_vec(), 0, vec![], vec![]),
+            Some(&[0x55_u8; 64]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(store.events().len(), 2);
     }
 }
