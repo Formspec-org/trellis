@@ -20,7 +20,7 @@ use crate::{verify_event_set, verify_export_zip, verify_single_event, verify_tam
 /// §"Phase-1 verifier obligation" step 2.c). Structural cases only;
 /// see `verify_interop_sidecars_rejects_manifest_path_outside_interop_tree`
 /// for the same check inside `verify_interop_sidecars` (no tamper ZIP —
-/// manifest re-signing would duplicate tamper/037..040 infra).
+/// manifest re-signing would duplicate tamper/037..040 / 044 infra).
 #[test]
 fn interop_sidecar_path_prefix_invariant() {
     // Valid: starts with the literal byte prefix.
@@ -34,7 +34,7 @@ fn interop_sidecar_path_prefix_invariant() {
     // alone is technically valid byte-prefix-wise but no real file
     // would land at a directory path. Predicate accepts; the
     // surrounding manifest walk catches missing-file as a
-    // content_mismatch.
+    // sidecar-missing failure.
     assert!(is_interop_sidecar_path_valid("interop-sidecars/"));
 
     // Invalid: any non-prefix byte sequence — including paths
@@ -91,7 +91,46 @@ fn verify_interop_sidecars_rejects_manifest_path_outside_interop_tree() {
     assert_eq!(
         report.event_failures[0].kind,
         VerificationFailureKind::InteropSidecarPathInvalid,
-        "must not reach digest check (empty archive would otherwise be content_mismatch)"
+        "must not reach missing-file check"
+    );
+}
+
+/// TR-CORE-168 — manifest-listed dispatched sidecar path must exist.
+#[test]
+fn verify_interop_sidecars_rejects_missing_manifest_listed_file() {
+    const PATH: &str = "interop-sidecars/c2pa-manifest/cert-missing.c2pa";
+    let digest = domain_separated_sha256(CONTENT_DOMAIN, b"promised-bytes");
+
+    let entry = Value::Map(vec![
+        (
+            Value::Text("kind".into()),
+            Value::Text("c2pa-manifest".into()),
+        ),
+        (Value::Text("path".into()), Value::Text(PATH.into())),
+        (
+            Value::Text("derivation_version".into()),
+            Value::Integer(1u64.into()),
+        ),
+        (
+            Value::Text("content_digest".into()),
+            Value::Bytes(digest.to_vec()),
+        ),
+        (
+            Value::Text("source_ref".into()),
+            Value::Text("urn:trellis:test:ref".into()),
+        ),
+    ]);
+    let manifest_map = vec![(
+        Value::Text("interop_sidecars".into()),
+        Value::Array(vec![entry]),
+    )];
+    let archive = export_archive_for_tests(BTreeMap::new());
+
+    let report = verify_interop_sidecars(&manifest_map, &archive).expect_err("missing sidecar");
+    assert_eq!(report.event_failures.len(), 1);
+    assert_eq!(
+        report.event_failures[0].kind,
+        VerificationFailureKind::InteropSidecarMissing
     );
 }
 

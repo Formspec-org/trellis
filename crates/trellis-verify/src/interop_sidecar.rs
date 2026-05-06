@@ -195,23 +195,23 @@ pub(crate) fn verify_interop_sidecars(
             ));
         }
 
-        // Step 2.e (content-digest-match) — TR-CORE-163. Recompute
-        // SHA-256 under domain tag `trellis-content-v1` over the on-disk
-        // sidecar bytes. Missing file is a `content_mismatch` (no bytes
-        // to digest); cleaner and more localizable than a generic
-        // archive-integrity error because the manifest already
-        // promised them.
+        // Step 2.e (listed-file-present) — TR-CORE-168. The manifest
+        // already promised bytes at this sidecar path; absence is a local
+        // sidecar-catalog failure, not a digest mismatch.
         let actual_bytes = match archive.members.get(&path) {
             Some(bytes) => bytes,
             None => {
                 return Err(VerificationReport::fatal(
-                    VerificationFailureKind::InteropSidecarContentMismatch,
+                    VerificationFailureKind::InteropSidecarMissing,
                     format!(
                         "interop_sidecars[{index}].path {path:?} is missing from the export ZIP"
                     ),
                 ));
             }
         };
+        // Step 2.f (content-digest-match) — TR-CORE-163. Recompute
+        // SHA-256 under domain tag `trellis-content-v1` over the on-disk
+        // sidecar bytes.
         let actual_digest = domain_separated_sha256(CONTENT_DOMAIN, actual_bytes);
         let content_digest_ok = actual_digest.as_slice() == content_digest.as_slice();
         if !content_digest_ok {
@@ -235,7 +235,7 @@ pub(crate) fn verify_interop_sidecars(
         });
     }
 
-    // Step 2.f (unlisted-file) — TR-CORE-165. Walk every archive
+    // Step 2.g (unlisted-file) — TR-CORE-165. Walk every archive
     // member under `interop-sidecars/` and assert it appears in
     // `listed_paths`. The check runs after the manifest walk so a
     // first manifest-listed entry with a digest-mismatch wins

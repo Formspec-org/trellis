@@ -1357,6 +1357,7 @@ populated entry under either locked kind MUST fail with
 `c2pa-manifest@v1` or `did-key-view@v1` entry MUST run path-(b) verification:
 digest-binds only, no `source_ref` resolution; failure surfaces are
 `interop_sidecar_content_mismatch`,
+`interop_sidecar_missing`,
 `interop_sidecar_kind_unknown`,
 `interop_sidecar_unlisted_file`,
 `interop_sidecar_derivation_version_unknown`,
@@ -1369,7 +1370,8 @@ recompute), **TR-CORE-164** (`interop_sidecar_kind_unknown` closed-registry
 gate), **TR-CORE-165** (`interop_sidecar_unlisted_file` manifest-completeness
 gate), **TR-CORE-166** (`interop_sidecar_derivation_version_unknown`
 ISC-06 version pin), and **TR-CORE-167** (`interop_sidecar_path_invalid`
-path-prefix invariant; `trellis-verify` unit tests, no tamper ZIP).
+path-prefix invariant; `trellis-verify` unit tests, no tamper ZIP), and
+**TR-CORE-168** (`interop_sidecar_missing` listed-file presence gate).
 
 ```cddl
 OmittedPayloadCheck = {
@@ -2064,6 +2066,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `user_content_attestation_operator_in_user_slot` | 6d step 8 | An `attestor` URI resolves to a principal class registered as `operator` per Companion §6.4; user-content attestations are user-actor-only, operator attestations belong in §A.5's `Attestation` shape (ADR 0010 §"Verifier obligations" step 8). |
 | `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` lists an entry under one of the Phase-1-locked kinds (`scitt-receipt`, `vc-jose-cose-event`); ADR 0008 ISC-04 / ADR 0003 lock-off. `c2pa-manifest@v1` (Wave 25) and `did-key-view@v1` (Wave 29) dispatch to per-entry verification and do NOT raise this code. |
 | `interop_sidecar_content_mismatch` | 3.f / interop check | Recomputed SHA-256 over the file at `interop_sidecars[i].path` does not equal the manifest's `interop_sidecars[i].content_digest` (digest preimage under domain tag `trellis-content-v1`). ADR 0008 ISC-03 / §"Phase-1 verifier obligation" step 2. |
+| `interop_sidecar_missing` | 3.f / interop check | Manifest `interop_sidecars[i].path` names a sidecar file that is absent from the export ZIP. ADR 0008 ISC-03 / §"Phase-1 verifier obligation" step 2. |
 | `interop_sidecar_kind_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].kind` is not in the ADR 0008 closed registry (`scitt-receipt`, `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`). ADR 0008 ISC-04. |
 | `interop_sidecar_unlisted_file` | 3.f / interop check | A file is present under `interop-sidecars/` in the export ZIP but is not catalogued in `manifest.interop_sidecars`. ADR 0008 ISC-03 / §"Export bundle layout". |
 | `interop_sidecar_derivation_version_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].derivation_version` is not in the verifier's supported set for that kind. ADR 0008 ISC-06. |
@@ -3095,7 +3098,7 @@ Core traceability rows:
 - TR-CORE-140, TR-CORE-141, TR-CORE-142, TR-CORE-143
 - TR-CORE-145 (interop sidecar envelope reservation; ADR 0008)
 - TR-CORE-158, TR-CORE-159, TR-CORE-160, TR-CORE-161, TR-CORE-162 (Core §17 idempotency wire-contract)
-- TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29 / ADR 0008)
+- TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167, TR-CORE-168 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29/31 / ADR 0008)
 
 ## 31. References
 

@@ -6,6 +6,7 @@ dispatched verifier:
 * `tamper/038-interop-sidecar-kind-unknown`         — TR-CORE-164
 * `tamper/039-interop-sidecar-unlisted-file`        — TR-CORE-165
 * `tamper/040-interop-sidecar-derivation-version-unknown` — TR-CORE-166
+* `tamper/044-interop-sidecar-missing`              — TR-CORE-168
 
 Authoring aid only. The committed fixture bytes are the evidence
 surface; this script exists so the CBOR + ZIP output is reproducible.
@@ -67,6 +68,7 @@ OUT_TAMPER_037 = ROOT / "tamper" / "037-interop-sidecar-content-mismatch"
 OUT_TAMPER_038 = ROOT / "tamper" / "038-interop-sidecar-kind-unknown"
 OUT_TAMPER_039 = ROOT / "tamper" / "039-interop-sidecar-unlisted-file"
 OUT_TAMPER_040 = ROOT / "tamper" / "040-interop-sidecar-derivation-version-unknown"
+OUT_TAMPER_044 = ROOT / "tamper" / "044-interop-sidecar-missing"
 
 CONTENT_DOMAIN = "trellis-content-v1"
 SIDECAR_PATH = "interop-sidecars/c2pa-manifest/cert-wave25-001.c2pa"
@@ -389,6 +391,21 @@ def gen_tamper_040(seed: bytes, base_zip: bytes) -> bytes:
     return zip_bytes
 
 
+def gen_tamper_044(seed: bytes, base_zip: bytes) -> bytes:
+    """tamper/044 — missing sidecar. Manifest lists a dispatched entry;
+    the named sidecar file is absent, so verifier emits
+    `interop_sidecar_missing` before digest recomputation."""
+    content_digest = domain_separated_sha256(CONTENT_DOMAIN, SIDECAR_BYTES)
+    entry = build_positive_entry(content_digest)
+    zip_bytes = build_export_zip(
+        base_zip,
+        seed,
+        sidecar_entries=[entry],
+        sidecar_files={},
+    )
+    return zip_bytes
+
+
 # ---------------------------------------------------------------------------
 # Tamper manifest.toml templates (one per fixture).
 # ---------------------------------------------------------------------------
@@ -544,12 +561,31 @@ def main() -> None:
     )
     write_fixture(OUT_TAMPER_040, manifest_040, {"input-export.zip": zip_040})
 
+    # === tamper/044 (sidecar missing) ===
+    zip_044 = gen_tamper_044(seed, base_zip)
+    manifest_044 = TAMPER_TEMPLATE.format(
+        slug="044-interop-sidecar-missing",
+        description=(
+            "Wave 31 — `interop_sidecar_missing`. Manifest lists one "
+            "`c2pa-manifest@v1` entry with a valid `content_digest`, but "
+            "the referenced "
+            "`interop-sidecars/c2pa-manifest/cert-wave25-001.c2pa` member "
+            "is absent from the export ZIP. Phase-1 verifier emits "
+            "`tamper_kind = \"interop_sidecar_missing\"` before digest "
+            "recomputation. Anchors TR-CORE-168 (listed-file presence gate)."
+        ),
+        coverage_rows='"TR-CORE-168"',
+        tamper_kind="interop_sidecar_missing",
+    )
+    write_fixture(OUT_TAMPER_044, manifest_044, {"input-export.zip": zip_044})
+
     print("Wrote:")
     print(f"  {OUT_EXPORT_014.relative_to(ROOT)}/  zip_sha256={hashlib.sha256(zip_014).hexdigest()}")
     print(f"  {OUT_TAMPER_037.relative_to(ROOT)}/")
     print(f"  {OUT_TAMPER_038.relative_to(ROOT)}/")
     print(f"  {OUT_TAMPER_039.relative_to(ROOT)}/")
     print(f"  {OUT_TAMPER_040.relative_to(ROOT)}/")
+    print(f"  {OUT_TAMPER_044.relative_to(ROOT)}/")
 
 
 if __name__ == "__main__":

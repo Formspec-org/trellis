@@ -18,6 +18,28 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 31 (2026-05-06) — TODO #30 interop sidecar missing-vs-mismatch split
+
+Closes Trellis TODO item #30 by separating sidecar packaging omission from
+sidecar byte mutation in the Phase-1 dispatched verifier.
+
+Train:
+- `trellis-verify::verify_interop_sidecars` now returns
+  `interop_sidecar_missing` when `manifest.interop_sidecars[i].path` is absent
+  from the export ZIP, before digest recomputation. Present bytes with a
+  disagreeing digest still return `interop_sidecar_content_mismatch`.
+- `VerificationFailureKind` gains the append-only wire value
+  `interop_sidecar_missing`; unit coverage pins the direct verifier path.
+- Core §18.3a / §19.1, ADR 0008, and the requirements matrix add TR-CORE-168
+  for the listed-file presence gate while narrowing TR-CORE-163 to digest-only
+  mismatch.
+- Fixture corpus gains `tamper/044-interop-sidecar-missing`, generated from the
+  same Wave 25 interop-sidecar reproducibility script as `tamper/037..040`.
+
+Verification: `cargo test -p trellis-verify`, `cargo test -p
+trellis-conformance`, and `uv run --with cbor2 --with cryptography python
+scripts/check-specs.py` passed.
+
 ### Wave 30 (2026-05-06) — TODO #6 key-rotation grace-window semantics
 
 Closes Trellis TODO item #6 by ratifying the `Rotating` signing-key

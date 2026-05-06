@@ -482,15 +482,14 @@ downstream consumer in the WOS `bundle.schema.json` shape when activated.
     drift discovery → three-commit cross-repo train) once per sibling row.
     See [`COMPLETED.md`](COMPLETED.md) Wave 27 for the discovery pattern.
 
-30. **`interop_sidecar_content_mismatch` failure-code split** — **XS**.
-    *Land when a `c2pa-manifest@v1` adopter consumes the Wave 25 dispatched
-    verifier and hits a conflated diagnostic.* Current `verify_interop_sidecars`
-    raises `interop_sidecar_content_mismatch` for both *missing file*
-    (manifest promises bytes the ZIP doesn't carry) and *digest divergence*
-    (bytes present, mutated). Split into `interop_sidecar_missing` +
-    `interop_sidecar_content_mismatch` (digest-only); add matrix row, one
-    fixture per code, Core §19.1 prose update, ADR 0008 §"Failure taxonomy"
-    update. See [`COMPLETED.md`](COMPLETED.md) Wave 26 FINDING 4.
+30. **`interop_sidecar_content_mismatch` failure-code split** — **Closed**
+    (Wave 31, 2026-05-06). `verify_interop_sidecars` now reports
+    `interop_sidecar_missing` when the manifest promises a dispatched sidecar
+    path the ZIP does not carry, while `interop_sidecar_content_mismatch`
+    remains digest-only for present-but-mutated bytes. Core §18.3a / §19.1,
+    ADR 0008, the matrix, and the fixture corpus now carry TR-CORE-168 and
+    `tamper/044-interop-sidecar-missing`. See [`COMPLETED.md`](COMPLETED.md)
+    Wave 31.
 
 ---
 

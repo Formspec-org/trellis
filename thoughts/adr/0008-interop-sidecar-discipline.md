@@ -226,6 +226,7 @@ A conforming Phase-1 verifier processing an export bundle MUST:
    - Listed `derivation_version` not in the verifier's supported set for that kind → `interop_sidecar_derivation_version_unknown`. (Current dispatched set: `c2pa-manifest@v1`, `did-key-view@v1`.)
    - Listed `path`: MUST start with the byte prefix `interop-sidecars/`; otherwise → `interop_sidecar_path_invalid`.
    - Phase-1 lock-off: registered kinds **except `c2pa-manifest@v1` and `did-key-view@v1`** are still locked off under ADR 0003 alignment; a present listed entry under either locked kind → `interop_sidecar_phase_1_locked`. Dispatched kinds pass through to `VerificationReport.interop_sidecars` with `phase_1_locked = false`.
+   - Listed file presence: `interop_sidecars[i].path` MUST exist in the export ZIP. Missing file → `interop_sidecar_missing`.
    - Listed entries: verify each `content_digest` against the file bytes (SHA-256 under domain tag `trellis-content-v1`). Mismatch → `interop_sidecar_content_mismatch`.
    - Files under `interop-sidecars/` not listed in the manifest → `interop_sidecar_unlisted_file`.
 3. Phase-1 core verifier path is **path-(b): digest-binds only.** It does NOT resolve `source_ref` to the canonical event, does NOT decode sidecar payloads, and does NOT depend on ecosystem libraries such as `c2pa-rs` or DID tooling (ISC-05; `c2pa-rs` is bound to `trellis-interop-c2pa` per `deny.toml`). The C2PA-tooling-path consumer is a separate verification path documented in `trellis-interop-c2pa/README.md`; consumers run that path additively, never as a replacement for canonical bytes (ISC-01).
@@ -271,6 +272,7 @@ Phase-1 corpus additions (reservation + lock-off proofs):
 | `tamper/038-interop-sidecar-kind-unknown` | **Wave 25.** Manifest lists unregistered kind `"made-up-kind"`; fails with `interop_sidecar_kind_unknown`. |
 | `tamper/039-interop-sidecar-unlisted-file` | **Wave 25.** `interop-sidecars/c2pa-manifest/stray.cbor` present, not listed in manifest; fails with `interop_sidecar_unlisted_file`. |
 | `tamper/040-interop-sidecar-derivation-version-unknown` | **Wave 25.** Listed `derivation_version: 99` for a registered kind; fails with `interop_sidecar_derivation_version_unknown`. |
+| `tamper/044-interop-sidecar-missing` | **Wave 31.** Manifest lists a dispatched sidecar path that is absent from the ZIP; fails with `interop_sidecar_missing`. |
 
 > **Slot reassignment note (Wave 25, 2026-04-28).** The Phase-1-reserved
 > slots originally numbered 028..031 in this fixture plan were absorbed by
@@ -306,7 +308,7 @@ Per-kind Phase-2+ vectors are deferred to per-adapter implementation; each adapt
 ## Implementation sequencing
 
 1. **Spec** — this ADR; one-paragraph non-normative §11.7 pointer in Core; one-line tag update in ADR 0007; TODO.md entry consolidating per-kind triggers. **(Closed by this change.)**
-2. **Core §18 export-manifest reservation** — add `interop_sidecars` field with the CDDL above; add Phase-1 lint requiring null-or-empty; add Phase-1 verifier reservation-check behavior (the eight failure codes in §"Phase-1 verifier obligation"). Lands with the export/011, export/012, tamper/027..031 fixture batch.
+2. **Core §18 export-manifest reservation** — add `interop_sidecars` field with the CDDL above; add Phase-1 lint requiring null-or-empty; add Phase-1 verifier reservation-check behavior (the nine failure codes in §"Phase-1 verifier obligation"). Lands with the export/011, export/012, tamper/027..031 fixture batch.
 3. **Phase-1 fixture corpus additions** — `export/011`, `export/012`, `tamper/027..031` per *Fixture plan*.
 4. **Python stranger mirror** — `trellis-py` updates to decode + reject populated entries identically.
 5. **Adapter-crate hygiene scaffolding** — create empty crates `trellis-interop-scitt`, `trellis-interop-vc`, `trellis-interop-c2pa`, `trellis-interop-did` with no adapter logic; add `cargo-deny` config forbidding ecosystem libs from `trellis-core` / `trellis-verify` / `trellis-types`. Locks the hygiene contract before any adapter lands.

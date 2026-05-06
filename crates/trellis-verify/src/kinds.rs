@@ -75,6 +75,7 @@ pub enum VerificationFailureKind {
     InteropSidecarContentMismatch,
     InteropSidecarDerivationVersionUnknown,
     InteropSidecarKindUnknown,
+    InteropSidecarMissing,
     InteropSidecarPathInvalid,
     InteropSidecarPhase1Locked,
     InteropSidecarUnlistedFile,
@@ -222,6 +223,7 @@ impl VerificationFailureKind {
                 "interop_sidecar_derivation_version_unknown"
             }
             Self::InteropSidecarKindUnknown => "interop_sidecar_kind_unknown",
+            Self::InteropSidecarMissing => "interop_sidecar_missing",
             Self::InteropSidecarPathInvalid => "interop_sidecar_path_invalid",
             Self::InteropSidecarPhase1Locked => "interop_sidecar_phase_1_locked",
             Self::InteropSidecarUnlistedFile => "interop_sidecar_unlisted_file",
@@ -441,6 +443,7 @@ mod wire_taxonomy_tests {
                 InteropSidecarContentMismatch,
                 InteropSidecarDerivationVersionUnknown,
                 InteropSidecarKindUnknown,
+                InteropSidecarMissing,
                 InteropSidecarPathInvalid,
                 InteropSidecarPhase1Locked,
                 InteropSidecarUnlistedFile,

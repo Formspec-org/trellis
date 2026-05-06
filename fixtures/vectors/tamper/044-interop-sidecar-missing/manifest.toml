@@ -1,0 +1,16 @@
+id          = "tamper/044-interop-sidecar-missing"
+op          = "tamper"
+status      = "active"
+description = """Wave 31 — `interop_sidecar_missing`. Manifest lists one `c2pa-manifest@v1` entry with a valid `content_digest`, but the referenced `interop-sidecars/c2pa-manifest/cert-wave25-001.c2pa` member is absent from the export ZIP. Phase-1 verifier emits `tamper_kind = "interop_sidecar_missing"` before digest recomputation. Anchors TR-CORE-168 (listed-file presence gate)."""
+
+[coverage]
+tr_core = ["TR-CORE-168"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = false
+integrity_verified   = false
+readability_verified = false
+tamper_kind          = "interop_sidecar_missing"

@@ -148,14 +148,16 @@ TAMPER_KIND_ENUM = frozenset({
     # Interop-sidecar dispatched-verifier failure surfaces (Core §19.1 / §18.3a;
     # ADR 0008 §"Phase-1 verifier obligation"). Wave 25 activates the
     # `c2pa-manifest@v1` kind: path-(b) digest-binds only, no `source_ref`
-    # resolution. Fixtures: tamper/037..040 (4 of 5 — `interop_sidecar_path_invalid`
-    # is Rust unit-test-only: predicate + `verify_interop_sidecars` dispatch). The corpus is a subset of the enum, so
-    # reserved-without-fixture is allowed (R13 corpus-subset rule).
+    # resolution. Fixtures: tamper/037..040 + tamper/044 (5 of 6 —
+    # `interop_sidecar_path_invalid` is Rust unit-test-only: predicate +
+    # `verify_interop_sidecars` dispatch). The corpus is a subset of the
+    # enum, so reserved-without-fixture is allowed (R13 corpus-subset rule).
     "interop_sidecar_content_mismatch",          # TR-CORE-163; tamper/037.
     "interop_sidecar_kind_unknown",              # TR-CORE-164; tamper/038.
     "interop_sidecar_unlisted_file",             # TR-CORE-165; tamper/039.
     "interop_sidecar_derivation_version_unknown",# TR-CORE-166; tamper/040.
     "interop_sidecar_path_invalid",              # TR-CORE-167; trellis-verify unit tests (no tamper ZIP).
+    "interop_sidecar_missing",                   # TR-CORE-168; tamper/044.
 })
 
 
