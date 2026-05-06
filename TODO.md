@@ -108,7 +108,7 @@ downstream consumer in the WOS `bundle.schema.json` shape when activated.
     [`COMPLETED.md`](COMPLETED.md) *on the next doc batch if not already present.*
 
 2. **Verify-engine dedup — CBOR helpers, utility functions, error-type enums**
-    — **M**.
+    — **M**. **Closed** (Wave 32, 2026-05-06).
     *Three dedup concerns; can land independently.*
     + [x] CBOR map-lookup helpers (`map_lookup_bytes`, `map_lookup_u64`,
       `map_lookup_fixed_bytes`, etc.) duplicated across `trellis-cddl:242-327`,
@@ -130,9 +130,14 @@ downstream consumer in the WOS `bundle.schema.json` shape when activated.
     + [x] Post-dedup review: `decode_value` routes CBOR helper errors through
       `From<CborHelperError>`; `kinds.rs` unit tests lock wire strings for every
       `VerificationFailureKind` plus `VerifyErrorKind` bridge parity.
+    Closed evidence: shared `trellis-types` CBOR helpers and digest helpers are
+    consumed by CDDL / verify / conformance / interop crates; structured
+    `VerifyErrorKind` / `VerificationFailureKind` values are exported with
+    wire-string parity tests; `VerifyEventSetOptions` replaced the broad
+    argument list.
 
 3. **Verify-engine allocation hygiene — `.clone()` reduction + re-decode
-    elimination** — **M**.
+    elimination** — **M**. **Closed** (Wave 32, 2026-05-06).
     *Performance-correctness refactor.*
     + [x] 86 `.clone()` calls in the verify hot path; notable patterns clone
       entire `ErasureEvidenceDetails`, `CertificateDetails`,
@@ -157,9 +162,11 @@ downstream consumer in the WOS `bundle.schema.json` shape when activated.
       context to assertion failures. (Same pain called out in the 2026-05-05
       verify-engine dedup code review; lands with this hygiene pass.)
       *(Per-fixture thread-local + contextual panics in shared helpers.)*
-    *Merge hygiene: when splitting work into PRs, keep kinds/CBOR dedup (§2)
-    and §3 allocation hygiene in **separate commits** so `git bisect` stays
-    tractable.*
+    Closed evidence: decoded extension payloads are moved into collectors where
+    possible, certificate / user-content finalizers consume `EventDetails`
+    lookup pools instead of re-decoding the main pass, `VerificationReport`
+    has one shared integrity fold, and conformance panics include fixture
+    labels.
 
 4. **Cross-crate constant dedup + CLI parameterization + COSE named constants**
     — **S**. **Closed** (2026-05-05).

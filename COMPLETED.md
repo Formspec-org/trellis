@@ -18,6 +18,32 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 32 (2026-05-06) — TODO #2/#3 verify-engine hygiene closeout
+
+Closes Trellis TODO items #2 and #3 as a docs-only evidence sweep. The
+implementation had already landed across the recent verify-engine refactor
+train; the live TODO rows still showed as open despite every subtask being
+checked off.
+
+Evidence:
+- #2 dedup: `trellis-types` now owns CBOR map helpers, `decode_cbor_value`,
+  `checkpoint_digest`, `sha256_bytes`, and the idempotency-key bound helper;
+  CDDL, verify, conformance, stores, and interop crates consume those helpers.
+  `VerifyErrorKind` / `VerificationFailureKind` replace stringly typed public
+  error discriminants, and parity tests lock their wire strings.
+- #2 API shape: `VerifyEventSetOptions` replaced the broad
+  `verify_event_set_with_classes` parameter list.
+- #3 allocation / decode hygiene: the main verify pass stores decoded
+  `EventDetails`, finalizers consume lookup pools instead of re-decoding the
+  same events, extension payload collectors move values where practical, and
+  `VerificationReport::integrity_verified_from_parts` centralizes the integrity
+  fold.
+- #3 conformance diagnostics: vector failures now include fixture-local
+  context instead of bare unwrap panics.
+
+Verification: docs-only closeout after the Wave 31 validation batch; no code
+changed in this wave.
+
 ### Wave 31 (2026-05-06) — TODO #30 interop sidecar missing-vs-mismatch split
 
 Closes Trellis TODO item #30 by separating sidecar packaging omission from
