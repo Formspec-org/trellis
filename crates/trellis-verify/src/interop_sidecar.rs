@@ -7,7 +7,8 @@ use trellis_types::{
 };
 
 use super::{
-    INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS, INTEROP_SIDECAR_KIND_C2PA_MANIFEST,
+    INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS,
+    INTEROP_SIDECAR_DID_KEY_VIEW_SUPPORTED_VERSIONS, INTEROP_SIDECAR_KIND_C2PA_MANIFEST,
     INTEROP_SIDECAR_KIND_DID_KEY_VIEW, INTEROP_SIDECAR_KIND_SCITT_RECEIPT,
     INTEROP_SIDECAR_KIND_VC_JOSE_COSE_EVENT, INTEROP_SIDECARS_PATH_PREFIX,
 };
@@ -24,8 +25,8 @@ pub(crate) fn is_interop_sidecar_path_valid(path: &str) -> bool {
     path.starts_with(INTEROP_SIDECARS_PATH_PREFIX)
 }
 
-/// ADR 0008 §"Phase-1 verifier obligation" — Wave 25 dispatched
-/// verifier (path-(b): digest-binds only). Walks
+/// ADR 0008 §"Phase-1 verifier obligation" — dispatched verifier
+/// (path-(b): digest-binds only). Walks
 /// `manifest.interop_sidecars` and the on-disk `interop-sidecars/`
 /// tree and produces one outcome per dispatched-kind entry. Fatal
 /// short-circuits return a `VerificationReport::fatal` via the `Err`
@@ -35,7 +36,7 @@ pub(crate) fn is_interop_sidecar_path_valid(path: &str) -> bool {
 /// Failure dispatch order (per ADR 0008 §"Phase-1 verifier obligation"
 /// step 2): kind-registered → derivation-version-supported →
 /// path-prefix-valid → phase-1-lock-off (`interop_sidecar_phase_1_locked`
-/// for the three still-locked kinds) → content-digest-match. Files-on-disk
+/// for still-locked kinds) → content-digest-match. Files-on-disk
 /// that are not manifest-listed → `interop_sidecar_unlisted_file` (after
 /// manifest walk completes; closes the smuggled-sidecar attack surface).
 /// For each manifest entry, checks run in this order; the verifier returns
@@ -150,16 +151,15 @@ pub(crate) fn verify_interop_sidecars(
             ));
         }
 
-        // Step 2.b (derivation-version-supported) — TR-CORE-166. Wave
-        // 25 supports `c2pa-manifest@v1` only; other registered kinds
-        // are still locked-off so their version set is empty.
+        // Step 2.b (derivation-version-supported) — TR-CORE-166. An
+        // empty supported-version set means the registered kind remains
+        // locked off and skips version rejection until Step 2.d.
         let supported_versions: &[u8] = match kind.as_str() {
             INTEROP_SIDECAR_KIND_C2PA_MANIFEST => INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS,
+            INTEROP_SIDECAR_KIND_DID_KEY_VIEW => INTEROP_SIDECAR_DID_KEY_VIEW_SUPPORTED_VERSIONS,
             _ => &[],
         };
-        if !supported_versions.contains(&derivation_version)
-            && kind == INTEROP_SIDECAR_KIND_C2PA_MANIFEST
-        {
+        if !supported_versions.is_empty() && !supported_versions.contains(&derivation_version) {
             return Err(VerificationReport::fatal(
                 VerificationFailureKind::InteropSidecarDerivationVersionUnknown,
                 format!(
@@ -180,12 +180,12 @@ pub(crate) fn verify_interop_sidecars(
             ));
         }
 
-        // Step 2.d (Phase-1 lock-off — three locked kinds short-circuit
-        // here AFTER passing structural checks, so a fixture
-        // mis-listing kind+path under a still-locked kind surfaces the
-        // dominant `interop_sidecar_phase_1_locked` failure rather than
-        // a structural one). Wave 25 unlocks `c2pa-manifest@v1` only.
-        let phase_1_locked = !matches!(kind.as_str(), INTEROP_SIDECAR_KIND_C2PA_MANIFEST);
+        // Step 2.d (Phase-1 lock-off — locked kinds short-circuit here
+        // AFTER passing structural checks, so a fixture mis-listing
+        // kind+path under a still-locked kind surfaces the dominant
+        // `interop_sidecar_phase_1_locked` failure rather than a
+        // structural one).
+        let phase_1_locked = supported_versions.is_empty();
         if phase_1_locked {
             return Err(VerificationReport::fatal(
                 VerificationFailureKind::InteropSidecarPhase1Locked,

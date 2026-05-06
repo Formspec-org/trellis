@@ -1816,6 +1816,9 @@ dependencies = [
 [[package]]
 name = "trellis-interop-did"
 version = "0.1.0"
+dependencies = [
+ "trellis-types",
+]
 
 [[package]]
 name = "trellis-interop-scitt"

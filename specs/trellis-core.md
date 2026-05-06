@@ -1346,14 +1346,14 @@ The manifest binds every other archive member by digest. A verifier MUST check t
 
 **Interop sidecars (§18.3a).** `interop_sidecars` is reserved under ADR 0003
 lock-off discipline. The reservation is **partially active** in Phase 1:
-the `c2pa-manifest@v1` kind dispatches to per-entry verification (Wave 25;
-ADR 0008 §"Phase-1 verifier obligation"); the three remaining registered
-kinds (`scitt-receipt`, `vc-jose-cose-event`, `did-key-view`) are still
+`c2pa-manifest@v1` (Wave 25) and `did-key-view@v1` (Wave 29) dispatch to
+per-entry verification (ADR 0008 §"Phase-1 verifier obligation"); the two
+remaining registered kinds (`scitt-receipt`, `vc-jose-cose-event`) are still
 locked off pending their per-kind triggers. Phase-1 verifiers receiving a
-populated entry under any of the three locked kinds MUST fail with
+populated entry under either locked kind MUST fail with
 `interop_sidecar_phase_1_locked`. Phase-1 verifiers receiving a populated
-`c2pa-manifest@v1` entry MUST run path-(b) verification: digest-binds only,
-no `source_ref` resolution; failure surfaces are
+`c2pa-manifest@v1` or `did-key-view@v1` entry MUST run path-(b) verification:
+digest-binds only, no `source_ref` resolution; failure surfaces are
 `interop_sidecar_content_mismatch`,
 `interop_sidecar_kind_unknown`,
 `interop_sidecar_unlisted_file`,
@@ -2059,7 +2059,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `user_content_attestation_key_not_active` | 6d step 6 | `signing_kid` resolves to a `KeyEntry` whose `kind` is not `signing` or whose lifecycle state at `attested_at` is not `Active` (`Rotating` not admitted until rotation-grace ratifies) (ADR 0010 §"Verifier obligations" step 6). |
 | `user_content_attestation_id_collision` | 6d step 7 | Two `trellis.user-content-attestation.v1` events in scope share `attestation_id` with disagreeing canonical payload (ADR 0010 §"Verifier obligations" step 7; fail-closed). |
 | `user_content_attestation_operator_in_user_slot` | 6d step 8 | An `attestor` URI resolves to a principal class registered as `operator` per Companion §6.4; user-content attestations are user-actor-only, operator attestations belong in §A.5's `Attestation` shape (ADR 0010 §"Verifier obligations" step 8). |
-| `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` lists an entry under one of the three Phase-1-locked kinds (`scitt-receipt`, `vc-jose-cose-event`, `did-key-view`); ADR 0008 ISC-04 / ADR 0003 lock-off. The `c2pa-manifest@v1` kind dispatches to per-entry verification (Wave 25) and does NOT raise this code. |
+| `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` lists an entry under one of the Phase-1-locked kinds (`scitt-receipt`, `vc-jose-cose-event`); ADR 0008 ISC-04 / ADR 0003 lock-off. `c2pa-manifest@v1` (Wave 25) and `did-key-view@v1` (Wave 29) dispatch to per-entry verification and do NOT raise this code. |
 | `interop_sidecar_content_mismatch` | 3.f / interop check | Recomputed SHA-256 over the file at `interop_sidecars[i].path` does not equal the manifest's `interop_sidecars[i].content_digest` (digest preimage under domain tag `trellis-content-v1`). ADR 0008 ISC-03 / §"Phase-1 verifier obligation" step 2. |
 | `interop_sidecar_kind_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].kind` is not in the ADR 0008 closed registry (`scitt-receipt`, `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`). ADR 0008 ISC-04. |
 | `interop_sidecar_unlisted_file` | 3.f / interop check | A file is present under `interop-sidecars/` in the export ZIP but is not catalogued in `manifest.interop_sidecars`. ADR 0008 ISC-03 / §"Export bundle layout". |
@@ -2708,7 +2708,8 @@ ExportManifestHashPreimage = {
   manifest_payload: ExportManifestPayload,
 }
 
-; Reserved under ADR 0003 discipline; Phase-1 producers emit null or [].
+; Reserved under ADR 0003 discipline; producers without an active adapter
+; emit null or [].
 InteropSidecarEntry = {
   kind:               "scitt-receipt" /
                       "vc-jose-cose-event" /
@@ -2849,7 +2850,8 @@ CertificateOfCompletionOutcome = {
 ; Interop-sidecar per-entry verification outcome (§18.3a / ADR 0008).
 ; One entry per `interop_sidecars[i]` declared in the manifest, in
 ; manifest-listed order. Phase-1 verifiers populate this when at least
-; one entry is dispatched (`c2pa-manifest@v1`); empty otherwise.
+; one entry is dispatched (`c2pa-manifest@v1`, `did-key-view@v1`);
+; empty otherwise.
 InteropSidecarVerificationEntry = {
   kind:                 tstr,
   path:                 tstr,
@@ -3090,7 +3092,7 @@ Core traceability rows:
 - TR-CORE-140, TR-CORE-141, TR-CORE-142, TR-CORE-143
 - TR-CORE-145 (interop sidecar envelope reservation; ADR 0008)
 - TR-CORE-158, TR-CORE-159, TR-CORE-160, TR-CORE-161, TR-CORE-162 (Core §17 idempotency wire-contract)
-- TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167 (Core §18.3a interop-sidecar dispatched-verifier obligations; Wave 25 / ADR 0008)
+- TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29 / ADR 0008)
 
 ## 31. References
 

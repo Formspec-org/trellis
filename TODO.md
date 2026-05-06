@@ -33,8 +33,9 @@ Ordered by `Importance × Debt`. Each item names its prerequisite inline.
 in [`/PLANNING.md`](../PLANNING.md). Items 10-15 + 22-30 cite parent rows;
 items 1-9 + 16-21 + 31 are Trellis-internal envelope/verifier discipline
 with no parent counterpart. **#1** (verify decomposition / layout) is **closed**;
-**#2–#5** surfaced from the 2026-05-05 codebase audit (dedup, allocation hygiene,
-constant hygiene). The MVP-foundation cluster (PLN-0331..0349) consumes
+**#2–#4** surfaced from the 2026-05-05 codebase audit (dedup, allocation hygiene,
+constant hygiene); **#5** is the now-closed ADR 0008 `did-key-view` unlock. The
+MVP-foundation cluster (PLN-0331..0349) consumes
 `trellis-cose` / `trellis-verify` downstream — keep the public APIs stable for
 composition. Cross-submodule Cargo path-dep posture is parent **PLN-0368**;
 Trellis complies with the chosen pattern when it lands.
@@ -74,6 +75,27 @@ parent [`work-spec/TODO.md`](../work-spec/TODO.md) **#66** and
 **WS-011**, **WS-074–WS-075** (plus **WS-072** for ADR 0066 server surfaces
 once ratified). Items **#14** (ADR 0066) and **#19** (case ledger) may later
 consume amended responses.
+
+**Cross-repo pointer — ADR 0082 (Stack Public REST API Contract, accepted
+2026-05-05):** no Trellis-center tasks. The WOS public REST API authored
+this cycle composes Trellis at three seams without changing Trellis bytes:
+(1) `bundle.schema.json` exposes `GET /api/v1/bundles/{urn}/download`
+streaming Trellis Core §18 export-package bytes verbatim
+(`Content-Type: application/cbor`); `Bundle.certificateOfCompletionDigest`
+references Trellis ADR 0007's `presentation_artifact.content_hash`;
+(2) `audit.schema.json` `AuditAttestationView` composes with item **#11**
+PLN-0381 identity-attestation bundle shape — projection-only, the canonical
+identity-attestation home stays Trellis-side; (3) parent **PLN-0408**
+adds a `bundle-completed` literal to `NotificationType` so consumers
+discover Trellis bundle completion via the notification feed instead of
+polling. New parent **PLN-0407** + **PLN-0408** rows are WOS-API-internal;
+new parent **PLN-0401** (utoipa) / **PLN-0402** (legacy-route deletion) /
+**PLN-0405** (portal regen) / **PLN-0406** (Rust `ProvenanceKind` enum
+extension) carry the implementation residue. Item **#23** (ADR 0070
+`CommitAttemptFailure`) gains a typed downstream consumer in
+`EventSubmissionResponse.correlationGroupResult` once 0070 ratifies.
+Item **#28** (tenant-scope export, parent **PLN-0392**) gains a clearer
+downstream consumer in the WOS `bundle.schema.json` shape when activated.
 
 1. **`trellis-verify` decomposition + crate hygiene** — **L**. **Closed**
     (2026-05-05). Multi-module layout under `crates/trellis-verify/src/` (`types`,
@@ -155,13 +177,21 @@ consume amended responses.
       (map-3, array-4, tag-18). Name as constants or use `encode_major_len`
       from `trellis_types`.
 
-5. **`did-key-view` adapter — execute per ADR 0008** — **XS**.
+5. **`did-key-view` adapter — execute per ADR 0008** — **Closed** (Wave 29,
+    2026-05-05).
     *Co-lands with ADR 0006 (closed Wave 17 — prerequisite met).* Implements
     `trellis-interop-did` as a one-way labeling view mapping each signing-class
     `kid` to its `did:key` rendering under the Ed25519 multicodec. No signing,
     no network, no verification-behavior change (the `did:key` IS the public
     key). Unlocks the `did-key-view` kind. Non-signing key classes are out of
     scope; a `did-tenant-root-view` or similar gets a separate ADR.
+    + [x] `trellis-interop-did` parses legacy `SigningKeyEntry` and ADR 0006
+      `KeyEntrySigning` registry rows, skips non-signing `KeyEntry` rows,
+      rejects duplicate signing `kid` values / non-Ed25519 suites, and emits
+      byte-stable compact JSON sorted by `kid`.
+    + [x] `trellis-verify` admits manifest-listed `did-key-view@v1` through the
+      existing path-(b) digest-binding path; it does not parse DID JSON, perform
+      network resolution, or resolve `source_ref`.
 
 6. **Key-rotation grace-window semantics** — **XS**.
     *Land proactively or with the first production rotation.* Core §8.4

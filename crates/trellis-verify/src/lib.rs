@@ -167,11 +167,14 @@ const INTEROP_SIDECAR_KIND_VC_JOSE_COSE_EVENT: &str = "vc-jose-cose-event";
 /// raw bytes; no normalization.
 const INTEROP_SIDECARS_PATH_PREFIX: &str = "interop-sidecars/";
 
-/// Wave 25: `c2pa-manifest@v1` is the only dispatched kind/version
-/// today. Bumping the supported set is a wire-breaking event per
-/// ISC-06; bumps land in this constant + the ADR + a new
-/// `derivation_version = 2` test suite, in lockstep.
+/// Wave 25: `c2pa-manifest@v1` dispatches to the digest-binding path.
+/// Bumping the supported set is a wire-breaking event per ISC-06; bumps
+/// land in this constant + the ADR + a new `derivation_version = 2`
+/// test suite, in lockstep.
 const INTEROP_SIDECAR_C2PA_MANIFEST_SUPPORTED_VERSIONS: &[u8] = &[1];
+
+/// Wave 29: `did-key-view@v1` dispatches to the same digest-binding path.
+const INTEROP_SIDECAR_DID_KEY_VIEW_SUPPORTED_VERSIONS: &[u8] = &[1];
 
 impl std::error::Error for VerifyError {}
 

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use ciborium::Value;
 use trellis_cddl::parse_ed25519_cose_key;
+use trellis_types::{CONTENT_DOMAIN, domain_separated_sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
@@ -92,6 +93,100 @@ fn verify_interop_sidecars_rejects_manifest_path_outside_interop_tree() {
         VerificationFailureKind::InteropSidecarPathInvalid,
         "must not reach digest check (empty archive would otherwise be content_mismatch)"
     );
+}
+
+/// ADR 0008 happy path: `c2pa-manifest@v1` with valid prefix and matching
+/// `content_digest` under `trellis-content-v1` (TR-CORE-163).
+#[test]
+fn verify_interop_sidecars_accepts_c2pa_manifest_with_matching_digest() {
+    const PATH: &str = "interop-sidecars/c2pa-manifest/cert-ok.c2pa";
+    let sidecar_bytes = b"synthetic-c2pa-payload".to_vec();
+    let digest = domain_separated_sha256(CONTENT_DOMAIN, &sidecar_bytes);
+
+    let entry = Value::Map(vec![
+        (
+            Value::Text("kind".into()),
+            Value::Text("c2pa-manifest".into()),
+        ),
+        (Value::Text("path".into()), Value::Text(PATH.into())),
+        (
+            Value::Text("derivation_version".into()),
+            Value::Integer(1u64.into()),
+        ),
+        (
+            Value::Text("content_digest".into()),
+            Value::Bytes(digest.to_vec()),
+        ),
+        (
+            Value::Text("source_ref".into()),
+            Value::Text("urn:trellis:test:ref".into()),
+        ),
+    ]);
+    let manifest_map = vec![(
+        Value::Text("interop_sidecars".into()),
+        Value::Array(vec![entry]),
+    )];
+
+    let mut members = BTreeMap::new();
+    members.insert(PATH.to_string(), sidecar_bytes);
+    let archive = export_archive_for_tests(members);
+
+    let outcomes = verify_interop_sidecars(&manifest_map, &archive).expect("interop ok path");
+    assert_eq!(outcomes.len(), 1);
+    assert!(outcomes[0].content_digest_ok);
+    assert!(outcomes[0].kind_registered);
+    assert!(!outcomes[0].phase_1_locked);
+    assert!(outcomes[0].failures.is_empty());
+    assert_eq!(outcomes[0].path, PATH);
+    assert_eq!(outcomes[0].derivation_version, 1);
+}
+
+/// ADR 0008 happy path: `did-key-view@v1` uses the same Phase-1
+/// digest-binding verifier path as `c2pa-manifest@v1` (TR-CORE-163).
+#[test]
+fn verify_interop_sidecars_accepts_did_key_view_with_matching_digest() {
+    const PATH: &str = "interop-sidecars/did-key-view/signing-keys.json";
+    let sidecar_bytes =
+        br#"{"version":1,"derivation_version":1,"suite_id":1,"entries":[]}"#.to_vec();
+    let digest = domain_separated_sha256(CONTENT_DOMAIN, &sidecar_bytes);
+
+    let entry = Value::Map(vec![
+        (
+            Value::Text("kind".into()),
+            Value::Text("did-key-view".into()),
+        ),
+        (Value::Text("path".into()), Value::Text(PATH.into())),
+        (
+            Value::Text("derivation_version".into()),
+            Value::Integer(1u64.into()),
+        ),
+        (
+            Value::Text("content_digest".into()),
+            Value::Bytes(digest.to_vec()),
+        ),
+        (
+            Value::Text("source_ref".into()),
+            Value::Text("urn:trellis:signing-key-registry".into()),
+        ),
+    ]);
+    let manifest_map = vec![(
+        Value::Text("interop_sidecars".into()),
+        Value::Array(vec![entry]),
+    )];
+
+    let mut members = BTreeMap::new();
+    members.insert(PATH.to_string(), sidecar_bytes);
+    let archive = export_archive_for_tests(members);
+
+    let outcomes = verify_interop_sidecars(&manifest_map, &archive).expect("interop ok path");
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].kind, "did-key-view");
+    assert_eq!(outcomes[0].path, PATH);
+    assert_eq!(outcomes[0].derivation_version, 1);
+    assert!(outcomes[0].content_digest_ok);
+    assert!(outcomes[0].kind_registered);
+    assert!(!outcomes[0].phase_1_locked);
+    assert!(outcomes[0].failures.is_empty());
 }
 
 fn rebuild_export_zip(template: &[u8], overrides: &[(&str, &[u8])], omit: &[&str]) -> Vec<u8> {

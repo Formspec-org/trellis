@@ -166,11 +166,17 @@ pub struct VerificationReport {
     /// step 9). One entry per `trellis.user-content-attestation.v1`
     /// payload in scope, in chain order.
     pub user_content_attestations: Vec<UserContentAttestationOutcome>,
-    /// ADR 0008 / Core §18.3a interop-sidecar outcomes (Wave 25). One
-    /// entry per dispatched manifest entry; empty when manifest carries
-    /// no `interop_sidecars` or only locked-off kinds (lock-off raises
-    /// `tamper_kind = "interop_sidecar_phase_1_locked"` via
-    /// `event_failures` and short-circuits before this slice fills).
+    /// ADR 0008 / Core §18.3a interop-sidecar outcomes. Filled only
+    /// when `interop_sidecar::verify_interop_sidecars` returns `Ok`: one
+    /// entry per manifest `interop_sidecars[]` row that passes dispatch
+    /// (today: successful `c2pa-manifest@v1` and `did-key-view@v1`
+    /// rows). When that helper returns
+    /// `Err(VerificationReport::fatal(..))`—path invalid, digest
+    /// mismatch, Phase-1 lock-off, unlisted file, etc.—the export
+    /// verifier returns that report immediately and this vector stays
+    /// empty; see `event_failures` on that returned report. Absent or
+    /// null `interop_sidecars` in the manifest yields `Ok` with an empty
+    /// vector.
     pub interop_sidecars: Vec<InteropSidecarVerificationEntry>,
     pub warnings: Vec<String>,
 }
