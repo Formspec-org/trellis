@@ -1,0 +1,30 @@
+id          = "tamper/043-uca-rotating-after-valid-to"
+op          = "tamper"
+status      = "active"
+description = """Core §8.4 rotation-grace boundary violation: `signing_kid` resolves to a signing key with `status = 1` (Rotating), `valid_from` before `attested_at`, and `valid_to` before `attested_at`. `Rotating` is admitted only inside the declared overlap window; after `valid_to`, UCA step 6 flips `key_active = false` and emits `user_content_attestation_key_not_active`."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-035",
+    "TR-CORE-156",
+]
+tr_op = [
+    "TR-OP-133",
+]
+
+[inputs]
+ledger               = "input-tampered-ledger.cbor"
+tampered_event       = "input-tampered-event.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "user_content_attestation_key_not_active"
+failing_event_id     = "8f5f7e7c179e289d1554972fc35d482234a48b096b02efaebed164f4f340a3e2"
+
+[derivation]
+document = "derivation.md"

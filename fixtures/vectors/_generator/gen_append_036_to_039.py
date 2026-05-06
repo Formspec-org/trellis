@@ -24,7 +24,8 @@ The Phase-1 reference verifier admits the byte shape unconditionally at
 decode time (steps 1 + 2 partial). Chain-position / identity resolution
 (steps 3 / 4) and signature verification against the registry (step 5)
 require a multi-event ledger context — those exercise via the
-`tamper/028..034` corpus and the (deferred) export-bundle vector.
+`tamper/028..034` corpus, the rotation boundary in `tamper/043`, and
+the (deferred) export-bundle vector.
 
 All four vectors:
 

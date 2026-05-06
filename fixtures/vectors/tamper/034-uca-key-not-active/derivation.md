@@ -8,9 +8,9 @@
   `af9dff525391faa75c8e8da4808b1743` (registered with `status = 2` Retired per Core §28
   `SigningKeyStatus`).
 
-Per ADR 0010 §"Verifier obligations" step 6, only `Active`
-(SigningKeyStatus = 0) is admitted in Phase 1; `Rotating` (1) rides
-ratified rotation grace per ADR 0010 open question 4. The verifier flips
+Per ADR 0010 §"Verifier obligations" step 6, user-content attestations admit
+`Active` keys and `Rotating` keys only inside the declared rotation-grace
+overlap. `Retired` remains excluded from new attestations. The verifier flips
 `key_active = false` and emits
 `user_content_attestation_key_not_active` with `failing_event_id` =
 `97eace545bc383e14436d243e687d24a7d3ea51890a8ed779df7e8460fe3b291`.

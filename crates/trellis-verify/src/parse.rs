@@ -1435,6 +1435,28 @@ pub(crate) fn parse_key_registry(
             None | Some("signing") => {
                 let pubkey = bytes_array(&map_lookup_fixed_bytes(map, "pubkey", 32)?);
                 let status = map_lookup_u64(map, "status")?;
+                let valid_from: Option<TrellisTimestamp> = match map_lookup_optional_value(
+                    map,
+                    "valid_from",
+                ) {
+                    Some(Value::Array(arr)) => Some(decode_timestamp_array(arr)?),
+                    Some(Value::Null) | None => None,
+                    // `valid_from` was captured-but-unused before rotation
+                    // grace. Preserve historical snapshots that encoded it as
+                    // epoch seconds; `valid_to` stays strict because it closes
+                    // signing authority.
+                    Some(Value::Integer(i)) => Some(TrellisTimestamp {
+                        seconds: u64::try_from(*i).map_err(|_| {
+                            VerifyError::new("signing-key registry valid_from out of u64 range")
+                        })?,
+                        nanos: 0,
+                    }),
+                    Some(_) => {
+                        return Err(VerifyError::new(
+                            "signing-key registry valid_from is neither timestamp array nor null",
+                        ));
+                    }
+                };
                 let valid_to: Option<TrellisTimestamp> = match map_lookup_optional_value(
                     map, "valid_to",
                 ) {
@@ -1457,6 +1479,7 @@ pub(crate) fn parse_key_registry(
                     SigningKeyEntry {
                         public_key: pubkey,
                         status,
+                        valid_from,
                         valid_to,
                     },
                 );

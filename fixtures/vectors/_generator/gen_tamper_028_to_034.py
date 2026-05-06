@@ -27,12 +27,11 @@ land as the matching `tamper_kind` per Core §19.1:
   | 033     | 2    | user_content_attestation_intent_malformed            |
   | 034     | 6    | user_content_attestation_key_not_active              |
 
-Phase-1 reference verifier exercises Active=0, Rotating=1, Retired=2,
-Revoked=3 distinctions at the user-content-attestation step 6 surface
-(this is the first fixture corpus to gate on the SigningKeyStatus
-distinction per Core §28's `SigningKeyStatus` enum). All ADR 0010
-fixtures register the `signing_kid` with `status=0` (true Active);
-tamper/034 specifically registers `status=2` (Retired) to flip step 6.
+Phase-1 reference verifier exercises SigningKeyStatus at the
+user-content-attestation step 6 surface. Vectors 028..033 register
+the `signing_kid` with `status=0` (Active); tamper/034 specifically
+registers `status=2` (Retired) to flip step 6. The `Rotating` overlap
+boundary lands separately in tamper/043.
 """
 from __future__ import annotations
 
@@ -1251,8 +1250,9 @@ def gen_tamper_034(*, seed: bytes, pub: bytes, kid: bytes) -> bytes:
     write_bytes(out_dir, "input-tampered-ledger.cbor", ledger)
 
     # KEY MUTATION: register the kid with status=2 (Retired). Per ADR 0010
-    # §"Verifier obligations" step 6, only `Active` (status=0) is admitted;
-    # `Rotating` (1) is reserved for ratified rotation grace.
+    # §"Verifier obligations" step 6, UCA admits `Active` and bounded
+    # `Rotating` overlap only; `Retired` remains excluded from new
+    # attestations.
     # NOTE: the ENVELOPE-signing path checks status==3 (Revoked) for the
     # COSE_Sign1 envelope; status=2 (Retired) is admitted at the envelope
     # layer (historical signature). The user-content-attestation step 6
@@ -1267,10 +1267,10 @@ def gen_tamper_034(*, seed: bytes, pub: bytes, kid: bytes) -> bytes:
         description=(
             "ADR 0010 §\"Verifier obligations\" step 6 violation: "
             "`signing_kid` resolves to a registry entry with "
-            "`status = 2` (Retired). Only `Active` (status = 0) is "
-            "admitted in Phase 1 (`Rotating` is reserved pending "
-            "rotation-grace ratification per ADR 0010 open question 4 / "
-            "TODO #5). The COSE envelope verifies (envelope path admits "
+            "`status = 2` (Retired). User-content attestations admit "
+            "`Active` keys and `Rotating` keys only inside the declared "
+            "rotation-grace overlap; `Retired` remains excluded from new "
+            "attestations. The COSE envelope verifies (envelope path admits "
             "Retired for historical signatures), but the step-6 user-"
             "content-attestation key-state check flips "
             "`key_active = false` and emits "
@@ -1292,9 +1292,9 @@ def gen_tamper_034(*, seed: bytes, pub: bytes, kid: bytes) -> bytes:
   `{kid.hex()}` (registered with `status = 2` Retired per Core §28
   `SigningKeyStatus`).
 
-Per ADR 0010 §\"Verifier obligations\" step 6, only `Active`
-(SigningKeyStatus = 0) is admitted in Phase 1; `Rotating` (1) rides
-ratified rotation grace per ADR 0010 open question 4. The verifier flips
+Per ADR 0010 §\"Verifier obligations\" step 6, user-content attestations admit
+`Active` keys and `Rotating` keys only inside the declared rotation-grace
+overlap. `Retired` remains excluded from new attestations. The verifier flips
 `key_active = false` and emits
 `user_content_attestation_key_not_active` with `failing_event_id` =
 `{uca_hash.hex()}`.

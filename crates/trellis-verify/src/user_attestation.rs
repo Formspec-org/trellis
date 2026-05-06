@@ -80,6 +80,27 @@ pub(crate) fn verify_user_content_attestation_signature(
     verifying_key.verify(&signed_hash, &signature).is_ok()
 }
 
+fn signing_key_admits_user_content_attestation(
+    entry: &SigningKeyEntry,
+    attested_at: TrellisTimestamp,
+) -> bool {
+    let valid_to_ok = entry
+        .valid_to
+        .map(|valid_to| attested_at <= valid_to)
+        .unwrap_or(true);
+    match entry.status {
+        0 => valid_to_ok,
+        1 => {
+            let valid_from_ok = entry
+                .valid_from
+                .map(|valid_from| valid_from <= attested_at)
+                .unwrap_or(false);
+            valid_from_ok && valid_to_ok
+        }
+        _ => false,
+    }
+}
+
 /// ADR 0010 §"Verifier obligations" cross-event finalization. Step 1 + step 2
 /// partial (CDDL + intra-payload invariants) run in
 /// [`decode_user_content_attestation_payload`]; this pass runs steps 3
@@ -330,20 +351,7 @@ pub(crate) fn finalize_user_content_attestations(
         let key_entry = registry.get(&payload.signing_kid);
         let key_active = match key_entry {
             None => false,
-            Some(entry) => {
-                // Phase-1 SigningKeyEntry status: 0 = Active, 1 = Rotating,
-                // 2 = Retired, 3 = Revoked. Per ADR 0010 §"Verifier
-                // obligations" step 6, only `Active` is admitted until the
-                // rotation-grace overlap ratifies (open question 4 / TODO #5).
-                // Note: the registry decoder normalizes Phase-1 lifecycle
-                // to status integers per Core §8 SigningKeyStatus.
-                let active = entry.status == 0;
-                let valid_to_ok = entry
-                    .valid_to
-                    .map(|valid_to| payload.attested_at <= valid_to)
-                    .unwrap_or(true);
-                active && valid_to_ok
-            }
+            Some(entry) => signing_key_admits_user_content_attestation(entry, payload.attested_at),
         };
         if !key_active {
             outcome.key_active = false;

@@ -193,12 +193,18 @@ downstream consumer in the WOS `bundle.schema.json` shape when activated.
       existing path-(b) digest-binding path; it does not parse DID JSON, perform
       network resolution, or resolve `source_ref`.
 
-6. **Key-rotation grace-window semantics** — **XS**.
-    *Land proactively or with the first production rotation.* Core §8.4
-    enumerates `Active / Rotating / Retired / Revoked` but does not pin the
-    overlap window where both pre- and post-rotation keys verify. Companion
-    §20 prose + one boundary-crossing vector + `trellis-verify` dual-key
-    acceptance during `Rotating`.
+6. **Key-rotation grace-window semantics** — **Closed** (Wave 30,
+    2026-05-06).
+    *Landed proactively before production rotation.* Core §8.4 now pins
+    `Rotating` as a bounded new-signature authority:
+    `valid_from <= signature_time <= valid_to`, with `valid_to = null`
+    meaning the overlap is still open in the embedded snapshot. Companion
+    §20.8 OC-147 owns the operator registry-publishing obligation.
+    `trellis-verify` parses `valid_from`, admits user-content attestations
+    under `Rotating` only inside the overlap, and rejects out-of-overlap
+    `Rotating` via `user_content_attestation_key_not_active`. Boundary vector:
+    `tamper/043-uca-rotating-after-valid-to`; positive in-overlap coverage:
+    `trellis-verify` unit tests.
 
 7. **Cadence subtypes beyond height-based** — **M**.
     *Land with a non-height adopter, or proactively under fixture-corpus

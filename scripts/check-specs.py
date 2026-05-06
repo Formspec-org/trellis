@@ -130,8 +130,9 @@ TAMPER_KIND_ENUM = frozenset({
     "certificate_catalog_mismatch",
     # User-content-attestation primitive (Core §19.1 / §19 step 6d; ADR 0010).
     # Phase-1 reserved enum values; corpus vectors land alongside the ADR 0010
-    # train (`append/036..039` + `tamper/028..034`). The corpus is a subset of
-    # the enum, so reserved-without-fixture is allowed.
+    # train (`append/036..039` + `tamper/028..034`), with rotation-grace
+    # boundary coverage added at `tamper/043`. The corpus is a subset of the
+    # enum, so reserved-without-fixture is allowed.
     "user_content_attestation_timestamp_mismatch",
     "user_content_attestation_intent_malformed",
     "user_content_attestation_chain_position_mismatch",

@@ -1747,6 +1747,7 @@ fn finalize_step2_flags_registry_class_mismatch_for_signing_kid() {
         crate::SigningKeyEntry {
             public_key: [0u8; 32],
             status: 1,
+            valid_from: None,
             valid_to: None,
         },
     );
@@ -1782,6 +1783,7 @@ fn finalize_step2_accepts_matching_signing_class() {
         crate::SigningKeyEntry {
             public_key: [0u8; 32],
             status: 1,
+            valid_from: None,
             valid_to: None,
         },
     );
@@ -2572,7 +2574,7 @@ fn finalize_certificates_principal_ref_resolves_external_affirmation_via_blobs()
 // by building `UserContentAttestationDetails` test fixtures and
 // running `finalize_user_content_attestations` against synthetic
 // chain context. Byte-level vector parity rides the
-// `append/036..039` + `tamper/028..034` corpus.
+// `append/036..039` + `tamper/028..034` + `tamper/043` corpus.
 // ---------------------------------------------------------------
 
 fn user_content_details_for_test(
@@ -2815,6 +2817,111 @@ fn finalize_uca_admits_null_identity_when_posture_permits() {
             .failures
             .iter()
             .any(|f| f == "user_content_attestation_identity_required")
+    );
+}
+
+#[test]
+fn finalize_uca_accepts_rotating_key_inside_overlap() {
+    // Core §8.4 rotation grace: `Rotating` admits new user-content
+    // attestations only while `attested_at` is inside the registry-declared
+    // overlap interval.
+    let attested_at = 1_776_900_000;
+    let kid = vec![0xC0u8; 16];
+    let payload = user_content_details_for_test(
+        "uca-rotating-inside",
+        "urn:trellis:principal:applicant",
+        "urn:trellis:intent:applicant",
+        attested_at,
+        kid.clone(),
+        Some([0xBBu8; 32]),
+    );
+    let canonical_hash = [0xDD; 32];
+    let payloads = vec![(0usize, payload, canonical_hash)];
+    let mut registry = BTreeMap::new();
+    registry.insert(
+        kid,
+        crate::SigningKeyEntry {
+            public_key: [0u8; 32],
+            status: 1,
+            valid_from: Some(TrellisTimestamp {
+                seconds: attested_at - 60,
+                nanos: 0,
+            }),
+            valid_to: Some(TrellisTimestamp {
+                seconds: attested_at + 60,
+                nanos: 0,
+            }),
+        },
+    );
+    let mut event_failures = Vec::new();
+    let outcomes = crate::user_attestation::finalize_user_content_attestations(
+        &payloads,
+        &[],
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &registry,
+        None,
+        &mut event_failures,
+    );
+    assert_eq!(outcomes.len(), 1);
+    assert!(outcomes[0].key_active);
+    assert!(
+        !outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "user_content_attestation_key_not_active")
+    );
+}
+
+#[test]
+fn finalize_uca_rejects_rotating_key_after_overlap() {
+    // A `Rotating` row is not an indefinite new-signature authority. After
+    // `valid_to`, UCA step 6 fails with `key_not_active`.
+    let attested_at = 1_776_900_000;
+    let kid = vec![0xC0u8; 16];
+    let payload = user_content_details_for_test(
+        "uca-rotating-after",
+        "urn:trellis:principal:applicant",
+        "urn:trellis:intent:applicant",
+        attested_at,
+        kid.clone(),
+        Some([0xBBu8; 32]),
+    );
+    let canonical_hash = [0xDD; 32];
+    let payloads = vec![(0usize, payload, canonical_hash)];
+    let mut registry = BTreeMap::new();
+    registry.insert(
+        kid,
+        crate::SigningKeyEntry {
+            public_key: [0u8; 32],
+            status: 1,
+            valid_from: Some(TrellisTimestamp {
+                seconds: attested_at - 120,
+                nanos: 0,
+            }),
+            valid_to: Some(TrellisTimestamp {
+                seconds: attested_at - 1,
+                nanos: 0,
+            }),
+        },
+    );
+    let mut event_failures = Vec::new();
+    let outcomes = crate::user_attestation::finalize_user_content_attestations(
+        &payloads,
+        &[],
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &registry,
+        None,
+        &mut event_failures,
+    );
+    assert_eq!(outcomes.len(), 1);
+    assert!(!outcomes[0].key_active);
+    assert!(
+        outcomes[0]
+            .failures
+            .iter()
+            .any(|f| f == "user_content_attestation_key_not_active")
     );
 }
 

@@ -498,6 +498,8 @@ Legal `status` transitions:
 
 `Revoked` is terminal. `Retired` is terminal for signature issuance but not for verification of historical records. `Destroyed` is out of scope for Phase 1 signing keys (signing-key destruction is an operational action represented in the agency log, §24); the private key material MAY be destroyed, but the `SigningKeyEntry` MUST remain in the registry to preserve historical verifiability.
 
+**Rotation-grace overlap.** A `Rotating` signing key is a new-signature authority only inside the overlap interval declared by that registry entry: `valid_from <= signature_time <= valid_to`; `valid_to = null` means the overlap is still open in the embedded snapshot. Outside that interval, `Rotating` is not a new-signature authority. Verifier surfaces that validate signing-time authority, including §19 step 6d step 6 for user-content attestations, MUST apply this predicate at the attestation's signed time.
+
 The lifecycle above applies to `kind = "signing"` entries (§8.7). Non-signing classes carry their own activation/supersession discipline declared in §8.7.2; they do not use the `SigningKeyStatus` enum.
 
 ### 8.5 Registry snapshot in every export
@@ -1822,9 +1824,10 @@ VERIFY(E) -> VerificationReport
         `user_content_attestation_signature_invalid`.
      6. Validate key state at `attested_at`: the §8 KeyEntry for
         `signing_kid` MUST be class `signing` and lifecycle state
-        `Active` (or `Rotating` per ratified rotation-grace overlap;
-        until then, `Rotating` is not admitted). Wrong class or wrong
-        state flips `integrity_verified = false` with
+        `Active`, or `Rotating` inside the §8.4 rotation-grace overlap
+        (`valid_from <= attested_at <= valid_to`; `valid_to = null`
+        means the overlap is still open in the embedded snapshot). Wrong
+        class or wrong state flips `integrity_verified = false` with
         `user_content_attestation_key_not_active`.
      7. Detect collision: after decoding all user-content-attestation
         events in scope, two events sharing `attestation_id` with
@@ -2056,7 +2059,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `user_content_attestation_identity_subject_mismatch` | 6d step 4 | Resolved identity-attestation event's payload subject does not equal `attestor` (ADR 0010 §"Verifier obligations" step 4). |
 | `user_content_attestation_identity_temporal_inversion` | 6d step 4 | Resolved identity-attestation event's `sequence` is not strictly less than `attested_event_position` — identity proof MUST temporally precede the attestation (ADR 0010 §"Verifier obligations" step 4). |
 | `user_content_attestation_signature_invalid` | 6d step 5 | `UserContentAttestationPayload.signature` does not verify under domain tag `trellis-user-content-attestation-v1` (§9.8) over the §28 preimage with the `signing_kid` public key (ADR 0010 §"Verifier obligations" step 5). |
-| `user_content_attestation_key_not_active` | 6d step 6 | `signing_kid` resolves to a `KeyEntry` whose `kind` is not `signing` or whose lifecycle state at `attested_at` is not `Active` (`Rotating` not admitted until rotation-grace ratifies) (ADR 0010 §"Verifier obligations" step 6). |
+| `user_content_attestation_key_not_active` | 6d step 6 | `signing_kid` resolves to a `KeyEntry` whose `kind` is not `signing` or whose lifecycle state at `attested_at` is neither `Active` nor `Rotating` inside the §8.4 rotation-grace overlap (ADR 0010 §"Verifier obligations" step 6). |
 | `user_content_attestation_id_collision` | 6d step 7 | Two `trellis.user-content-attestation.v1` events in scope share `attestation_id` with disagreeing canonical payload (ADR 0010 §"Verifier obligations" step 7; fail-closed). |
 | `user_content_attestation_operator_in_user_slot` | 6d step 8 | An `attestor` URI resolves to a principal class registered as `operator` per Companion §6.4; user-content attestations are user-actor-only, operator attestations belong in §A.5's `Attestation` shape (ADR 0010 §"Verifier obligations" step 8). |
 | `interop_sidecar_phase_1_locked` | 3.f / interop check | Manifest `interop_sidecars` lists an entry under one of the Phase-1-locked kinds (`scitt-receipt`, `vc-jose-cose-event`); ADR 0008 ISC-04 / ADR 0003 lock-off. `c2pa-manifest@v1` (Wave 25) and `did-key-view@v1` (Wave 29) dispatch to per-entry verification and do NOT raise this code. |
@@ -2883,7 +2886,7 @@ UserContentAttestationPayload = {
                                                    ;   attestor, identity_attestation_ref, signing_intent,
                                                    ;   attested_at]) under tag trellis-user-content-attestation-v1
   signing_kid:              kid,                   ; §8 KeyEntry signing-class kid (bstr .size 16);
-                                                   ; MUST be Active (or Rotating per ratified rotation grace)
+                                                   ; MUST be Active or Rotating within §8.4 rotation grace
                                                    ; at attested_at; per ADR 0004 byte-authority reconciled
                                                    ; against Rust types — ADR 0010 prose draft used `tstr`
                                                    ; informally but every other kid slot in the envelope is

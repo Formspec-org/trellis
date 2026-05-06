@@ -214,8 +214,8 @@ def build_signing_key_entry(
         "pubkey": pubkey,
         "suite_id": SUITE_ID_PHASE_1,
         "status": status,
-        "valid_from": valid_from,
-        "valid_to": valid_to,
+        "valid_from": ts(valid_from),
+        "valid_to": ts(valid_to) if valid_to is not None else None,
         "supersedes": None,
         "attestation": None,
     }

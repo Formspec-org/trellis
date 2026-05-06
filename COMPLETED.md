@@ -18,6 +18,55 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 30 (2026-05-06) — TODO #6 key-rotation grace-window semantics
+
+Closes Trellis TODO item #6 by ratifying the `Rotating` signing-key
+overlap as a bounded signing-time authority, not an indefinite second
+active state.
+
+Train:
+- Core §8.4 pins the predicate: `Rotating` admits new signatures only
+  when `valid_from <= signature_time <= valid_to`; `valid_to = null`
+  means the overlap is still open in the embedded registry snapshot.
+- Core §19 step 6d step 6 and Core §28 UCA CDDL comments now admit
+  user-content attestations under `Active` or in-overlap `Rotating`
+  signing keys; `Retired`, `Revoked`, and out-of-overlap `Rotating`
+  still surface `user_content_attestation_key_not_active`.
+- Companion §20.8 OC-147 records the operator obligation to publish
+  the overlap in the registry row and not represent indefinite
+  dual-active issuance as a completed rotation. Matrix rows updated:
+  TR-CORE-156 and new TR-OP-133.
+- `trellis-verify` captures `SigningKeyEntry.valid_from`, applies the
+  rotation predicate in UCA finalization, and adds unit coverage for
+  in-overlap acceptance plus after-`valid_to` rejection.
+- Fixture corpus gains `tamper/043-uca-rotating-after-valid-to`.
+  `tamper/034-uca-key-not-active` wording was refreshed so the
+  Retired-key negative remains correct after rotation grace ratification.
+
+Verification: targeted `cargo test -p trellis-verify rotating_key`
+passed before the final validation batch.
+
+### Wave 29 (2026-05-05) — TODO #5 `did-key-view` adapter activation
+
+Closes Trellis TODO item #5 by activating ADR 0008's `did-key-view@v1`
+sidecar kind under the same digest-binding discipline as
+`c2pa-manifest@v1`.
+
+Train:
+- New `trellis-interop-did` crate parses legacy `SigningKeyEntry` and
+  ADR 0006 `KeyEntrySigning` registry rows, skips non-signing entries,
+  rejects duplicate signing `kid` values and non-Ed25519 suites, and
+  emits compact deterministic JSON sorted by `kid`.
+- `trellis-verify` admits manifest-listed `did-key-view@v1` through
+  the existing interop-sidecar path-(b) digest-binding verifier. It
+  does not parse DID JSON, resolve network identifiers, or change
+  canonical event verification behavior.
+- Core, matrix, and ADR 0008 update the active sidecar set from
+  `c2pa-manifest@v1` only to `c2pa-manifest@v1` plus
+  `did-key-view@v1`.
+
+Verification: committed in `b10b89f`.
+
 ### Wave 28 (2026-05-05) — TODO #1 panic-safety fixes
 
 Closes Trellis TODO item #1 by resolving three potential panic sites in the
@@ -508,13 +557,13 @@ limit mid-train; pickup audit caught both):
    `wos.identity.attested.v1`). Matrix TR-CORE-154 prose updated.
 
 Residue: TR-CORE-157 (idempotency-collision + operator-as-attestor)
-follow-on tampers if a corpus gap surfaces; TODO item #5
-(rotation-grace `Rotating` admission) extends step 6 when ratified;
-PLN-0381 ratification adds canonical `wos.identity.*` branch in a single
-edit to `is_identity_attestation_event_type`. Open finding flagged but
-out-of-scope: `is_operator_uri` hardcodes `urn:{trellis,wos}:operator:`
-prefixes — works today, would land properly via a Companion §6.4
-amendment naming the convention.
+follow-on tampers if a corpus gap surfaces. Rotation-grace `Rotating`
+admission is now closed by Wave 30. PLN-0381 ratification adds canonical
+`wos.identity.*` branch in a single edit to
+`is_identity_attestation_event_type`. Open finding flagged but out-of-scope:
+`is_operator_uri` hardcodes `urn:{trellis,wos}:operator:` prefixes — works
+today, would land properly via a Companion §6.4 amendment naming the
+convention.
 
 ---
 

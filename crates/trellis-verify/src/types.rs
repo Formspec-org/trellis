@@ -427,6 +427,7 @@ pub(crate) struct EventDetails {
 pub(crate) struct SigningKeyEntry {
     pub(crate) public_key: [u8; 32],
     pub(crate) status: u64,
+    pub(crate) valid_from: Option<TrellisTimestamp>,
     pub(crate) valid_to: Option<TrellisTimestamp>,
 }
 

@@ -199,6 +199,7 @@ pub fn verify_single_event(
         SigningKeyEntry {
             public_key: public_key_bytes,
             status: 0,
+            valid_from: None,
             valid_to: None,
         },
     );

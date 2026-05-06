@@ -857,6 +857,10 @@ The `Attestation` rule used by `ErasureEvidencePayload.attestations` is shared v
 
 **OC-80 (MAY).** An Operator MAY claim stronger evidentiary posture only to the extent supported by process, signature semantics, canonical append attestations, records practice, and applicable law.
 
+### 20.8 Signing-Key Rotation Grace
+
+**OC-147 (MUST).** An Operator that emits a `Rotating` signing-key registry entry MUST declare the rotation-grace overlap in the embedded registry row itself: `valid_from` is the first instant at which the old key remains accepted alongside its successor, and `valid_to` is the last instant at which that old key remains a new-signature authority. While `valid_to = null`, the overlap is still open in that registry snapshot; once the operator closes the overlap, it MUST publish a registry snapshot whose old-key row is `Retired` or `Revoked` and whose successor row is the active signing authority. The operator MUST NOT represent indefinite dual-active issuance as a completed rotation. Traceability: **TR-OP-133**.
+
 ---
 
 ## 21. Rejection Taxonomy
@@ -1875,7 +1879,7 @@ Operational traceability rows:
 - TR-OP-070, TR-OP-071, TR-OP-072, TR-OP-073, TR-OP-074
 - TR-OP-080
 - TR-OP-090, TR-OP-091, TR-OP-092
-- TR-OP-100, TR-OP-101
+- TR-OP-100, TR-OP-101, TR-OP-104, TR-OP-105, TR-OP-106, TR-OP-107, TR-OP-108, TR-OP-109, TR-OP-113, TR-OP-114, TR-OP-131, TR-OP-132, TR-OP-133
 - TR-OP-110, TR-OP-111, TR-OP-112
 - TR-OP-120, TR-OP-121, TR-OP-122
 - TR-OP-130
