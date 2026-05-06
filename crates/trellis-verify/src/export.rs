@@ -146,13 +146,11 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         }
     };
 
-    // ADR 0008 §"Phase-1 verifier obligation" — Wave 25 dispatched
-    // verifier. Path-(b): digest-binds only, no `source_ref`
-    // resolution. The `c2pa-manifest@v1` kind dispatches; the three
-    // other registered kinds (`scitt-receipt`, `vc-jose-cose-event`,
-    // `did-key-view`) remain Phase-1 locked-off and short-circuit with
-    // `interop_sidecar_phase_1_locked`. Outcomes accumulate into
-    // `interop_sidecars` for the dispatched-kind entries; lock-off,
+    // ADR 0008 §"Phase-1 verifier obligation" — dispatched verifier.
+    // Path-(b): digest-binds only, no `source_ref` resolution.
+    // `c2pa-manifest@v1` and `did-key-view@v1` dispatch; inactive
+    // registered kinds short-circuit with `interop_sidecar_phase_1_locked`.
+    // Outcomes accumulate into `interop_sidecars` for dispatched entries; lock-off,
     // unknown-kind, derivation-version-unknown, path-invalid,
     // content-mismatch, and unlisted-file all short-circuit via
     // `VerificationReport::fatal` (Core §19.1 / TR-CORE-145, 163..167).
@@ -304,7 +302,12 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 );
             }
         },
-        None => unreachable!("required member already checked"),
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ArchiveIntegrityFailure,
+                "export is missing 010-events.cbor after manifest digest verification",
+            );
+        }
     };
     let payload_blobs = archive
         .members
@@ -464,7 +467,12 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 );
             }
         },
-        None => unreachable!("required member already checked"),
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ArchiveIntegrityFailure,
+                "export is missing 040-checkpoints.cbor after manifest digest verification",
+            );
+        }
     };
 
     let mut prior_checkpoint_digest: Option<[u8; 32]> = None;
@@ -486,7 +494,15 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             );
         }
 
-        let payload_bytes = checkpoint.payload.as_ref().expect("checkpoints are inline");
+        let payload_bytes = match &checkpoint.payload {
+            Some(bytes) => bytes.as_slice(),
+            None => {
+                return VerificationReport::fatal(
+                    VerificationFailureKind::CheckpointPayloadInvalid,
+                    "checkpoint COSE payload is detached, which is out of scope for Phase 1",
+                );
+            }
+        };
         let payload = match decode_value(payload_bytes) {
             Ok(value) => value,
             Err(error) => {
@@ -607,7 +623,12 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 );
             }
         },
-        None => unreachable!("required member already checked"),
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ArchiveIntegrityFailure,
+                "export is missing 020-inclusion-proofs.cbor after manifest digest verification",
+            );
+        }
     };
     if let Some(proofs) = inclusion_map.as_map() {
         let expected_root = head_checkpoint_root.unwrap_or([0u8; 32]);
@@ -713,7 +734,12 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
                 );
             }
         },
-        None => unreachable!("required member already checked"),
+        None => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ArchiveIntegrityFailure,
+                "export is missing 025-consistency-proofs.cbor after manifest digest verification",
+            );
+        }
     };
     if let Some(records) = consistency_value.as_array() {
         for record in records {
