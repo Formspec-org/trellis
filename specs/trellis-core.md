@@ -1564,6 +1564,12 @@ VERIFY(E) -> VerificationReport
         `timestamp_order_violation` can fire for the same event.
         A backwards timestamp is a `timestamp_order_violation` integrity failure
         recorded in report.event_failures; equal timestamps are permitted.
+        If a chain has observed a
+        `wos.governance.determinationRescinded` event, any later
+        `wos.governance.determination*` event is a
+        `rescission_terminality_violation` integrity failure until an
+        intervening `wos.governance.reinstated` event reopens the chain
+        (ADR 0066 D-3; traceability: TR-CORE-171).
      i. Check payload.causal_deps is null or [] (Phase 1 strict-linear, §10.3).
      j. Resolve the RegistryBinding applicable to payload.sequence per §14.4;
         check payload.header.event_type and related fields against the bound registry.
@@ -2103,6 +2109,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `event_truncation` | 4.h | A middle event of a chain is absent; subsequent `prev_hash` values do not link. |
 | `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
 | `timestamp_order_violation` | 4.h (temporal) | A chain event's `authored_at` is strictly less than its predecessor's `authored_at` (ADR 0069 D-3). Hash chain and signatures are valid; only temporal order fails. |
+| `rescission_terminality_violation` | 4.h (governance terminality) | A `wos.governance.determination*` event appears after `wos.governance.determinationRescinded` on the same chain without an intervening `wos.governance.reinstated` event (ADR 0066 D-3). Hash chain and signatures are valid; only lifecycle terminality fails. |
 | `legacy_timestamp_format` | 4.c (payload decode) | A timestamp field is encoded as bare `uint` instead of the required `[uint, uint .le 999999999]` array (ADR 0069 D-2.1). The verifier cannot extract the field; decode-time structural rejection. |
 | `timestamp_nanos_out_of_range` | 4.c (payload decode) | A timestamp field uses the required `[seconds, nanos]` array shape but the `nanos` component exceeds `999999999` (ADR 0069 D-2.1 / Core §28 CDDL). The verifier cannot construct the timestamp; decode-time structural rejection. |
 | `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
@@ -3218,6 +3225,7 @@ Core traceability rows:
 - TR-CORE-145 (interop sidecar envelope reservation; ADR 0008)
 - TR-CORE-158, TR-CORE-159, TR-CORE-160, TR-CORE-161, TR-CORE-162 (Core §17 idempotency wire-contract)
 - TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167, TR-CORE-168 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29/31 / ADR 0008)
+- TR-CORE-169, TR-CORE-170, TR-CORE-171 (ADR 0066 supersession linkage, export graph, and rescission terminality)
 
 ## 31. References
 

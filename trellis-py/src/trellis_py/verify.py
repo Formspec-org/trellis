@@ -99,6 +99,11 @@ PRESENTATION_ARTIFACT_DOMAIN = "trellis-presentation-artifact-v1"
 WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signatureAffirmation"
 WOS_INTAKE_ACCEPTED_EVENT_TYPE = "wos.kernel.intakeAccepted"
 WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.caseCreated"
+WOS_GOVERNANCE_DETERMINATION_PREFIX = "wos.governance.determination"
+WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE = (
+    "wos.governance.determinationRescinded"
+)
+WOS_GOVERNANCE_REINSTATED_EVENT_TYPE = "wos.governance.reinstated"
 
 # ADR 0010 §6.7 registration — `EventPayload.extensions` slot for
 # user-content-attestation records.
@@ -2308,6 +2313,7 @@ def _verify_event_set(
     chain_summaries: list[_ChainEventSummary] = []
     previous_hash: Optional[bytes] = None
     previous_authored_at: Optional[TrellisTimestamp] = None
+    rescission_terminal = False
     skip_prev = initial_posture_declaration is not None and len(events) == 1
 
     # Core §17.3 — Track every (ledger_scope, idempotency_key) identity seen
@@ -2476,6 +2482,23 @@ def _verify_event_set(
 
         previous_authored_at = details.authored_at
         previous_hash = details.canonical_event_hash
+
+        # ADR 0066 D-3 / TR-CORE-171 — once a determination is rescinded,
+        # later determination-changing governance events are integrity
+        # failures until an explicit reinstatement reopens the chain.
+        if details.event_type == WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE:
+            rescission_terminal = True
+        elif details.event_type == WOS_GOVERNANCE_REINSTATED_EVENT_TYPE:
+            rescission_terminal = False
+        elif rescission_terminal and details.event_type.startswith(
+            WOS_GOVERNANCE_DETERMINATION_PREFIX
+        ):
+            event_failures.append(
+                VerificationFailure(
+                    "rescission_terminality_violation",
+                    _hex(details.canonical_event_hash),
+                )
+            )
 
         # ADR 0005 step 8 input collection — every event contributes a
         # chain summary so the post-loop pass can flag `authored_at >

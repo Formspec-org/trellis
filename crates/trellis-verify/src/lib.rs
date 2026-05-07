@@ -152,6 +152,13 @@ const WOS_INTAKE_ACCEPTED_EVENT_TYPE: &str = "wos.kernel.intakeAccepted";
 
 const WOS_CASE_CREATED_EVENT_TYPE: &str = "wos.kernel.caseCreated";
 
+const WOS_GOVERNANCE_DETERMINATION_PREFIX: &str = "wos.governance.determination";
+
+const WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE: &str =
+    "wos.governance.determinationRescinded";
+
+const WOS_GOVERNANCE_REINSTATED_EVENT_TYPE: &str = "wos.governance.reinstated";
+
 /// Reserved CascadeScope identifiers from Companion Appendix A.7. Free-text
 /// scope values are non-conformant per OC-141 (Companion §20.6.3 / TR-OP-106);
 /// registry-extension `tstr` values that follow the Appendix A.7 convention
@@ -316,6 +323,7 @@ pub(crate) fn verify_event_set_with_classes(
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
     let mut previous_authored_at: Option<TrellisTimestamp> = None;
+    let mut rescission_terminal = false;
     let skip_prev_hash_check = initial_posture_declaration.is_some() && events.len() == 1;
 
     // Core §17.3 — Track every `(ledger_scope, idempotency_key)` identity
@@ -601,6 +609,25 @@ pub(crate) fn verify_event_set_with_classes(
             ));
         }
         previous_authored_at = Some(details.authored_at);
+
+        // ADR 0066 D-3 / TR-CORE-171 — a rescinded determination is terminal
+        // until an explicit reinstatement event reopens the same chain. The
+        // verifier treats a later determination-changing governance event as
+        // integrity evidence, independent of hash and signature validity.
+        if details.event_type == WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE {
+            rescission_terminal = true;
+        } else if details.event_type == WOS_GOVERNANCE_REINSTATED_EVENT_TYPE {
+            rescission_terminal = false;
+        } else if rescission_terminal
+            && details
+                .event_type
+                .starts_with(WOS_GOVERNANCE_DETERMINATION_PREFIX)
+        {
+            event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::RescissionTerminalityViolation,
+                hex_string(&details.canonical_event_hash),
+            ));
+        }
 
         // ADR 0005 step 8 input collection — every event contributes a
         // chain summary so the post-loop pass can flag `authored_at >

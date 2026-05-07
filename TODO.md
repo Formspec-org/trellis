@@ -274,9 +274,14 @@ adopter-triggered work.
     + [x] Single-chain vectors: `append/011-correction`, `012-amendment`,
       `013-rescission` (plus `014-reinstatement` from ADR 0066's fifth-mode
       revision).
-    + [ ] Verifier **D-3:** correction-preservation; rescission-terminality
-      (any determination after `DeterminationRescinded` → integrity violation);
-      chain-linkage with byte-equal predecessor checkpoint hash.
+    + [ ] Verifier **D-3:** correction-preservation; chain-linkage with
+      byte-equal predecessor checkpoint hash.
+    + [x] Verifier **D-3 rescission terminality:** any same-chain
+      `wos.governance.determination*` event after
+      `wos.governance.determinationRescinded` is a
+      `rescission_terminality_violation` unless an intervening
+      `wos.governance.reinstated` event reopens the chain. Covered by
+      TR-CORE-171 and `tamper/050-rescission-terminality`.
     + [x] Core §18 / §19 prose + export-manifest hook:
       `ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"]`
       binds optional `064-supersession-graph.json` with `graph_digest`; TR-CORE-170

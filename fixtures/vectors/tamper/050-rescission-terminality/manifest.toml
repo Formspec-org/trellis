@@ -1,0 +1,25 @@
+id = "tamper/050-rescission-terminality"
+op = "tamper"
+status = "active"
+description = "Validly signs and hash-links a determination amendment after `wos.governance.determinationRescinded` without an intervening reinstatement. ADR 0066 D-3 requires `rescission_terminality_violation`."
+
+[coverage]
+tr_core = [
+    "TR-CORE-171",
+]
+
+[inputs]
+ledger = "input-tampered-ledger.cbor"
+tampered_event = "input-tampered-event.cbor"
+mode_record = "input-post-rescission-amendment-record.cbor"
+signing_key_registry = "input-signing-key-registry.cbor"
+
+[expected.report]
+structure_verified = true
+integrity_verified = false
+readability_verified = true
+tamper_kind = "rescission_terminality_violation"
+failing_event_id = "cdd4221c5b5bbc78c59b9a173e773cabf9eefbb491e22c9554bf11fac974042e"
+
+[derivation]
+document = "derivation.md"
