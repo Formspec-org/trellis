@@ -1,0 +1,22 @@
+id = "tamper/051-clock-calendar-mismatch"
+op = "tamper"
+status = "active"
+description = "Validly signed ADR 0067 pause/resume export whose resumed clockStarted changes calendarRef, which must fail with clock_calendar_mismatch."
+
+[coverage]
+tr_core = [
+    "TR-CORE-173",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified = true
+integrity_verified = false
+readability_verified = true
+tamper_kind = "clock_calendar_mismatch"
+failing_event_id = "a8c4f033277dc239da74741066fb60fa38e1e03028b3b32efb6dd32113272a5a"
+
+[derivation]
+document = "derivation.md"

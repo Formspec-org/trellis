@@ -116,6 +116,9 @@ SUPERSESSION_GRAPH_MEMBER = "064-supersession-graph.json"
 SUPERSESSION_PREDECESSOR_PREFIX = "070-predecessors/"
 OPEN_CLOCKS_EXPORT_EXTENSION = "trellis.export.open-clocks.v1"
 OPEN_CLOCKS_MEMBER = "open-clocks.json"
+CLOCK_STARTED_RECORD_KIND = "clockStarted"
+CLOCK_RESOLVED_RECORD_KIND = "clockResolved"
+CLOCK_RESOLUTION_PAUSED = "paused"
 # Phase-1 identity-attestation event type (test-only). Core §6.7 + §10.6
 # reserve `x-trellis-test/*` for fixture authoring; admitted by
 # `_is_identity_attestation_event_type` until PLN-0381 ratifies the canonical
@@ -3423,6 +3426,76 @@ def _verify_open_clocks(
             )
 
 
+def _parse_clock_record(payload_bytes: bytes) -> Optional[dict[str, Any]]:
+    value = _decode_value(payload_bytes)
+    if not isinstance(value, dict):
+        raise VerifyError("clock record root is not a map")
+    record_kind = str(_map_lookup_str(value, "recordKind"))
+    if record_kind not in (CLOCK_STARTED_RECORD_KIND, CLOCK_RESOLVED_RECORD_KIND):
+        return None
+    data_value = value.get("data")
+    if not isinstance(data_value, dict):
+        raise VerifyError("clock record data is not a map")
+    if record_kind == CLOCK_STARTED_RECORD_KIND:
+        calendar_ref = data_value.get("calendarRef")
+        if calendar_ref is not None and not isinstance(calendar_ref, str):
+            raise VerifyError("calendarRef must be a string or null")
+        return {
+            "recordKind": record_kind,
+            "clockId": str(_map_lookup_str(data_value, "clockId")),
+            "clockKind": str(_map_lookup_str(data_value, "clockKind")),
+            "calendarRef": calendar_ref,
+        }
+    return {
+        "recordKind": record_kind,
+        "clockId": str(_map_lookup_str(data_value, "clockId")),
+        "resolution": str(_map_lookup_str(data_value, "resolution")),
+    }
+
+
+def _verify_clock_segments(
+    events: list[ParsedSign1],
+    payload_blobs: dict[bytes, bytes],
+    report: VerificationReport,
+) -> None:
+    active: dict[str, dict[str, Any]] = {}
+    paused: dict[str, dict[str, Any]] = {}
+    for event in events:
+        try:
+            details = _decode_event_details(event)
+            payload_bytes = _readable_payload_bytes(details, payload_blobs)
+            if payload_bytes is None:
+                continue
+            clock_record = _parse_clock_record(payload_bytes)
+        except VerifyError:
+            continue
+        if clock_record is None:
+            continue
+        clock_id = clock_record["clockId"]
+        if clock_record["recordKind"] == CLOCK_STARTED_RECORD_KIND:
+            paused_segment = paused.pop(clock_id, None)
+            if paused_segment is not None and (
+                paused_segment["clockKind"] != clock_record["clockKind"]
+                or paused_segment["calendarRef"] != clock_record["calendarRef"]
+            ):
+                report.event_failures.append(
+                    VerificationFailure(
+                        "clock_calendar_mismatch", _hex(details.canonical_event_hash)
+                    )
+                )
+            active[clock_id] = {
+                "clockKind": clock_record["clockKind"],
+                "calendarRef": clock_record["calendarRef"],
+            }
+        elif clock_record["resolution"] == CLOCK_RESOLUTION_PAUSED:
+            segment = active.pop(clock_id, None)
+            if segment is not None:
+                paused[clock_id] = segment
+        else:
+            active.pop(clock_id, None)
+            paused.pop(clock_id, None)
+
+
 def _parse_certificate_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]:
     """Decodes `065-certificates-of-completion.cbor` entries (ADR 0007
     §"Export manifest catalog" `CertificateOfCompletionCatalogEntry`).
@@ -4860,6 +4933,7 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         )
     if open_clocks_ext is not None:
         _verify_open_clocks(archive, open_clocks_ext, generated_at, report)
+    _verify_clock_segments(events, payload_blobs, report)
 
     for failure in report.event_failures:
         if failure.kind == "scope_mismatch":

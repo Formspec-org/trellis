@@ -342,13 +342,19 @@ adopter-triggered work.
       parse `trellis.export.open-clocks.v1`, hash-check `open-clocks.json`,
       require catalog `sealed_at == ExportManifestPayload.generated_at`, and
       emit `open_clock_overdue:<clock_id>:<origin_event_hash>` warnings.
-    + [ ] **Verifier — D-4 composition:** walk the chain to compose pause
-      segments into cumulative duration / segment accounting.
-    + [ ] **Vectors:** `append/043-clock-started`, `044-clock-satisfied`,
-      `045-clock-elapsed`, `046-clock-paused-resumed` (+ matching export/verify
-      hooks for byte-identity CI). Parent `work-spec/TODO.md` still mentions an
-      **`018`** clock vector — sync that parent/WOS reference before authoring
-      (see **#11** vector-ID note above).
+    + [x] **Verifier — D-4 composition:** Rust and Python export verifiers
+      walk clock records in chain order, track active/paused segments by
+      `clockId`, and refuse a resumed `clockStarted` that changes `clockKind`
+      or `calendarRef` after `clockResolved(resolution="paused")` with
+      `clock_calendar_mismatch`. WOS still owns jurisdictional residual-duration
+      arithmetic; Trellis enforces the byte-level pause/resume integrity
+      invariant that keeps that arithmetic deterministic.
+    + [x] **Vectors:** `append/043-clock-started`, `044-clock-satisfied`,
+      `045-clock-elapsed`, `046-clock-paused-resumed`, plus
+      `verify/018-export-043-open-clocks` and
+      `tamper/051-clock-calendar-mismatch`. Parent `work-spec/TODO.md`
+      numbering was synced from the stale **`014–018`** note to the active
+      Trellis vector IDs.
 
 13. **External recipient lifecycle — Trellis-side ingestion** — **M**.
     *Land after parent ratifies the stack ADR per **PLN-0382**.* Privacy

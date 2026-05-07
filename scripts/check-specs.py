@@ -68,6 +68,7 @@ TAMPER_KIND_ENUM = frozenset({
     "event_reorder",
     "timestamp_order_violation",          # ADR 0069 D-3.
     "rescission_terminality_violation",   # ADR 0066 D-3; TR-CORE-171.
+    "clock_calendar_mismatch",            # ADR 0067 D-4; TR-CORE-173.
     "legacy_timestamp_format",            # ADR 0069 D-2.1 — bare uint rejected at decode.
     "timestamp_nanos_out_of_range",       # ADR 0069 D-2.1 — nanos component exceeds CDDL bound.
     "head_checkpoint_digest_mismatch",

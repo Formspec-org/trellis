@@ -22,7 +22,7 @@ use crate::merkle::{
     digest_path_from_values, merkle_leaf_hash, merkle_root, root_from_consistency_proof,
     root_from_inclusion_proof,
 };
-use crate::open_clocks::{verify_open_clocks, verify_unbound_open_clocks};
+use crate::open_clocks::{verify_clock_segments, verify_open_clocks, verify_unbound_open_clocks};
 use crate::parse::{
     decode_event_details, decode_value, event_identity, map_lookup_timestamp,
     parse_attachment_export_extension, parse_attachment_manifest_entries, parse_bound_registry,
@@ -447,6 +447,7 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     if let Some(extension) = open_clocks_extension {
         verify_open_clocks(&archive, &extension, generated_at, &mut report);
     }
+    verify_clock_segments(&events, &payload_blobs, &mut report);
     for failure in &mut report.event_failures {
         if failure.kind == VerificationFailureKind::ScopeMismatch {
             failure.location = format!("manifest-scope/{}", failure.location);

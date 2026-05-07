@@ -1,0 +1,25 @@
+id          = "verify/018-export-043-open-clocks"
+op          = "verify"
+status      = "active"
+description = """Positive ADR 0067 export with manifest-bound open-clocks.json."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-050",
+    "TR-CORE-068",
+    "TR-CORE-172",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified  = true
+integrity_verified  = true
+readability_verified = true
+
+[derivation]
+document = "derivation.md"

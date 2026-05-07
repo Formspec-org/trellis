@@ -2159,6 +2159,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
 | `timestamp_order_violation` | 4.h (temporal) | A chain event's `authored_at` is strictly less than its predecessor's `authored_at` (ADR 0069 D-3). Hash chain and signatures are valid; only temporal order fails. |
 | `rescission_terminality_violation` | 4.h (governance terminality) | A `wos.governance.determination*` event appears after `wos.governance.determinationRescinded` on the same chain without an intervening `wos.governance.reinstated` event (ADR 0066 D-3). Hash chain and signatures are valid; only lifecycle terminality fails. |
+| `clock_calendar_mismatch` | 4.h (clock composition) | A `clockResolved(resolution="paused")` segment is followed by a resumed `clockStarted` for the same `clockId` that changes `calendarRef` (ADR 0067 D-4). |
 | `legacy_timestamp_format` | 4.c (payload decode) | A timestamp field is encoded as bare `uint` instead of the required `[uint, uint .le 999999999]` array (ADR 0069 D-2.1). The verifier cannot extract the field; decode-time structural rejection. |
 | `timestamp_nanos_out_of_range` | 4.c (payload decode) | A timestamp field uses the required `[seconds, nanos]` array shape but the `nanos` component exceeds `999999999` (ADR 0069 D-2.1 / Core §28 CDDL). The verifier cannot construct the timestamp; decode-time structural rejection. |
 | `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
@@ -3285,6 +3286,7 @@ Core traceability rows:
 - TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167, TR-CORE-168 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29/31 / ADR 0008)
 - TR-CORE-169, TR-CORE-170, TR-CORE-171 (ADR 0066 supersession linkage, export graph, and rescission terminality)
 - TR-CORE-172 (ADR 0067 open statutory-clock export catalog)
+- TR-CORE-173 (ADR 0067 pause/resume calendar invariant)
 
 ## 31. References
 
