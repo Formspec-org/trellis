@@ -2,15 +2,11 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use trellis_types::{domain_separated_sha256, sha256_bytes};
+use trellis_types::{map_lookup_map, map_lookup_text};
 
-use super::{
-    CERTIFICATE_EVENT_EXTENSION, PRESENTATION_ARTIFACT_DOMAIN, WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE,
-};
+use super::{CERTIFICATE_EVENT_EXTENSION, PRESENTATION_ARTIFACT_DOMAIN};
 use crate::kinds::VerificationFailureKind;
-use crate::parse::{
-    affirmation_payload_cow, decode_event_details, parse_certificate_catalog_entries,
-    parse_signature_affirmation_record,
-};
+use crate::parse::{decode_event_details, decode_value, parse_certificate_catalog_entries};
 use crate::types::*;
 use crate::util::{hex_string, parse_sha256_text};
 
@@ -18,12 +14,12 @@ use crate::util::{hex_string, parse_sha256_text};
 /// in [`decode_certificate_payload`] (CDDL + per-event chain-summary
 /// invariants); this pass runs steps 2 (id collision + workflow_status /
 /// impact_level / covered_claims registry — Phase-1 admit-any-tstr posture),
-/// 5 (signing-event resolution), 6 (timestamp equivalence), 7 (response_ref
-/// equivalence), and 8 (outcome accumulation).
+/// 5 (signing-event resolution), 6 (timestamp equivalence), and 8
+/// (outcome accumulation).
 ///
 /// **Phase-1 chain-context posture.** Step 5 / 6 / 7 require the full event
-/// list to resolve `signing_events[i]` digests against in-chain
-/// `wos.kernel.signatureAffirmation` events. The genesis-append code paths
+/// list to resolve `signing_events[i]` digests against in-chain signing
+/// events. The genesis-append code paths
 /// (`verify_single_event` / `verify_tampered_ledger`) frequently pass a
 /// minimal `events` slice that does not include the referenced signing
 /// events; in that case `signing_event_unresolved` would false-positive on
@@ -58,15 +54,6 @@ pub(crate) fn finalize_certificates_of_completion(
             .get(hash)
             .map(|&idx| &event_lookup_pool[idx])
     };
-
-    // Step 2 first sub-clause (per-index principal_ref equivalence) requires
-    // the resolved SignatureAffirmation event's payload to extract its
-    // declared principal. Phase-1 reference verifier reads the payload's
-    // `data.signerId` field per the WOS-T4 record shape (mirror of what
-    // `parse_signature_affirmation_record` reads in the catalog path).
-    // When `signing_events[i]` is unresolvable in this `events` slice, skip
-    // the per-index comparison (recorded as `signing_event_unresolved` in
-    // step 5 instead of double-flagging here).
 
     // Step 2 second sub-clause: certificate_id collision detection across
     // the certificate event set in scope. "Differ" is canonical-payload
@@ -149,10 +136,9 @@ pub(crate) fn finalize_certificates_of_completion(
                 ));
                 continue;
             };
-            // Step 5: event_type MUST be wos.kernel.signatureAffirmation
-            // (or other registered SignatureAffirmation equivalent per Core
-            // §6.7; only the WOS form is registered in Phase-1).
-            if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
+            let display = &payload.chain_summary.signer_display[i];
+            let Some(payload_bytes) = readable_payload_for_certificate(target, payload_blobs)
+            else {
                 outcome.all_signing_events_resolved = false;
                 outcome.failures.push("signing_event_unresolved".into());
                 event_failures.push(VerificationFailure::new(
@@ -160,9 +146,20 @@ pub(crate) fn finalize_certificates_of_completion(
                     hex_string(signing_event_hash),
                 ));
                 continue;
+            };
+            if let Some(principal_ref) = principal_ref_from_payload(&payload_bytes)
+                && display.principal_ref != principal_ref
+            {
+                outcome.chain_summary_consistent = false;
+                outcome
+                    .failures
+                    .push("certificate_chain_summary_mismatch".into());
+                event_failures.push(VerificationFailure::new(
+                    VerificationFailureKind::CertificateChainSummaryMismatch,
+                    hex_string(canonical_hash),
+                ));
             }
             // Step 6: signed_at MUST equal authored_at (timestamp exact, no skew).
-            let display = &payload.chain_summary.signer_display[i];
             if display.signed_at != target.authored_at {
                 outcome.chain_summary_consistent = false;
                 outcome
@@ -175,43 +172,18 @@ pub(crate) fn finalize_certificates_of_completion(
             }
         }
 
-        // Step 7: when `chain_summary.response_ref` is non-null, lookup the
-        // resolved SignatureAffirmation event's payload and compare its
-        // `data.formspecResponseRef` digest. Inline payloads decode
-        // directly; external payloads resolve through `payload_blobs` when
-        // the export-bundle caller passes the map (same as
-        // `readable_payload_bytes` / catalog paths).
         if let Some(response_ref) = payload.chain_summary.response_ref {
-            // Pick the first signing event as the canonical link target —
-            // ADR 0007 §"Field semantics" `response_ref` clause: "the same
-            // digest bound by SignatureAffirmation / authoredSignatures for
-            // that ceremony" — Phase-1 ties `response_ref` to the ceremony
-            // (one ceremony per certificate); we cross-check against every
-            // resolved SignatureAffirmation and require at least one match
-            // (operator MAY co-bind multiple SignatureAffirmation events
-            // for the same ceremony per §"Field semantics" `signing_events`
-            // clause "order is workflow order").
             let mut matched = false;
             let mut had_resolvable_response = false;
             for signing_event_hash in &payload.signing_events {
                 let Some(target) = event_by_hash(signing_event_hash) else {
                     continue;
                 };
-                if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
-                    continue;
-                }
-                let Some(payload_cow) = affirmation_payload_cow(target, payload_blobs) else {
-                    continue;
-                };
-                let Ok(record) = parse_signature_affirmation_record(payload_cow.as_ref()) else {
-                    continue;
-                };
-                let Ok(record_response_hash) = parse_sha256_text(&record.formspec_response_ref)
+                let Some(payload_bytes) = readable_payload_for_certificate(target, payload_blobs)
                 else {
-                    // The record's `formspecResponseRef` is per ADR 0007 a
-                    // sha256: digest text. If it doesn't parse, surface as
-                    // a response_ref_mismatch — the certificate claims a
-                    // hash that has no comparable digest on the chain side.
+                    continue;
+                };
+                let Some(record_response_hash) = response_ref_from_payload(&payload_bytes) else {
                     continue;
                 };
                 had_resolvable_response = true;
@@ -230,42 +202,37 @@ pub(crate) fn finalize_certificates_of_completion(
             }
         }
 
-        // Step 2 (per-index principal_ref equivalence) — when the signing
-        // event is resolvable AND its affirmation payload decodes (inline or
-        // via `payload_blobs` for external), compare the declared principal
-        // on the SignatureAffirmation against the certificate's
-        // `signer_display` row.
-        for (i, signing_event_hash) in payload.signing_events.iter().enumerate() {
-            let Some(target) = event_by_hash(signing_event_hash) else {
-                continue;
-            };
-            if target.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
-                continue;
-            }
-            let Some(payload_cow) = affirmation_payload_cow(target, payload_blobs) else {
-                continue;
-            };
-            let Ok(record) = parse_signature_affirmation_record(payload_cow.as_ref()) else {
-                continue;
-            };
-            let display = &payload.chain_summary.signer_display[i];
-            if display.principal_ref != record.signer_id {
-                outcome.chain_summary_consistent = false;
-                outcome
-                    .failures
-                    .push("certificate_chain_summary_mismatch".into());
-                event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::CertificateChainSummaryMismatch,
-                    hex_string(canonical_hash),
-                ));
-                break;
-            }
-        }
-
         outcomes.push(outcome);
     }
 
     outcomes
+}
+
+fn readable_payload_for_certificate(
+    target: &EventDetails,
+    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
+) -> Option<Vec<u8>> {
+    match &target.payload_ref {
+        PayloadRef::Inline(bytes) => Some(bytes.clone()),
+        PayloadRef::External => {
+            payload_blobs.and_then(|blobs| blobs.get(&target.content_hash).cloned())
+        }
+    }
+}
+
+fn response_ref_from_payload(payload_bytes: &[u8]) -> Option<[u8; 32]> {
+    let value = decode_value(payload_bytes).ok()?;
+    let map = value.as_map()?;
+    let data = map_lookup_map(map, "data").ok()?;
+    let response_ref = map_lookup_text(data, "formspecResponseRef").ok()?;
+    parse_sha256_text(&response_ref).ok()
+}
+
+fn principal_ref_from_payload(payload_bytes: &[u8]) -> Option<String> {
+    let value = decode_value(payload_bytes).ok()?;
+    let map = value.as_map()?;
+    let data = map_lookup_map(map, "data").ok()?;
+    map_lookup_text(data, "signerId").ok()
 }
 
 /// Field-wise agreement check between a catalog row and the in-chain

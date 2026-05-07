@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ciborium::Value;
-use trellis_types::{map_lookup_optional_value, sha256_bytes};
+use trellis_types::map_lookup_optional_value;
 
 use super::{
     OPERATOR_URI_PREFIX_TRELLIS, OPERATOR_URI_PREFIX_WOS, PHASE_1_TEST_IDENTITY_EVENT_TYPE,
@@ -217,13 +217,6 @@ pub(crate) fn parse_sha256_text(value: &str) -> Result<[u8; 32], VerifyError> {
         .as_slice()
         .try_into()
         .map_err(|_| VerifyError::new("sha256 hash text must be 32 bytes"))
-}
-
-pub(crate) fn response_hash_matches(
-    value: &str,
-    response_bytes: &[u8],
-) -> Result<bool, VerifyError> {
-    Ok(parse_sha256_text(value)? == bytes_array(&sha256_bytes(response_bytes)))
 }
 
 pub(crate) fn bytes_array(bytes: &[u8]) -> [u8; 32] {

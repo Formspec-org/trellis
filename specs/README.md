@@ -9,11 +9,12 @@ Read the top-level documents first:
 1. [`trellis-agreement.md`](trellis-agreement.md) — non-normative decision gate and product invariants.
 2. [`trellis-core.md`](trellis-core.md) — normative Phase 1 byte protocol for append, verify, and export.
 3. [`trellis-operational-companion.md`](trellis-operational-companion.md) — normative Phase 2+ operator obligations.
-4. [`trellis-requirements-matrix.md`](trellis-requirements-matrix.md) — traceability matrix. Prose in Core and the Operational Companion wins on conflict.
+4. [`wos-trellis-verification.md`](wos-trellis-verification.md) — WOS-domain validator obligations composed with Trellis Core verification.
+5. [`trellis-requirements-matrix.md`](trellis-requirements-matrix.md) — traceability matrix. Prose in Core, the Operational Companion, and WOS-Trellis verification wins on conflict.
 
 ## Normative Authority
 
-Only `trellis-core.md` and `trellis-operational-companion.md` are normative prose specifications.
+`trellis-core.md` and `trellis-operational-companion.md` are the normative prose specifications for Trellis itself. `wos-trellis-verification.md` is normative only for WOS deployments that compose Trellis Core verification with WOS record semantics.
 
 `trellis-agreement.md` is a sign-off gate for scope and invariants. It does not impose implementor conformance obligations.
 

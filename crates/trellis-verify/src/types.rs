@@ -2,8 +2,6 @@ use std::backtrace::Backtrace;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-use ciborium::Value;
-
 use crate::kinds::{VerificationFailureKind, VerifyErrorKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -603,8 +601,7 @@ pub(crate) struct CertificateDetails {
     pub(crate) completed_at: TrellisTimestamp,
     pub(crate) presentation_artifact: PresentationArtifactDetails,
     pub(crate) chain_summary: ChainSummaryDetails,
-    /// `signing_events[i]` digests in workflow order. Step 5 resolves each
-    /// to a chain-present `wos.kernel.signatureAffirmation` event.
+    /// `signing_events[i]` digests in workflow order.
     pub(crate) signing_events: Vec<[u8; 32]>,
     /// Opaque to Trellis verification per ADR 0007 §"Field semantics";
     /// captured for completeness, not gated.
@@ -649,6 +646,7 @@ pub(crate) struct ChainSummaryDetails {
     /// Per-signer display rows; step 2 invariant
     /// `len(signer_display) == len(signing_events)` enforced at decode.
     pub(crate) signer_display: Vec<SignerDisplayDetails>,
+    #[allow(dead_code)]
     pub(crate) response_ref: Option<[u8; 32]>,
     /// Wire `workflow_status` value; CDDL admits the four enum literals
     /// plus registered extension `tstr`. Phase-1 reference verifier
@@ -720,6 +718,7 @@ pub(crate) struct UserContentAttestationDetails {
 /// Decoded `SignerDisplayEntry` (ADR 0007 §"Wire shape").
 #[derive(Clone, Debug)]
 pub(crate) struct SignerDisplayDetails {
+    #[allow(dead_code)]
     pub(crate) principal_ref: String,
     /// Operator-rendered display name; not strict-compared per ADR 0007
     /// §"Field semantics" (verifier surfaces gross mismatch only).
@@ -802,16 +801,6 @@ pub(crate) struct AttachmentManifestEntry {
     pub(crate) prior_binding_hash: Option<[u8; 32]>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct SignatureExportExtension {
-    pub(crate) catalog_digest: [u8; 32],
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct IntakeExportExtension {
-    pub(crate) catalog_digest: [u8; 32],
-}
-
 /// Optional `trellis.export.erasure-evidence.v1` manifest extension (ADR 0005).
 #[derive(Clone, Debug)]
 pub(crate) struct ErasureEvidenceExportExtension {
@@ -857,84 +846,6 @@ pub(crate) struct CertificateCatalogEntryRow {
     pub(crate) workflow_status: String,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct SignatureManifestEntry {
-    pub(crate) canonical_event_hash: [u8; 32],
-    pub(crate) signer_id: String,
-    pub(crate) role_id: String,
-    pub(crate) role: String,
-    pub(crate) document_id: String,
-    pub(crate) document_hash: String,
-    pub(crate) document_hash_algorithm: String,
-    pub(crate) signed_at: String,
-    pub(crate) identity_binding: Value,
-    pub(crate) consent_reference: Value,
-    pub(crate) signature_provider: String,
-    pub(crate) ceremony_id: String,
-    pub(crate) profile_ref: Option<String>,
-    pub(crate) profile_key: Option<String>,
-    pub(crate) formspec_response_ref: String,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct IntakeManifestEntry {
-    pub(crate) intake_event_hash: [u8; 32],
-    pub(crate) case_created_event_hash: Option<[u8; 32]>,
-    pub(crate) handoff: IntakeHandoffDetails,
-    pub(crate) response_bytes: Vec<u8>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct SignatureAffirmationRecordDetails {
-    pub(crate) signer_id: String,
-    pub(crate) role_id: String,
-    pub(crate) role: String,
-    pub(crate) document_id: String,
-    pub(crate) document_hash: String,
-    pub(crate) document_hash_algorithm: String,
-    pub(crate) signed_at: String,
-    pub(crate) identity_binding: Value,
-    pub(crate) consent_reference: Value,
-    pub(crate) signature_provider: String,
-    pub(crate) ceremony_id: String,
-    pub(crate) profile_ref: Option<String>,
-    pub(crate) profile_key: Option<String>,
-    pub(crate) formspec_response_ref: String,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct IntakeHandoffDetails {
-    pub(crate) handoff_id: String,
-    pub(crate) initiation_mode: String,
-    pub(crate) case_ref: Option<String>,
-    pub(crate) definition_url: String,
-    pub(crate) definition_version: String,
-    pub(crate) response_ref: String,
-    pub(crate) response_hash: String,
-    pub(crate) validation_report_ref: String,
-    pub(crate) ledger_head_ref: String,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct IntakeAcceptedRecordDetails {
-    pub(crate) intake_id: String,
-    pub(crate) case_intent: String,
-    pub(crate) case_disposition: String,
-    pub(crate) case_ref: String,
-    pub(crate) definition_url: Option<String>,
-    pub(crate) definition_version: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct CaseCreatedRecordDetails {
-    pub(crate) case_ref: String,
-    pub(crate) intake_handoff_ref: String,
-    pub(crate) formspec_response_ref: String,
-    pub(crate) validation_report_ref: String,
-    pub(crate) ledger_head_ref: String,
-    pub(crate) initiation_mode: String,
-}
-
 #[derive(Debug)]
 /// Parsed export ZIP: keys are **relative** paths under a single root directory
 /// (for example `000-manifest.cbor`), not full ZIP entry names.
@@ -952,6 +863,7 @@ pub(crate) struct VerifyEventSetOptions<'a> {
     pub(crate) classify_tamper: bool,
     pub(crate) expected_ledger_scope: Option<&'a [u8]>,
     pub(crate) payload_blobs: Option<&'a BTreeMap<[u8; 32], Vec<u8>>>,
+    pub(crate) record_validator: &'a dyn crate::validator::RecordValidator,
 }
 
 /// Per-event chain summary used by ADR 0005 step 8 — the destroyed-kid

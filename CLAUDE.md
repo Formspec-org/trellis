@@ -50,7 +50,7 @@ Apply after stack-wide heuristics (in [`../VISION.md`](../VISION.md)):
 
 **Canonical encoding + signature suite.** dCBOR (RFC 8949 §4.2.2). Ed25519 over COSE_Sign1 (`alg = -8`), with `suite_id` registry reserving ML-DSA / SLH-DSA / hybrid codepoints. SHA-256 hash construction with domain separation tags. HPKE Base-mode payload-key wrap. COSE_Sign1 checkpoints over `(tree_size, tree_head_hash, suite_id, timestamp, anchor_ref?)`.
 
-**Center-vs-adapter.** Center: `trellis-core` + `trellis-types` + `trellis-cddl` + `trellis-cose` + `trellis-verify`. Traits: storage, KMS, anchor target. Adapters: `trellis-store-memory`, `trellis-store-postgres`; anchor substrates via `AnchorAdapter` trait (adopters pick OpenTimestamps / Rekor / Trillian per-deployment; see spike in `thoughts/specs/2026-04-24-anchor-substrate-spike.md`).
+**Center-vs-adapter.** Center: `trellis-core` + `trellis-types` + `trellis-cddl` + `trellis-cose` + `trellis-verify`. Traits: storage, KMS, anchor target. Adapters: `trellis-store-memory`, `trellis-store-postgres`, `trellis-verify-wos`; anchor substrates via `AnchorAdapter` trait (adopters pick OpenTimestamps / Rekor / Trillian per-deployment; see spike in `thoughts/specs/2026-04-24-anchor-substrate-spike.md`).
 
 **Verification independence contract** (Core §16) is load-bearing: verifiers MUST NOT depend on derived artifacts, workflow runtime, or mutable DBs. Keep `trellis-verify` free of non-essential dependencies.
 

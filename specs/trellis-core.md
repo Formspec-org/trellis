@@ -323,11 +323,11 @@ Registered extension identifiers:
 | `CheckpointPayload.extensions` | `trellis.case_ledger.composed_response_heads.v1` | 3 | Case-ledger head composition manifest. |
 | `CheckpointPayload.extensions` | `trellis.case_ledger.case_scope_metadata.v1` | 3 | Case-scope adjudication metadata. |
 | `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
-| `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.signatureAffirmation` events; verifier obligations in §19. Reject-if-unknown-at-version. |
-| `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.intakeAccepted` events and optional paired `wos.kernel.caseCreated` events, carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; verifier obligations in §19. Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived WOS signature catalog; Trellis Core treats this as a registered, digest-bound extension member, while WOS row semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived WOS intake catalog carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; Trellis Core treats this as a registered, digest-bound extension member, while WOS row semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.supersession-graph.v1` | 1 | Binds optional `064-supersession-graph.json` via `graph_digest` (SHA-256 of Trellis canonical JSON bytes). Graph is chain-derived from ADR 0066 supersession linkage; verifier obligations in §19. Reject-if-unknown-at-version. Traceability: TR-CORE-170. |
 | `ExportManifestPayload.extensions` | `trellis.export.certificates-of-completion.v1` | 1 | Binds optional `065-certificates-of-completion.cbor` via `catalog_digest` (bare SHA-256 over the catalog member bytes — same hash construction as the four sibling catalogs `trellis.export.attachments.v1`, `trellis.export.signature-affirmations.v1`, `trellis.export.intake-handoffs.v1`, `trellis.export.erasure-evidence.v1`). Chain-derived catalog over admitted `trellis.certificate-of-completion.v1` events; entry shape per ADR 0007 §"Export manifest catalog". Catalog is performance convenience for auditor UX; exporters who omit it are conformant. Reject-if-unknown-at-version. |
-| `ExportManifestPayload.extensions` | `trellis.export.open-clocks.v1` | 1 | Binds optional `open-clocks.json` via `open_clocks_digest` (SHA-256 of Trellis canonical JSON bytes). Chain-derived catalog over open ADR 0067 statutory clocks: every `clockStarted` lacking a matching `clockResolved` at export time appears with `clock_id`, `clock_kind`, `computed_deadline`, and `origin_event_hash`. Verifier obligations in §19. Reject-if-unknown-at-version. Traceability: TR-CORE-172. |
+| `ExportManifestPayload.extensions` | `trellis.export.open-clocks.v1` | 1 | Binds optional `open-clocks.json` via `open_clocks_digest` (SHA-256 of Trellis canonical JSON bytes). Chain-derived catalog over open statutory clocks: every `clockStarted` lacking a matching `clockResolved` at export time appears with `clock_id`, `clock_kind`, `computed_deadline`, and `origin_event_hash`. Core verifier obligations cover member presence and digest binding in §19; WOS clock semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. Traceability: TR-CORE-172. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
@@ -1136,7 +1136,7 @@ The `projection_schema_id` field is REQUIRED whenever the bearer is a projection
 
 **Rebuild-output encoding.** Rebuilt derived artifacts MUST use dCBOR (§5) as their canonical encoding whenever the artifact shape admits CBOR serialization. Two conforming implementations that rebuild the same derived artifact from the same canonical events and configuration history MUST produce byte-equal output. Fields whose determinism depends on external state (wall-clock timestamps, per-implementation resource IDs) MUST be declared in the rebuild-path identifier as non-deterministic; byte-equality is required over the declared-deterministic portion only (Companion §15.3 OC-40).
 
-**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19), the optional `062-signature-affirmations.cbor` signature-affirmation catalog bound under `trellis.export.signature-affirmations.v1` (WOS Signature Profile / stack WOS-T4 closeout; §18.2, §19), and the optional `063-intake-handoffs.cbor` intake-handoff catalog bound under `trellis.export.intake-handoffs.v1` (stack ADR 0073; §18.2, §19). Such members MUST NOT introduce new authority beyond what the signed chain already attests. The intake-handoff catalog is permitted because it carries the exact Formspec handoff and canonical Response bytes needed to replay `responseHash` offline; it does not redefine the WOS decision records. If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
+**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19), the optional `062-signature-affirmations.cbor` signature-affirmation catalog bound under `trellis.export.signature-affirmations.v1` (WOS Signature Profile / stack WOS-T4 closeout; §18.2), and the optional `063-intake-handoffs.cbor` intake-handoff catalog bound under `trellis.export.intake-handoffs.v1` (stack ADR 0073; §18.2). Such members MUST NOT introduce new authority beyond what the signed chain already attests. The intake-handoff catalog is permitted because it carries the exact Formspec handoff and canonical Response bytes needed to replay `responseHash` offline; it does not redefine the WOS decision records. Core verification digest-binds registered export members; WOS catalog row semantics live in [`wos-trellis-verification.md`](wos-trellis-verification.md). If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
 
 ### 15.4 Rule applies to agency-log entries
 
@@ -1158,6 +1158,16 @@ Export verification MUST NOT depend on:
 - live access to the producing service's APIs, beyond what the export package explicitly names as optional external proof material.
 
 The verifier MUST be able to complete every obligation in §19 on an air-gapped laptop, given only the export ZIP and whatever optional external proof material (for example, a Bitcoin header bundle for OpenTimestamps anchor verification) the package names.
+
+Core verification is byte- and envelope-oriented. It MUST NOT require knowledge
+of consumer event-type namespaces, workflow lifecycle rules, jurisdictional
+clock calendars, or WOS record shapes to decide Core `structure_verified` and
+`integrity_verified`. Implementations MAY expose a domain-validation hook
+alongside Core verification (for example, a `RecordValidator` that receives
+opaque event-type strings, canonical event hashes, readable payload bytes, and
+registered export-member bytes). Such validators produce consumer-owned
+findings and MAY project those findings into a composed report, but they do not
+expand the Core §19 obligation set.
 
 ### 16.2 No live registry lookups
 
@@ -1472,18 +1482,17 @@ supersession completeness without external predecessor material.
 Traceability: **TR-CORE-170**.
 
 **Open statutory clocks (§18.3c).** `trellis.export.open-clocks.v1` is the
-manifest extension hook for ADR 0067 open statutory-clock export. When the
-extension is present, `open-clocks.json` MUST be present and its SHA-256 digest
-MUST equal `open_clocks_digest`. When `open-clocks.json` is present, the
-extension MUST be present. Exporters SHOULD emit both the member and extension
-for any export whose chain contains an admitted `clockStarted` event without a
-matching admitted `clockResolved` event at the exported head. Omission does not
-make the single-chain export structurally invalid; it means offline reviewers
-must recompute open-clock state from the event stream rather than relying on
-the catalog. A verifier that processes `open-clocks.json` MUST emit an advisory
-diagnostic for each row whose `computed_deadline < sealed_at`; that condition
-MUST NOT by itself change `integrity_verified` because an overdue open clock is
-operational posture, not export tamper evidence.
+manifest extension hook for open statutory-clock export. When the extension is
+present, `open-clocks.json` MUST be present and its SHA-256 digest MUST equal
+`open_clocks_digest`. When `open-clocks.json` is present, the extension MUST be
+present. Exporters SHOULD emit both the member and extension for any export
+whose chain contains an admitted `clockStarted` event without a matching
+admitted `clockResolved` event at the exported head. Omission does not make the
+single-chain export structurally invalid; it means offline reviewers must
+recompute open-clock state from the event stream rather than relying on the
+catalog. Trellis Core verifies the member binding only. Domain validators, such
+as WOS-Trellis verification, own overdue advisories and pause/resume calendar
+semantics.
 Traceability: **TR-CORE-172**.
 
 ```cddl
@@ -1613,12 +1622,6 @@ VERIFY(E) -> VerificationReport
         `timestamp_order_violation` can fire for the same event.
         A backwards timestamp is a `timestamp_order_violation` integrity failure
         recorded in report.event_failures; equal timestamps are permitted.
-        If a chain has observed a
-        `wos.governance.determinationRescinded` event, any later
-        `wos.governance.determination*` event is a
-        `rescission_terminality_violation` integrity failure until an
-        intervening `wos.governance.reinstated` event reopens the chain
-        (ADR 0066 D-3; traceability: TR-CORE-171).
         If the readable payload is an ADR 0066 correction record
         (`correctionAuthorized` today, or `responseCorrection` when the
         Formspec producer lands), add a `CorrectionPreservationOutcome` to
@@ -1849,11 +1852,11 @@ VERIFY(E) -> VerificationReport
         `integrity_verified = false` with
         `presentation_artifact_content_mismatch`.
      5. Resolve every `signing_events[i]` digest against the chain.
-        Each MUST be a chain-present `SignatureAffirmation` event (or
-        WOS equivalent registered in §6.7 — currently
-        `wos.kernel.signatureAffirmation`). Missing or wrong-type
-        events flip `integrity_verified = false` with
-        `signing_event_unresolved`.
+        Each MUST be a chain-present signing/provenance event whose
+        readable payload is available to the verifier. Missing events or
+        unreadable signing-event payloads flip `integrity_verified = false`
+        with `signing_event_unresolved`. Consumer validators own any
+        event-type-specific assertion for the signing event.
      6. Validate temporal consistency: every
         `signer_display[i].signed_at` MUST exactly equal the resolved
         `SignatureAffirmation` header's `authored_at` for
@@ -2004,28 +2007,13 @@ VERIFY(E) -> VerificationReport
      d. When `inline_attachments = true`, require each referenced ciphertext file `060-payloads/<payload_content_hash>.bin` to exist and to satisfy the ciphertext-hash rule in step 4.g.
      e. For each non-null `prior_binding_hash`, require it resolve to a strict prior event in `010-events.cbor` order (array index strictly less than the binding event's index). Forward references and cycles in the binding-lineage graph MUST be recorded as localizable failures in `report.event_failures`.
 
-**Signature affirmation catalog (optional, WOS Signature Profile).** If `ExportManifestPayload.extensions` carries `trellis.export.signature-affirmations.v1` (§6.7), the verifier MUST:
-
-     a. Require the archive member `062-signature-affirmations.cbor` (§18.2).
-     b. Verify `SHA-256(062-signature-affirmations.cbor)` equals `signature_catalog_digest` in the extension payload map.
-     c. For each catalog row: resolve `canonical_event_hash` to exactly one exported event whose `EventHeader.event_type` is `wos.kernel.signatureAffirmation`; decode that event's readable payload bytes as the WOS-authored `SignatureAffirmation` provenance record; require field-wise agreement between the catalog row and the decoded record for every field the catalog carries (including signer, role, document hash, consent reference, identity binding, provider, ceremony, profile binding, and `formspecResponseRef`). For nested CBOR maps `identity_binding` and `consent_reference`, comparison MUST be semantic under RFC 8949 §4.2.2 canonical map key ordering (encoded-key bytewise sort), not raw map-entry order in the catalog bytes versus the event payload bytes.
-     d. Reject duplicate catalog rows that name the same `canonical_event_hash`.
-
-**Intake-handoff catalog (optional, stack ADR 0073).** If `ExportManifestPayload.extensions` carries `trellis.export.intake-handoffs.v1` (§6.7), the verifier MUST:
-
-     a. Require the archive member `063-intake-handoffs.cbor` (§18.2).
-     b. Verify `SHA-256(063-intake-handoffs.cbor)` equals `intake_catalog_digest` in the extension payload map.
-     c. Decode the catalog as a dCBOR array whose entries each carry:
-        - `intake_event_hash` — admitted `canonical_event_hash` of a `wos.kernel.intakeAccepted` event,
-        - `case_created_event_hash` — optional admitted `canonical_event_hash` of a paired `wos.kernel.caseCreated` event,
-        - `handoff` — the exact Formspec `IntakeHandoff` object used for the WOS acceptance decision,
-        - `response_bytes` — the exact canonical Response envelope bytes whose digest was stored in `handoff.responseHash`.
-     d. For each catalog row: resolve `intake_event_hash` to exactly one exported event whose `EventHeader.event_type` is `wos.kernel.intakeAccepted`; decode that event's readable payload bytes as the WOS-authored `IntakeAccepted` provenance record; require the decoded record to name the same intake id (`handoff.handoffId`) and the case disposition implied by `handoff.initiationMode` (`workflowInitiated` attaches to the handoff `caseRef`; `publicIntake` requests governed-case creation under the handoff's pinned Definition).
-     e. Recompute the digest named by `handoff.responseHash` over `response_bytes`; mismatch is a localizable integrity failure.
-     f. If `case_created_event_hash` is present, resolve it to exactly one exported event whose `EventHeader.event_type` is `wos.kernel.caseCreated`; decode that event's readable payload bytes as the WOS-authored `CaseCreated` provenance record; require field-wise agreement between the decoded record and the handoff evidence refs (`intakeHandoffRef`, `formspecResponseRef`, `validationReportRef`, `ledgerHeadRef`, `initiationMode`) plus the created case ref.
-     g. If `handoff.initiationMode = "workflowInitiated"`, `case_created_event_hash` MUST be absent.
-     h. If `handoff.initiationMode = "publicIntake"`, `case_created_event_hash` MUST be present.
-     i. Reject duplicate catalog rows that name the same `intake_event_hash`.
+**Domain validator extension members.** `trellis.export.signature-affirmations.v1`
+and `trellis.export.intake-handoffs.v1` are registered Phase-1 export
+extensions (§6.7). Trellis Core verifies their manifest-level extension
+encoding and rejects unknown registered identifiers according to the versioned
+extension rule, but it does not interpret WOS event-type literals or WOS record
+shapes. WOS deployments compose Core verification with the WOS-Trellis
+validator specified in [`wos-trellis-verification.md`](wos-trellis-verification.md).
 
 **Supersession graph (optional, stack ADR 0066, step 6e).** If `ExportManifestPayload.extensions` carries `trellis.export.supersession-graph.v1` (§6.7), the verifier MUST:
 
@@ -2087,7 +2075,7 @@ VERIFY(E) -> VerificationReport
     readability_verified, failures, warnings, and omitted_payload_checks.
 ```
 
-Implementations record attachment-manifest failures (the optional ADR 0072 step above), signature-affirmation catalog failures (the optional `trellis.export.signature-affirmations.v1` step above), intake-handoff catalog failures (the optional `trellis.export.intake-handoffs.v1` step above), erasure-evidence catalog failures (the optional `trellis.export.erasure-evidence.v1` step above per ADR 0005), and certificate-of-completion catalog failures (the optional `trellis.export.certificates-of-completion.v1` step above per ADR 0007) in `report.event_failures` together with per-event failures from step 4; all such kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty.
+Implementations record attachment-manifest failures (the optional ADR 0072 step above), erasure-evidence catalog failures (the optional `trellis.export.erasure-evidence.v1` step above per ADR 0005), and certificate-of-completion catalog failures (the optional `trellis.export.certificates-of-completion.v1` step above per ADR 0007) in `report.event_failures` together with per-event failures from step 4; all such Core kinds MUST force `integrity_verified = false` under the step-9 definition whenever `report.event_failures` is non-empty. Domain validators may add parallel findings or project domain failures into a composed report, but those findings are specified outside Trellis Core.
 
 The verifier's output is a structured report enumerating every integrity observation. The overall convenience boolean MAY be computed as all three booleans true, but implementations MUST expose the three booleans independently. A package that omits ciphertext bytes can still be structurally verified, but it cannot claim payload integrity or readability were verified offline for the omitted payloads.
 
@@ -2173,6 +2161,15 @@ When any verification boolean is false, the report identifies specifically **whi
 
 When a verifier reports a localizable or fatal failure to a human auditor or to a fixture-runner, it MUST classify the dominant failure under one of the values in the **`tamper_kind` enum** below. The enum names the §19 step where the failure was detected (per the "Failure classes" prose) and the surface that mismatched. Implementations MAY expose `tamper_kind` as a top-level field on `VerificationReport` (parallel to the three booleans) projecting the dominant `event_failures[].code`, `checkpoint_failures[].code`, or `proof_failures[].code`; conformance fixtures pin the value in `[expected.report].tamper_kind` (§27).
 
+The table below is the Core-owned enum. Domain validator specifications MAY
+register additional fixture `tamper_kind` values for composed reports without
+making those values Core verifier obligations. The WOS-owned additions are
+defined in [`wos-trellis-verification.md`](wos-trellis-verification.md).
+Historical matrix rows TR-CORE-171 and TR-CORE-173 have been superseded by
+WOS-TV-002 and WOS-TV-003 respectively; they remain named here only so existing
+fixtures can migrate without implying a Core verifier dependency on WOS event
+semantics.
+
 | `tamper_kind` | §19 step | Surface that mismatched |
 |---|---|---|
 | `signature_invalid` | 4.b | COSE_Sign1 signature does not verify under the kid's pubkey. |
@@ -2181,8 +2178,6 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `event_truncation` | 4.h | A middle event of a chain is absent; subsequent `prev_hash` values do not link. |
 | `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
 | `timestamp_order_violation` | 4.h (temporal) | A chain event's `authored_at` is strictly less than its predecessor's `authored_at` (ADR 0069 D-3). Hash chain and signatures are valid; only temporal order fails. |
-| `rescission_terminality_violation` | 4.h (governance terminality) | A `wos.governance.determination*` event appears after `wos.governance.determinationRescinded` on the same chain without an intervening `wos.governance.reinstated` event (ADR 0066 D-3). Hash chain and signatures are valid; only lifecycle terminality fails. |
-| `clock_calendar_mismatch` | 4.h (clock composition) | A `clockResolved(resolution="paused")` segment is followed by a resumed `clockStarted` for the same `clockId` that changes `calendarRef` (ADR 0067 D-4). |
 | `legacy_timestamp_format` | 4.c (payload decode) | A timestamp field is encoded as bare `uint` instead of the required `[uint, uint .le 999999999]` array (ADR 0069 D-2.1). The verifier cannot extract the field; decode-time structural rejection. |
 | `timestamp_nanos_out_of_range` | 4.c (payload decode) | A timestamp field uses the required `[seconds, nanos]` array shape but the `nanos` component exceeds `999999999` (ADR 0069 D-2.1 / Core §28 CDDL). The verifier cannot construct the timestamp; decode-time structural rejection. |
 | `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
@@ -2193,8 +2188,6 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `attestation_insufficient` | 6.d | Posture-transition event fails Companion §10 attestation-count, or an attestation signature does not verify. |
 | `posture_declaration_digest_mismatch` | 6.c | Posture-declaration document is present but its recomputed digest does not equal the event's `declaration_doc_digest`. |
 | `attachment_manifest_digest_mismatch` | 3.f / extensions check | `061-attachments.cbor` digest does not match the manifest's `trellis.export.attachments.v1` binding (ADR 0072). |
-| `signature_catalog_digest_mismatch` | 3.f / extensions check | `062-signature-affirmations.cbor` digest does not match the manifest's `trellis.export.signature-affirmations.v1` binding. |
-| `intake_handoff_catalog_digest_mismatch` | 3.f / extensions check | `063-intake-handoffs.cbor` digest does not match the manifest's `trellis.export.intake-handoffs.v1` binding. |
 | `key_class_mismatch` | 4.a (key-class dispatch) | A COSE_Sign1 protected-header `kid` resolves to a `KeyEntry` whose `kind` is a reserved non-signing class (`tenant-root`, `scope`, `subject`, `recovery`); only `signing`-class kids may sign canonical events (Core §8.7.3 step 4 / ADR 0006). |
 | `key_entry_attributes_shape_mismatch` | 3 (registry decode) | A `KeyEntry` whose `kind` is a reserved non-signing class is missing its `attributes` map or carries an `attributes` value whose shape does not match the per-class CDDL group in Core §8.7.2. |
 | `idempotency_key_length_invalid` | 1 / 4.c | An event's `EventPayload.idempotency_key` is missing, not a CBOR byte string, empty, or longer than 64 bytes — violates the `bstr .size (1..64)` structural bound (Core §6.1 / §17.2 / §28). |
@@ -3325,9 +3318,8 @@ Core traceability rows:
 - TR-CORE-145 (interop sidecar envelope reservation; ADR 0008)
 - TR-CORE-158, TR-CORE-159, TR-CORE-160, TR-CORE-161, TR-CORE-162 (Core §17 idempotency wire-contract)
 - TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167, TR-CORE-168 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29/31 / ADR 0008)
-- TR-CORE-169, TR-CORE-170, TR-CORE-171 (ADR 0066 supersession linkage, export graph, and rescission terminality)
+- TR-CORE-169, TR-CORE-170 (ADR 0066 supersession linkage and export graph)
 - TR-CORE-172 (ADR 0067 open statutory-clock export catalog)
-- TR-CORE-173 (ADR 0067 pause/resume calendar invariant)
 
 ## 31. References
 

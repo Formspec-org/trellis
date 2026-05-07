@@ -19,7 +19,7 @@ mod tests {
     use trellis_types::{
         EVENT_DOMAIN, checkpoint_digest, decode_cbor_value, domain_separated_sha256, sha256_bytes,
     };
-    use trellis_verify::{verify_export_zip, verify_tampered_ledger};
+    use trellis_verify::{VerificationReport, verify_export_zip, verify_tampered_ledger};
 
     fn fixture_label(fixture: &Path) -> String {
         format!("fixture `{}`", fixture.display())
@@ -218,16 +218,44 @@ mod tests {
     fn assert_verify_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(root, manifest, "inputs");
         let expected_report = table_in_table(root, table(root, manifest, "expected"), "report");
-        let report = verify_export_zip(&read_fixture_bytes(
+        let export_zip = read_fixture_bytes(
             root,
             &root.join(path_field(root, inputs, "export_zip")),
             "read export_zip",
-        ));
+        );
+        let expected_kind = pathless_string(expected_report, "first_failure_kind");
+        let expected_event_id = pathless_string(expected_report, "failing_event_id");
+        if expected_kind.as_deref().is_some_and(is_wos_kind) {
+            let report = trellis_verify_wos::verify_export_zip(&export_zip);
+            assert_wos_report_matches(
+                root,
+                expected_report,
+                &report,
+                expected_kind.as_deref(),
+                expected_event_id.as_deref(),
+            );
+            return;
+        }
+        let report = verify_export_zip(&export_zip);
 
         assert_eq!(
             report.structure_verified,
             bool_field(root, expected_report, "structure_verified")
         );
+        if report.integrity_verified && !bool_field(root, expected_report, "integrity_verified") {
+            let wos_report = trellis_verify_wos::verify_export_zip(&export_zip);
+            let combined_integrity = wos_integrity_verified(&wos_report);
+            if !combined_integrity {
+                assert_wos_report_matches(
+                    root,
+                    expected_report,
+                    &wos_report,
+                    None,
+                    expected_event_id.as_deref(),
+                );
+                return;
+            }
+        }
         assert_eq!(
             report.integrity_verified,
             bool_field(root, expected_report, "integrity_verified")
@@ -241,7 +269,7 @@ mod tests {
         {
             assert_eq!(report.posture_transitions.len() as i64, expected_count);
         }
-        if let Some(expected_kind) = pathless_string(expected_report, "first_failure_kind") {
+        if let Some(expected_kind) = expected_kind {
             assert_eq!(
                 first_failure(&report).map(|failure| failure.kind.as_str()),
                 Some(expected_kind.as_str()),
@@ -258,12 +286,58 @@ mod tests {
     fn assert_tamper_fixture_matches(root: &Path, manifest: &toml::Value) {
         let inputs = table(root, manifest, "inputs");
         let expected_report = table_in_table(root, table(root, manifest, "expected"), "report");
+        let expected_tamper_kind = pathless_string(expected_report, "tamper_kind");
         let report = if inputs.contains_key("export_zip") {
-            verify_export_zip(&read_fixture_bytes(
+            let export_zip = read_fixture_bytes(
                 root,
                 &root.join(path_field(root, inputs, "export_zip")),
                 "read tamper export_zip",
-            ))
+            );
+            if expected_tamper_kind.as_deref().is_some_and(is_wos_kind) {
+                let report = trellis_verify_wos::verify_export_zip(&export_zip);
+                let expected_event_id = pathless_string(expected_report, "failing_event_id");
+                assert_wos_report_matches(
+                    root,
+                    expected_report,
+                    &report,
+                    expected_tamper_kind.as_deref(),
+                    expected_event_id.as_deref(),
+                );
+                return;
+            }
+            verify_export_zip(&export_zip)
+        } else if expected_tamper_kind.as_deref().is_some_and(is_wos_kind) {
+            let signing_key_registry = read_fixture_bytes(
+                root,
+                &root.join(path_field(root, inputs, "signing_key_registry")),
+                "read signing_key_registry",
+            );
+            let ledger = read_fixture_bytes(
+                root,
+                &root.join(path_field(root, inputs, "ledger")),
+                "read ledger",
+            );
+            let initial_posture_declaration =
+                optional_path_field(inputs, "initial_posture_declaration").map(|path| {
+                    read_fixture_bytes(root, &root.join(path), "read initial_posture_declaration")
+                });
+            let posture_declaration = optional_path_field(inputs, "posture_declaration")
+                .map(|path| read_fixture_bytes(root, &root.join(path), "read posture_declaration"));
+            let report = trellis_verify_wos::verify_tampered_ledger(
+                &signing_key_registry,
+                &ledger,
+                initial_posture_declaration.as_deref(),
+                posture_declaration.as_deref(),
+            )
+            .unwrap();
+            assert_wos_report_matches(
+                root,
+                expected_report,
+                &report,
+                expected_tamper_kind.as_deref(),
+                pathless_string(expected_report, "failing_event_id").as_deref(),
+            );
+            return;
         } else {
             verify_tampered_ledger(
                 &read_fixture_bytes(
@@ -307,7 +381,6 @@ mod tests {
             bool_field(root, expected_report, "readability_verified")
         );
 
-        let expected_tamper_kind = pathless_string(expected_report, "tamper_kind");
         if let Some(expected_kind) = expected_tamper_kind {
             assert_eq!(
                 first_failure(&report).map(|failure| failure.kind.as_str()),
@@ -322,9 +395,97 @@ mod tests {
         }
     }
 
-    fn first_failure(
-        report: &trellis_verify::VerificationReport,
-    ) -> Option<&trellis_verify::VerificationFailure> {
+    fn assert_wos_report_matches(
+        root: &Path,
+        expected_report: &toml::value::Table,
+        report: &trellis_verify_wos::WosVerificationReport,
+        expected_kind: Option<&str>,
+        expected_event_id: Option<&str>,
+    ) {
+        assert_eq!(
+            report.trellis.structure_verified,
+            bool_field(root, expected_report, "structure_verified")
+        );
+        let combined_integrity = wos_integrity_verified(report);
+        assert_eq!(
+            combined_integrity,
+            bool_field(root, expected_report, "integrity_verified")
+        );
+        assert_eq!(
+            report.trellis.readability_verified,
+            bool_field(root, expected_report, "readability_verified")
+        );
+        if let Some(expected_kind) = expected_kind {
+            assert_eq!(
+                first_wos_failure(report).map(|finding| finding.kind.as_str()),
+                Some(expected_kind)
+            );
+        }
+        if let Some(expected_event_id) = expected_event_id {
+            assert_eq!(
+                first_wos_failure(report)
+                    .and_then(|finding| finding.event_hash)
+                    .map(|hash| hex_string(&hash)),
+                Some(expected_event_id.to_string())
+            );
+        }
+    }
+
+    fn wos_integrity_verified(report: &trellis_verify_wos::WosVerificationReport) -> bool {
+        report.trellis.integrity_verified && first_wos_failure(report).is_none()
+    }
+
+    fn first_wos_failure(
+        report: &trellis_verify_wos::WosVerificationReport,
+    ) -> Option<&trellis_verify_wos::WosFinding> {
+        report
+            .wos_findings
+            .iter()
+            .find(|finding| finding.severity == trellis_verify::Severity::Failure)
+    }
+
+    fn is_wos_kind(kind: &str) -> bool {
+        matches!(
+            kind,
+            "case_created_event_type_mismatch"
+                | "case_created_event_unresolved"
+                | "case_created_handoff_mismatch"
+                | "case_created_payload_invalid"
+                | "case_created_payload_unreadable"
+                | "clock_calendar_mismatch"
+                | "intake_event_type_mismatch"
+                | "intake_event_unresolved"
+                | "intake_handoff_catalog_digest_mismatch"
+                | "intake_handoff_catalog_duplicate_event"
+                | "intake_handoff_catalog_invalid"
+                | "intake_handoff_mismatch"
+                | "intake_payload_invalid"
+                | "intake_payload_unreadable"
+                | "intake_response_hash_mismatch"
+                | "missing_intake_handoff_catalog"
+                | "missing_signature_catalog"
+                | "rescission_terminality_violation"
+                | "signature_affirmation_payload_invalid"
+                | "signature_affirmation_payload_unreadable"
+                | "signature_catalog_digest_mismatch"
+                | "signature_catalog_duplicate_event"
+                | "signature_catalog_event_type_mismatch"
+                | "signature_catalog_event_unresolved"
+                | "signature_catalog_invalid"
+                | "signature_catalog_mismatch"
+        )
+    }
+
+    fn hex_string(bytes: &[u8]) -> String {
+        let mut text = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+        }
+        text
+    }
+
+    fn first_failure(report: &VerificationReport) -> Option<&trellis_verify::VerificationFailure> {
         report
             .event_failures
             .first()

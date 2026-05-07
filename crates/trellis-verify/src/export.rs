@@ -1,18 +1,15 @@
-use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 
 use trellis_types::{
-    checkpoint_digest, map_lookup_array, map_lookup_bytes, map_lookup_fixed_bytes, map_lookup_u64,
-    sha256_bytes,
+    checkpoint_digest, map_lookup_array, map_lookup_bytes, map_lookup_fixed_bytes,
+    map_lookup_optional_map, map_lookup_u64, sha256_bytes,
 };
 use zip::ZipArchive;
 
 use super::{
-    ALG_EDDSA, SUITE_ID_PHASE_1_I128, WOS_CASE_CREATED_EVENT_TYPE, WOS_INTAKE_ACCEPTED_EVENT_TYPE,
-    WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE, attachment_entry_matches_binding,
-    case_created_record_matches_handoff, intake_entry_matches_record,
-    signature_entry_matches_record, verify_event_set_with_classes, verify_signature,
+    ALG_EDDSA, SUITE_ID_PHASE_1_I128, attachment_entry_matches_binding,
+    verify_event_set_with_classes, verify_signature,
 };
 use crate::certificate::{verify_certificate_attachment_lineage, verify_certificate_catalog};
 use crate::erasure::verify_erasure_evidence_catalog;
@@ -26,19 +23,124 @@ use crate::open_clocks::{verify_clock_segments, verify_open_clocks, verify_unbou
 use crate::parse::{
     decode_event_details, decode_value, event_identity, map_lookup_timestamp,
     parse_attachment_export_extension, parse_attachment_manifest_entries, parse_bound_registry,
-    parse_case_created_record, parse_certificate_export_extension,
-    parse_erasure_evidence_export_extension, parse_intake_accepted_record,
-    parse_intake_export_extension, parse_intake_manifest_entries, parse_key_registry,
-    parse_open_clocks_export_extension, parse_sign1_array, parse_sign1_bytes,
-    parse_signature_affirmation_record, parse_signature_export_extension,
-    parse_signature_manifest_entries, parse_supersession_graph_export_extension,
-    readable_payload_bytes,
+    parse_certificate_export_extension, parse_erasure_evidence_export_extension,
+    parse_key_registry, parse_open_clocks_export_extension, parse_sign1_array, parse_sign1_bytes,
+    parse_supersession_graph_export_extension, readable_payload_bytes,
 };
 use crate::supersession::{verify_supersession_graph, verify_unbound_supersession_graph};
 use crate::types::*;
-use crate::util::{
-    binding_lineage_graph_has_cycle, bytes_array, hex_decode, hex_string, response_hash_matches,
-};
+use crate::util::{binding_lineage_graph_has_cycle, bytes_array, hex_decode, hex_string};
+use crate::{DomainEvent, DomainExport, RecordValidator, VerificationWithDomain};
+
+/// Verifies a complete export ZIP.
+pub fn verify_export_zip_with_validator(
+    export_zip: &[u8],
+    validator: &dyn RecordValidator,
+) -> VerificationWithDomain {
+    let trellis = verify_export_zip(export_zip);
+    if !trellis.structure_verified {
+        return VerificationWithDomain {
+            trellis,
+            domain_findings: Vec::new(),
+        };
+    }
+
+    let Ok(domain_export) = parse_domain_export(export_zip) else {
+        return VerificationWithDomain {
+            trellis,
+            domain_findings: Vec::new(),
+        };
+    };
+    let mut domain_findings = validator.validate_events(&domain_export.events);
+    domain_findings.extend(validator.validate_export(DomainExport {
+        events: &domain_export.events,
+        members: &domain_export.members,
+        manifest_extensions: &domain_export.manifest_extensions,
+    }));
+    VerificationWithDomain {
+        trellis,
+        domain_findings,
+    }
+}
+
+struct OwnedDomainExport {
+    events: Vec<DomainEvent>,
+    members: BTreeMap<String, Vec<u8>>,
+    manifest_extensions: BTreeMap<String, Vec<u8>>,
+}
+
+fn parse_domain_export(export_zip: &[u8]) -> Result<OwnedDomainExport, String> {
+    let archive = parse_export_zip(export_zip).map_err(|error| error.to_string())?;
+    let manifest_bytes = archive
+        .members
+        .get("000-manifest.cbor")
+        .ok_or_else(|| "missing manifest".to_string())?;
+    let manifest = parse_sign1_bytes(manifest_bytes).map_err(|error| error.to_string())?;
+    let manifest_payload = manifest
+        .payload
+        .as_ref()
+        .ok_or_else(|| "missing manifest payload".to_string())?;
+    let manifest_value = decode_value(manifest_payload).map_err(|error| error.to_string())?;
+    let manifest_map = manifest_value
+        .as_map()
+        .ok_or_else(|| "manifest payload root is not a map".to_string())?;
+    let manifest_extensions = encode_manifest_extensions(manifest_map)?;
+
+    let events = archive
+        .members
+        .get("010-events.cbor")
+        .ok_or_else(|| "missing events".to_string())
+        .and_then(|bytes| parse_sign1_array(bytes).map_err(|error| error.to_string()))?;
+    let payload_blobs = archive
+        .members
+        .iter()
+        .filter_map(|(name, bytes)| {
+            let digest_hex = name.strip_prefix("060-payloads/")?.strip_suffix(".bin")?;
+            let digest_bytes = hex_decode(digest_hex).ok()?;
+            let digest: [u8; 32] = digest_bytes.try_into().ok()?;
+            Some((digest, bytes.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let events = events
+        .iter()
+        .filter_map(|event| {
+            let details = decode_event_details(event).ok()?;
+            let payload = readable_payload_bytes(&details, &payload_blobs);
+            Some(DomainEvent {
+                event_type: details.event_type,
+                payload,
+                canonical_event_hash: details.canonical_event_hash,
+                authored_at: details.authored_at,
+            })
+        })
+        .collect();
+
+    Ok(OwnedDomainExport {
+        events,
+        members: archive.members,
+        manifest_extensions,
+    })
+}
+
+fn encode_manifest_extensions(
+    manifest_map: &[(ciborium::Value, ciborium::Value)],
+) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let Some(extensions) =
+        map_lookup_optional_map(manifest_map, "extensions").map_err(|error| error.to_string())?
+    else {
+        return Ok(BTreeMap::new());
+    };
+    let mut encoded = BTreeMap::new();
+    for (key, value) in extensions {
+        let Some(uri) = key.as_text() else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).map_err(|error| error.to_string())?;
+        encoded.insert(uri.to_string(), bytes);
+    }
+    Ok(encoded)
+}
 
 /// Verifies a complete export ZIP.
 pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
@@ -343,8 +445,10 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             classify_tamper: false,
             expected_ledger_scope: Some(scope.as_slice()),
             payload_blobs: Some(&payload_blobs),
+            record_validator: &(),
         },
-    );
+    )
+    .trellis;
     // ADR 0008 / Core §18.3a — Wave 25 dispatched-verifier outcomes
     // accumulate here. `verify_interop_sidecars` already short-circuited
     // any fatal lock-off / unknown-kind / digest-mismatch / unlisted-file
@@ -366,28 +470,6 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         }
     } {
         verify_attachment_manifest(&archive, &events, &extension, &mut report);
-    }
-    if let Some(extension) = match parse_signature_export_extension(manifest_map) {
-        Ok(extension) => extension,
-        Err(error) => {
-            return VerificationReport::fatal(
-                VerificationFailureKind::ManifestPayloadInvalid,
-                format!("signature export extension is invalid: {error}"),
-            );
-        }
-    } {
-        verify_signature_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
-    }
-    if let Some(extension) = match parse_intake_export_extension(manifest_map) {
-        Ok(extension) => extension,
-        Err(error) => {
-            return VerificationReport::fatal(
-                VerificationFailureKind::ManifestPayloadInvalid,
-                format!("intake export extension is invalid: {error}"),
-            );
-        }
-    } {
-        verify_intake_catalog(&archive, &events, &payload_blobs, &extension, &mut report);
     }
     if let Some(extension) = match parse_erasure_evidence_export_extension(manifest_map) {
         Ok(extension) => extension,
@@ -1058,293 +1140,6 @@ pub(crate) fn verify_attachment_manifest(
                 report.event_failures.push(VerificationFailure::new(
                     VerificationFailureKind::MissingAttachmentBody,
                     member,
-                ));
-            }
-        }
-    }
-}
-
-pub(crate) fn verify_signature_catalog(
-    archive: &ExportArchive,
-    events: &[ParsedSign1],
-    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
-    extension: &SignatureExportExtension,
-    report: &mut VerificationReport,
-) {
-    let Some(catalog_bytes) = archive.members.get("062-signature-affirmations.cbor") else {
-        report.event_failures.push(VerificationFailure::new(
-            VerificationFailureKind::MissingSignatureCatalog,
-            "062-signature-affirmations.cbor",
-        ));
-        return;
-    };
-    let actual_digest = sha256_bytes(catalog_bytes);
-    if actual_digest.as_slice() != extension.catalog_digest {
-        report.event_failures.push(VerificationFailure::new(
-            VerificationFailureKind::SignatureCatalogDigestMismatch,
-            "062-signature-affirmations.cbor",
-        ));
-    }
-
-    let entries = match parse_signature_manifest_entries(catalog_bytes) {
-        Ok(entries) => entries,
-        Err(error) => {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::SignatureCatalogInvalid,
-                format!("062-signature-affirmations.cbor/{error}"),
-            ));
-            return;
-        }
-    };
-
-    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
-    for event in events {
-        if let Ok(details) = decode_event_details(event) {
-            match event_by_hash.entry(details.canonical_event_hash) {
-                Entry::Vacant(slot) => {
-                    slot.insert(details);
-                }
-                Entry::Occupied(_) => {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
-                        hex_string(&details.canonical_event_hash),
-                    ));
-                }
-            }
-        }
-    }
-
-    let mut seen_hashes = BTreeSet::new();
-    for entry in &entries {
-        if !seen_hashes.insert(entry.canonical_event_hash) {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::SignatureCatalogDuplicateEvent,
-                hex_string(&entry.canonical_event_hash),
-            ));
-        }
-    }
-
-    for entry in &entries {
-        let Some(details) = event_by_hash.get(&entry.canonical_event_hash) else {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::SignatureCatalogEventUnresolved,
-                hex_string(&entry.canonical_event_hash),
-            ));
-            continue;
-        };
-        if details.event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::SignatureCatalogEventTypeMismatch,
-                hex_string(&entry.canonical_event_hash),
-            ));
-            continue;
-        }
-        let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::SignatureAffirmationPayloadUnreadable,
-                hex_string(&entry.canonical_event_hash),
-            ));
-            continue;
-        };
-        let record = match parse_signature_affirmation_record(&payload_bytes) {
-            Ok(record) => record,
-            Err(error) => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::SignatureAffirmationPayloadInvalid,
-                    format!("{}/{}", hex_string(&entry.canonical_event_hash), error),
-                ));
-                continue;
-            }
-        };
-        if !signature_entry_matches_record(entry, &record) {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::SignatureCatalogMismatch,
-                hex_string(&entry.canonical_event_hash),
-            ));
-        }
-    }
-}
-
-pub(crate) fn verify_intake_catalog(
-    archive: &ExportArchive,
-    events: &[ParsedSign1],
-    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
-    extension: &IntakeExportExtension,
-    report: &mut VerificationReport,
-) {
-    let Some(catalog_bytes) = archive.members.get("063-intake-handoffs.cbor") else {
-        report.event_failures.push(VerificationFailure::new(
-            VerificationFailureKind::MissingIntakeHandoffCatalog,
-            "063-intake-handoffs.cbor",
-        ));
-        return;
-    };
-    let actual_digest = sha256_bytes(catalog_bytes);
-    if actual_digest.as_slice() != extension.catalog_digest {
-        report.event_failures.push(VerificationFailure::new(
-            VerificationFailureKind::IntakeHandoffCatalogDigestMismatch,
-            "063-intake-handoffs.cbor",
-        ));
-    }
-
-    let entries = match parse_intake_manifest_entries(catalog_bytes) {
-        Ok(entries) => entries,
-        Err(error) => {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::IntakeHandoffCatalogInvalid,
-                format!("063-intake-handoffs.cbor/{error}"),
-            ));
-            return;
-        }
-    };
-
-    let mut event_by_hash: BTreeMap<[u8; 32], EventDetails> = BTreeMap::new();
-    for event in events {
-        if let Ok(details) = decode_event_details(event) {
-            match event_by_hash.entry(details.canonical_event_hash) {
-                Entry::Vacant(slot) => {
-                    slot.insert(details);
-                }
-                Entry::Occupied(_) => {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::ExportEventsDuplicateCanonicalHash,
-                        hex_string(&details.canonical_event_hash),
-                    ));
-                }
-            }
-        }
-    }
-
-    let mut seen_hashes = BTreeSet::new();
-    for entry in &entries {
-        if !seen_hashes.insert(entry.intake_event_hash) {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::IntakeHandoffCatalogDuplicateEvent,
-                hex_string(&entry.intake_event_hash),
-            ));
-        }
-    }
-
-    for entry in &entries {
-        let Some(details) = event_by_hash.get(&entry.intake_event_hash) else {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::IntakeEventUnresolved,
-                hex_string(&entry.intake_event_hash),
-            ));
-            continue;
-        };
-        if details.event_type != WOS_INTAKE_ACCEPTED_EVENT_TYPE {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::IntakeEventTypeMismatch,
-                hex_string(&entry.intake_event_hash),
-            ));
-            continue;
-        }
-        let Some(payload_bytes) = readable_payload_bytes(details, payload_blobs) else {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::IntakePayloadUnreadable,
-                hex_string(&entry.intake_event_hash),
-            ));
-            continue;
-        };
-        let intake_record = match parse_intake_accepted_record(&payload_bytes) {
-            Ok(record) => record,
-            Err(error) => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::IntakePayloadInvalid,
-                    format!("{}/{}", hex_string(&entry.intake_event_hash), error),
-                ));
-                continue;
-            }
-        };
-        if !intake_entry_matches_record(entry, &intake_record) {
-            report.event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::IntakeHandoffMismatch,
-                hex_string(&entry.intake_event_hash),
-            ));
-        }
-        match response_hash_matches(&entry.handoff.response_hash, &entry.response_bytes) {
-            Ok(true) => {}
-            Ok(false) => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::IntakeResponseHashMismatch,
-                    hex_string(&entry.intake_event_hash),
-                ));
-            }
-            Err(error) => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::IntakeHandoffCatalogInvalid,
-                    format!("{}/{}", hex_string(&entry.intake_event_hash), error),
-                ));
-            }
-        }
-
-        match (
-            entry.handoff.initiation_mode.as_str(),
-            entry.case_created_event_hash,
-        ) {
-            ("workflowInitiated", Some(_)) => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::CaseCreatedHandoffMismatch,
-                    hex_string(&entry.intake_event_hash),
-                ));
-                continue;
-            }
-            ("workflowInitiated", None) => continue,
-            ("publicIntake", None) => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::CaseCreatedHandoffMismatch,
-                    hex_string(&entry.intake_event_hash),
-                ));
-                continue;
-            }
-            ("publicIntake", Some(case_created_hash)) => {
-                let Some(case_details) = event_by_hash.get(&case_created_hash) else {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::CaseCreatedEventUnresolved,
-                        hex_string(&case_created_hash),
-                    ));
-                    continue;
-                };
-                if case_details.event_type != WOS_CASE_CREATED_EVENT_TYPE {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::CaseCreatedEventTypeMismatch,
-                        hex_string(&case_created_hash),
-                    ));
-                    continue;
-                }
-                let Some(case_payload_bytes) = readable_payload_bytes(case_details, payload_blobs)
-                else {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::CaseCreatedPayloadUnreadable,
-                        hex_string(&case_created_hash),
-                    ));
-                    continue;
-                };
-                let case_record = match parse_case_created_record(&case_payload_bytes) {
-                    Ok(record) => record,
-                    Err(error) => {
-                        report.event_failures.push(VerificationFailure::new(
-                            VerificationFailureKind::CaseCreatedPayloadInvalid,
-                            format!("{}/{}", hex_string(&case_created_hash), error),
-                        ));
-                        continue;
-                    }
-                };
-                if !case_created_record_matches_handoff(entry, &intake_record, &case_record) {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::CaseCreatedHandoffMismatch,
-                        hex_string(&case_created_hash),
-                    ));
-                }
-            }
-            _ => {
-                report.event_failures.push(VerificationFailure::new(
-                    VerificationFailureKind::IntakeHandoffCatalogInvalid,
-                    format!(
-                        "{}/unknown-initiation-mode",
-                        hex_string(&entry.intake_event_hash)
-                    ),
                 ));
             }
         }

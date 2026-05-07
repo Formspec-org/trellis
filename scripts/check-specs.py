@@ -20,6 +20,7 @@ TOP_LEVEL_SPECS = [
     SPECS / "trellis-agreement.md",
     SPECS / "trellis-core.md",
     SPECS / "trellis-operational-companion.md",
+    SPECS / "wos-trellis-verification.md",
     SPECS / "trellis-requirements-matrix.md",
     SPECS / "cross-reference-map.md",
     SPECS / "README.md",
@@ -55,11 +56,11 @@ GENERATOR_ALLOWED_IMPORTS = set(sys.stdlib_module_names) | {"cryptography", "cbo
 # O-3 projection conformance vectors.
 VECTOR_OPS = ("append", "verify", "export", "tamper", "projection", "shred")
 
-# Normative `tamper_kind` values per Core §19.1 (Tamper Evidence).
+# Normative `tamper_kind` values per Core §19.1 and domain validator specs.
 # Every `tamper` vector's `[expected.report].tamper_kind` MUST be one of these.
-# This is the Phase-1 enum; new categories MUST land in Core §19.1 first, with
-# a matching matrix row, before a vector references the value. Order matches
-# the §19.1 normative table.
+# New Core categories MUST land in Core §19.1 first. Domain categories MUST
+# land in their domain validator spec first. Existing WOS values remain here
+# while fixture manifests still use the single `tamper_kind` field.
 TAMPER_KIND_ENUM = frozenset({
     "signature_invalid",
     "hash_mismatch",
@@ -67,8 +68,8 @@ TAMPER_KIND_ENUM = frozenset({
     "event_truncation",
     "event_reorder",
     "timestamp_order_violation",          # ADR 0069 D-3.
-    "rescission_terminality_violation",   # ADR 0066 D-3; TR-CORE-171.
-    "clock_calendar_mismatch",            # ADR 0067 D-4; TR-CORE-173.
+    "rescission_terminality_violation",   # WOS-TV-002; legacy TR-CORE-171.
+    "clock_calendar_mismatch",            # WOS-TV-003; legacy TR-CORE-173.
     "legacy_timestamp_format",            # ADR 0069 D-2.1 — bare uint rejected at decode.
     "timestamp_nanos_out_of_range",       # ADR 0069 D-2.1 — nanos component exceeds CDDL bound.
     "head_checkpoint_digest_mismatch",
@@ -79,8 +80,8 @@ TAMPER_KIND_ENUM = frozenset({
     "attestation_insufficient",
     "posture_declaration_digest_mismatch",
     "attachment_manifest_digest_mismatch",
-    "signature_catalog_digest_mismatch",
-    "intake_handoff_catalog_digest_mismatch",
+    "signature_catalog_digest_mismatch",  # WOS-TV-004.
+    "intake_handoff_catalog_digest_mismatch",  # WOS-TV-007.
     "key_class_mismatch",                # Core §8.7.3 step 4 (ADR 0006).
     "key_entry_attributes_shape_mismatch",   # Core §8.7.2 (ADR 0006).
     # Append idempotency (Core §6.1 / §17 / §19.1; invariant #13). Verifier
@@ -2085,14 +2086,15 @@ def check_tamper_kind_enum(
     manifests: list[tuple[Path, dict]] | None = None,
 ) -> None:
     """R13 — every `op = "tamper"` manifest's `[expected.report].tamper_kind`
-    MUST be a value enumerated in `TAMPER_KIND_ENUM` (Core §19.1).
+    MUST be a value enumerated in `TAMPER_KIND_ENUM`.
 
-    The corpus authors a per-vector `tamper_kind` describing the Core §19
+    The corpus authors a per-vector `tamper_kind` describing the verifier
     failure category the vector exercises. Values were de-facto consistent
     across the first batch of vectors but not normatively enumerated; drift
     in later batches would silently bifurcate the verifier-output vocabulary.
-    This rule pins the contract: prose change in §19.1 is a fail-loud event,
-    forcing matrix + Rust + Python to move together.
+    This rule pins the contract: prose changes in Core §19.1 or a domain
+    validator spec are fail-loud events, forcing matrix + Rust + Python to
+    move together.
 
     The `manifests` kwarg is a test hook (parallel to
     `check_verify_report_consistency`).
@@ -2122,7 +2124,7 @@ def check_tamper_kind_enum(
             continue
         if kind not in TAMPER_KIND_ENUM:
             errors.append(
-                f"{rel}: tamper_kind={kind!r} is not in the Core §19.1 enum; "
+                f"{rel}: tamper_kind={kind!r} is not in the verifier enum; "
                 f"allowed values are {sorted(TAMPER_KIND_ENUM)}"
             )
 

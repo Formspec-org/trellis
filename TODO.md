@@ -286,8 +286,11 @@ adopter-triggered work.
       `wos.governance.determination*` event after
       `wos.governance.determinationRescinded` is a
       `rescission_terminality_violation` unless an intervening
-      `wos.governance.reinstated` event reopens the chain. Covered by
-      TR-CORE-171 and `tamper/050-rescission-terminality`.
+      `wos.governance.reinstated` event reopens the chain. Rust coverage now
+      lives in `trellis-verify-wos` under WOS-TV-002; legacy fixture coverage
+      remains TR-CORE-171 / `tamper/050-rescission-terminality` until fixture
+      manifests grow a WOS-TV coverage bucket. Python still carries the older
+      inline check.
     + [x] Core §18 / §19 prose + export-manifest hook:
       `ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"]`
       binds optional `064-supersession-graph.json` with `graph_digest`; TR-CORE-170
@@ -346,17 +349,16 @@ adopter-triggered work.
       Covered by TR-CORE-172. Runtime export/verify fixtures remain below.
     + [x] **Verifier — D-3 advisory:** open clock with
       `computed_deadline < bundle.sealed_at` and no `clockResolved` emits an
-      advisory diagnostic, not an integrity failure. Rust and Python verifiers
-      parse `trellis.export.open-clocks.v1`, hash-check `open-clocks.json`,
-      require catalog `sealed_at == ExportManifestPayload.generated_at`, and
-      emit `open_clock_overdue:<clock_id>:<origin_event_hash>` warnings.
-    + [x] **Verifier — D-4 composition:** Rust and Python export verifiers
+      advisory diagnostic, not an integrity failure. Rust now emits this from
+      `trellis-verify-wos` after Core hash-checks `open-clocks.json`; Python
+      still carries the older inline verifier path.
+    + [x] **Verifier — D-4 composition:** Rust WOS adapter and Python export verifier
       walk clock records in chain order, track active/paused segments by
       `clockId`, and refuse a resumed `clockStarted` that changes `clockKind`
       or `calendarRef` after `clockResolved(resolution="paused")` with
-      `clock_calendar_mismatch`. WOS still owns jurisdictional residual-duration
-      arithmetic; Trellis enforces the byte-level pause/resume integrity
-      invariant that keeps that arithmetic deterministic.
+      `clock_calendar_mismatch`. In Rust this is now WOS-TV-003 in
+      `trellis-verify-wos`; Python still carries the older inline verifier
+      path.
     + [x] **Vectors:** `append/043-clock-started`, `044-clock-satisfied`,
       `045-clock-elapsed`, `046-clock-paused-resumed`, plus
       `verify/018-export-043-open-clocks` and
@@ -387,54 +389,51 @@ adopter-triggered work.
 15. **Verify-layer domain coupling extraction — `trellis-verify` integrity-only
     + sibling `trellis-verify-wos` adapter** — **M–L**.
     *Plan ready:* [`thoughts/plans/2026-05-07-extract-trellis-verify-wos.md`](thoughts/plans/2026-05-07-extract-trellis-verify-wos.md).
-    *Architectural debt from the 2026-05-06 dependency-inversion audit.*
-    `trellis-verify` carries ~30 wire-key names (order-of-magnitude; exact count
-    depends on catalog vs camelCase layers), 6 hardcoded WOS event types as
-    full `wos.kernel.*` / `wos.governance.*` literals (`lib.rs:154-165`),
-    WOS record-shape parsing (`SignatureAffirmationRecordDetails`,
-    `IntakeAcceptedRecordDetails`, `CaseCreatedRecordDetails`,
-    `IntakeHandoffDetails` at `parse.rs:1261-1401`), WOS business logic
-    (intake-mode branching at `lib.rs:885-921`, rescission terminality at
-    `lib.rs:622-635`), and ~20/147 WOS-domain `VerificationFailureKind`
-    variants. The inversion originates in Core §6.7 (extension table) and
-    §19 (verifier obligations for WOS record shapes) — the code faithfully
-    implements spec, but the spec made an architectural decision that violates
-    the verification independence contract (§16).
+    *Status 2026-05-07:* Rust verifier extraction landed. `trellis-verify`
+    now exposes the validator seam and no longer carries WOS event-type
+    literals, WOS record parsers, WOS catalog field matching, rescission
+    terminality, clock-calendar semantics, or WOS failure variants. The
+    sibling `trellis-verify-wos` adapter owns those concerns. `trellis-py`
+    still carries WOS-aware verification and remains the explicit follow-up
+    before this item can be archived.
     Five queued ADRs (#11 supersession terminality, #12 clock semantics, #6
     tenant, #8 commit-failure, #10 migration pins) will compound the violation
     with each ratification cycle if the inversion is not closed first.
     Approach (per plan): sibling adapter crate at `crates/trellis-verify-wos/`
     following the `trellis-interop-*` precedent (depends on `trellis-types` +
     `trellis-verify` only). No cross-repo move; no fixture migration.
-    + [ ] **`RecordValidator` trait in `trellis-verify`** (Phase 1):
+    + [x] **`RecordValidator` trait in `trellis-verify`** (Phase 1):
       opaque-bytes / opaque-event-type-strings surface; `()` no-op default;
       dispatch hooks in `verify_event_set` and `verify_export_zip`.
       Foundational; lands first.
-    + [ ] **Sibling crate `trellis-verify-wos`** (Phase 2a) at
+    + [x] **Sibling crate `trellis-verify-wos`** (Phase 2a) at
       `crates/trellis-verify-wos/`. Owns the 6 event-type literals, 4 record
       parsers, 4 record-detail types, intake-mode dispatch, rescission
       terminality, clock semantic checks, catalog field-matching, certificate
       event-type assertion, and `WosFinding` / `WosVerificationReport`
       aggregation. WOS event-type strings duplicated as crate-local constants
       (no `wos-core` dep, matching `trellis-interop-*` pattern).
-    + [ ] **Core §19 carve-out** (Phase 2b → Phase 3a): WOS-specific verifier
+    + [x] **Core §19 carve-out** (Phase 2b → Phase 3a): WOS-specific verifier
       obligations move to new normative `specs/wos-trellis-verification.md`
       (`WOS-TV-*` numbering); Core §19 retains integrity-only obligations;
       §6.7 gains a note on WOS event-type extension entries; §16 prose
       strengthened in terms of `RecordValidator`.
-    + [ ] **`VerificationFailureKind` shrink** (Phase 3a): ~20 WOS variants
+    + [x] **`VerificationFailureKind` shrink** (Phase 3a): ~20 WOS variants
       hard-deleted (no `#[deprecated]` shims; `v1.0.0` is a coherent-snapshot
       tag). Surfaces as `WosFinding::kind` strings in the WOS adapter.
-    + [ ] **Conformance harness** (Phase 4): extend `trellis-conformance` with
-      a `with-wos` feature flag pulling `trellis-verify-wos`; WOS-coupled
-      vectors run through the composed verifier, integrity-only vectors
-      through `trellis-verify` with `&()`. Fixtures stay in
-      `fixtures/vectors/` — no migration.
-    + [ ] **Consumer migration** (Phase 3b): `wos-server` switches dep from
-      `trellis-verify` to `trellis-verify-wos`; `trellis-cli` and
-      `trellis-interop-c2pa` stay on `trellis-verify`.
+    + [x] **Conformance harness** (Phase 4): extend `trellis-conformance` with
+      a dev-dependency on `trellis-verify-wos`; WOS-coupled vectors run through
+      the composed verifier, integrity-only vectors through `trellis-verify`
+      with `&()`. Fixtures stay in `fixtures/vectors/` — no migration.
+    + [x] **Consumer migration check** (Phase 3b): no live
+      `wos-server` code dependency on `trellis-verify` exists in this checkout;
+      only TODO/VISION references mention future exporter paths. `trellis-cli`
+      and `trellis-interop-c2pa` stay on `trellis-verify`.
     + [ ] **`trellis-py` cross-check** (Phase 0 / Phase 2c): grep for WOS
-      coverage; mirror the carve in Python if present.
+      coverage; mirror the carve in Python if present. 2026-05-07 grep found
+      WOS literals, rescission terminality, clock-calendar checks, and
+      signature/intake catalog field matching in
+      `trellis-py/src/trellis_py/verify.py`; carve still open.
 
 16. **Case ledger + agency log semantic definitions** — **M**.
     *Land when case-ledger / agency-log scoping opens.* Core §22 case ledger

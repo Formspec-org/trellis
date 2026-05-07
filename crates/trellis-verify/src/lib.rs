@@ -34,6 +34,8 @@ pub(crate) mod export;
 
 pub(crate) mod util;
 
+pub mod validator;
+
 #[cfg(test)]
 mod tests;
 
@@ -42,8 +44,8 @@ use crate::correction::finalize_correction_preservations;
 use crate::erasure::finalize_erasure_evidence;
 use crate::merkle::recompute_author_event_hash;
 use crate::parse::{
-    cbor_nested_map_semantic_eq, decode_event_details, event_identity, parse_custody_model,
-    parse_disclosure_profile, parse_key_registry, parse_sign1_array, parse_sign1_bytes,
+    decode_event_details, event_identity, parse_custody_model, parse_disclosure_profile,
+    parse_key_registry, parse_sign1_array, parse_sign1_bytes,
 };
 use crate::user_attestation::finalize_user_content_attestations;
 use crate::util::{hex_string, requires_dual_attestation};
@@ -51,6 +53,9 @@ use crate::util::{hex_string, requires_dual_attestation};
 pub use export::*;
 pub use kinds::{VerificationFailureKind, VerifyErrorKind};
 pub use types::*;
+pub use validator::{
+    DomainEvent, DomainExport, DomainFinding, RecordValidator, Severity, VerificationWithDomain,
+};
 
 const SUITE_ID_PHASE_1_I128: i128 = SUITE_ID_PHASE_1 as i128;
 
@@ -69,10 +74,6 @@ const POSTURE_DECLARATION_DOMAIN: &str = "trellis-posture-declaration-v1";
 const ATTACHMENT_EXPORT_EXTENSION: &str = "trellis.export.attachments.v1";
 
 const ATTACHMENT_EVENT_EXTENSION: &str = "trellis.evidence-attachment-binding.v1";
-
-const SIGNATURE_EXPORT_EXTENSION: &str = "trellis.export.signature-affirmations.v1";
-
-const INTAKE_EXPORT_EXTENSION: &str = "trellis.export.intake-handoffs.v1";
 
 const ERASURE_EVIDENCE_EVENT_EXTENSION: &str = "trellis.erasure-evidence.v1";
 
@@ -154,19 +155,6 @@ const OPERATOR_URI_PREFIX_WOS: &str = "urn:wos:operator:";
 #[allow(dead_code)]
 const TRANSITION_ATTESTATION_DOMAIN: &str = "trellis-transition-attestation-v1";
 
-const WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE: &str = "wos.kernel.signatureAffirmation";
-
-const WOS_INTAKE_ACCEPTED_EVENT_TYPE: &str = "wos.kernel.intakeAccepted";
-
-const WOS_CASE_CREATED_EVENT_TYPE: &str = "wos.kernel.caseCreated";
-
-const WOS_GOVERNANCE_DETERMINATION_PREFIX: &str = "wos.governance.determination";
-
-const WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE: &str =
-    "wos.governance.determinationRescinded";
-
-const WOS_GOVERNANCE_REINSTATED_EVENT_TYPE: &str = "wos.governance.reinstated";
-
 /// Reserved CascadeScope identifiers from Companion Appendix A.7. Free-text
 /// scope values are non-conformant per OC-141 (Companion §20.6.3 / TR-OP-106);
 /// registry-extension `tstr` values that follow the Appendix A.7 convention
@@ -218,6 +206,18 @@ pub fn verify_single_event(
     public_key_bytes: [u8; 32],
     signed_event: &[u8],
 ) -> Result<VerificationReport, VerifyError> {
+    Ok(verify_single_event_with_validator(public_key_bytes, signed_event, &())?.trellis)
+}
+
+/// Verifies one COSE_Sign1 event and runs a domain validator.
+///
+/// # Errors
+/// Returns an error when the signed bytes do not decode as a COSE_Sign1 item.
+pub fn verify_single_event_with_validator(
+    public_key_bytes: [u8; 32],
+    signed_event: &[u8],
+    validator: &dyn RecordValidator,
+) -> Result<VerificationWithDomain, VerifyError> {
     let parsed = parse_sign1_bytes(signed_event)?;
     let mut registry = BTreeMap::new();
     registry.insert(
@@ -229,7 +229,7 @@ pub fn verify_single_event(
             valid_to: None,
         },
     );
-    Ok(verify_event_set(
+    Ok(verify_event_set_with_domain(
         &[parsed],
         &registry,
         None,
@@ -237,6 +237,7 @@ pub fn verify_single_event(
         false,
         None,
         None,
+        validator,
     ))
 }
 
@@ -250,6 +251,27 @@ pub fn verify_tampered_ledger(
     initial_posture_declaration: Option<&[u8]>,
     posture_declaration: Option<&[u8]>,
 ) -> Result<VerificationReport, VerifyError> {
+    Ok(verify_tampered_ledger_with_validator(
+        signing_key_registry,
+        ledger,
+        initial_posture_declaration,
+        posture_declaration,
+        &(),
+    )?
+    .trellis)
+}
+
+/// Verifies a tamper-fixture ledger and runs a domain validator.
+///
+/// # Errors
+/// Returns an error when the registry bytes cannot be decoded.
+pub fn verify_tampered_ledger_with_validator(
+    signing_key_registry: &[u8],
+    ledger: &[u8],
+    initial_posture_declaration: Option<&[u8]>,
+    posture_declaration: Option<&[u8]>,
+    validator: &dyn RecordValidator,
+) -> Result<VerificationWithDomain, VerifyError> {
     // Surface typed structural shape failures (e.g.
     // `key_entry_attributes_shape_mismatch`, TR-CORE-048) as a
     // `VerificationReport` with the matching `tamper_kind` rather than
@@ -261,20 +283,26 @@ pub fn verify_tampered_ledger(
         Ok(maps) => maps,
         Err(error) => {
             if let Some(kind) = error.kind() {
-                return Ok(VerificationReport::fatal(
-                    kind.verification_failure_kind(),
-                    format!("failed to decode signing-key registry: {error}"),
-                ));
+                return Ok(VerificationWithDomain {
+                    trellis: VerificationReport::fatal(
+                        kind.verification_failure_kind(),
+                        format!("failed to decode signing-key registry: {error}"),
+                    ),
+                    domain_findings: Vec::new(),
+                });
             }
             return Err(error);
         }
     };
     let events = parse_sign1_array(ledger).unwrap_or_else(|_| Vec::new());
     if events.is_empty() {
-        return Ok(VerificationReport::fatal(
-            VerificationFailureKind::MalformedCose,
-            "ledger is not a non-empty dCBOR array of COSE_Sign1 events",
-        ));
+        return Ok(VerificationWithDomain {
+            trellis: VerificationReport::fatal(
+                VerificationFailureKind::MalformedCose,
+                "ledger is not a non-empty dCBOR array of COSE_Sign1 events",
+            ),
+            domain_findings: Vec::new(),
+        });
     }
 
     Ok(verify_event_set_with_classes(
@@ -287,10 +315,12 @@ pub fn verify_tampered_ledger(
             classify_tamper: true,
             expected_ledger_scope: None,
             payload_blobs: None,
+            record_validator: validator,
         },
     ))
 }
 
+#[allow(dead_code)]
 pub(crate) fn verify_event_set(
     events: &[ParsedSign1],
     registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
@@ -300,6 +330,30 @@ pub(crate) fn verify_event_set(
     expected_ledger_scope: Option<&[u8]>,
     payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
 ) -> VerificationReport {
+    verify_event_set_with_domain(
+        events,
+        registry,
+        initial_posture_declaration,
+        posture_declaration,
+        classify_tamper,
+        expected_ledger_scope,
+        payload_blobs,
+        &(),
+    )
+    .trellis
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn verify_event_set_with_domain(
+    events: &[ParsedSign1],
+    registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
+    initial_posture_declaration: Option<&[u8]>,
+    posture_declaration: Option<&[u8]>,
+    classify_tamper: bool,
+    expected_ledger_scope: Option<&[u8]>,
+    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
+    validator: &dyn RecordValidator,
+) -> VerificationWithDomain {
     verify_event_set_with_classes(
         events,
         registry,
@@ -310,6 +364,7 @@ pub(crate) fn verify_event_set(
             classify_tamper,
             expected_ledger_scope,
             payload_blobs,
+            record_validator: validator,
         },
     )
 }
@@ -318,7 +373,7 @@ pub(crate) fn verify_event_set_with_classes(
     events: &[ParsedSign1],
     registry: &BTreeMap<Vec<u8>, SigningKeyEntry>,
     options: VerifyEventSetOptions<'_>,
-) -> VerificationReport {
+) -> VerificationWithDomain {
     let VerifyEventSetOptions {
         non_signing_registry,
         initial_posture_declaration,
@@ -326,12 +381,13 @@ pub(crate) fn verify_event_set_with_classes(
         classify_tamper,
         expected_ledger_scope,
         payload_blobs,
+        record_validator,
     } = options;
     let mut event_failures = Vec::new();
+    let mut domain_events = Vec::new();
     let mut posture_transitions = Vec::new();
     let mut previous_hash: Option<[u8; 32]> = None;
     let mut previous_authored_at: Option<TrellisTimestamp> = None;
-    let mut rescission_terminal = false;
     let skip_prev_hash_check = initial_posture_declaration.is_some() && events.len() == 1;
 
     // Core §17.3 — Track every `(ledger_scope, idempotency_key)` identity
@@ -402,25 +458,34 @@ pub(crate) fn verify_event_set_with_classes(
                 // class violations under the unified taxonomy.
                 if let Some(non_signing) = non_signing_registry.and_then(|map| map.get(&event.kid))
                 {
-                    return VerificationReport::fatal(
-                        VerificationFailureKind::KeyClassMismatch,
-                        format!(
-                            "event signed under a `{}`-class kid; only `signing` keys may sign canonical events (Core §8.7.3 step 4)",
-                            non_signing.class
+                    return VerificationWithDomain {
+                        trellis: VerificationReport::fatal(
+                            VerificationFailureKind::KeyClassMismatch,
+                            format!(
+                                "event signed under a `{}`-class kid; only `signing` keys may sign canonical events (Core §8.7.3 step 4)",
+                                non_signing.class
+                            ),
                         ),
-                    );
+                        domain_findings: Vec::new(),
+                    };
                 }
-                return VerificationReport::fatal(
-                    VerificationFailureKind::UnresolvableManifestKid,
-                    "event kid is not resolvable via the provided signing-key registry",
-                );
+                return VerificationWithDomain {
+                    trellis: VerificationReport::fatal(
+                        VerificationFailureKind::UnresolvableManifestKid,
+                        "event kid is not resolvable via the provided signing-key registry",
+                    ),
+                    domain_findings: Vec::new(),
+                };
             }
         };
         if event.alg != ALG_EDDSA || event.suite_id != SUITE_ID_PHASE_1_I128 {
-            return VerificationReport::fatal(
-                VerificationFailureKind::UnsupportedSuite,
-                "event protected header does not match the Trellis Phase-1 suite",
-            );
+            return VerificationWithDomain {
+                trellis: VerificationReport::fatal(
+                    VerificationFailureKind::UnsupportedSuite,
+                    "event protected header does not match the Trellis Phase-1 suite",
+                ),
+                domain_findings: Vec::new(),
+            };
         }
         if !verify_signature(event, key_entry.public_key) {
             let location = event_identity(event)
@@ -450,7 +515,10 @@ pub(crate) fn verify_event_set_with_classes(
                 } else {
                     "event payload does not decode as a canonical Trellis event".to_string()
                 };
-                return VerificationReport::fatal(failure_kind, warning);
+                return VerificationWithDomain {
+                    trellis: VerificationReport::fatal(failure_kind, warning),
+                    domain_findings: Vec::new(),
+                };
             }
         };
         decoded_per_index[index] = Some(decoded);
@@ -474,10 +542,13 @@ pub(crate) fn verify_event_set_with_classes(
                     ));
                 }
                 None => {
-                    return VerificationReport::fatal(
-                        VerificationFailureKind::SigningKeyRegistryInvalid,
-                        "revoked signing-key registry entry is missing valid_to",
-                    );
+                    return VerificationWithDomain {
+                        trellis: VerificationReport::fatal(
+                            VerificationFailureKind::SigningKeyRegistryInvalid,
+                            "revoked signing-key registry entry is missing valid_to",
+                        ),
+                        domain_findings: Vec::new(),
+                    };
                 }
                 // Key is revoked, but this event was authored on or before
                 // `valid_to` — accepted per Core §19 (historical signatures).
@@ -618,25 +689,6 @@ pub(crate) fn verify_event_set_with_classes(
         }
         previous_authored_at = Some(details.authored_at);
 
-        // ADR 0066 D-3 / TR-CORE-171 — a rescinded determination is terminal
-        // until an explicit reinstatement event reopens the same chain. The
-        // verifier treats a later determination-changing governance event as
-        // integrity evidence, independent of hash and signature validity.
-        if details.event_type == WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE {
-            rescission_terminal = true;
-        } else if details.event_type == WOS_GOVERNANCE_REINSTATED_EVENT_TYPE {
-            rescission_terminal = false;
-        } else if rescission_terminal
-            && details
-                .event_type
-                .starts_with(WOS_GOVERNANCE_DETERMINATION_PREFIX)
-        {
-            event_failures.push(VerificationFailure::new(
-                VerificationFailureKind::RescissionTerminalityViolation,
-                hex_string(&details.canonical_event_hash),
-            ));
-        }
-
         // ADR 0005 step 8 input collection — every event contributes a
         // chain summary so the post-loop pass can flag `authored_at >
         // destroyed_at` events that sign under (post_erasure_use) or wrap
@@ -657,6 +709,13 @@ pub(crate) fn verify_event_set_with_classes(
         if let Some(uca) = details.user_content_attestation.take() {
             user_content_attestation_payloads.push((index, uca, details.canonical_event_hash));
         }
+
+        domain_events.push(DomainEvent {
+            event_type: details.event_type.clone(),
+            payload: readable_payload_for_domain(details, payload_blobs),
+            canonical_event_hash: details.canonical_event_hash,
+            authored_at: details.authored_at,
+        });
 
         if let Some(transition) = details.transition.take() {
             let mut outcome = PostureTransitionOutcome {
@@ -787,7 +846,7 @@ pub(crate) fn verify_event_set_with_classes(
         &mut event_failures,
     );
 
-    VerificationReport::from_integrity_state(
+    let trellis = VerificationReport::from_integrity_state(
         event_failures,
         Vec::new(),
         Vec::new(),
@@ -797,7 +856,24 @@ pub(crate) fn verify_event_set_with_classes(
         user_content_attestations,
         correction_preservations,
         Vec::new(),
-    )
+    );
+    let domain_findings = record_validator.validate_events(&domain_events);
+    VerificationWithDomain {
+        trellis,
+        domain_findings,
+    }
+}
+
+fn readable_payload_for_domain(
+    details: &EventDetails,
+    payload_blobs: Option<&BTreeMap<[u8; 32], Vec<u8>>>,
+) -> Option<Vec<u8>> {
+    match &details.payload_ref {
+        PayloadRef::Inline(bytes) => Some(bytes.clone()),
+        PayloadRef::External => {
+            payload_blobs.and_then(|blobs| blobs.get(&details.content_hash).cloned())
+        }
+    }
 }
 
 pub(crate) type EventDetailsLookupPools = (
@@ -865,64 +941,6 @@ pub(crate) fn attachment_entry_matches_binding(
         && entry.payload_content_hash == binding.payload_content_hash
         && entry.filename == binding.filename
         && entry.prior_binding_hash == binding.prior_binding_hash
-}
-
-pub(crate) fn signature_entry_matches_record(
-    entry: &SignatureManifestEntry,
-    record: &SignatureAffirmationRecordDetails,
-) -> bool {
-    entry.signer_id == record.signer_id
-        && entry.role_id == record.role_id
-        && entry.role == record.role
-        && entry.document_id == record.document_id
-        && entry.document_hash == record.document_hash
-        && entry.document_hash_algorithm == record.document_hash_algorithm
-        && entry.signed_at == record.signed_at
-        && cbor_nested_map_semantic_eq(&entry.identity_binding, &record.identity_binding)
-        && cbor_nested_map_semantic_eq(&entry.consent_reference, &record.consent_reference)
-        && entry.signature_provider == record.signature_provider
-        && entry.ceremony_id == record.ceremony_id
-        && entry.profile_ref == record.profile_ref
-        && entry.profile_key == record.profile_key
-        && entry.formspec_response_ref == record.formspec_response_ref
-}
-
-pub(crate) fn intake_entry_matches_record(
-    entry: &IntakeManifestEntry,
-    record: &IntakeAcceptedRecordDetails,
-) -> bool {
-    if entry.handoff.handoff_id != record.intake_id {
-        return false;
-    }
-
-    match entry.handoff.initiation_mode.as_str() {
-        "workflowInitiated" => {
-            entry.handoff.case_ref.as_deref() == Some(record.case_ref.as_str())
-                && record.case_intent == "attachToExistingCase"
-                && record.case_disposition == "attachToExistingCase"
-        }
-        "publicIntake" => {
-            record.case_intent == "requestGovernedCaseCreation"
-                && record.case_disposition == "createGovernedCase"
-                && record.definition_url.as_deref() == Some(entry.handoff.definition_url.as_str())
-                && record.definition_version.as_deref()
-                    == Some(entry.handoff.definition_version.as_str())
-        }
-        _ => false,
-    }
-}
-
-pub(crate) fn case_created_record_matches_handoff(
-    entry: &IntakeManifestEntry,
-    intake_record: &IntakeAcceptedRecordDetails,
-    case_record: &CaseCreatedRecordDetails,
-) -> bool {
-    case_record.case_ref == intake_record.case_ref
-        && case_record.intake_handoff_ref == entry.handoff.handoff_id
-        && case_record.formspec_response_ref == entry.handoff.response_ref
-        && case_record.validation_report_ref == entry.handoff.validation_report_ref
-        && case_record.ledger_head_ref == entry.handoff.ledger_head_ref
-        && case_record.initiation_mode == entry.handoff.initiation_mode
 }
 
 /// Reserved non-signing class literals from Core §8.7 (ADR 0006).

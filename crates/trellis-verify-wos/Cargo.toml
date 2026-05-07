@@ -1,0 +1,12 @@
+[package]
+name = "trellis-verify-wos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ciborium = "0.2"
+serde_json = "1.0"
+sha2 = "0.10"
+trellis-types = { path = "../trellis-types" }
+trellis-verify = { path = "../trellis-verify" }

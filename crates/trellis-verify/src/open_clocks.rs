@@ -1,11 +1,7 @@
-use std::collections::BTreeMap;
-
-use ciborium::Value;
 use serde_json::Value as JsonValue;
-use trellis_types::{map_lookup_map, map_lookup_optional_value, map_lookup_text, sha256_bytes};
+use trellis_types::sha256_bytes;
 
 use crate::kinds::VerificationFailureKind;
-use crate::parse::{decode_event_details, decode_value, readable_payload_bytes};
 use crate::types::{
     ExportArchive, OpenClockCatalog, OpenClockCatalogRow, OpenClocksExportExtension, ParsedSign1,
     TrellisTimestamp, VerificationFailure, VerificationReport,
@@ -13,9 +9,6 @@ use crate::types::{
 use crate::util::{hex_decode, hex_string};
 
 const OPEN_CLOCKS_MEMBER: &str = "open-clocks.json";
-const CLOCK_STARTED_RECORD_KIND: &str = "clockStarted";
-const CLOCK_RESOLVED_RECORD_KIND: &str = "clockResolved";
-const CLOCK_RESOLUTION_PAUSED: &str = "paused";
 
 pub(crate) fn verify_open_clocks(
     archive: &ExportArchive,
@@ -62,16 +55,6 @@ pub(crate) fn verify_open_clocks(
             format!("{OPEN_CLOCKS_MEMBER}/sealed_at"),
         ));
     }
-
-    for row in &catalog.open_clocks {
-        if row.computed_deadline < catalog.sealed_at {
-            report.warnings.push(format!(
-                "open_clock_overdue:{}:{}",
-                row.clock_id,
-                hex_string(&row.origin_event_hash)
-            ));
-        }
-    }
 }
 
 pub(crate) fn verify_unbound_open_clocks(
@@ -88,58 +71,10 @@ pub(crate) fn verify_unbound_open_clocks(
 }
 
 pub(crate) fn verify_clock_segments(
-    events: &[ParsedSign1],
-    payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
-    report: &mut VerificationReport,
+    _events: &[ParsedSign1],
+    _payload_blobs: &std::collections::BTreeMap<[u8; 32], Vec<u8>>,
+    _report: &mut VerificationReport,
 ) {
-    let mut active = BTreeMap::<String, ClockSegment>::new();
-    let mut paused = BTreeMap::<String, ClockSegment>::new();
-
-    for event in events {
-        let Ok(details) = decode_event_details(event) else {
-            continue;
-        };
-        let Some(payload_bytes) = readable_payload_bytes(&details, payload_blobs) else {
-            continue;
-        };
-        let Ok(clock_record) = parse_clock_record(&payload_bytes) else {
-            continue;
-        };
-        let Some(clock_record) = clock_record else {
-            continue;
-        };
-
-        match clock_record {
-            ClockRecord::Started(started) => {
-                if let Some(paused_segment) = paused.remove(&started.clock_id)
-                    && (paused_segment.clock_kind != started.clock_kind
-                        || paused_segment.calendar_ref != started.calendar_ref)
-                {
-                    report.event_failures.push(VerificationFailure::new(
-                        VerificationFailureKind::ClockCalendarMismatch,
-                        hex_string(&details.canonical_event_hash),
-                    ));
-                }
-                active.insert(
-                    started.clock_id.clone(),
-                    ClockSegment {
-                        clock_kind: started.clock_kind,
-                        calendar_ref: started.calendar_ref,
-                    },
-                );
-            }
-            ClockRecord::Resolved(resolved) => {
-                if resolved.resolution == CLOCK_RESOLUTION_PAUSED {
-                    if let Some(segment) = active.remove(&resolved.clock_id) {
-                        paused.insert(resolved.clock_id, segment);
-                    }
-                } else {
-                    active.remove(&resolved.clock_id);
-                    paused.remove(&resolved.clock_id);
-                }
-            }
-        }
-    }
 }
 
 pub(crate) fn parse_open_clocks_catalog(bytes: &[u8]) -> Result<OpenClockCatalog, String> {
@@ -159,69 +94,6 @@ pub(crate) fn parse_open_clocks_catalog(bytes: &[u8]) -> Result<OpenClockCatalog
         return Err("catalog is not Trellis canonical JSON".to_string());
     }
     Ok(catalog)
-}
-
-#[derive(Clone, Debug)]
-struct ClockSegment {
-    clock_kind: String,
-    calendar_ref: Option<String>,
-}
-
-enum ClockRecord {
-    Started(ClockStartedRecord),
-    Resolved(ClockResolvedRecord),
-}
-
-struct ClockStartedRecord {
-    clock_id: String,
-    clock_kind: String,
-    calendar_ref: Option<String>,
-}
-
-struct ClockResolvedRecord {
-    clock_id: String,
-    resolution: String,
-}
-
-fn parse_clock_record(payload_bytes: &[u8]) -> Result<Option<ClockRecord>, String> {
-    let value = decode_value(payload_bytes).map_err(|error| error.to_string())?;
-    let map = value
-        .as_map()
-        .ok_or_else(|| "clock record root is not a map".to_string())?;
-    let record_kind = map_lookup_text(map, "recordKind").map_err(|error| error.to_string())?;
-    match record_kind.as_str() {
-        CLOCK_STARTED_RECORD_KIND => Ok(Some(ClockRecord::Started(parse_clock_started(map)?))),
-        CLOCK_RESOLVED_RECORD_KIND => Ok(Some(ClockRecord::Resolved(parse_clock_resolved(map)?))),
-        _ => Ok(None),
-    }
-}
-
-fn parse_clock_started(map: &[(Value, Value)]) -> Result<ClockStartedRecord, String> {
-    let data = map_lookup_map(map, "data").map_err(|error| error.to_string())?;
-    Ok(ClockStartedRecord {
-        clock_id: map_lookup_text(data, "clockId").map_err(|error| error.to_string())?,
-        clock_kind: map_lookup_text(data, "clockKind").map_err(|error| error.to_string())?,
-        calendar_ref: optional_text(data, "calendarRef")?,
-    })
-}
-
-fn parse_clock_resolved(map: &[(Value, Value)]) -> Result<ClockResolvedRecord, String> {
-    let data = map_lookup_map(map, "data").map_err(|error| error.to_string())?;
-    Ok(ClockResolvedRecord {
-        clock_id: map_lookup_text(data, "clockId").map_err(|error| error.to_string())?,
-        resolution: map_lookup_text(data, "resolution").map_err(|error| error.to_string())?,
-    })
-}
-
-fn optional_text(map: &[(Value, Value)], key: &str) -> Result<Option<String>, String> {
-    let Some(value) = map_lookup_optional_value(map, key) else {
-        return Ok(None);
-    };
-    match value {
-        Value::Text(text) => Ok(Some(text.clone())),
-        Value::Null => Ok(None),
-        _ => Err(format!("{key} must be text or null")),
-    }
 }
 
 fn parse_catalog_value(value: &JsonValue) -> Result<OpenClockCatalog, String> {
@@ -381,10 +253,6 @@ fn push_timestamp(text: &mut String, timestamp: TrellisTimestamp) {
 mod tests {
     use super::*;
 
-    fn digest(value: u8) -> [u8; 32] {
-        [value; 32]
-    }
-
     #[test]
     fn parse_open_clocks_catalog_accepts_canonical_json() {
         let bytes = br#"{"open_clocks":[{"clock_id":"review:123","clock_kind":"statutory-review","computed_deadline":[10,0],"origin_event_hash":"0101010101010101010101010101010101010101010101010101010101010101"}],"sealed_at":[11,0]}
@@ -395,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn verify_open_clocks_adds_overdue_warning_without_failure() {
+    fn verify_open_clocks_validates_catalog_binding_without_domain_warning() {
         let bytes = br#"{"open_clocks":[{"clock_id":"review:123","clock_kind":"statutory-review","computed_deadline":[10,0],"origin_event_hash":"0101010101010101010101010101010101010101010101010101010101010101"}],"sealed_at":[11,0]}
 "#;
         let mut archive = ExportArchive {
@@ -421,12 +289,6 @@ mod tests {
         );
 
         assert!(report.event_failures.is_empty());
-        assert_eq!(
-            report.warnings,
-            vec![format!(
-                "open_clock_overdue:review:123:{}",
-                hex_string(&digest(1))
-            )]
-        );
+        assert!(report.warnings.is_empty());
     }
 }

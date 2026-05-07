@@ -268,122 +268,6 @@ fn rebuild_export_zip(template: &[u8], overrides: &[(&str, &[u8])], omit: &[&str
     cursor.into_inner()
 }
 
-fn intake_accepted_payload(outputs: Option<Vec<Value>>) -> Vec<u8> {
-    let mut map = vec![
-        (
-            Value::Text("recordKind".into()),
-            Value::Text("intakeAccepted".into()),
-        ),
-        (
-            Value::Text("data".into()),
-            Value::Map(vec![
-                (
-                    Value::Text("intakeId".into()),
-                    Value::Text("handoff-1".into()),
-                ),
-                (
-                    Value::Text("caseIntent".into()),
-                    Value::Text("attachToExistingCase".into()),
-                ),
-                (
-                    Value::Text("caseDisposition".into()),
-                    Value::Text("attachToExistingCase".into()),
-                ),
-                (Value::Text("caseRef".into()), Value::Text("case-1".into())),
-            ]),
-        ),
-    ];
-    if let Some(outputs) = outputs {
-        map.push((Value::Text("outputs".into()), Value::Array(outputs)));
-    }
-    let mut bytes = Vec::new();
-    ciborium::into_writer(&Value::Map(map), &mut bytes).unwrap();
-    bytes
-}
-
-fn case_created_payload(outputs: Option<Vec<Value>>) -> Vec<u8> {
-    let mut map = vec![
-        (
-            Value::Text("recordKind".into()),
-            Value::Text("caseCreated".into()),
-        ),
-        (
-            Value::Text("data".into()),
-            Value::Map(vec![
-                (Value::Text("caseRef".into()), Value::Text("case-1".into())),
-                (
-                    Value::Text("intakeHandoffRef".into()),
-                    Value::Text("handoff-1".into()),
-                ),
-                (
-                    Value::Text("formspecResponseRef".into()),
-                    Value::Text("response-1".into()),
-                ),
-                (
-                    Value::Text("validationReportRef".into()),
-                    Value::Text("validation-1".into()),
-                ),
-                (
-                    Value::Text("ledgerHeadRef".into()),
-                    Value::Text("ledger-1".into()),
-                ),
-                (
-                    Value::Text("initiationMode".into()),
-                    Value::Text("publicIntake".into()),
-                ),
-            ]),
-        ),
-    ];
-    if let Some(outputs) = outputs {
-        map.push((Value::Text("outputs".into()), Value::Array(outputs)));
-    }
-    let mut bytes = Vec::new();
-    ciborium::into_writer(&Value::Map(map), &mut bytes).unwrap();
-    bytes
-}
-
-fn intake_handoff_value(initiation_mode: &str, case_ref: Value) -> Value {
-    Value::Map(vec![
-        (
-            Value::Text("handoffId".into()),
-            Value::Text("handoff-1".into()),
-        ),
-        (
-            Value::Text("initiationMode".into()),
-            Value::Text(initiation_mode.into()),
-        ),
-        (Value::Text("caseRef".into()), case_ref),
-        (
-            Value::Text("definitionRef".into()),
-            Value::Map(vec![
-                (
-                    Value::Text("url".into()),
-                    Value::Text("https://example.test/definitions/intake".into()),
-                ),
-                (Value::Text("version".into()), Value::Text("1.0.0".into())),
-            ]),
-        ),
-        (
-            Value::Text("responseRef".into()),
-            Value::Text("response-1".into()),
-        ),
-        (
-            Value::Text("responseHash".into()),
-            Value::Text(
-                "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
-            ),
-        ),
-        (
-            Value::Text("validationReportRef".into()),
-            Value::Text("validation-1".into()),
-        ),
-        (
-            Value::Text("ledgerHeadRef".into()),
-            Value::Text("ledger-1".into()),
-        ),
-    ])
-}
-
 #[test]
 fn verify_single_event_accepts_append_001_fixture() {
     let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -488,49 +372,6 @@ fn parse_sign1_array_rejects_array_of_non_sign1_items() {
     )
     .unwrap();
     assert!(crate::parse::parse_sign1_array(&bytes).is_err());
-}
-
-#[test]
-fn parse_intake_accepted_record_rejects_missing_or_empty_outputs() {
-    let missing = crate::parse::parse_intake_accepted_record(&intake_accepted_payload(None))
-        .expect_err("missing outputs must fail");
-    assert!(missing.to_string().contains("outputs"), "{missing}");
-
-    let empty = crate::parse::parse_intake_accepted_record(&intake_accepted_payload(Some(vec![])))
-        .expect_err("empty outputs must fail");
-    assert!(empty.to_string().contains("outputs"), "{empty}");
-}
-
-#[test]
-fn parse_case_created_record_rejects_missing_or_empty_outputs() {
-    let missing = crate::parse::parse_case_created_record(&case_created_payload(None))
-        .expect_err("missing outputs must fail");
-    assert!(missing.to_string().contains("outputs"), "{missing}");
-
-    let empty = crate::parse::parse_case_created_record(&case_created_payload(Some(vec![])))
-        .expect_err("empty outputs must fail");
-    assert!(empty.to_string().contains("outputs"), "{empty}");
-}
-
-#[test]
-fn parse_intake_handoff_details_rejects_public_intake_with_case_ref() {
-    let error = crate::parse::parse_intake_handoff_details(&intake_handoff_value(
-        "publicIntake",
-        Value::Text("urn:wos:case:case-1".into()),
-    ))
-    .expect_err("public intake caseRef must fail");
-    assert!(error.to_string().contains("caseRef"), "{error}");
-}
-
-#[test]
-fn parse_intake_handoff_details_accepts_public_intake_with_null_case_ref() {
-    let details = crate::parse::parse_intake_handoff_details(&intake_handoff_value(
-        "publicIntake",
-        Value::Null,
-    ))
-    .expect("null public intake caseRef must pass");
-    assert_eq!(details.initiation_mode, "publicIntake");
-    assert_eq!(details.case_ref, None);
 }
 
 #[test]
@@ -793,119 +634,6 @@ fn attachment_topology_multirevision_ok() {
     m.insert(h2, 2);
     let f = crate::export::attachment_manifest_topology_failures(&entries, &m);
     assert!(f.is_empty());
-}
-
-fn signature_manifest_entry(event_hash: [u8; 32]) -> crate::SignatureManifestEntry {
-    crate::SignatureManifestEntry {
-        canonical_event_hash: event_hash,
-        signer_id: "applicant".to_string(),
-        role_id: "applicantSigner".to_string(),
-        role: "signer".to_string(),
-        document_id: "benefitsApplication".to_string(),
-        document_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
-        document_hash_algorithm: "sha-256".to_string(),
-        signed_at: "2026-04-22T14:30:00Z".to_string(),
-        identity_binding: Value::Map(vec![
-            (
-                Value::Text("method".into()),
-                Value::Text("email-otp".into()),
-            ),
-            (
-                Value::Text("assuranceLevel".into()),
-                Value::Text("standard".into()),
-            ),
-        ]),
-        consent_reference: Value::Map(vec![
-            (
-                Value::Text("consentTextRef".into()),
-                Value::Text("urn:agency.gov:consent:esign-benefits:v1".into()),
-            ),
-            (
-                Value::Text("consentVersion".into()),
-                Value::Text("1.0.0".into()),
-            ),
-            (
-                Value::Text("acceptedAtPath".into()),
-                Value::Text("response.signature.acceptedAt".into()),
-            ),
-            (
-                Value::Text("affirmationPath".into()),
-                Value::Text("response.signature.affirmed".into()),
-            ),
-        ]),
-        signature_provider: "urn:agency.gov:signature:providers:formspec".to_string(),
-        ceremony_id: "ceremony-2026-0001".to_string(),
-        profile_ref: Some("urn:agency.gov:wos:signature-profile:benefits:v1".to_string()),
-        profile_key: None,
-        formspec_response_ref: "urn:agency.gov:formspec:responses:benefits:case-2026-0001"
-            .to_string(),
-    }
-}
-
-fn signature_record_details() -> crate::SignatureAffirmationRecordDetails {
-    let entry = signature_manifest_entry(test_attachment_hash(40));
-    crate::SignatureAffirmationRecordDetails {
-        signer_id: entry.signer_id,
-        role_id: entry.role_id,
-        role: entry.role,
-        document_id: entry.document_id,
-        document_hash: entry.document_hash,
-        document_hash_algorithm: entry.document_hash_algorithm,
-        signed_at: entry.signed_at,
-        identity_binding: entry.identity_binding,
-        consent_reference: entry.consent_reference,
-        signature_provider: entry.signature_provider,
-        ceremony_id: entry.ceremony_id,
-        profile_ref: entry.profile_ref,
-        profile_key: entry.profile_key,
-        formspec_response_ref: entry.formspec_response_ref,
-    }
-}
-
-#[test]
-fn signature_catalog_entry_matches_record_when_fields_align() {
-    let entry = signature_manifest_entry(test_attachment_hash(41));
-    let record = signature_record_details();
-    assert!(crate::signature_entry_matches_record(&entry, &record));
-}
-
-#[test]
-fn signature_catalog_entry_detects_field_mismatch() {
-    let entry = signature_manifest_entry(test_attachment_hash(42));
-    let mut record = signature_record_details();
-    record.document_hash_algorithm = "sha-512".to_string();
-    assert!(!crate::signature_entry_matches_record(&entry, &record));
-}
-
-#[test]
-fn cbor_nested_map_semantic_eq_ignores_map_entry_order() {
-    let a = Value::Map(vec![
-        (Value::Text("z".into()), Value::Integer(1.into())),
-        (Value::Text("a".into()), Value::Integer(2.into())),
-    ]);
-    let b = Value::Map(vec![
-        (Value::Text("a".into()), Value::Integer(2.into())),
-        (Value::Text("z".into()), Value::Integer(1.into())),
-    ]);
-    assert!(crate::parse::cbor_nested_map_semantic_eq(&a, &b));
-}
-
-#[test]
-fn cbor_nested_map_semantic_eq_nested_maps_ignore_order() {
-    let inner_a = Value::Map(vec![
-        (Value::Text("second".into()), Value::Bool(false)),
-        (Value::Text("first".into()), Value::Bool(true)),
-    ]);
-    let inner_b = Value::Map(vec![
-        (Value::Text("first".into()), Value::Bool(true)),
-        (Value::Text("second".into()), Value::Bool(false)),
-    ]);
-    let outer_a = Value::Map(vec![(Value::Text("k".into()), inner_a)]);
-    let outer_b = Value::Map(vec![(Value::Text("k".into()), inner_b)]);
-    assert!(crate::parse::cbor_nested_map_semantic_eq(
-        &outer_a, &outer_b
-    ));
 }
 
 // ------------------------------------------------------------------
@@ -2428,6 +2156,44 @@ fn finalize_certificates_no_id_collision_when_payloads_agree() {
 }
 
 #[test]
+fn finalize_certificates_flags_principal_ref_mismatch() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/vectors/append/019-wos-signature-affirmation/expected-event.cbor");
+    let signed = fs::read(&fixture).unwrap();
+    let parsed = crate::parse::parse_sign1_bytes(&signed).unwrap();
+    let details = crate::parse::decode_event_details(&parsed).unwrap();
+    let signing_event_hash = details.canonical_event_hash;
+    let authored_at = details.authored_at;
+
+    let mut by_hash: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+    by_hash.insert(signing_event_hash, 0);
+    let pool = vec![details];
+
+    let mut payload =
+        certificate_details_for_test("cert-principal-mismatch", vec![signing_event_hash], 1);
+    payload.chain_summary.signer_display[0].principal_ref =
+        "urn:trellis:principal:not-the-signer".to_string();
+    payload.chain_summary.signer_display[0].signed_at = authored_at;
+
+    let mut event_failures = Vec::new();
+    let outcomes = crate::certificate::finalize_certificates_of_completion(
+        &[(0usize, payload, [0xCEu8; 32])],
+        &pool,
+        &by_hash,
+        None,
+        &mut event_failures,
+    );
+
+    assert_eq!(outcomes.len(), 1);
+    assert!(!outcomes[0].chain_summary_consistent);
+    assert!(
+        event_failures
+            .iter()
+            .any(|f| f.kind == VerificationFailureKind::CertificateChainSummaryMismatch)
+    );
+}
+
+#[test]
 fn finalize_certificates_flags_attestation_when_signature_malformed() {
     // ADR 0007 §"Verifier obligations" step 3 (Phase-1 structural):
     // attestation row with malformed signature flips
@@ -2490,118 +2256,6 @@ fn finalize_certificates_genesis_path_marks_attachment_resolved_true() {
             .iter()
             .any(|f| f == "presentation_artifact_attachment_missing"),
         "Phase-1 genesis path must not emit attachment-missing failures",
-    );
-}
-
-#[test]
-fn finalize_certificates_lookup_resolves_fixture_signature_affirmation_inline() {
-    // Exercises `event_by_hash` hit path + step 5/6 + step 2 principal
-    // compare using real `append/019` SignatureAffirmation bytes.
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/vectors/append/019-wos-signature-affirmation/expected-event.cbor");
-    let signed = fs::read(&fixture).unwrap();
-    let parsed = crate::parse::parse_sign1_bytes(&signed).unwrap();
-    let details = crate::parse::decode_event_details(&parsed).unwrap();
-    assert_eq!(
-        details.event_type,
-        crate::WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE
-    );
-
-    let affirm_canon = details.canonical_event_hash;
-    let pool = vec![details];
-    let mut by_hash: BTreeMap<[u8; 32], usize> = BTreeMap::new();
-    by_hash.insert(affirm_canon, 0);
-
-    let payload_bytes = match &pool[0].payload_ref {
-        crate::PayloadRef::Inline(b) => b.as_slice(),
-        _ => panic!("append/019 uses inline kernel payload"),
-    };
-    let record = crate::parse::parse_signature_affirmation_record(payload_bytes).unwrap();
-
-    let mut payload = certificate_details_for_test("cert-019-inline-lookup", vec![affirm_canon], 1);
-    payload.chain_summary.signer_display[0].principal_ref = record.signer_id.clone();
-    payload.chain_summary.signer_display[0].signed_at = pool[0].authored_at;
-
-    let cert_canon = [0xABu8; 32];
-    let payloads = vec![(0usize, payload, cert_canon)];
-    let mut failures = Vec::new();
-    let outcomes = crate::certificate::finalize_certificates_of_completion(
-        &payloads,
-        &pool,
-        &by_hash,
-        None,
-        &mut failures,
-    );
-    assert_eq!(outcomes.len(), 1);
-    assert!(
-        outcomes[0].all_signing_events_resolved,
-        "failures={:?}",
-        outcomes[0].failures
-    );
-    assert!(
-        outcomes[0].chain_summary_consistent,
-        "{:?}",
-        outcomes[0].failures
-    );
-    assert!(
-        !failures
-            .iter()
-            .any(|f| f.kind == VerificationFailureKind::SigningEventUnresolved)
-    );
-}
-
-#[test]
-fn finalize_certificates_principal_ref_resolves_external_affirmation_via_blobs() {
-    // Step 2 principal compare with `PayloadRef::External`: wire bytes only
-    // in `payload_blobs` (append/019 `formspecResponseRef` is not a
-    // `sha256:` digest, so step 7 is not exercised here).
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/vectors/append/019-wos-signature-affirmation/expected-event.cbor");
-    let signed = fs::read(&fixture).unwrap();
-    let parsed = crate::parse::parse_sign1_bytes(&signed).unwrap();
-    let mut details = crate::parse::decode_event_details(&parsed).unwrap();
-    let affirm_canon = details.canonical_event_hash;
-
-    let inline_bytes = match &details.payload_ref {
-        crate::PayloadRef::Inline(b) => b.clone(),
-        _ => panic!("fixture uses inline payload"),
-    };
-    let record = crate::parse::parse_signature_affirmation_record(&inline_bytes).unwrap();
-
-    let content_hash = details.content_hash;
-    details.payload_ref = crate::PayloadRef::External;
-
-    let pool = vec![details];
-    let mut by_hash: BTreeMap<[u8; 32], usize> = BTreeMap::new();
-    by_hash.insert(affirm_canon, 0usize);
-
-    let mut blobs = BTreeMap::new();
-    blobs.insert(content_hash, inline_bytes);
-
-    let mut payload = certificate_details_for_test("cert-019-ext-blobs", vec![affirm_canon], 1);
-    payload.chain_summary.signer_display[0].principal_ref = record.signer_id.clone();
-    payload.chain_summary.signer_display[0].signed_at = pool[0].authored_at;
-
-    let cert_canon = [0xCDu8; 32];
-    let payloads = vec![(0usize, payload, cert_canon)];
-    let mut failures = Vec::new();
-    let outcomes = crate::certificate::finalize_certificates_of_completion(
-        &payloads,
-        &pool,
-        &by_hash,
-        Some(&blobs),
-        &mut failures,
-    );
-    assert_eq!(outcomes.len(), 1);
-    assert!(
-        outcomes[0].chain_summary_consistent,
-        "{:?}",
-        outcomes[0].failures
-    );
-    assert!(
-        !failures
-            .iter()
-            .any(|f| f.kind == VerificationFailureKind::CertificateChainSummaryMismatch)
     );
 }
 

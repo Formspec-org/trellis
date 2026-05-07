@@ -19,4 +19,5 @@ trellis-export = { path = "../trellis-export" }
 trellis-store-postgres = { path = "../trellis-store-postgres" }
 trellis-types = { path = "../trellis-types" }
 trellis-verify = { path = "../trellis-verify" }
+trellis-verify-wos = { path = "../trellis-verify-wos" }
 toml = "0.8"

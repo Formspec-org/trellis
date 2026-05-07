@@ -18,6 +18,30 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 41 (2026-05-07) — TODO #15 Rust WOS verifier extraction
+
+- `trellis-verify` now exposes a domain-validator seam and keeps WOS record
+  semantics out of the Core verifier.
+- Added sibling adapter crate `trellis-verify-wos` for WOS event-type literals,
+  record parsing, rescission terminality, clock-calendar checks, and
+  signature/intake catalog field matching.
+- `trellis-conformance` routes WOS-coupled fixture expectations through the
+  composed WOS verifier while integrity-only vectors remain on `trellis-verify`.
+- Core §16/§19 and §6.7 now distinguish Core byte-integrity obligations from
+  consumer-owned domain validation; WOS-domain obligations live in
+  `specs/wos-trellis-verification.md`.
+- `wos-server` had no live code dependency to migrate in this checkout. The
+  Python verifier still carries WOS-aware checks and remains tracked in
+  `TODO.md` under the same item.
+
+Verification:
+- `cargo check -p trellis-verify -p trellis-verify-wos`.
+- `cargo test -p trellis-verify --lib`.
+- `cargo test -p trellis-verify-wos --lib`.
+- `cargo test -p trellis-conformance`.
+- `cargo nextest run -p trellis-verify -p trellis-verify-wos -p trellis-conformance`.
+- `uv run --with cbor2 --with cryptography python scripts/check-specs.py`.
+
 ### Wave 40 (2026-05-07) — TODO #11 correction-preservation report output
 
 - `trellis-verify` now adds `correction_preservations[]` to

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use ciborium::Value;
@@ -7,15 +6,15 @@ use trellis_types::{
     map_lookup_fixed_bytes, map_lookup_integer_label_bytes, map_lookup_integer_label_value,
     map_lookup_map, map_lookup_optional_bytes, map_lookup_optional_fixed_bytes,
     map_lookup_optional_map, map_lookup_optional_text, map_lookup_optional_value, map_lookup_text,
-    map_lookup_u64, map_lookup_value,
+    map_lookup_u64,
 };
 
 use super::{
     ATTACHMENT_EVENT_EXTENSION, ATTACHMENT_EXPORT_EXTENSION, CERTIFICATE_EVENT_EXTENSION,
     CERTIFICATE_EXPORT_EXTENSION, COSE_LABEL_ALG, COSE_LABEL_KID, ERASURE_EVIDENCE_EVENT_EXTENSION,
-    ERASURE_EVIDENCE_EXPORT_EXTENSION, INTAKE_EXPORT_EXTENSION, OPEN_CLOCKS_EXPORT_EXTENSION,
-    RESERVED_NON_SIGNING_KIND, SIGNATURE_EXPORT_EXTENSION, SUPERSEDES_CHAIN_ID_EVENT_EXTENSION,
-    SUPERSESSION_GRAPH_EXPORT_EXTENSION, USER_CONTENT_ATTESTATION_EVENT_EXTENSION,
+    ERASURE_EVIDENCE_EXPORT_EXTENSION, OPEN_CLOCKS_EXPORT_EXTENSION, RESERVED_NON_SIGNING_KIND,
+    SUPERSEDES_CHAIN_ID_EVENT_EXTENSION, SUPERSESSION_GRAPH_EXPORT_EXTENSION,
+    USER_CONTENT_ATTESTATION_EVENT_EXTENSION,
 };
 use crate::kinds::{VerificationFailureKind, VerifyErrorKind};
 use crate::merkle::recompute_canonical_event_hash;
@@ -884,50 +883,6 @@ pub(crate) fn parse_attachment_export_extension(
     }))
 }
 
-pub(crate) fn parse_signature_export_extension(
-    manifest_map: &[(Value, Value)],
-) -> Result<Option<SignatureExportExtension>, VerifyError> {
-    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
-        return Ok(None);
-    };
-    let Some(extension_value) = map_lookup_optional_value(extensions, SIGNATURE_EXPORT_EXTENSION)
-    else {
-        return Ok(None);
-    };
-    let extension_map = extension_value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("signature export extension is not a map"))?;
-    Ok(Some(SignatureExportExtension {
-        catalog_digest: bytes_array(&map_lookup_fixed_bytes(
-            extension_map,
-            "signature_catalog_digest",
-            32,
-        )?),
-    }))
-}
-
-pub(crate) fn parse_intake_export_extension(
-    manifest_map: &[(Value, Value)],
-) -> Result<Option<IntakeExportExtension>, VerifyError> {
-    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
-        return Ok(None);
-    };
-    let Some(extension_value) = map_lookup_optional_value(extensions, INTAKE_EXPORT_EXTENSION)
-    else {
-        return Ok(None);
-    };
-    let extension_map = extension_value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("intake export extension is not a map"))?;
-    Ok(Some(IntakeExportExtension {
-        catalog_digest: bytes_array(&map_lookup_fixed_bytes(
-            extension_map,
-            "intake_catalog_digest",
-            32,
-        )?),
-    }))
-}
-
 /// Parses the optional `trellis.export.certificates-of-completion.v1`
 /// manifest extension (ADR 0007 §"Export manifest catalog"). Mirror of
 /// [`parse_erasure_evidence_export_extension`].
@@ -1157,80 +1112,6 @@ pub(crate) fn parse_attachment_manifest_entries(
         .collect()
 }
 
-pub(crate) fn parse_signature_manifest_entries(
-    manifest_bytes: &[u8],
-) -> Result<Vec<SignatureManifestEntry>, VerifyError> {
-    let value = decode_value(manifest_bytes)?;
-    let entries = value
-        .as_array()
-        .ok_or_else(|| VerifyError::new("signature catalog root is not an array"))?;
-    entries
-        .iter()
-        .map(|entry| {
-            let map = entry
-                .as_map()
-                .ok_or_else(|| VerifyError::new("signature catalog entry is not a map"))?;
-            Ok(SignatureManifestEntry {
-                canonical_event_hash: bytes_array(&map_lookup_fixed_bytes(
-                    map,
-                    "canonical_event_hash",
-                    32,
-                )?),
-                signer_id: map_lookup_text(map, "signer_id")?,
-                role_id: map_lookup_text(map, "role_id")?,
-                role: map_lookup_text(map, "role")?,
-                document_id: map_lookup_text(map, "document_id")?,
-                document_hash: map_lookup_text(map, "document_hash")?,
-                document_hash_algorithm: map_lookup_text(map, "document_hash_algorithm")?,
-                signed_at: map_lookup_text(map, "signed_at")?,
-                identity_binding: map_lookup_value_clone(map, "identity_binding")?,
-                consent_reference: map_lookup_value_clone(map, "consent_reference")?,
-                signature_provider: map_lookup_text(map, "signature_provider")?,
-                ceremony_id: map_lookup_text(map, "ceremony_id")?,
-                profile_ref: map_lookup_optional_text(map, "profile_ref")?,
-                profile_key: map_lookup_optional_text(map, "profile_key")?,
-                formspec_response_ref: map_lookup_text(map, "formspec_response_ref")?,
-            })
-        })
-        .collect()
-}
-
-pub(crate) fn parse_intake_manifest_entries(
-    manifest_bytes: &[u8],
-) -> Result<Vec<IntakeManifestEntry>, VerifyError> {
-    let value = decode_value(manifest_bytes)?;
-    let entries = value
-        .as_array()
-        .ok_or_else(|| VerifyError::new("intake handoff catalog root is not an array"))?;
-    entries
-        .iter()
-        .map(|entry| {
-            let map = entry
-                .as_map()
-                .ok_or_else(|| VerifyError::new("intake handoff catalog entry is not a map"))?;
-            let handoff = parse_intake_handoff_details(
-                map_lookup_optional_value(map, "handoff")
-                    .ok_or_else(|| VerifyError::new("missing `handoff`"))?,
-            )?;
-            Ok(IntakeManifestEntry {
-                intake_event_hash: bytes_array(&map_lookup_fixed_bytes(
-                    map,
-                    "intake_event_hash",
-                    32,
-                )?),
-                case_created_event_hash: map_lookup_optional_fixed_bytes(
-                    map,
-                    "case_created_event_hash",
-                    32,
-                )?
-                .map(|bytes| bytes_array(&bytes)),
-                handoff,
-                response_bytes: map_lookup_bytes(map, "response_bytes")?,
-            })
-        })
-        .collect()
-}
-
 pub(crate) fn readable_payload_bytes(
     details: &EventDetails,
     payload_blobs: &BTreeMap<[u8; 32], Vec<u8>>,
@@ -1239,205 +1120,6 @@ pub(crate) fn readable_payload_bytes(
         PayloadRef::Inline(bytes) => Some(bytes.clone()),
         PayloadRef::External => payload_blobs.get(&details.content_hash).cloned(),
     }
-}
-
-/// Inline affirmation bytes, or external bytes from `payload_blobs` keyed by
-/// `content_hash` (same contract as [`readable_payload_bytes`]). When
-/// `payload_blobs` is absent, external payloads are not resolvable here —
-/// genesis-append callers pass `None` and steps 2 / 7 skip external rows.
-pub(crate) fn affirmation_payload_cow<'a>(
-    target: &'a EventDetails,
-    payload_blobs: Option<&'a BTreeMap<[u8; 32], Vec<u8>>>,
-) -> Option<Cow<'a, [u8]>> {
-    match &target.payload_ref {
-        PayloadRef::Inline(bytes) => Some(Cow::Borrowed(bytes.as_slice())),
-        PayloadRef::External => {
-            let blobs = payload_blobs?;
-            Some(Cow::Borrowed(blobs.get(&target.content_hash)?.as_slice()))
-        }
-    }
-}
-
-pub(crate) fn parse_signature_affirmation_record(
-    payload_bytes: &[u8],
-) -> Result<SignatureAffirmationRecordDetails, VerifyError> {
-    let value = decode_value(payload_bytes)?;
-    let map = value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("signature affirmation payload root is not a map"))?;
-    let record_kind = map_lookup_text(map, "recordKind")?;
-    if record_kind != "signatureAffirmation" {
-        return Err(VerifyError::new(
-            "signature affirmation payload recordKind is not signatureAffirmation",
-        ));
-    }
-    let data = map_lookup_map(map, "data")?;
-    Ok(SignatureAffirmationRecordDetails {
-        signer_id: map_lookup_text(data, "signerId")?,
-        role_id: map_lookup_text(data, "roleId")?,
-        role: map_lookup_text(data, "role")?,
-        document_id: map_lookup_text(data, "documentId")?,
-        document_hash: map_lookup_text(data, "documentHash")?,
-        document_hash_algorithm: map_lookup_text(data, "documentHashAlgorithm")?,
-        signed_at: map_lookup_text(data, "signedAt")?,
-        identity_binding: map_lookup_value_clone(data, "identityBinding")?,
-        consent_reference: map_lookup_value_clone(data, "consentReference")?,
-        signature_provider: map_lookup_text(data, "signatureProvider")?,
-        ceremony_id: map_lookup_text(data, "ceremonyId")?,
-        profile_ref: map_lookup_optional_text(data, "profileRef")?,
-        profile_key: map_lookup_optional_text(data, "profileKey")?,
-        formspec_response_ref: map_lookup_text(data, "formspecResponseRef")?,
-    })
-}
-
-pub(crate) fn parse_intake_accepted_record(
-    payload_bytes: &[u8],
-) -> Result<IntakeAcceptedRecordDetails, VerifyError> {
-    let value = decode_value(payload_bytes)?;
-    let map = value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("intake accepted payload root is not a map"))?;
-    let record_kind = map_lookup_text(map, "recordKind")?;
-    if record_kind != "intakeAccepted" {
-        return Err(VerifyError::new(
-            "intake accepted payload recordKind is not intakeAccepted",
-        ));
-    }
-    let data = map_lookup_map(map, "data")?;
-    let case_ref = map_lookup_text(data, "caseRef")?;
-    let outputs = map_lookup_array(map, "outputs")?;
-    let Some(output_case_ref) = first_array_text(outputs) else {
-        return Err(VerifyError::new(
-            "intake accepted outputs array is missing or empty",
-        ));
-    };
-    if output_case_ref != case_ref {
-        return Err(VerifyError::new(
-            "intake accepted outputs[0] does not match data.caseRef",
-        ));
-    }
-    Ok(IntakeAcceptedRecordDetails {
-        intake_id: map_lookup_text(data, "intakeId")?,
-        case_intent: map_lookup_text(data, "caseIntent")?,
-        case_disposition: map_lookup_text(data, "caseDisposition")?,
-        case_ref,
-        definition_url: map_lookup_optional_text(data, "definitionUrl")?,
-        definition_version: map_lookup_optional_text(data, "definitionVersion")?,
-    })
-}
-
-pub(crate) fn parse_case_created_record(
-    payload_bytes: &[u8],
-) -> Result<CaseCreatedRecordDetails, VerifyError> {
-    let value = decode_value(payload_bytes)?;
-    let map = value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("case created payload root is not a map"))?;
-    let record_kind = map_lookup_text(map, "recordKind")?;
-    if record_kind != "caseCreated" {
-        return Err(VerifyError::new(
-            "case created payload recordKind is not caseCreated",
-        ));
-    }
-    let data = map_lookup_map(map, "data")?;
-    let case_ref = map_lookup_text(data, "caseRef")?;
-    let outputs = map_lookup_array(map, "outputs")?;
-    let Some(output_case_ref) = first_array_text(outputs) else {
-        return Err(VerifyError::new(
-            "case created outputs array is missing or empty",
-        ));
-    };
-    if output_case_ref != case_ref {
-        return Err(VerifyError::new(
-            "case created outputs[0] does not match data.caseRef",
-        ));
-    }
-    Ok(CaseCreatedRecordDetails {
-        case_ref,
-        intake_handoff_ref: map_lookup_text(data, "intakeHandoffRef")?,
-        formspec_response_ref: map_lookup_text(data, "formspecResponseRef")?,
-        validation_report_ref: map_lookup_text(data, "validationReportRef")?,
-        ledger_head_ref: map_lookup_text(data, "ledgerHeadRef")?,
-        initiation_mode: map_lookup_text(data, "initiationMode")?,
-    })
-}
-
-pub(crate) fn parse_intake_handoff_details(
-    value: &Value,
-) -> Result<IntakeHandoffDetails, VerifyError> {
-    let map = value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("handoff is not a map"))?;
-    let initiation_mode = map_lookup_text(map, "initiationMode")?;
-    let case_ref = map_lookup_optional_text(map, "caseRef")?;
-    match initiation_mode.as_str() {
-        "workflowInitiated" if case_ref.is_none() => {
-            return Err(VerifyError::new(
-                "workflowInitiated handoff is missing caseRef",
-            ));
-        }
-        "publicIntake" if case_ref.is_some() => {
-            return Err(VerifyError::new(
-                "publicIntake handoff caseRef must be null or absent",
-            ));
-        }
-        "workflowInitiated" | "publicIntake" => {}
-        _ => return Err(VerifyError::new("handoff initiationMode is unsupported")),
-    }
-    let definition_ref = map_lookup_map(map, "definitionRef")?;
-    let response_hash = map_lookup_text(map, "responseHash")?;
-    parse_sha256_text(&response_hash)?;
-    Ok(IntakeHandoffDetails {
-        handoff_id: map_lookup_text(map, "handoffId")?,
-        initiation_mode,
-        case_ref,
-        definition_url: map_lookup_text(definition_ref, "url")?,
-        definition_version: map_lookup_text(definition_ref, "version")?,
-        response_ref: map_lookup_text(map, "responseRef")?,
-        response_hash,
-        validation_report_ref: map_lookup_text(map, "validationReportRef")?,
-        ledger_head_ref: map_lookup_text(map, "ledgerHeadRef")?,
-    })
-}
-
-/// RFC 8949 §4.2.2 map key ordering: sort keys by the bytewise lexicographic order
-/// of their encoded CBOR form. Used only for semantic equality of nested maps.
-pub(crate) fn cbor_map_key_sort_bytes(key: &Value) -> Vec<u8> {
-    let mut buf = Vec::new();
-    ciborium::into_writer(key, &mut buf).expect("cbor map key encode");
-    buf
-}
-
-/// Recursively re-encode CBOR maps with canonically sorted keys so two values
-/// that differ only in map entry order compare equal.
-pub(crate) fn normalize_cbor_value_for_compare(value: &Value) -> Value {
-    match value {
-        Value::Map(pairs) => {
-            let mut normalized: Vec<(Value, Value)> = pairs
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        normalize_cbor_value_for_compare(k),
-                        normalize_cbor_value_for_compare(v),
-                    )
-                })
-                .collect();
-            normalized
-                .sort_by(|a, b| cbor_map_key_sort_bytes(&a.0).cmp(&cbor_map_key_sort_bytes(&b.0)));
-            Value::Map(normalized)
-        }
-        Value::Array(items) => {
-            Value::Array(items.iter().map(normalize_cbor_value_for_compare).collect())
-        }
-        Value::Tag(tag, inner) => {
-            Value::Tag(*tag, Box::new(normalize_cbor_value_for_compare(inner)))
-        }
-        _ => value.clone(),
-    }
-}
-
-pub(crate) fn cbor_nested_map_semantic_eq(a: &Value, b: &Value) -> bool {
-    normalize_cbor_value_for_compare(a) == normalize_cbor_value_for_compare(b)
 }
 
 /// Parses the unified key registry per Core §8 (ADR 0006).
@@ -1746,18 +1428,4 @@ pub(crate) fn map_lookup_timestamp(
             "{key_name} must be [uint, uint] array"
         ))),
     }
-}
-
-pub(crate) fn first_array_text(values: &[Value]) -> Option<String> {
-    values
-        .first()
-        .and_then(Value::as_text)
-        .map(ToOwned::to_owned)
-}
-
-pub(crate) fn map_lookup_value_clone(
-    map: &[(Value, Value)],
-    key_name: &str,
-) -> Result<Value, VerifyError> {
-    Ok(map_lookup_value(map, key_name)?.clone())
 }
