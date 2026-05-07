@@ -3040,7 +3040,7 @@ def _parse_supersession_graph(graph_bytes: bytes) -> dict[str, Any]:
     return graph
 
 
-def _export_head_checkpoint_digest(export_zip: bytes) -> bytes:
+def _export_manifest_info(export_zip: bytes) -> tuple[bytes, bytes, Optional[tuple[bytes, int]]]:
     archive = parse_export_zip(export_zip)
     manifest = _parse_sign1_bytes(archive["000-manifest.cbor"])
     if manifest.payload is None:
@@ -3048,7 +3048,108 @@ def _export_head_checkpoint_digest(export_zip: bytes) -> bytes:
     payload = _decode_value(manifest.payload)
     if not isinstance(payload, dict):
         raise VerifyError("manifest payload root is not a map")
-    return _map_lookup_fixed_bytes(payload, "head_checkpoint_digest", 32)
+    return (
+        _map_lookup_bytes(payload, "scope"),
+        _map_lookup_fixed_bytes(payload, "head_checkpoint_digest", 32),
+        _parse_supersession_graph_export_extension(payload),
+    )
+
+
+def _nested_supersession_graph(
+    export_zip: bytes,
+    nested_scope: bytes,
+    extension: tuple[bytes, int],
+    report: VerificationReport,
+) -> Optional[tuple[dict[str, bytes], dict[str, Any]]]:
+    archive = parse_export_zip(export_zip)
+    graph_digest, predecessor_count = extension
+    graph_bytes = archive.get(SUPERSESSION_GRAPH_MEMBER)
+    if graph_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", SUPERSESSION_GRAPH_MEMBER)
+        )
+        return None
+    if _sha256(graph_bytes) != graph_digest:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", SUPERSESSION_GRAPH_MEMBER)
+        )
+        return None
+    try:
+        graph = _parse_supersession_graph(graph_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", f"{SUPERSESSION_GRAPH_MEMBER}/{exc}")
+        )
+        return None
+    if len(graph["predecessors"]) != predecessor_count:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", SUPERSESSION_GRAPH_MEMBER)
+        )
+    if graph["head_chain_id"] != nested_scope:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_head_mismatch", SUPERSESSION_GRAPH_MEMBER)
+        )
+    return archive, graph
+
+
+def _verify_supersession_predecessor_bundles(
+    archive: dict[str, bytes],
+    graph: dict[str, Any],
+    traversal_path: set[bytes],
+    report: VerificationReport,
+) -> None:
+    for row in graph["predecessors"]:
+        chain_id = row["chain_id"]
+        if chain_id in traversal_path:
+            report.event_failures.append(
+                VerificationFailure("supersession_graph_cycle", SUPERSESSION_GRAPH_MEMBER)
+            )
+            continue
+        traversal_path.add(chain_id)
+        bundle_path = row["bundle_path"]
+        if bundle_path is None:
+            traversal_path.remove(chain_id)
+            continue
+        bundle_bytes = archive.get(bundle_path)
+        if bundle_bytes is None:
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_predecessor_checkpoint_mismatch", bundle_path
+                )
+            )
+            traversal_path.remove(chain_id)
+            continue
+        nested = verify_export_zip(bundle_bytes)
+        if not nested.structure_verified or not nested.integrity_verified:
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_predecessor_checkpoint_mismatch", bundle_path
+                )
+            )
+            traversal_path.remove(chain_id)
+            continue
+        try:
+            nested_scope, digest, nested_ext = _export_manifest_info(bundle_bytes)
+        except VerifyError:
+            nested_scope, digest, nested_ext = b"", b"", None
+        if digest != row["checkpoint_hash"] or nested_scope != chain_id:
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_predecessor_checkpoint_mismatch", bundle_path
+                )
+            )
+            traversal_path.remove(chain_id)
+            continue
+        if nested_ext is not None:
+            nested_graph = _nested_supersession_graph(
+                bundle_bytes, nested_scope, nested_ext, report
+            )
+            if nested_graph is not None:
+                nested_archive, nested_graph_value = nested_graph
+                _verify_supersession_predecessor_bundles(
+                    nested_archive, nested_graph_value, traversal_path, report
+                )
+        traversal_path.remove(chain_id)
 
 
 def _verify_supersession_graph(
@@ -3116,36 +3217,9 @@ def _verify_supersession_graph(
             break
         seen.add(chain_id)
 
-    for row in graph["predecessors"]:
-        bundle_path = row["bundle_path"]
-        if bundle_path is None:
-            continue
-        bundle_bytes = archive.get(bundle_path)
-        if bundle_bytes is None:
-            report.event_failures.append(
-                VerificationFailure(
-                    "supersession_predecessor_checkpoint_mismatch", bundle_path
-                )
-            )
-            continue
-        nested = verify_export_zip(bundle_bytes)
-        if not nested.structure_verified or not nested.integrity_verified:
-            report.event_failures.append(
-                VerificationFailure(
-                    "supersession_predecessor_checkpoint_mismatch", bundle_path
-                )
-            )
-            continue
-        try:
-            digest = _export_head_checkpoint_digest(bundle_bytes)
-        except VerifyError:
-            digest = b""
-        if digest != row["checkpoint_hash"]:
-            report.event_failures.append(
-                VerificationFailure(
-                    "supersession_predecessor_checkpoint_mismatch", bundle_path
-                )
-            )
+    _verify_supersession_predecessor_bundles(
+        archive, graph, {graph["head_chain_id"]}, report
+    )
 
 
 def _parse_certificate_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]:

@@ -298,10 +298,10 @@ adopter-triggered work.
       `supersession_predecessor_checkpoint_mismatch` paths with
       `verify/017-export-015-supersession-graph` and
       `tamper/046` … `048` (TR-CORE-170).
-    + [ ] Runtime verifier deep traversal follow-on: add explicit multi-hop
-      predecessor BFS across embedded predecessor exports; direct row-cycle
-      and missing-bundle diagnostics are covered now, but nested graph
-      traversal remains a Phase-1 follow-on.
+    + [x] Runtime verifier deep traversal follow-on: embedded predecessor
+      exports are walked with an ancestor-aware path set, so a nested graph
+      that points back to a parent chain fails with `supersession_graph_cycle`.
+      Covered by `tamper/049-supersession-graph-nested-cycle`.
     + [x] Optional predecessor chain members in export bundle (ADR D-4):
       `070-predecessors/` carries embedded deterministic Trellis export ZIPs
       named by `064-supersession-graph.json` predecessor `bundle_path` entries.

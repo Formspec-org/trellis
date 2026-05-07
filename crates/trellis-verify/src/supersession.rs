@@ -5,7 +5,10 @@ use trellis_types::sha256_bytes;
 
 use crate::export::{parse_export_zip, verify_export_zip};
 use crate::kinds::VerificationFailureKind;
-use crate::parse::decode_event_details;
+use crate::parse::{
+    decode_event_details, decode_value, parse_sign1_bytes,
+    parse_supersession_graph_export_extension,
+};
 use crate::types::{
     ExportArchive, ParsedSign1, SupersedesChainIdDetails, SupersessionGraph,
     SupersessionGraphExportExtension, SupersessionGraphPredecessor, VerificationFailure,
@@ -66,7 +69,9 @@ pub(crate) fn verify_supersession_graph(
 
     verify_graph_linkage(events, &graph, report);
     verify_graph_cycle(&graph, report);
-    verify_predecessor_bundles(archive, &graph, report);
+    let mut traversal_path = BTreeSet::new();
+    traversal_path.insert(graph.head_chain_id.clone());
+    verify_predecessor_bundles(archive, &graph, &mut traversal_path, report);
 }
 
 pub(crate) fn verify_unbound_supersession_graph(
@@ -125,10 +130,19 @@ fn verify_graph_cycle(graph: &SupersessionGraph, report: &mut VerificationReport
 fn verify_predecessor_bundles(
     archive: &ExportArchive,
     graph: &SupersessionGraph,
+    traversal_path: &mut BTreeSet<Vec<u8>>,
     report: &mut VerificationReport,
 ) {
     for row in &graph.predecessors {
+        if !traversal_path.insert(row.chain_id.clone()) {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SupersessionGraphCycle,
+                SUPERSESSION_GRAPH_MEMBER,
+            ));
+            continue;
+        }
         let Some(bundle_path) = &row.bundle_path else {
+            traversal_path.remove(&row.chain_id);
             continue;
         };
         let Some(bundle_bytes) = archive.members.get(bundle_path) else {
@@ -136,6 +150,7 @@ fn verify_predecessor_bundles(
                 VerificationFailureKind::SupersessionPredecessorCheckpointMismatch,
                 bundle_path,
             ));
+            traversal_path.remove(&row.chain_id);
             continue;
         };
         let nested_report = verify_export_zip(bundle_bytes);
@@ -144,16 +159,83 @@ fn verify_predecessor_bundles(
                 VerificationFailureKind::SupersessionPredecessorCheckpointMismatch,
                 bundle_path,
             ));
+            traversal_path.remove(&row.chain_id);
             continue;
         }
-        match head_checkpoint_digest_from_export_bytes(bundle_bytes) {
-            Ok(digest) if digest == row.checkpoint_hash => {}
+        match export_manifest_info_from_bytes(bundle_bytes) {
+            Ok(info) if info.head_checkpoint_digest == row.checkpoint_hash => {
+                if info.scope != row.chain_id {
+                    report.event_failures.push(VerificationFailure::new(
+                        VerificationFailureKind::SupersessionPredecessorCheckpointMismatch,
+                        bundle_path,
+                    ));
+                } else if let Some((nested_archive, nested_graph)) =
+                    nested_supersession_graph(bundle_bytes, &info, report)
+                {
+                    verify_predecessor_bundles(
+                        &nested_archive,
+                        &nested_graph,
+                        traversal_path,
+                        report,
+                    );
+                }
+            }
             Ok(_) | Err(_) => report.event_failures.push(VerificationFailure::new(
                 VerificationFailureKind::SupersessionPredecessorCheckpointMismatch,
                 bundle_path,
             )),
         }
+        traversal_path.remove(&row.chain_id);
     }
+}
+
+fn nested_supersession_graph(
+    export_zip: &[u8],
+    info: &ExportManifestInfo,
+    report: &mut VerificationReport,
+) -> Option<(ExportArchive, SupersessionGraph)> {
+    let extension = info.supersession_extension.as_ref()?;
+    let archive = match parse_export_zip(export_zip) {
+        Ok(archive) => archive,
+        Err(_) => return None,
+    };
+    let Some(graph_bytes) = archive.members.get(SUPERSESSION_GRAPH_MEMBER) else {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::SupersessionGraphInvalid,
+            SUPERSESSION_GRAPH_MEMBER,
+        ));
+        return None;
+    };
+    if sha256_bytes(graph_bytes) != extension.graph_digest {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::SupersessionGraphInvalid,
+            SUPERSESSION_GRAPH_MEMBER,
+        ));
+        return None;
+    }
+    let graph = match parse_supersession_graph(graph_bytes) {
+        Ok(graph) => graph,
+        Err(error) => {
+            report.event_failures.push(VerificationFailure::new(
+                VerificationFailureKind::SupersessionGraphInvalid,
+                format!("{SUPERSESSION_GRAPH_MEMBER}/{error}"),
+            ));
+            return None;
+        }
+    };
+    if graph.predecessors.len() as u64 != extension.predecessor_count {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::SupersessionGraphInvalid,
+            SUPERSESSION_GRAPH_MEMBER,
+        ));
+    }
+    if graph.head_chain_id != info.scope {
+        report.event_failures.push(VerificationFailure::new(
+            VerificationFailureKind::SupersessionGraphHeadMismatch,
+            SUPERSESSION_GRAPH_MEMBER,
+        ));
+    }
+    Some((archive, graph))
 }
 
 pub(crate) fn parse_supersession_graph(bytes: &[u8]) -> Result<SupersessionGraph, String> {
@@ -284,28 +366,39 @@ fn render_supersession_graph(graph: &SupersessionGraph) -> String {
     text
 }
 
-pub(crate) fn head_checkpoint_digest_from_export_bytes(
-    export_zip: &[u8],
-) -> Result<[u8; 32], String> {
+struct ExportManifestInfo {
+    scope: Vec<u8>,
+    head_checkpoint_digest: [u8; 32],
+    supersession_extension: Option<SupersessionGraphExportExtension>,
+}
+
+fn export_manifest_info_from_bytes(export_zip: &[u8]) -> Result<ExportManifestInfo, String> {
     let archive = parse_export_zip(export_zip).map_err(|error| error.to_string())?;
     let manifest_bytes = archive
         .members
         .get("000-manifest.cbor")
         .ok_or_else(|| "missing 000-manifest.cbor".to_string())?;
-    let manifest = crate::parse::parse_sign1_bytes(manifest_bytes)
+    let manifest = parse_sign1_bytes(manifest_bytes)
         .map_err(|error| format!("invalid manifest COSE: {error}"))?;
     let payload = manifest
         .payload
         .ok_or_else(|| "manifest payload is detached".to_string())?;
-    let value = crate::parse::decode_value(&payload)
-        .map_err(|error| format!("invalid payload: {error}"))?;
+    let value = decode_value(&payload).map_err(|error| format!("invalid payload: {error}"))?;
     let map = value
         .as_map()
         .ok_or_else(|| "manifest payload root is not a map".to_string())?;
+    let scope = trellis_types::map_lookup_bytes(map, "scope").map_err(|error| error.to_string())?;
     let digest = trellis_types::map_lookup_fixed_bytes(map, "head_checkpoint_digest", 32)
         .map_err(|error| error.to_string())?;
-    digest
+    let head_checkpoint_digest = digest
         .as_slice()
         .try_into()
-        .map_err(|_| "head checkpoint digest is not 32 bytes".to_string())
+        .map_err(|_| "head checkpoint digest is not 32 bytes".to_string())?;
+    let supersession_extension =
+        parse_supersession_graph_export_extension(map).map_err(|error| error.to_string())?;
+    Ok(ExportManifestInfo {
+        scope,
+        head_checkpoint_digest,
+        supersession_extension,
+    })
 }

@@ -5,6 +5,7 @@ Outputs:
 - tamper/046-supersession-graph-linkage-mismatch
 - tamper/047-supersession-graph-cycle
 - tamper/048-supersession-predecessor-checkpoint-mismatch
+- tamper/049-supersession-graph-nested-cycle
 
 The positive export is a one-event export built from `append/015-supersession`.
 The tamper vector keeps the graph manifest-bound and well-formed but changes
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -49,7 +51,10 @@ OUT_CYCLE = ROOT / "tamper" / "047-supersession-graph-cycle"
 OUT_PREDECESSOR_MISSING = (
     ROOT / "tamper" / "048-supersession-predecessor-checkpoint-mismatch"
 )
+OUT_NESTED_CYCLE = ROOT / "tamper" / "049-supersession-graph-nested-cycle"
 
+TAG_TRELLIS_AUTHOR_EVENT_V1 = "trellis-author-event-v1"
+TAG_TRELLIS_CONTENT_V1 = "trellis-content-v1"
 TAG_TRELLIS_EVENT_V1 = "trellis-event-v1"
 TAG_TRELLIS_CHECKPOINT_V1 = "trellis-checkpoint-v1"
 TAG_TRELLIS_MERKLE_LEAF_V1 = "trellis-merkle-leaf-v1"
@@ -109,6 +114,72 @@ def export_manifest_digest(ledger_scope: bytes, manifest_payload: dict) -> bytes
     return domain_separated_sha256(TAG_TRELLIS_EXPORT_MANIFEST_V1, dcbor(preimage))
 
 
+def build_event_payload(
+    *,
+    ledger_scope: bytes,
+    authored_at: list,
+    supersedes_chain_id: bytes,
+    supersedes_checkpoint_hash: bytes,
+    idempotency_key: bytes,
+    payload_marker: bytes,
+) -> tuple[dict, bytes, bytes]:
+    content_hash = domain_separated_sha256(TAG_TRELLIS_CONTENT_V1, payload_marker)
+    header = {
+        "event_type": b"wos.case.supersessionStarted",
+        "extensions": None,
+        "authored_at": authored_at,
+        "witness_ref": None,
+        "classification": b"x-trellis-test/unclassified",
+        "retention_tier": 0,
+        "tag_commitment": None,
+        "outcome_commitment": None,
+        "subject_ref_commitment": None,
+    }
+    payload_ref = {
+        "ref_type": "inline",
+        "ciphertext": payload_marker,
+        "nonce": b"adr0066-nested-cycle-nonce-0001",
+    }
+    extensions = {
+        SUPERSEDES_CHAIN_ID_EVENT_EXTENSION: {
+            "chain_id": supersedes_chain_id,
+            "checkpoint_hash": supersedes_checkpoint_hash,
+        }
+    }
+    authored_map = {
+        "version": 1,
+        "ledger_scope": ledger_scope,
+        "sequence": 0,
+        "prev_hash": None,
+        "causal_deps": None,
+        "content_hash": content_hash,
+        "header": header,
+        "commitments": None,
+        "payload_ref": payload_ref,
+        "key_bag": {"entries": []},
+        "idempotency_key": idempotency_key,
+        "extensions": extensions,
+    }
+    author_event_hash = domain_separated_sha256(TAG_TRELLIS_AUTHOR_EVENT_V1, dcbor(authored_map))
+    event_payload = {
+        "version": 1,
+        "ledger_scope": ledger_scope,
+        "sequence": 0,
+        "prev_hash": None,
+        "causal_deps": None,
+        "author_event_hash": author_event_hash,
+        "content_hash": content_hash,
+        "header": header,
+        "commitments": None,
+        "payload_ref": payload_ref,
+        "key_bag": {"entries": []},
+        "idempotency_key": idempotency_key,
+        "extensions": extensions,
+    }
+    event_payload_bytes = dcbor(event_payload)
+    return event_payload, event_payload_bytes, canonical_event_hash(ledger_scope, event_payload)
+
+
 def write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
@@ -154,6 +225,137 @@ def write_zip(out_dir: Path, *, root_dir: str, members: list[str]) -> None:
             zf.writestr(deterministic_zipinfo(arcname), (out_dir / member).read_bytes())
         for info in zf.filelist:
             info.external_attr = 0
+
+
+def build_custom_export(
+    out_dir: Path,
+    *,
+    event_payload: dict,
+    event_payload_bytes: bytes,
+    canonical_hash: bytes,
+    graph_rows: list[dict],
+) -> tuple[bytes, bytes]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ledger_scope = event_payload["ledger_scope"]
+    leaf_hash = merkle_leaf_hash(canonical_hash)
+    seed, pubkey_raw = load_issuer_key()
+    kid = derive_kid(pubkey_raw)
+    event_bytes = cose_sign1(seed, kid, event_payload_bytes)
+    events_cbor = dcbor([cbor2.loads(event_bytes)])
+    signing_key_registry_cbor = dcbor([{
+        "kid": kid,
+        "pubkey": pubkey_raw,
+        "suite_id": SUITE_ID_PHASE_1,
+        "status": 0,
+        "valid_from": event_payload["header"]["authored_at"],
+        "valid_to": None,
+        "supersedes": None,
+        "attestation": None,
+    }])
+    domain_registry = {
+        "governance": {
+            "ruleset_id": "x-trellis-test/governance-ruleset-v1",
+            "ruleset_digest": sha256(b"adr0066-supersession-graph-ruleset"),
+        },
+        "event_types": {
+            "wos.case.supersessionStarted": {
+                "privacy_class": "public",
+                "commitment_schema": "x-trellis-test/adr0066-supersession-started-v1",
+            }
+        },
+        "classifications": ["x-trellis-test/unclassified"],
+        "role_vocabulary": ["x-trellis-test/role-author"],
+    }
+    domain_registry_cbor = dcbor(domain_registry)
+    registry_digest = sha256(domain_registry_cbor)
+    registry_binding = {
+        "registry_digest": registry_digest,
+        "registry_format": 1,
+        "registry_version": "x-trellis-test/adr0066-registry-v1",
+        "bound_at_sequence": 0,
+    }
+    checkpoint_payload = {
+        "version": 1,
+        "scope": ledger_scope,
+        "tree_size": 1,
+        "tree_head_hash": leaf_hash,
+        "timestamp": CHECKPOINT_TIMESTAMP,
+        "anchor_ref": None,
+        "prev_checkpoint_hash": None,
+        "extensions": None,
+    }
+    head_checkpoint_digest = checkpoint_digest(ledger_scope, checkpoint_payload)
+    checkpoints_cbor = dcbor([cbor2.loads(cose_sign1(seed, kid, dcbor(checkpoint_payload)))])
+    inclusion_proofs_cbor = dcbor({0: {
+        "leaf_index": 0,
+        "tree_size": 1,
+        "leaf_hash": leaf_hash,
+        "audit_path": [],
+    }})
+    consistency_proofs_cbor = dcbor([])
+    graph_json = canonical_graph_json(head_chain_id=ledger_scope, rows=graph_rows)
+    graph_digest = sha256(graph_json)
+
+    write_bytes(out_dir / "010-events.cbor", events_cbor)
+    write_bytes(out_dir / "020-inclusion-proofs.cbor", inclusion_proofs_cbor)
+    write_bytes(out_dir / "025-consistency-proofs.cbor", consistency_proofs_cbor)
+    write_bytes(out_dir / "030-signing-key-registry.cbor", signing_key_registry_cbor)
+    write_bytes(out_dir / "040-checkpoints.cbor", checkpoints_cbor)
+    write_bytes(out_dir / "050-registries" / f"{registry_digest.hex()}.cbor", domain_registry_cbor)
+    write_bytes(out_dir / "064-supersession-graph.json", graph_json)
+    write_bytes(out_dir / "090-verify.sh", b"#!/bin/sh\nset -eu\n")
+    write_bytes(out_dir / "098-README.md", b"# Nested supersession export fixture\n")
+
+    manifest_payload = {
+        "format": "trellis-export/1",
+        "version": 1,
+        "generator": "x-trellis-test/supersession-graph-nested-generator",
+        "generated_at": GENERATED_AT,
+        "scope": ledger_scope,
+        "tree_size": 1,
+        "head_checkpoint_digest": head_checkpoint_digest,
+        "registry_bindings": [registry_binding],
+        "signing_key_registry_digest": sha256(signing_key_registry_cbor),
+        "events_digest": sha256(events_cbor),
+        "checkpoints_digest": sha256(checkpoints_cbor),
+        "inclusion_proofs_digest": sha256(inclusion_proofs_cbor),
+        "consistency_proofs_digest": sha256(consistency_proofs_cbor),
+        "payloads_inlined": False,
+        "external_anchors": [],
+        "posture_declaration": {
+            "provider_readable": True,
+            "reader_held": False,
+            "delegated_compute": False,
+            "external_anchor_required": False,
+            "external_anchor_name": None,
+            "recovery_without_user": True,
+            "metadata_leakage_summary": "ADR 0066 nested supersession graph fixture.",
+        },
+        "head_format_version": 1,
+        "omitted_payload_checks": [],
+        "extensions": {
+            SUPERSESSION_GRAPH_EXPORT_EXTENSION: {
+                "graph_digest": graph_digest,
+                "predecessor_count": len(graph_rows),
+            }
+        },
+    }
+    write_bytes(out_dir / "000-manifest.cbor", cose_sign1(seed, kid, dcbor(manifest_payload)))
+    root_dir = f"trellis-export-{ledger_scope.decode('utf-8')}-1-{leaf_hash.hex()[:8]}"
+    members = [
+        "000-manifest.cbor",
+        "010-events.cbor",
+        "020-inclusion-proofs.cbor",
+        "025-consistency-proofs.cbor",
+        "030-signing-key-registry.cbor",
+        "040-checkpoints.cbor",
+        f"050-registries/{registry_digest.hex()}.cbor",
+        "064-supersession-graph.json",
+        "090-verify.sh",
+        "098-README.md",
+    ]
+    write_zip(out_dir, root_dir=root_dir, members=members)
+    return head_checkpoint_digest, (out_dir / "input-export.zip").read_bytes()
 
 
 def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, bytes]:
@@ -229,6 +431,7 @@ def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, byte
         "audit_path": [],
     }})
     consistency_proofs_cbor = dcbor([])
+    extra_members: list[str] = []
     graph_rows = [{
         "bundle_path": None,
         "chain_id": predecessor_chain_id,
@@ -252,6 +455,38 @@ def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, byte
             "chain_id": predecessor_chain_id,
             "checkpoint_hash": predecessor_checkpoint_hash,
         }]
+    elif graph_variant == "nested-cycle":
+        nested_scope = b"wos-case:adr0066-fixture-nested-predecessor"
+        nested_event, nested_event_bytes, nested_canonical_hash = build_event_payload(
+            ledger_scope=nested_scope,
+            authored_at=ts(1777000030),
+            supersedes_chain_id=ledger_scope,
+            supersedes_checkpoint_hash=head_checkpoint_digest,
+            idempotency_key=b"adr0066-nested-cycle-event",
+            payload_marker=b"adr0066 nested cycle predecessor payload",
+        )
+        nested_build_dir = out_dir / "_nested-predecessor-build"
+        if nested_build_dir.exists():
+            shutil.rmtree(nested_build_dir)
+        nested_head_digest, nested_zip = build_custom_export(
+            nested_build_dir,
+            event_payload=nested_event,
+            event_payload_bytes=nested_event_bytes,
+            canonical_hash=nested_canonical_hash,
+            graph_rows=[{
+                "bundle_path": None,
+                "chain_id": ledger_scope,
+                "checkpoint_hash": head_checkpoint_digest,
+            }],
+        )
+        write_bytes(out_dir / "070-predecessors" / "nested-cycle.zip", nested_zip)
+        shutil.rmtree(nested_build_dir)
+        graph_rows.append({
+            "bundle_path": "070-predecessors/nested-cycle.zip",
+            "chain_id": nested_scope,
+            "checkpoint_hash": nested_head_digest,
+        })
+        extra_members.append("070-predecessors/nested-cycle.zip")
     elif graph_variant != "valid":
         raise ValueError(f"unknown graph variant {graph_variant!r}")
     graph_json = canonical_graph_json(
@@ -327,6 +562,7 @@ def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, byte
         "040-checkpoints.cbor",
         f"050-registries/{registry_digest.hex()}.cbor",
         "064-supersession-graph.json",
+        *extra_members,
         "090-verify.sh",
         "098-README.md",
     ]
@@ -412,12 +648,20 @@ def write_derivation(out_dir: Path, *, tampered: bool) -> None:
                 "exported head chain. The verifier must reject this direct traversal "
                 "cycle with `supersession_graph_cycle`.\n"
             )
-        else:
+        elif out_dir == OUT_PREDECESSOR_MISSING:
             body += (
                 "The graph row byte-matches the event extension and names a non-null "
                 "`bundle_path`, but the referenced predecessor ZIP is absent from the "
                 "archive. The verifier must reject this packaging omission with "
                 "`supersession_predecessor_checkpoint_mismatch`.\n"
+            )
+        else:
+            body += (
+                "The exported graph embeds `070-predecessors/nested-cycle.zip`. The "
+                "nested predecessor export is valid by itself, but its own "
+                "`064-supersession-graph.json` points back to the parent chain. The "
+                "path-aware verifier must reject the multi-hop traversal with "
+                "`supersession_graph_cycle`.\n"
             )
     else:
         body += (
@@ -475,10 +719,21 @@ def main() -> None:
     )
     write_derivation(OUT_PREDECESSOR_MISSING, tampered=True)
 
+    build_export(OUT_NESTED_CYCLE, graph_variant="nested-cycle")
+    write_manifest(
+        OUT_NESTED_CYCLE,
+        op="tamper",
+        title="Embedded predecessor graph that cycles back to the parent chain.",
+        tamper_kind="supersession_graph_cycle",
+        failure_location="064-supersession-graph.json",
+    )
+    write_derivation(OUT_NESTED_CYCLE, tampered=True)
+
     print(f"verify/017 zip_sha256={sha256((OUT_VERIFY / 'input-export.zip').read_bytes()).hex()}")
     print(f"tamper/046 zip_sha256={sha256((OUT_TAMPER / 'input-export.zip').read_bytes()).hex()}")
     print(f"tamper/047 zip_sha256={sha256((OUT_CYCLE / 'input-export.zip').read_bytes()).hex()}")
     print(f"tamper/048 zip_sha256={sha256((OUT_PREDECESSOR_MISSING / 'input-export.zip').read_bytes()).hex()}")
+    print(f"tamper/049 zip_sha256={sha256((OUT_NESTED_CYCLE / 'input-export.zip').read_bytes()).hex()}")
     print(f"export_manifest_digest={export_manifest_digest(cbor2.loads((SOURCE_EVENT_DIR / 'expected-event-payload.cbor').read_bytes())['ledger_scope'], cbor2.loads(cbor2.loads((OUT_VERIFY / '000-manifest.cbor').read_bytes()).value[2])).hex()}")
 
 
