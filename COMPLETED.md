@@ -18,6 +18,23 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 36 (2026-05-07) — TODO #11/#12 append-ID reservation
+
+- Trellis TODO now reserves ADR 0066 amendment / rescission / reinstatement /
+  supersession vectors as the contiguous open range `append/011` …
+  `append/015`.
+- ADR 0067 clock vectors move out of that range to the next open append
+  namespace, `append/043-clock-started` … `append/046-clock-paused-resumed`.
+- No landed vector is renumbered: `append/018-attachment-bound`,
+  `append/019-wos-signature-affirmation`, `append/041-aead-retry-determinism`,
+  and `append/042-idempotency-retry-noop` remain stable.
+- Parent ADR / WOS TODO references still need their own sync because those
+  files are outside this Trellis-owned checkpoint and are currently dirty in
+  the parent workspace.
+- Verification: fixture namespace inspected with `find fixtures/vectors/append
+  -maxdepth 1 -type d`; `uv run --with cbor2 --with cryptography python
+  scripts/check-specs.py`; `git diff --check`.
+
 ### Wave 35 (2026-05-07) — TODO #11 supersedes-chain CDDL pin
 
 - Core §6.7 now names `SupersedesChainIdPayload` for

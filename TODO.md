@@ -269,9 +269,8 @@ adopter-triggered work.
       `SupersedesChainIdPayload { chain_id: bstr, checkpoint_hash: digest }`
       under `EventPayload.extensions` per Core §6.7 / §28 and TR-CORE-169;
       null / absent means no superseded chain.
-    + [ ] Fixture alignment remains after vector-ID collision resolution:
-      encode the same identifier/payload in the supersession vector
-      (`append/015-supersession` or its renumbered successor).
+    + [ ] Fixture alignment remains: encode the same identifier/payload in
+      `append/015-supersession`.
     + [ ] Single-chain vectors: `append/011-correction`, `012-amendment`,
       `013-rescission`.
     + [ ] Verifier **D-3:** correction-preservation; rescission-terminality
@@ -283,10 +282,12 @@ adopter-triggered work.
       verifier BFS over `head_chain_id` / `predecessors`; cycles = integrity
       failure (ADR default; Q2 alternative is linear-only).
     + [ ] Optional predecessor chain members in export bundle (ADR D-4).
-    + [ ] **Vector IDs:** ADR 0066 also assigns `append/014-reinstatement` and
-      `append/015-supersession`. Item **#12** reserves
-      `append/014-clock-started` … `017-clock-paused-resumed` for ADR 0067 —
-      **renumber one cluster** before landing vectors so IDs stay unique (same
+    + [x] **Vector IDs:** ADR 0066 keeps the contiguous open range
+      `append/011-correction` … `append/015-supersession`. Item **#12** clock
+      vectors moved to the next open append range,
+      `append/043-clock-started` … `append/046-clock-paused-resumed`, so the
+      0066/0067 clusters no longer collide and no landed vector is renumbered.
+      The parent ADR / WOS TODO references still need their own sync (same
       collision noted in
       [`../thoughts/adr/0066-stack-amendment-and-supersession.md`](../thoughts/adr/0066-stack-amendment-and-supersession.md)
       implementation plan vs clock fixtures).
@@ -308,11 +309,11 @@ adopter-triggered work.
       advisory diagnostic, not an integrity failure.
     + [ ] **Verifier — D-4 composition:** walk the chain to compose pause
       segments into cumulative duration / segment accounting.
-    + [ ] **Vectors:** `append/014-clock-started`, `015-clock-satisfied`,
-      `016-clock-elapsed`, `017-clock-paused-resumed` (+ matching export/verify
-      hooks for byte-identity CI). Parent `work-spec/TODO.md` also mentions an
-      **`018`** clock vector — reconcile numbering with Trellis/PLN-0162 when
-      authoring (see **#11** vector-ID note above).
+    + [ ] **Vectors:** `append/043-clock-started`, `044-clock-satisfied`,
+      `045-clock-elapsed`, `046-clock-paused-resumed` (+ matching export/verify
+      hooks for byte-identity CI). Parent `work-spec/TODO.md` still mentions an
+      **`018`** clock vector — sync that parent/WOS reference before authoring
+      (see **#11** vector-ID note above).
 
 13. **External recipient lifecycle — Trellis-side ingestion** — **M**.
     *Land after parent ratifies the stack ADR per **PLN-0382**.* Privacy
