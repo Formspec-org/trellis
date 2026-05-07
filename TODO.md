@@ -218,18 +218,14 @@ adopter-triggered work.
     `timestamp = [uint, uint .le 999999999]` (`[seconds, nanos]`), with
     `tamper/041-timestamp-backwards` and
     `tamper/042-timestamp-legacy-uint-rejected` covering D-3 and legacy bare
-    `uint` rejection. The remaining blocker is now a **source-of-truth
-    reconciliation**, not a greenfield implementation: parent ADR 0069 D-2.1
-    says Trellis CBOR timestamps are `uint64` nanoseconds-since-Unix-epoch,
-    while the ratified Trellis byte corpus and CDDL use `[seconds, nanos]`.
-    Resolve that contradiction before regenerating fixtures.
-    + [ ] Decision: either amend ADR 0069 D-2.1 to bless Trellis's current
-      `[seconds, nanos]` encoding, or migrate Trellis Core / Rust / Python /
-      fixtures to `uint64` nanoseconds. Do this before any production records
-      exist.
-    + [ ] Sweep stale timestamp prose in Trellis Core / matrix / verifier
-      comments that still says `uint seconds` or `uint exact`; wording should
-      name the chosen timestamp value type.
+    `uint` rejection. Parent ADR 0069 D-2.1 now blesses the current
+    `[seconds, nanos]` Trellis CBOR shape instead of forcing a churn-only
+    `uint64` nanosecond-counter migration.
+    + [x] Decision: ADR 0069 D-2.1 blesses Trellis's current
+      `[seconds, nanos]` encoding. No fixture regeneration for a `uint64`
+      nanosecond counter.
+    + [x] Sweep stale timestamp prose in Trellis Core / matrix / verifier
+      comments so equality language names the chosen timestamp value type.
     + [x] Verifier rejects legacy bare-second `uint` encodings distinctly from
       signature/hash integrity failures (`legacy_timestamp_format`;
       `tamper/042-timestamp-legacy-uint-rejected`).

@@ -161,7 +161,7 @@ pub(crate) fn finalize_certificates_of_completion(
                 ));
                 continue;
             }
-            // Step 6: signed_at MUST equal authored_at (uint exact, no skew).
+            // Step 6: signed_at MUST equal authored_at (timestamp exact, no skew).
             let display = &payload.chain_summary.signer_display[i];
             if display.signed_at != target.authored_at {
                 outcome.chain_summary_consistent = false;

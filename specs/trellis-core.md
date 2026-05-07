@@ -1726,7 +1726,7 @@ VERIFY(E) -> VerificationReport
      6. Validate temporal consistency: every
         `signer_display[i].signed_at` MUST exactly equal the resolved
         `SignatureAffirmation` header's `authored_at` for
-        `signing_events[i]` (uint seconds; exact equality, no skew
+        `signing_events[i]` (timestamp exact equality, no skew
         slack). Mismatch flips `integrity_verified = false` with
         `signing_event_timestamp_mismatch`.
      7. Validate `chain_summary.response_ref` when non-null: it MUST
@@ -1786,7 +1786,7 @@ VERIFY(E) -> VerificationReport
      1. Decode the payload against the §28 CDDL. Mismatch is a structure
         failure for that event (recorded in report.event_failures).
      2. Validate intra-payload invariants:
-        `attested_at == envelope.authored_at` (uint exact equality, no
+        `attested_at == envelope.authored_at` (timestamp exact equality, no
         skew slack); `signing_intent` is a syntactically valid URI per
         RFC 3986. Each failure flips `integrity_verified = false` with
         localizable failure `user_content_attestation_timestamp_mismatch`
@@ -2053,7 +2053,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `certificate_catalog_event_unresolved` | 6c optional catalog | A catalog row's `canonical_event_hash` does not resolve to any in-chain event. |
 | `certificate_catalog_event_type_mismatch` | 6c optional catalog | A catalog row's `canonical_event_hash` resolves to an in-chain event whose `event_type` is not `trellis.certificate-of-completion.v1`. |
 | `certificate_catalog_mismatch` | 6c optional catalog | A catalog row's per-field values do not byte-match the resolved certificate-of-completion event payload (certificate_id, completed_at, signer_count, media_type, attachment_id, workflow_status). |
-| `user_content_attestation_timestamp_mismatch` | 6d step 2 | A `trellis.user-content-attestation.v1` payload's `attested_at` does not exactly equal the envelope's `authored_at` (uint seconds; no skew slack) (ADR 0010 §"Verifier obligations" step 2). |
+| `user_content_attestation_timestamp_mismatch` | 6d step 2 | A `trellis.user-content-attestation.v1` payload's `attested_at` does not exactly equal the envelope's `authored_at` (timestamp exact equality; no skew slack) (ADR 0010 §"Verifier obligations" step 2). |
 | `user_content_attestation_intent_malformed` | 6d step 2 | A user-content-attestation `signing_intent` is not a syntactically valid URI per RFC 3986 (ADR 0010 §"Verifier obligations" step 2). |
 | `user_content_attestation_chain_position_mismatch` | 6d step 3 | `attested_event_position` resolves to a chain-present event whose `canonical_event_hash` does not equal `attested_event_hash`, OR the position resolves to no event in the same `ledger_scope` (ADR 0010 §"Verifier obligations" step 3). |
 | `user_content_attestation_identity_required` | 6d step 4 | `identity_attestation_ref` is null and the Posture Declaration in force at `attested_at` does not declare `admit_unverified_user_attestations: true` (ADR 0010 §"Verifier obligations" step 4). |

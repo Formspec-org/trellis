@@ -715,7 +715,7 @@ pub(crate) fn decode_certificate_payload(
 /// decoded.
 ///
 /// Per-event invariants enforced here:
-/// - `attested_at == host EventHeader.authored_at` (uint exact equality;
+/// - `attested_at == host EventHeader.authored_at` (timestamp exact equality;
 ///   `user_content_attestation_timestamp_mismatch`)
 /// - `signing_intent` is a syntactically valid URI per RFC 3986
 ///   (`user_content_attestation_intent_malformed`)
@@ -754,7 +754,7 @@ pub(crate) fn decode_user_content_attestation_payload(
     let signing_kid = map_lookup_fixed_bytes(extension_map, "signing_kid", 16)?;
 
     // Step 2 partial — `attested_at` MUST exactly equal envelope `authored_at`
-    // (uint seconds; no skew slack per ADR 0010 §"Field semantics"
+    // (timestamp exact equality; no skew slack per ADR 0010 §"Field semantics"
     // `attested_at` clause).
     // Step 2 — intra-payload invariants. Per ADR 0010 §"Verifier obligations"
     // step 2, these flip `integrity_verified = false` only — they are NOT
