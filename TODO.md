@@ -384,38 +384,57 @@ adopter-triggered work.
     Trellis-side action once stack governance picks the policy home:
     contribute scope notes (which crates and surfaces are in / out of scope).
 
-15. **Verify-layer domain coupling extraction — split `trellis-verify` into
-    integrity-only core + consumer-owned domain verification** — **M–L**.
-    *Defer until the second domain consumer appears or wos-server hardens
-    against the current API, whichever fires first. Architectural debt from
-    the 2026-05-06 dependency-inversion audit.*
+15. **Verify-layer domain coupling extraction — `trellis-verify` integrity-only
+    + sibling `trellis-verify-wos` adapter** — **M–L**.
+    *Plan ready:* [`thoughts/plans/2026-05-07-extract-trellis-verify-wos.md`](thoughts/plans/2026-05-07-extract-trellis-verify-wos.md).
+    *Architectural debt from the 2026-05-06 dependency-inversion audit.*
     `trellis-verify` carries ~30 wire-key names (order-of-magnitude; exact count
-    depends on catalog vs camelCase layers), 3 hardcoded WOS event types as
-    full `wos.kernel.*` literals (`wos.kernel.signatureAffirmation`,
-    `wos.kernel.intakeAccepted`, `wos.kernel.caseCreated`), WOS record-shape
-    parsing (`SignatureAffirmationRecordDetails`, `IntakeAcceptedRecordDetails`,
-    `CaseCreatedRecordDetails`, `IntakeHandoffDetails`), and WOS business logic
-    (intake-mode branching, case-intent validation at `lib.rs` ~842–877).
-    The inversion originates in Core §6.7 (extension table) and §19 (verifier
-    obligations for WOS record shapes) — the code faithfully implements spec,
-    but the spec made an architectural decision that violates the verification
-    independence contract (§16).
-    + [ ] **Extract:** `trellis-verify` stops at envelope integrity (hash
-      chain, signatures, tree, COSE, checkpoint, sidecar digest binding).
-      WOS/Formspec field names, WOS event types, and WOS business logic move
-      to a new consumer-owned crate (e.g. `trellis-verify-wos` in the
-      workspec-server workspace, or a standalone crate that depends on
-      `trellis-verify` and `trellis-types`).
-    + [ ] **Core §19 carve-out:** WOS-specific verifier obligations (catalog
-      cross-check, intake-mode validation, case-creation binding) move to a
-      normative appendix or a WOS-owned spec supplement. Core §19 retains
-      only the integrity-layer checks.
-    + [ ] **Extension trait:** optional `RecordValidator` trait in
-      `trellis-verify` allowing downstream crates to register domain-specific
-      catalog cross-checks without forking the export algorithm.
-    + [ ] **Fixture split:** WOS-domain vectors (catalog matching, intake
-      modes) relocate with the consumer crate; pure integrity vectors stay in
-      `trellis-conformance`.
+    depends on catalog vs camelCase layers), 6 hardcoded WOS event types as
+    full `wos.kernel.*` / `wos.governance.*` literals (`lib.rs:154-165`),
+    WOS record-shape parsing (`SignatureAffirmationRecordDetails`,
+    `IntakeAcceptedRecordDetails`, `CaseCreatedRecordDetails`,
+    `IntakeHandoffDetails` at `parse.rs:1261-1401`), WOS business logic
+    (intake-mode branching at `lib.rs:885-921`, rescission terminality at
+    `lib.rs:622-635`), and ~20/147 WOS-domain `VerificationFailureKind`
+    variants. The inversion originates in Core §6.7 (extension table) and
+    §19 (verifier obligations for WOS record shapes) — the code faithfully
+    implements spec, but the spec made an architectural decision that violates
+    the verification independence contract (§16).
+    Five queued ADRs (#11 supersession terminality, #12 clock semantics, #6
+    tenant, #8 commit-failure, #10 migration pins) will compound the violation
+    with each ratification cycle if the inversion is not closed first.
+    Approach (per plan): sibling adapter crate at `crates/trellis-verify-wos/`
+    following the `trellis-interop-*` precedent (depends on `trellis-types` +
+    `trellis-verify` only). No cross-repo move; no fixture migration.
+    + [ ] **`RecordValidator` trait in `trellis-verify`** (Phase 1):
+      opaque-bytes / opaque-event-type-strings surface; `()` no-op default;
+      dispatch hooks in `verify_event_set` and `verify_export_zip`.
+      Foundational; lands first.
+    + [ ] **Sibling crate `trellis-verify-wos`** (Phase 2a) at
+      `crates/trellis-verify-wos/`. Owns the 6 event-type literals, 4 record
+      parsers, 4 record-detail types, intake-mode dispatch, rescission
+      terminality, clock semantic checks, catalog field-matching, certificate
+      event-type assertion, and `WosFinding` / `WosVerificationReport`
+      aggregation. WOS event-type strings duplicated as crate-local constants
+      (no `wos-core` dep, matching `trellis-interop-*` pattern).
+    + [ ] **Core §19 carve-out** (Phase 2b → Phase 3a): WOS-specific verifier
+      obligations move to new normative `specs/wos-trellis-verification.md`
+      (`WOS-TV-*` numbering); Core §19 retains integrity-only obligations;
+      §6.7 gains a note on WOS event-type extension entries; §16 prose
+      strengthened in terms of `RecordValidator`.
+    + [ ] **`VerificationFailureKind` shrink** (Phase 3a): ~20 WOS variants
+      hard-deleted (no `#[deprecated]` shims; `v1.0.0` is a coherent-snapshot
+      tag). Surfaces as `WosFinding::kind` strings in the WOS adapter.
+    + [ ] **Conformance harness** (Phase 4): extend `trellis-conformance` with
+      a `with-wos` feature flag pulling `trellis-verify-wos`; WOS-coupled
+      vectors run through the composed verifier, integrity-only vectors
+      through `trellis-verify` with `&()`. Fixtures stay in
+      `fixtures/vectors/` — no migration.
+    + [ ] **Consumer migration** (Phase 3b): `wos-server` switches dep from
+      `trellis-verify` to `trellis-verify-wos`; `trellis-cli` and
+      `trellis-interop-c2pa` stay on `trellis-verify`.
+    + [ ] **`trellis-py` cross-check** (Phase 0 / Phase 2c): grep for WOS
+      coverage; mirror the carve in Python if present.
 
 16. **Case ledger + agency log semantic definitions** — **M**.
     *Land when case-ledger / agency-log scoping opens.* Core §22 case ledger
