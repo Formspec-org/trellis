@@ -274,8 +274,14 @@ adopter-triggered work.
     + [x] Single-chain vectors: `append/011-correction`, `012-amendment`,
       `013-rescission` (plus `014-reinstatement` from ADR 0066's fifth-mode
       revision).
-    + [ ] Verifier **D-3:** correction-preservation; chain-linkage with
-      byte-equal predecessor checkpoint hash.
+    + [x] Verifier **D-3:** correction-preservation report output and
+      chain-linkage with byte-equal predecessor checkpoint hash. The runtime
+      verifier now surfaces `correction_preservations[]` for readable
+      `correctionAuthorized` / future `responseCorrection` payloads, including
+      target event hash, corrected field set, and optional original/corrected
+      value pairs when producers carry them. Cross-chain supersession linkage
+      is covered by the manifest-bound graph + predecessor-checkpoint verifier
+      path (`verify/017`, `tamper/046` … `049`).
     + [x] Verifier **D-3 rescission terminality:** any same-chain
       `wos.governance.determination*` event after
       `wos.governance.determinationRescinded` is a

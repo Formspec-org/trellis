@@ -1619,6 +1619,14 @@ VERIFY(E) -> VerificationReport
         `rescission_terminality_violation` integrity failure until an
         intervening `wos.governance.reinstated` event reopens the chain
         (ADR 0066 D-3; traceability: TR-CORE-171).
+        If the readable payload is an ADR 0066 correction record
+        (`correctionAuthorized` today, or `responseCorrection` when the
+        Formspec producer lands), add a `CorrectionPreservationOutcome` to
+        `report.correction_preservations`. This report evidence surfaces the
+        target event hash, corrected field set, and any producer-supplied
+        original/corrected value pairs; it is not an integrity predicate by
+        itself because the upstream producer owns the correction payload shape
+        (traceability: TR-CORE-174).
      i. Check payload.causal_deps is null or [] (Phase 1 strict-linear, §10.3).
      j. Resolve the RegistryBinding applicable to payload.sequence per §14.4;
         check payload.header.event_type and related fields against the bound registry.
@@ -2094,6 +2102,7 @@ VerificationReport = {
   posture_transitions:        [* PostureTransitionOutcome],
   erasure_evidence:           [* ErasureEvidenceOutcome],
   certificates_of_completion: [* CertificateOfCompletionOutcome],
+  correction_preservations:   [* CorrectionPreservationOutcome],
   omitted_payload_checks:     [* OmittedPayloadCheck],
   warnings:                   [* tstr],
 }
@@ -2121,6 +2130,20 @@ CertificateOfCompletionOutcome = {
   all_signing_events_resolved:   bool,
   chain_summary_consistent:      bool,
   failures:                      [* tstr],
+}
+
+CorrectionPreservationOutcome = {
+  event_index:             uint,       ; position in the events array
+  correction_event_hash:   digest,     ; canonical_event_hash of the correction record
+  target_event_hash:       tstr / null,
+  corrected_field_set:     [* tstr],   ; JSON Pointer strings when producer supplies them
+  field_values:            [* CorrectionFieldValue],
+}
+
+CorrectionFieldValue = {
+  field_path:              tstr,       ; JSON Pointer string
+  original_value_cbor:     bstr,       ; canonical CBOR value bytes
+  corrected_value_cbor:    bstr,       ; canonical CBOR value bytes
 }
 
 VerificationFailure = {
@@ -2983,6 +3006,7 @@ VerificationReport = {
   posture_transitions:        [* PostureTransitionOutcome],
   erasure_evidence:           [* ErasureEvidenceOutcome],
   certificates_of_completion: [* CertificateOfCompletionOutcome],
+  correction_preservations:   [* CorrectionPreservationOutcome],
   ? interop_sidecars:         [* InteropSidecarVerificationEntry],
   omitted_payload_checks:     [* OmittedPayloadCheck],
   warnings:                   [* tstr],
@@ -3036,6 +3060,23 @@ CertificateOfCompletionOutcome = {
   all_signing_events_resolved:   bool,
   chain_summary_consistent:      bool,
   failures:                      [* tstr],
+}
+
+; ADR 0066 correction-preservation report evidence. This is populated when a
+; readable `correctionAuthorized` / `responseCorrection` payload is present.
+; It does not participate in the §19 step-9 integrity fold by itself.
+CorrectionPreservationOutcome = {
+  event_index:             uint,
+  correction_event_hash:   digest,
+  target_event_hash:       tstr / null,
+  corrected_field_set:     [* tstr],
+  field_values:            [* CorrectionFieldValue],
+}
+
+CorrectionFieldValue = {
+  field_path:              tstr,
+  original_value_cbor:     bstr,
+  corrected_value_cbor:    bstr,
 }
 
 ; Interop-sidecar per-entry verification outcome (§18.3a / ADR 0008).

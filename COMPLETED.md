@@ -18,6 +18,27 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 40 (2026-05-07) — TODO #11 correction-preservation report output
+
+- `trellis-verify` now adds `correction_preservations[]` to
+  `VerificationReport` for readable ADR 0066 correction records.
+- The report entry surfaces the correction event hash, target event hash,
+  corrected field set, and optional original/corrected field value pairs as
+  canonical CBOR bytes when upstream producers include them.
+- Current WOS `correctionAuthorized` records carry target hash and field-set
+  evidence; Formspec `ResponseCorrection` and WOS runtime emission remain
+  producer-owned work in sibling TODOs.
+- Existing supersession graph verifier coverage already closes the byte-equal
+  predecessor-checkpoint linkage half of ADR 0066 D-3.
+
+Verification:
+- `cargo test -p trellis-verify`.
+- `cargo test -p trellis-conformance`.
+- `uv run --with cbor2 --with cryptography python scripts/check-specs.py`
+  passed with the existing non-signing key reservation warnings.
+- `cargo fmt --check --manifest-path Cargo.toml -p trellis-verify`.
+- `git diff --check`.
+
 ### Wave 39 (2026-05-07) — TODO #12 ADR 0067 statutory clocks
 
 - Rust and Python export verifiers now walk clock records in chain order,

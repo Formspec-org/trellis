@@ -128,6 +128,30 @@ pub struct UserContentAttestationOutcome {
     pub failures: Vec<String>,
 }
 
+/// ADR 0066 correction-preservation report entry.
+///
+/// One entry per correction record whose readable payload is available.
+/// `field_values` carries original and corrected values as canonical CBOR
+/// bytes when the producer includes them; current WOS `correctionAuthorized`
+/// records may carry only `target_event_hash` and `corrected_field_set` until
+/// the Formspec `ResponseCorrection` producer shape lands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorrectionPreservationOutcome {
+    pub event_index: u64,
+    pub correction_event_hash: [u8; 32],
+    pub target_event_hash: Option<String>,
+    pub corrected_field_set: Vec<String>,
+    pub field_values: Vec<CorrectionFieldValue>,
+}
+
+/// One corrected field value pair in an ADR 0066 correction report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CorrectionFieldValue {
+    pub field_path: String,
+    pub original_value_cbor: Vec<u8>,
+    pub corrected_value_cbor: Vec<u8>,
+}
+
 /// ADR 0008 §"Phase-1 verifier obligation" per-entry interop-sidecar
 /// outcome. One entry per `manifest.interop_sidecars[i]` walked under
 /// Wave 25 dispatch (today: `c2pa-manifest@v1`). The struct mirrors
@@ -166,6 +190,10 @@ pub struct VerificationReport {
     /// step 9). One entry per `trellis.user-content-attestation.v1`
     /// payload in scope, in chain order.
     pub user_content_attestations: Vec<UserContentAttestationOutcome>,
+    /// ADR 0066 correction-preservation outcomes. These entries are report
+    /// evidence, not integrity predicates; missing upstream value pairs remain
+    /// visible as empty `field_values` rather than verifier failures.
+    pub correction_preservations: Vec<CorrectionPreservationOutcome>,
     /// ADR 0008 / Core §18.3a interop-sidecar outcomes. Filled only
     /// when `interop_sidecar::verify_interop_sidecars` returns `Ok`: one
     /// entry per manifest `interop_sidecars[]` row that passes dispatch
@@ -195,6 +223,7 @@ impl VerificationReport {
             erasure_evidence: Vec::new(),
             certificates_of_completion: Vec::new(),
             user_content_attestations: Vec::new(),
+            correction_preservations: Vec::new(),
             interop_sidecars: Vec::new(),
             warnings: vec![warning],
         }
@@ -261,6 +290,7 @@ impl VerificationReport {
         erasure_evidence: Vec<ErasureEvidenceOutcome>,
         certificates_of_completion: Vec<CertificateOfCompletionOutcome>,
         user_content_attestations: Vec<UserContentAttestationOutcome>,
+        correction_preservations: Vec<CorrectionPreservationOutcome>,
         warnings: Vec<String>,
     ) -> Self {
         let integrity_verified = Self::integrity_verified_from_parts(
@@ -285,6 +315,7 @@ impl VerificationReport {
             erasure_evidence,
             certificates_of_completion,
             user_content_attestations,
+            correction_preservations,
             // Genesis-append path produces no interop sidecar outcomes;
             // the export-archive path populates this slice via
             // `verify_interop_sidecars` (ADR 0008 §"Phase-1 verifier

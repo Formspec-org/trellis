@@ -20,6 +20,8 @@ pub(crate) mod erasure;
 
 pub(crate) mod certificate;
 
+pub(crate) mod correction;
+
 pub(crate) mod user_attestation;
 
 pub(crate) mod interop_sidecar;
@@ -36,6 +38,7 @@ pub(crate) mod util;
 mod tests;
 
 use crate::certificate::finalize_certificates_of_completion;
+use crate::correction::finalize_correction_preservations;
 use crate::erasure::finalize_erasure_evidence;
 use crate::merkle::recompute_author_event_hash;
 use crate::parse::{
@@ -755,6 +758,7 @@ pub(crate) fn verify_event_set_with_classes(
         &mut event_failures,
     );
 
+    let correction_preservations = finalize_correction_preservations(events, payload_blobs);
     let (event_lookup_pool, event_by_hash_idx, event_by_position_idx) =
         build_event_details_lookup(events, decoded_per_index);
 
@@ -791,6 +795,7 @@ pub(crate) fn verify_event_set_with_classes(
         erasure_evidence,
         certificates_of_completion,
         user_content_attestations,
+        correction_preservations,
         Vec::new(),
     )
 }

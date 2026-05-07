@@ -3312,6 +3312,35 @@ fn verify_tampered_ledger_detects_timestamp_order_violation() {
 }
 
 #[test]
+fn verify_correction_authorized_surfaces_preservation_report() {
+    let correction_root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/vectors/append/011-correction");
+    let registry_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/vectors/tamper/050-rescission-terminality");
+
+    let event =
+        parse_sign1_bytes(&fs::read(correction_root.join("expected-event.cbor")).unwrap()).unwrap();
+    let registry_bytes = fs::read(registry_root.join("input-signing-key-registry.cbor")).unwrap();
+    let registry = parse_signing_key_registry(&registry_bytes).unwrap();
+
+    let report = verify_event_set(&[event], &registry, None, None, false, None, None);
+
+    assert!(report.structure_verified);
+    assert!(report.integrity_verified);
+    assert_eq!(report.correction_preservations.len(), 1);
+    let correction = &report.correction_preservations[0];
+    assert_eq!(correction.event_index, 0);
+    assert_eq!(
+        correction.target_event_hash.as_deref(),
+        Some("9366d6fddc451087771a2514419a9b7a876e8301f849cffc5f45f143d0b29088")
+    );
+    assert_eq!(
+        correction.corrected_field_set,
+        vec!["/applicantName", "/mailingAddress/zip"]
+    );
+}
+
+#[test]
 fn verify_equal_timestamps_pass_temporal_check() {
     let genesis_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/vectors/append/001-minimal-inline-payload");
