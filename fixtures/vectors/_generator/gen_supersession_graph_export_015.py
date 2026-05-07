@@ -3,6 +3,8 @@
 Outputs:
 - verify/017-export-015-supersession-graph
 - tamper/046-supersession-graph-linkage-mismatch
+- tamper/047-supersession-graph-cycle
+- tamper/048-supersession-predecessor-checkpoint-mismatch
 
 The positive export is a one-event export built from `append/015-supersession`.
 The tamper vector keeps the graph manifest-bound and well-formed but changes
@@ -43,6 +45,10 @@ KEY_FILE = ROOT / "_keys" / "issuer-001.cose_key"
 
 OUT_VERIFY = ROOT / "verify" / "017-export-015-supersession-graph"
 OUT_TAMPER = ROOT / "tamper" / "046-supersession-graph-linkage-mismatch"
+OUT_CYCLE = ROOT / "tamper" / "047-supersession-graph-cycle"
+OUT_PREDECESSOR_MISSING = (
+    ROOT / "tamper" / "048-supersession-predecessor-checkpoint-mismatch"
+)
 
 TAG_TRELLIS_EVENT_V1 = "trellis-event-v1"
 TAG_TRELLIS_CHECKPOINT_V1 = "trellis-checkpoint-v1"
@@ -111,19 +117,32 @@ def write_bytes(path: Path, data: bytes) -> None:
 def canonical_graph_json(
     *,
     head_chain_id: bytes,
-    predecessor_chain_id: bytes,
-    predecessor_checkpoint_hash: bytes,
+    rows: list[dict],
 ) -> bytes:
     # Trellis canonical JSON for this member sorts row keys as
     # bundle_path, chain_id, checkpoint_hash and carries one trailing LF.
+    rendered_rows: list[str] = []
+    for row in rows:
+        bundle_path = row["bundle_path"]
+        if bundle_path is None:
+            bundle_text = "null"
+        else:
+            bundle_text = '"' + bundle_path + '"'
+        rendered_rows.append(
+            '{"bundle_path":'
+            + bundle_text
+            + ',"chain_id":"'
+            + row["chain_id"].hex()
+            + '","checkpoint_hash":"'
+            + row["checkpoint_hash"].hex()
+            + '"}'
+        )
     return (
         '{"head_chain_id":"'
         + head_chain_id.hex()
-        + '","predecessors":[{"bundle_path":null,"chain_id":"'
-        + predecessor_chain_id.hex()
-        + '","checkpoint_hash":"'
-        + predecessor_checkpoint_hash.hex()
-        + '"}]}\n'
+        + '","predecessors":['
+        + ",".join(rendered_rows)
+        + "]}\n"
     ).encode("utf-8")
 
 
@@ -137,7 +156,7 @@ def write_zip(out_dir: Path, *, root_dir: str, members: list[str]) -> None:
             info.external_attr = 0
 
 
-def build_export(out_dir: Path, *, graph_checkpoint_hash: bytes) -> tuple[str, bytes, bytes]:
+def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, bytes]:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     event_bytes = (SOURCE_EVENT_DIR / "expected-event.cbor").read_bytes()
@@ -210,10 +229,34 @@ def build_export(out_dir: Path, *, graph_checkpoint_hash: bytes) -> tuple[str, b
         "audit_path": [],
     }})
     consistency_proofs_cbor = dcbor([])
+    graph_rows = [{
+        "bundle_path": None,
+        "chain_id": predecessor_chain_id,
+        "checkpoint_hash": predecessor_checkpoint_hash,
+    }]
+    if graph_variant == "linkage-mismatch":
+        graph_rows = [{
+            "bundle_path": None,
+            "chain_id": predecessor_chain_id,
+            "checkpoint_hash": b"\x00" * 32,
+        }]
+    elif graph_variant == "cycle":
+        graph_rows.append({
+            "bundle_path": None,
+            "chain_id": ledger_scope,
+            "checkpoint_hash": predecessor_checkpoint_hash,
+        })
+    elif graph_variant == "predecessor-missing":
+        graph_rows = [{
+            "bundle_path": "070-predecessors/missing.zip",
+            "chain_id": predecessor_chain_id,
+            "checkpoint_hash": predecessor_checkpoint_hash,
+        }]
+    elif graph_variant != "valid":
+        raise ValueError(f"unknown graph variant {graph_variant!r}")
     graph_json = canonical_graph_json(
         head_chain_id=ledger_scope,
-        predecessor_chain_id=predecessor_chain_id,
-        predecessor_checkpoint_hash=graph_checkpoint_hash,
+        rows=graph_rows,
     )
     graph_digest = sha256(graph_json)
 
@@ -267,7 +310,7 @@ def build_export(out_dir: Path, *, graph_checkpoint_hash: bytes) -> tuple[str, b
         "extensions": {
             SUPERSESSION_GRAPH_EXPORT_EXTENSION: {
                 "graph_digest": graph_digest,
-                "predecessor_count": 1,
+                "predecessor_count": len(graph_rows),
             }
         },
     }
@@ -298,7 +341,14 @@ def build_export(out_dir: Path, *, graph_checkpoint_hash: bytes) -> tuple[str, b
     return root_dir, predecessor_checkpoint_hash, canon_hash
 
 
-def write_manifest(out_dir: Path, *, op: str, title: str, tamper_kind: str | None, event_hash: bytes | None) -> None:
+def write_manifest(
+    out_dir: Path,
+    *,
+    op: str,
+    title: str,
+    tamper_kind: str | None,
+    failure_location: str | None,
+) -> None:
     coverage = """[coverage]
 tr_core = [
     "TR-CORE-001",
@@ -318,8 +368,8 @@ tr_core = [
     ]
     if tamper_kind is not None:
         report_lines.append(f'tamper_kind = "{tamper_kind}"')
-    if event_hash is not None:
-        report_lines.append(f'failing_event_id = "{event_hash.hex()}"')
+    if failure_location is not None:
+        report_lines.append(f'failing_event_id = "{failure_location}"')
     manifest = (
         f'id          = "{out_dir.parent.name}/{out_dir.name}"\n'
         f'op          = "{op}"\n'
@@ -347,13 +397,28 @@ def write_derivation(out_dir: Path, *, tampered: bool) -> None:
         "`ExportManifestPayload.extensions[\"trellis.export.supersession-graph.v1\"].graph_digest`.\n\n"
     )
     if tampered:
-        body += (
-            "The graph remains canonical JSON and the manifest digest is recomputed, "
-            "but the predecessor `checkpoint_hash` is replaced with 32 zero bytes. "
-            "The verifier must therefore reject the export with "
-            "`supersession_graph_linkage_mismatch` because the graph row no longer "
-            "byte-matches the event's `trellis.supersedes-chain-id.v1` extension.\n"
-        )
+        if out_dir == OUT_TAMPER:
+            body += (
+                "The graph remains canonical JSON and the manifest digest is recomputed, "
+                "but the predecessor `checkpoint_hash` is replaced with 32 zero bytes. "
+                "The verifier must therefore reject the export with "
+                "`supersession_graph_linkage_mismatch` because the graph row no longer "
+                "byte-matches the event's `trellis.supersedes-chain-id.v1` extension.\n"
+            )
+        elif out_dir == OUT_CYCLE:
+            body += (
+                "The graph remains canonical JSON and carries the correct predecessor "
+                "row, then adds a second predecessor row whose `chain_id` equals the "
+                "exported head chain. The verifier must reject this direct traversal "
+                "cycle with `supersession_graph_cycle`.\n"
+            )
+        else:
+            body += (
+                "The graph row byte-matches the event extension and names a non-null "
+                "`bundle_path`, but the referenced predecessor ZIP is absent from the "
+                "archive. The verifier must reject this packaging omission with "
+                "`supersession_predecessor_checkpoint_mismatch`.\n"
+            )
     else:
         body += (
             "The graph `head_chain_id` equals `manifest.scope`, and its only "
@@ -366,9 +431,7 @@ def write_derivation(out_dir: Path, *, tampered: bool) -> None:
 def main() -> None:
     _, expected_checkpoint_hash, canon_hash = build_export(
         OUT_VERIFY,
-        graph_checkpoint_hash=cbor2.loads(
-            (SOURCE_EVENT_DIR / "input-supersedes-chain-id.cbor").read_bytes()
-        )["checkpoint_hash"],
+        graph_variant="valid",
     )
     assert expected_checkpoint_hash == cbor2.loads(
         (SOURCE_EVENT_DIR / "input-supersedes-chain-id.cbor").read_bytes()
@@ -378,22 +441,44 @@ def main() -> None:
         op="verify",
         title="Positive ADR 0066 export with manifest-bound supersession graph.",
         tamper_kind=None,
-        event_hash=None,
+        failure_location=None,
     )
     write_derivation(OUT_VERIFY, tampered=False)
 
-    build_export(OUT_TAMPER, graph_checkpoint_hash=b"\x00" * 32)
+    build_export(OUT_TAMPER, graph_variant="linkage-mismatch")
     write_manifest(
         OUT_TAMPER,
         op="tamper",
         title="Manifest-bound supersession graph whose predecessor row does not byte-match the event extension.",
         tamper_kind="supersession_graph_linkage_mismatch",
-        event_hash=canon_hash,
+        failure_location=canon_hash.hex(),
     )
     write_derivation(OUT_TAMPER, tampered=True)
 
+    build_export(OUT_CYCLE, graph_variant="cycle")
+    write_manifest(
+        OUT_CYCLE,
+        op="tamper",
+        title="Manifest-bound supersession graph with a direct cycle back to the exported head chain.",
+        tamper_kind="supersession_graph_cycle",
+        failure_location="064-supersession-graph.json",
+    )
+    write_derivation(OUT_CYCLE, tampered=True)
+
+    build_export(OUT_PREDECESSOR_MISSING, graph_variant="predecessor-missing")
+    write_manifest(
+        OUT_PREDECESSOR_MISSING,
+        op="tamper",
+        title="Manifest-bound supersession graph whose predecessor bundle path is absent.",
+        tamper_kind="supersession_predecessor_checkpoint_mismatch",
+        failure_location="070-predecessors/missing.zip",
+    )
+    write_derivation(OUT_PREDECESSOR_MISSING, tampered=True)
+
     print(f"verify/017 zip_sha256={sha256((OUT_VERIFY / 'input-export.zip').read_bytes()).hex()}")
     print(f"tamper/046 zip_sha256={sha256((OUT_TAMPER / 'input-export.zip').read_bytes()).hex()}")
+    print(f"tamper/047 zip_sha256={sha256((OUT_CYCLE / 'input-export.zip').read_bytes()).hex()}")
+    print(f"tamper/048 zip_sha256={sha256((OUT_PREDECESSOR_MISSING / 'input-export.zip').read_bytes()).hex()}")
     print(f"export_manifest_digest={export_manifest_digest(cbor2.loads((SOURCE_EVENT_DIR / 'expected-event-payload.cbor').read_bytes())['ledger_scope'], cbor2.loads(cbor2.loads((OUT_VERIFY / '000-manifest.cbor').read_bytes()).value[2])).hex()}")
 
 

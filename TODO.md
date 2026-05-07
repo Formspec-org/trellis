@@ -291,14 +291,17 @@ adopter-triggered work.
       `trellis.export.supersession-graph.v1`, require and hash-check
       `064-supersession-graph.json`, validate Trellis canonical JSON,
       compare `head_chain_id` to `manifest.scope`, reject unbound graphs,
-      compare event-level `trellis.supersedes-chain-id.v1` rows, and cover the
-      positive + `supersession_graph_linkage_mismatch` paths with
+      compare event-level `trellis.supersedes-chain-id.v1` rows, reject direct
+      cycles, validate non-null predecessor `bundle_path` presence/checkpoint
+      digest, and cover the positive +
+      `supersession_graph_linkage_mismatch` / `supersession_graph_cycle` /
+      `supersession_predecessor_checkpoint_mismatch` paths with
       `verify/017-export-015-supersession-graph` and
-      `tamper/046-supersession-graph-linkage-mismatch` (TR-CORE-170).
+      `tamper/046` … `048` (TR-CORE-170).
     + [ ] Runtime verifier deep traversal follow-on: add explicit multi-hop
-      predecessor BFS / embedded-bundle vectors for `supersession_graph_cycle`
-      and `supersession_predecessor_checkpoint_mismatch` beyond the direct
-      row and `bundle_path` checks now implemented.
+      predecessor BFS across embedded predecessor exports; direct row-cycle
+      and missing-bundle diagnostics are covered now, but nested graph
+      traversal remains a Phase-1 follow-on.
     + [x] Optional predecessor chain members in export bundle (ADR D-4):
       `070-predecessors/` carries embedded deterministic Trellis export ZIPs
       named by `064-supersession-graph.json` predecessor `bundle_path` entries.

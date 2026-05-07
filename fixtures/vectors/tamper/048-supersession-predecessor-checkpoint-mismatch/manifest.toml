@@ -1,0 +1,28 @@
+id          = "tamper/048-supersession-predecessor-checkpoint-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Manifest-bound supersession graph whose predecessor bundle path is absent."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-050",
+    "TR-CORE-068",
+    "TR-CORE-169",
+    "TR-CORE-170",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified  = true
+integrity_verified  = false
+readability_verified = true
+tamper_kind = "supersession_predecessor_checkpoint_mismatch"
+failing_event_id = "070-predecessors/missing.zip"
+
+[derivation]
+document = "derivation.md"
