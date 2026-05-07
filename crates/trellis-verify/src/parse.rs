@@ -1643,15 +1643,19 @@ pub(crate) fn decode_timestamp_array(arr: &[Value]) -> Result<TrellisTimestamp, 
         _ => return Err(VerifyError::new("timestamp seconds must be uint")),
     };
     let nanos = match &arr[1] {
-        Value::Integer(i) => {
-            u32::try_from(*i).map_err(|_| VerifyError::new("timestamp nanos out of u32 range"))?
-        }
+        Value::Integer(i) => u32::try_from(*i).map_err(|_| {
+            VerifyError::with_kind(
+                "timestamp nanos must be 0..999999999",
+                VerifyErrorKind::TimestampNanosOutOfRange,
+            )
+        })?,
         _ => return Err(VerifyError::new("timestamp nanos must be uint")),
     };
     if nanos > 999_999_999 {
-        return Err(VerifyError::new(format!(
-            "timestamp nanos must be 0..999999999, got {nanos}"
-        )));
+        return Err(VerifyError::with_kind(
+            format!("timestamp nanos must be 0..999999999, got {nanos}"),
+            VerifyErrorKind::TimestampNanosOutOfRange,
+        ));
     }
     Ok(TrellisTimestamp { seconds, nanos })
 }

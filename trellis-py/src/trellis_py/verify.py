@@ -601,7 +601,10 @@ def _map_lookup_timestamp(m: dict, key: str) -> TrellisTimestamp:
         if not isinstance(seconds, int) or seconds < 0:
             raise VerifyError(f"{key} seconds must be non-negative uint, got {seconds!r}")
         if not isinstance(nanos, int) or nanos < 0 or nanos > 999_999_999:
-            raise VerifyError(f"{key} nanos must be 0..999999999, got {nanos!r}")
+            raise VerifyError(
+                f"{key} nanos must be 0..999999999, got {nanos!r}",
+                kind="timestamp_nanos_out_of_range",
+            )
         return TrellisTimestamp(seconds, nanos)
     if isinstance(v, int):
         raise VerifyError(

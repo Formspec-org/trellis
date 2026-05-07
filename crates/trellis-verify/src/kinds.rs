@@ -120,6 +120,7 @@ pub enum VerificationFailureKind {
     SigningEventTimestampMismatch,
     SigningEventUnresolved,
     SigningKeyRegistryInvalid,
+    TimestampNanosOutOfRange,
     TimestampOrderViolation,
     TreeSizeInvalid,
     UnresolvableManifestKid,
@@ -272,6 +273,7 @@ impl VerificationFailureKind {
             Self::SigningEventTimestampMismatch => "signing_event_timestamp_mismatch",
             Self::SigningEventUnresolved => "signing_event_unresolved",
             Self::SigningKeyRegistryInvalid => "signing_key_registry_invalid",
+            Self::TimestampNanosOutOfRange => "timestamp_nanos_out_of_range",
             Self::TimestampOrderViolation => "timestamp_order_violation",
             Self::TreeSizeInvalid => "tree_size_invalid",
             Self::UnresolvableManifestKid => "unresolvable_manifest_kid",
@@ -322,6 +324,7 @@ pub enum VerifyErrorKind {
     MalformedCose,
     CertificateChainSummaryMismatch,
     LegacyTimestampFormat,
+    TimestampNanosOutOfRange,
     KeyEntryAttributesShapeMismatch,
 }
 
@@ -334,6 +337,7 @@ impl VerifyErrorKind {
             Self::MalformedCose => "malformed_cose",
             Self::CertificateChainSummaryMismatch => "certificate_chain_summary_mismatch",
             Self::LegacyTimestampFormat => "legacy_timestamp_format",
+            Self::TimestampNanosOutOfRange => "timestamp_nanos_out_of_range",
             Self::KeyEntryAttributesShapeMismatch => "key_entry_attributes_shape_mismatch",
         }
     }
@@ -352,6 +356,7 @@ impl VerifyErrorKind {
                 VerificationFailureKind::CertificateChainSummaryMismatch
             }
             Self::LegacyTimestampFormat => VerificationFailureKind::LegacyTimestampFormat,
+            Self::TimestampNanosOutOfRange => VerificationFailureKind::TimestampNanosOutOfRange,
             Self::KeyEntryAttributesShapeMismatch => {
                 VerificationFailureKind::KeyEntryAttributesShapeMismatch
             }
@@ -488,6 +493,7 @@ mod wire_taxonomy_tests {
                 SigningEventTimestampMismatch,
                 SigningEventUnresolved,
                 SigningKeyRegistryInvalid,
+                TimestampNanosOutOfRange,
                 TimestampOrderViolation,
                 TreeSizeInvalid,
                 UnresolvableManifestKid,
@@ -548,6 +554,10 @@ mod wire_taxonomy_tests {
             (
                 Ek::LegacyTimestampFormat,
                 VerificationFailureKind::LegacyTimestampFormat,
+            ),
+            (
+                Ek::TimestampNanosOutOfRange,
+                VerificationFailureKind::TimestampNanosOutOfRange,
             ),
             (
                 Ek::KeyEntryAttributesShapeMismatch,

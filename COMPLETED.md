@@ -18,6 +18,33 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 34 (2026-05-07) — TODO #9 timestamp encoding closeout
+
+Closes Trellis TODO item #9 after ADR 0069 D-2.1 blessed Trellis's existing
+`[seconds, nanos]` CBOR timestamp shape instead of a single `uint64`
+nanosecond counter. The closeout keeps the byte-protocol stable while adding
+the missing negative that proves array-shaped timestamps still enforce the
+nanosecond component bound.
+
+Train:
+- Core §19.1, the requirements matrix, Rust verifier taxonomy, Python verifier
+  taxonomy, and `scripts/check-specs.py` now include
+  `timestamp_nanos_out_of_range`.
+- `trellis-verify` maps timestamp nanos values above `999999999` to that
+  typed structural failure, with unit coverage for the decoder bridge.
+- Fixture corpus gains `tamper/045-timestamp-nanos-out-of-range`, generated
+  from `append/001` and re-signed so signatures verify before timestamp decode
+  rejects the malformed `[1745000000, 1000000000]` value.
+- TODO #9 is marked closed; leap-second parser coverage is explicitly left to
+  JSON-string stack surfaces because Trellis CBOR timestamps are numeric.
+
+Verification:
+- `cargo test -p trellis-verify` passed (103 tests).
+- `cargo test -p trellis-conformance` passed (11 tests across unit + store parity).
+- `uv run --with cbor2 --with cryptography --with pytest python -m pytest trellis-py/tests -q` passed (70 tests).
+- `PYTHONPATH=trellis-py/src uv run --with cbor2 --with cryptography python -m trellis_py.conformance --vectors fixtures/vectors` passed (119 vectors, 0 failures).
+- `uv run --with cbor2 --with cryptography python scripts/check-specs.py` passed with the existing non-signing key reservation warnings.
+
 ### Wave 33 (2026-05-07) — Python parity for TODO #30 sidecar taxonomy
 
 Closes the remaining Python G-5 parity residue for the TODO #30 interop

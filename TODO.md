@@ -210,7 +210,8 @@ adopter-triggered work.
       `tamper/0NN-failures-json-mismatch`.
 
  9. **ADR 0069 execution — timestamp wire precision + chain-order verification**
-    — **M**.
+    — **M**. **Closed 2026-05-07 (Wave 34); retained here until the next
+    planned TODO renumbering pass.**
     *Land after ADR 0069 acceptance.* Parent backlog: **PLN-0400**; composes
     with **PLN-0083** chain-order / time-order verification and unblocks
     ADR 0067 statutory-clock precision. Current Trellis Core / Rust / Python /
@@ -233,9 +234,12 @@ adopter-triggered work.
       timestamps and rejects backwards order even when hash-chain validity
       still holds (`timestamp_order_violation`;
       `tamper/041-timestamp-backwards`).
-    + [ ] Add or update vectors after the encoding decision, including the
-      final canonical-encoding negative and any leap-second parser fixture
-      retained from ADR 0069 D-4.
+    + [x] Final canonical-encoding negative:
+      `tamper/045-timestamp-nanos-out-of-range` proves array-shaped
+      `[seconds, nanos]` timestamps still reject `nanos > 999999999` with
+      `timestamp_nanos_out_of_range`. No Trellis leap-second parser fixture
+      lands here because the Trellis CBOR timestamp surface is numeric; any
+      RFC3339 `23:59:60` coverage belongs to JSON-string stack surfaces.
 
 10. **ADR 0071 execution — `CaseOpenPin` and migration transitions** — **M–L**.
     *Land after parent accepts ADR 0071 (gated on parent **PLN-0019** wire

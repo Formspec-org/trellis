@@ -3372,3 +3372,15 @@ fn verify_rejects_legacy_uint_timestamp_format() {
     let err = result.unwrap_err();
     assert_eq!(err.kind(), Some(VerifyErrorKind::LegacyTimestampFormat));
 }
+
+#[test]
+fn verify_rejects_timestamp_nanos_out_of_range() {
+    let result = crate::parse::decode_timestamp_array(&[
+        Value::Integer(1745000000.into()),
+        Value::Integer(1_000_000_000.into()),
+    ]);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), Some(VerifyErrorKind::TimestampNanosOutOfRange));
+}

@@ -2012,6 +2012,7 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `event_reorder` | 4.h | Adjacent events swapped; later event's `prev_hash` no longer matches the now-earlier event. |
 | `timestamp_order_violation` | 4.h (temporal) | A chain event's `authored_at` is strictly less than its predecessor's `authored_at` (ADR 0069 D-3). Hash chain and signatures are valid; only temporal order fails. |
 | `legacy_timestamp_format` | 4.c (payload decode) | A timestamp field is encoded as bare `uint` instead of the required `[uint, uint .le 999999999]` array (ADR 0069 D-2.1). The verifier cannot extract the field; decode-time structural rejection. |
+| `timestamp_nanos_out_of_range` | 4.c (payload decode) | A timestamp field uses the required `[seconds, nanos]` array shape but the `nanos` component exceeds `999999999` (ADR 0069 D-2.1 / Core §28 CDDL). The verifier cannot construct the timestamp; decode-time structural rejection. |
 | `head_checkpoint_digest_mismatch` | 5.c / 7.b | Head checkpoint missing or its recomputed digest does not match the manifest. |
 | `malformed_cose` | 4.c | COSE_Sign1 envelope is structurally invalid (wrong tag, wrong array shape, wrong protected-header type). |
 | `scope_mismatch` | 4.f | `EventPayload.ledger_scope` does not equal `manifest.scope`. |
@@ -2444,6 +2445,7 @@ digest     = bstr .size 32      ; SHA-256
 suite_id   = uint
 kid        = bstr .size 16
 timestamp  = [uint, uint .le 999999999]  ; [seconds since Unix epoch UTC, nanos within second]
+; Traceability: TR-CORE-093.
 
 ; --- Event ------------------------------------------------------------
 
@@ -3090,7 +3092,7 @@ Core traceability rows:
 - TR-CORE-060, TR-CORE-061, TR-CORE-062, TR-CORE-063, TR-CORE-064, TR-CORE-065, TR-CORE-066, TR-CORE-067
 - TR-CORE-070, TR-CORE-071, TR-CORE-072
 - TR-CORE-080, TR-CORE-081, TR-CORE-082
-- TR-CORE-090, TR-CORE-091, TR-CORE-092
+- TR-CORE-090, TR-CORE-091, TR-CORE-092, TR-CORE-093
 - TR-CORE-100, TR-CORE-101, TR-CORE-102, TR-CORE-103
 - TR-CORE-110, TR-CORE-111, TR-CORE-112, TR-CORE-113
 - TR-CORE-120, TR-CORE-121, TR-CORE-122, TR-CORE-123, TR-CORE-124, TR-CORE-125, TR-CORE-126
