@@ -159,6 +159,14 @@ TAMPER_KIND_ENUM = frozenset({
     "interop_sidecar_derivation_version_unknown",# TR-CORE-166; tamper/040.
     "interop_sidecar_path_invalid",              # TR-CORE-167; trellis-verify unit tests (no tamper ZIP).
     "interop_sidecar_missing",                   # TR-CORE-168; tamper/044.
+    # Supersession graph (Core §19 step 6e; ADR 0066). Runtime verifier
+    # coverage lands with the TR-CORE-170 export/tamper vectors.
+    "supersession_graph_unbound",
+    "supersession_graph_invalid",
+    "supersession_graph_head_mismatch",
+    "supersession_graph_linkage_mismatch",
+    "supersession_graph_cycle",
+    "supersession_predecessor_checkpoint_mismatch",
 })
 
 

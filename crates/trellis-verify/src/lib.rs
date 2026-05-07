@@ -24,6 +24,8 @@ pub(crate) mod user_attestation;
 
 pub(crate) mod interop_sidecar;
 
+pub(crate) mod supersession;
+
 pub(crate) mod export;
 
 pub(crate) mod util;
@@ -88,6 +90,15 @@ const PRESENTATION_ARTIFACT_DOMAIN: &str = "trellis-presentation-artifact-v1";
 /// user-content-attestation records. Per-attestation inline shape per
 /// `UserContentAttestationPayload` in Core §28 (CDDL) / ADR 0010 §"Wire shape".
 const USER_CONTENT_ATTESTATION_EVENT_EXTENSION: &str = "trellis.user-content-attestation.v1";
+
+/// ADR 0066 / Core §6.7 cross-chain supersession linkage. Event-level shape
+/// is `SupersedesChainIdPayload { chain_id, checkpoint_hash }`; export-level
+/// graph binding lives under [`SUPERSESSION_GRAPH_EXPORT_EXTENSION`].
+const SUPERSEDES_CHAIN_ID_EVENT_EXTENSION: &str = "trellis.supersedes-chain-id.v1";
+
+/// ADR 0066 / Core §18.3b manifest extension binding
+/// `064-supersession-graph.json`.
+const SUPERSESSION_GRAPH_EXPORT_EXTENSION: &str = "trellis.export.supersession-graph.v1";
 
 /// ADR 0010 §9.8 / Core §9 — domain-separation tag for the Ed25519 signature
 /// preimage carried by `UserContentAttestationPayload.signature`. Distinct

@@ -407,6 +407,11 @@ pub(crate) struct EventDetails {
     /// [`finalize_user_content_attestations`] from the caller after every
     /// event is decoded.
     pub(crate) user_content_attestation: Option<UserContentAttestationDetails>,
+    /// Decoded ADR 0066 supersession linkage, populated when
+    /// `EventPayload.extensions["trellis.supersedes-chain-id.v1"]` is
+    /// present. Export-bundle verification cross-checks these rows against
+    /// `064-supersession-graph.json` (Core §19 step 6e).
+    pub(crate) supersedes_chain: Option<SupersedesChainIdDetails>,
     /// Identity-attestation subject for events whose `event_type` matches
     /// one of the registered identity-attestation taxonomies (Phase-1
     /// admission via `is_identity_attestation_event_type`; canonical
@@ -701,6 +706,35 @@ pub(crate) struct SignerDisplayDetails {
 pub(crate) struct AttachmentExportExtension {
     pub(crate) manifest_digest: [u8; 32],
     pub(crate) inline_attachments: bool,
+}
+
+/// Decoded `SupersedesChainIdPayload` carried by
+/// `EventPayload.extensions["trellis.supersedes-chain-id.v1"]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SupersedesChainIdDetails {
+    pub(crate) chain_id: Vec<u8>,
+    pub(crate) checkpoint_hash: [u8; 32],
+}
+
+/// Optional `trellis.export.supersession-graph.v1` manifest extension
+/// (ADR 0066 / Core §18.3b).
+#[derive(Clone, Debug)]
+pub(crate) struct SupersessionGraphExportExtension {
+    pub(crate) graph_digest: [u8; 32],
+    pub(crate) predecessor_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SupersessionGraphPredecessor {
+    pub(crate) chain_id: Vec<u8>,
+    pub(crate) checkpoint_hash: [u8; 32],
+    pub(crate) bundle_path: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SupersessionGraph {
+    pub(crate) head_chain_id: Vec<u8>,
+    pub(crate) predecessors: Vec<SupersessionGraphPredecessor>,
 }
 
 #[derive(Clone, Debug)]

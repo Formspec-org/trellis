@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from collections import defaultdict
 from collections.abc import Mapping
@@ -104,6 +105,10 @@ WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.caseCreated"
 USER_CONTENT_ATTESTATION_EVENT_EXTENSION = "trellis.user-content-attestation.v1"
 # ADR 0010 §9.8 — domain-separation tag for the dCBOR signature preimage.
 USER_CONTENT_ATTESTATION_DOMAIN = "trellis-user-content-attestation-v1"
+SUPERSEDES_CHAIN_ID_EVENT_EXTENSION = "trellis.supersedes-chain-id.v1"
+SUPERSESSION_GRAPH_EXPORT_EXTENSION = "trellis.export.supersession-graph.v1"
+SUPERSESSION_GRAPH_MEMBER = "064-supersession-graph.json"
+SUPERSESSION_PREDECESSOR_PREFIX = "070-predecessors/"
 # Phase-1 identity-attestation event type (test-only). Core §6.7 + §10.6
 # reserve `x-trellis-test/*` for fixture authoring; admitted by
 # `_is_identity_attestation_event_type` until PLN-0381 ratifies the canonical
@@ -371,6 +376,12 @@ class AttachmentBindingDetails:
     prior_binding_hash: Optional[bytes]
 
 
+@dataclass(frozen=True)
+class SupersedesChainIdDetails:
+    chain_id: bytes
+    checkpoint_hash: bytes
+
+
 @dataclass
 class EventDetails:
     scope: bytes
@@ -395,6 +406,9 @@ class EventDetails:
     erasure: Optional["ErasureEvidenceDetails"] = None
     certificate: Optional["CertificateDetails"] = None
     user_content_attestation: Optional["UserContentAttestationDetails"] = None
+    # ADR 0066 / Core §19 step 6e. Export-bundle verification cross-checks
+    # this event-level linkage against `064-supersession-graph.json`.
+    supersedes_chain: Optional[SupersedesChainIdDetails] = None
     # Identity-attestation subject for events whose `event_type` matches
     # `_is_identity_attestation_event_type`. Read from
     # `extensions[event_type]["subject"]`. ADR 0010 verifier obligations
@@ -1341,6 +1355,7 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
     certificate: Optional[CertificateDetails] = None
     user_content_attestation: Optional[UserContentAttestationDetails] = None
     identity_attestation_subject: Optional[str] = None
+    supersedes_chain: Optional[SupersedesChainIdDetails] = None
     if isinstance(exts, dict):
         transition = _decode_transition_details(exts)
         attachment_binding = _decode_attachment_binding_details(exts)
@@ -1348,6 +1363,7 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         certificate = _decode_certificate_payload(exts)
         user_content_attestation = _decode_user_content_attestation_payload(exts, authored_at)
         identity_attestation_subject = _decode_identity_attestation_subject(exts, event_type)
+        supersedes_chain = _decode_supersedes_chain_id_payload(exts)
     elif exts is not None:
         raise VerifyError("extensions not map")
     wrap_recipients = _decode_key_bag_recipients(payload_value)
@@ -1369,8 +1385,23 @@ def _decode_event_details(event: ParsedSign1) -> EventDetails:
         erasure=erasure,
         certificate=certificate,
         user_content_attestation=user_content_attestation,
+        supersedes_chain=supersedes_chain,
         identity_attestation_subject=identity_attestation_subject,
         wrap_recipients=wrap_recipients,
+    )
+
+
+def _decode_supersedes_chain_id_payload(
+    extensions: dict[str, Any],
+) -> Optional[SupersedesChainIdDetails]:
+    ext = extensions.get(SUPERSEDES_CHAIN_ID_EVENT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("supersedes-chain-id extension is not a map")
+    return SupersedesChainIdDetails(
+        chain_id=_map_lookup_bytes(ext, "chain_id"),
+        checkpoint_hash=_map_lookup_fixed_bytes(ext, "checkpoint_hash", 32),
     )
 
 
@@ -2902,6 +2933,221 @@ def _parse_certificate_export_extension(
     return catalog_ref, digest, entry_count
 
 
+def _parse_supersession_graph_export_extension(
+    manifest_map: dict,
+) -> Optional[tuple[bytes, int]]:
+    exts = _map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(SUPERSESSION_GRAPH_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("supersession graph export extension is not a map")
+    graph_digest = _map_lookup_fixed_bytes(ext, "graph_digest", 32)
+    predecessor_count = int(_map_lookup_u64(ext, "predecessor_count"))
+    return graph_digest, predecessor_count
+
+
+def _parse_lower_hex(value: Any, field: str) -> bytes:
+    if not isinstance(value, str):
+        raise VerifyError(f"{field} is not a string")
+    decoded = _hex_decode(value)
+    if _hex(decoded) != value:
+        raise VerifyError(f"{field} must be lowercase hexadecimal")
+    return decoded
+
+
+def _render_supersession_graph(graph: dict[str, Any]) -> str:
+    rows = []
+    for row in graph["predecessors"]:
+        bundle = row["bundle_path"]
+        if bundle is None:
+            bundle_text = "null"
+        else:
+            bundle_text = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+        rows.append(
+            '{"bundle_path":'
+            + bundle_text
+            + ',"chain_id":"'
+            + _hex(row["chain_id"])
+            + '","checkpoint_hash":"'
+            + _hex(row["checkpoint_hash"])
+            + '"}'
+        )
+    return (
+        '{"head_chain_id":"'
+        + _hex(graph["head_chain_id"])
+        + '","predecessors":['
+        + ",".join(rows)
+        + "]}\n"
+    )
+
+
+def _parse_supersession_graph(graph_bytes: bytes) -> dict[str, Any]:
+    if graph_bytes.startswith(b"\xef\xbb\xbf"):
+        raise VerifyError("BOM is forbidden")
+    try:
+        text = graph_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise VerifyError("graph is not UTF-8") from exc
+    if not text.endswith("\n") or "\n" in text[:-1]:
+        raise VerifyError("graph must have one trailing newline")
+    try:
+        root = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise VerifyError(f"invalid JSON: {exc}") from exc
+    if not isinstance(root, dict):
+        raise VerifyError("graph root is not an object")
+    if list(root.keys()) != ["head_chain_id", "predecessors"]:
+        raise VerifyError("graph root keys are not exactly head_chain_id/predecessors")
+    predecessors_raw = root.get("predecessors")
+    if not isinstance(predecessors_raw, list):
+        raise VerifyError("predecessors is not an array")
+    graph = {
+        "head_chain_id": _parse_lower_hex(root.get("head_chain_id"), "head_chain_id"),
+        "predecessors": [],
+    }
+    for row_raw in predecessors_raw:
+        if not isinstance(row_raw, dict):
+            raise VerifyError("predecessor row is not an object")
+        if list(row_raw.keys()) != ["bundle_path", "chain_id", "checkpoint_hash"]:
+            raise VerifyError(
+                "predecessor row keys are not exactly bundle_path/chain_id/checkpoint_hash"
+            )
+        bundle_path = row_raw.get("bundle_path")
+        if bundle_path is not None:
+            if not isinstance(bundle_path, str):
+                raise VerifyError("bundle_path must be null or a string")
+            if not bundle_path.isascii() or not bundle_path.startswith(
+                SUPERSESSION_PREDECESSOR_PREFIX
+            ):
+                raise VerifyError("bundle_path must be an ASCII 070-predecessors/ path")
+        graph["predecessors"].append(
+            {
+                "bundle_path": bundle_path,
+                "chain_id": _parse_lower_hex(row_raw.get("chain_id"), "chain_id"),
+                "checkpoint_hash": _parse_lower_hex(
+                    row_raw.get("checkpoint_hash"), "checkpoint_hash"
+                ),
+            }
+        )
+    for row in graph["predecessors"]:
+        if len(row["checkpoint_hash"]) != 32:
+            raise VerifyError("checkpoint_hash must decode to 32 bytes")
+    if _render_supersession_graph(graph).encode("utf-8") != graph_bytes:
+        raise VerifyError("graph is not Trellis canonical JSON")
+    return graph
+
+
+def _export_head_checkpoint_digest(export_zip: bytes) -> bytes:
+    archive = parse_export_zip(export_zip)
+    manifest = _parse_sign1_bytes(archive["000-manifest.cbor"])
+    if manifest.payload is None:
+        raise VerifyError("manifest payload is detached")
+    payload = _decode_value(manifest.payload)
+    if not isinstance(payload, dict):
+        raise VerifyError("manifest payload root is not a map")
+    return _map_lookup_fixed_bytes(payload, "head_checkpoint_digest", 32)
+
+
+def _verify_supersession_graph(
+    archive: dict[str, bytes],
+    events: list[ParsedSign1],
+    scope: bytes,
+    extension: tuple[bytes, int],
+    report: VerificationReport,
+) -> None:
+    graph_digest, predecessor_count = extension
+    graph_bytes = archive.get(SUPERSESSION_GRAPH_MEMBER)
+    if graph_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", SUPERSESSION_GRAPH_MEMBER)
+        )
+        return
+    if _sha256(graph_bytes) != graph_digest:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", SUPERSESSION_GRAPH_MEMBER)
+        )
+        return
+    try:
+        graph = _parse_supersession_graph(graph_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", f"{SUPERSESSION_GRAPH_MEMBER}/{exc}")
+        )
+        return
+    if len(graph["predecessors"]) != predecessor_count:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_invalid", SUPERSESSION_GRAPH_MEMBER)
+        )
+    if graph["head_chain_id"] != scope:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_head_mismatch", SUPERSESSION_GRAPH_MEMBER)
+        )
+
+    for event in events:
+        try:
+            details = _decode_event_details(event)
+        except VerifyError:
+            continue
+        linkage = details.supersedes_chain
+        if linkage is None:
+            continue
+        if not any(
+            row["chain_id"] == linkage.chain_id
+            and row["checkpoint_hash"] == linkage.checkpoint_hash
+            for row in graph["predecessors"]
+        ):
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_graph_linkage_mismatch",
+                    _hex(details.canonical_event_hash),
+                )
+            )
+
+    seen: set[bytes] = set()
+    for row in graph["predecessors"]:
+        chain_id = row["chain_id"]
+        if chain_id == graph["head_chain_id"] or chain_id in seen:
+            report.event_failures.append(
+                VerificationFailure("supersession_graph_cycle", SUPERSESSION_GRAPH_MEMBER)
+            )
+            break
+        seen.add(chain_id)
+
+    for row in graph["predecessors"]:
+        bundle_path = row["bundle_path"]
+        if bundle_path is None:
+            continue
+        bundle_bytes = archive.get(bundle_path)
+        if bundle_bytes is None:
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_predecessor_checkpoint_mismatch", bundle_path
+                )
+            )
+            continue
+        nested = verify_export_zip(bundle_bytes)
+        if not nested.structure_verified or not nested.integrity_verified:
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_predecessor_checkpoint_mismatch", bundle_path
+                )
+            )
+            continue
+        try:
+            digest = _export_head_checkpoint_digest(bundle_bytes)
+        except VerifyError:
+            digest = b""
+        if digest != row["checkpoint_hash"]:
+            report.event_failures.append(
+                VerificationFailure(
+                    "supersession_predecessor_checkpoint_mismatch", bundle_path
+                )
+            )
+
+
 def _parse_certificate_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]:
     """Decodes `065-certificates-of-completion.cbor` entries (ADR 0007
     §"Export manifest catalog" `CertificateOfCompletionCatalogEntry`).
@@ -4273,6 +4519,13 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
             "manifest_payload_invalid",
             f"certificate export extension is invalid: {exc}",
         )
+    try:
+        supersession_graph_ext = _parse_supersession_graph_export_extension(manifest_map)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid",
+            f"supersession graph export extension is invalid: {exc}",
+        )
     shared_event_by_hash: dict[bytes, EventDetails] = {}
     if (
         signature_catalog_digest is not None
@@ -4304,6 +4557,14 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
     if certificate_export_ext is not None:
         _verify_certificate_catalog(
             archive, certificate_export_ext, report, shared_event_by_hash
+        )
+    if supersession_graph_ext is None and SUPERSESSION_GRAPH_MEMBER in archive:
+        report.event_failures.append(
+            VerificationFailure("supersession_graph_unbound", SUPERSESSION_GRAPH_MEMBER)
+        )
+    if supersession_graph_ext is not None:
+        _verify_supersession_graph(
+            archive, events, scope, supersession_graph_ext, report
         )
 
     for failure in report.event_failures:

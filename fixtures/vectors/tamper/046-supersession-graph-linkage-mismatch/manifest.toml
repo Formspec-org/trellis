@@ -1,0 +1,28 @@
+id          = "tamper/046-supersession-graph-linkage-mismatch"
+op          = "tamper"
+status      = "active"
+description = """Manifest-bound supersession graph whose predecessor row does not byte-match the event extension."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-050",
+    "TR-CORE-068",
+    "TR-CORE-169",
+    "TR-CORE-170",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified  = true
+integrity_verified  = false
+readability_verified = true
+tamper_kind = "supersession_graph_linkage_mismatch"
+failing_event_id = "fe36ecae153d6d430a07b06ef57ddfe718d33cd579978c65125cf50882258278"
+
+[derivation]
+document = "derivation.md"

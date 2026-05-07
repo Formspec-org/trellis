@@ -1,0 +1,26 @@
+id          = "verify/017-export-015-supersession-graph"
+op          = "verify"
+status      = "active"
+description = """Positive ADR 0066 export with manifest-bound supersession graph."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-030",
+    "TR-CORE-050",
+    "TR-CORE-068",
+    "TR-CORE-169",
+    "TR-CORE-170",
+]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified  = true
+integrity_verified  = true
+readability_verified = true
+
+[derivation]
+document = "derivation.md"

@@ -2163,6 +2163,12 @@ When a verifier reports a localizable or fatal failure to a human auditor or to 
 | `interop_sidecar_kind_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].kind` is not in the ADR 0008 closed registry (`scitt-receipt`, `vc-jose-cose-event`, `c2pa-manifest`, `did-key-view`). ADR 0008 ISC-04. |
 | `interop_sidecar_unlisted_file` | 3.f / interop check | A file is present under `interop-sidecars/` in the export ZIP but is not catalogued in `manifest.interop_sidecars`. ADR 0008 ISC-03 / §"Export bundle layout". |
 | `interop_sidecar_derivation_version_unknown` | 3.f / interop check | A manifest-listed `interop_sidecars[i].derivation_version` is not in the verifier's supported set for that kind. ADR 0008 ISC-06. |
+| `supersession_graph_unbound` | 6e / supersession graph | `064-supersession-graph.json` is present in the export ZIP but `ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"]` is absent, so the graph bytes are not manifest-bound. |
+| `supersession_graph_invalid` | 6e / supersession graph | `064-supersession-graph.json` is missing when the manifest extension is present, its SHA-256 digest does not equal `graph_digest`, it is not Trellis canonical JSON, its shape is malformed, or `predecessor_count` disagrees with the row count. |
+| `supersession_graph_head_mismatch` | 6e / supersession graph | `064-supersession-graph.json.head_chain_id` does not equal `manifest.scope` encoded as lowercase hex. |
+| `supersession_graph_linkage_mismatch` | 6e / supersession graph | An exported event carrying `trellis.supersedes-chain-id.v1` has no graph predecessor row with byte-equal `chain_id` and `checkpoint_hash`. |
+| `supersession_graph_cycle` | 6e / supersession graph | Breadth-first traversal of predecessor `chain_id` rows revisits a chain on one traversal path. |
+| `supersession_predecessor_checkpoint_mismatch` | 6e / supersession graph | A non-null `predecessors[*].bundle_path` is absent, does not verify as a deterministic Trellis export ZIP, or its `head_checkpoint_digest` does not equal the row's `checkpoint_hash`. |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
 

@@ -14,7 +14,8 @@ use super::{
     ATTACHMENT_EVENT_EXTENSION, ATTACHMENT_EXPORT_EXTENSION, CERTIFICATE_EVENT_EXTENSION,
     CERTIFICATE_EXPORT_EXTENSION, COSE_LABEL_ALG, COSE_LABEL_KID, ERASURE_EVIDENCE_EVENT_EXTENSION,
     ERASURE_EVIDENCE_EXPORT_EXTENSION, INTAKE_EXPORT_EXTENSION, RESERVED_NON_SIGNING_KIND,
-    SIGNATURE_EXPORT_EXTENSION, USER_CONTENT_ATTESTATION_EVENT_EXTENSION,
+    SIGNATURE_EXPORT_EXTENSION, SUPERSEDES_CHAIN_ID_EVENT_EXTENSION,
+    SUPERSESSION_GRAPH_EXPORT_EXTENSION, USER_CONTENT_ATTESTATION_EVENT_EXTENSION,
 };
 use crate::kinds::{VerificationFailureKind, VerifyErrorKind};
 use crate::merkle::recompute_canonical_event_hash;
@@ -169,6 +170,7 @@ pub(crate) fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, 
         certificate,
         user_content_attestation,
         identity_attestation_subject,
+        supersedes_chain,
     ) = match map_lookup_optional_map(payload_map, "extensions")? {
         Some(extensions) => (
             decode_transition_details(extensions)?,
@@ -177,8 +179,9 @@ pub(crate) fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, 
             decode_certificate_payload(extensions)?,
             decode_user_content_attestation_payload(extensions, authored_at)?,
             decode_identity_attestation_subject(extensions, &event_type),
+            decode_supersedes_chain_id_payload(extensions)?,
         ),
-        None => (None, None, None, None, None, None),
+        None => (None, None, None, None, None, None, None),
     };
     let wrap_recipients = decode_key_bag_recipients(payload_map)?;
 
@@ -200,8 +203,30 @@ pub(crate) fn decode_event_details(event: &ParsedSign1) -> Result<EventDetails, 
         certificate,
         user_content_attestation,
         identity_attestation_subject,
+        supersedes_chain,
         wrap_recipients,
     })
+}
+
+pub(crate) fn decode_supersedes_chain_id_payload(
+    extensions: &[(Value, Value)],
+) -> Result<Option<SupersedesChainIdDetails>, VerifyError> {
+    let Some(extension_value) =
+        map_lookup_optional_value(extensions, SUPERSEDES_CHAIN_ID_EVENT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("supersedes-chain-id extension is not a map"))?;
+    Ok(Some(SupersedesChainIdDetails {
+        chain_id: map_lookup_bytes(extension_map, "chain_id")?,
+        checkpoint_hash: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "checkpoint_hash",
+            32,
+        )?),
+    }))
 }
 
 /// Extracts wrap recipients from `payload.key_bag.entries[*].recipient` so
@@ -964,6 +989,26 @@ pub(crate) fn parse_erasure_evidence_export_extension(
             32,
         )?),
         entry_count: map_lookup_u64(extension_map, "entry_count")?,
+    }))
+}
+
+pub(crate) fn parse_supersession_graph_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<SupersessionGraphExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) =
+        map_lookup_optional_value(extensions, SUPERSESSION_GRAPH_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("supersession graph export extension is not a map"))?;
+    Ok(Some(SupersessionGraphExportExtension {
+        graph_digest: bytes_array(&map_lookup_fixed_bytes(extension_map, "graph_digest", 32)?),
+        predecessor_count: map_lookup_u64(extension_map, "predecessor_count")?,
     }))
 }
 

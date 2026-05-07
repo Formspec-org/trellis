@@ -28,8 +28,10 @@ use crate::parse::{
     parse_certificate_export_extension, parse_erasure_evidence_export_extension,
     parse_intake_accepted_record, parse_intake_export_extension, parse_intake_manifest_entries,
     parse_key_registry, parse_sign1_array, parse_sign1_bytes, parse_signature_affirmation_record,
-    parse_signature_export_extension, parse_signature_manifest_entries, readable_payload_bytes,
+    parse_signature_export_extension, parse_signature_manifest_entries,
+    parse_supersession_graph_export_extension, readable_payload_bytes,
 };
+use crate::supersession::{verify_supersession_graph, verify_unbound_supersession_graph};
 use crate::types::*;
 use crate::util::{
     binding_lineage_graph_has_cycle, bytes_array, hex_decode, hex_string, response_hash_matches,
@@ -401,6 +403,24 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
         }
     } {
         verify_certificate_catalog(&archive, &events, &extension, &mut report);
+    }
+    let supersession_graph_extension = match parse_supersession_graph_export_extension(manifest_map)
+    {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("supersession graph export extension is invalid: {error}"),
+            );
+        }
+    };
+    verify_unbound_supersession_graph(
+        &archive,
+        supersession_graph_extension.is_some(),
+        &mut report,
+    );
+    if let Some(extension) = supersession_graph_extension {
+        verify_supersession_graph(&archive, &events, &scope, &extension, &mut report);
     }
     for failure in &mut report.event_failures {
         if failure.kind == VerificationFailureKind::ScopeMismatch {
