@@ -1281,6 +1281,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/062-signature-affirmations.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/063-intake-handoffs.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/064-supersession-graph.json \
+  trellis-export-<scope>-<tree_size>-<shorthash>/070-predecessors/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
   trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
   trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-x86_64 \
@@ -1308,6 +1309,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   062-signature-affirmations.cbor ; OPTIONAL — dCBOR array of signature-affirmation catalog entries (chain-derived; §6.7 `trellis.export.signature-affirmations.v1`)
   063-intake-handoffs.cbor        ; OPTIONAL — dCBOR array of intake-handoff catalog entries (chain-derived; §6.7 `trellis.export.intake-handoffs.v1`, stack ADR 0073)
   064-supersession-graph.json     ; OPTIONAL — Trellis canonical JSON supersession graph (chain-derived; §6.7 `trellis.export.supersession-graph.v1`, stack ADR 0066)
+  070-predecessors/               ; OPTIONAL — embedded deterministic Trellis export ZIPs named by `064-supersession-graph.json` predecessor `bundle_path` entries
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
   099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
@@ -1347,6 +1349,15 @@ archive member path under `070-predecessors/` naming a deterministic Trellis
 export ZIP for that predecessor chain; verifiers that do not support nested
 predecessor verification MUST still verify the graph bytes and hash linkage.
 Traceability: **TR-CORE-170**.
+
+Members under `070-predecessors/` are optional predecessor-chain export
+packages. Each member MUST itself be a deterministic Trellis export ZIP
+conforming to §18.1. The member path MUST be named by exactly one
+`predecessors[*].bundle_path` value in `064-supersession-graph.json`; unlisted
+members under `070-predecessors/` are ignored by Phase-1 verifiers unless the
+operator's export policy declares strict predecessor-package completeness. When
+`bundle_path` is non-null, the verifier obligation is the checkpoint hash match
+in §19 step 6e.
 
 For this member, **Trellis canonical JSON** means: UTF-8; no byte-order mark;
 no insignificant whitespace outside string values; object members sorted by

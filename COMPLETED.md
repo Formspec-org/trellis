@@ -29,6 +29,8 @@ cross-commit wave context that a raw log cannot reconstruct.
   per-event `trellis.supersedes-chain-id.v1` row matching, breadth-first
   predecessor traversal, cycle failure, and optional embedded predecessor
   package checkpoint matching.
+- Core §18 reserves `070-predecessors/` for optional embedded predecessor
+  export ZIPs named by `064-supersession-graph.json` `bundle_path` entries.
 - Requirements matrix TR-CORE-170 anchors the graph contract as
   `spec-cross-ref`. Runtime verifier implementation and fixtures remain open
   under TODO #11.

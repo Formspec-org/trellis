@@ -287,7 +287,9 @@ adopter-triggered work.
       bundle root carries `head_chain_id` / `predecessors`; cycles are integrity
       failures under Core §19 step 6e.
     + [ ] Runtime verifier BFS + vectors for `supersession_graph_*` diagnostics.
-    + [ ] Optional predecessor chain members in export bundle (ADR D-4).
+    + [x] Optional predecessor chain members in export bundle (ADR D-4):
+      `070-predecessors/` carries embedded deterministic Trellis export ZIPs
+      named by `064-supersession-graph.json` predecessor `bundle_path` entries.
     + [x] **Vector IDs:** ADR 0066 keeps the contiguous open range
       `append/011-correction` … `append/015-supersession`. Item **#12** clock
       vectors moved to the next open append range,
