@@ -269,10 +269,11 @@ adopter-triggered work.
       `SupersedesChainIdPayload { chain_id: bstr, checkpoint_hash: digest }`
       under `EventPayload.extensions` per Core §6.7 / §28 and TR-CORE-169;
       null / absent means no superseded chain.
-    + [ ] Fixture alignment remains: encode the same identifier/payload in
+    + [x] Fixture alignment: encode the same identifier/payload in
       `append/015-supersession`.
-    + [ ] Single-chain vectors: `append/011-correction`, `012-amendment`,
-      `013-rescission`.
+    + [x] Single-chain vectors: `append/011-correction`, `012-amendment`,
+      `013-rescission` (plus `014-reinstatement` from ADR 0066's fifth-mode
+      revision).
     + [ ] Verifier **D-3:** correction-preservation; rescission-terminality
       (any determination after `DeterminationRescinded` → integrity violation);
       chain-linkage with byte-equal predecessor checkpoint hash.

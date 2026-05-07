@@ -1,0 +1,32 @@
+id          = "append/015-supersession"
+op          = "append"
+status      = "active"
+description = """ADR 0066 mode 3 new-chain supersession event with registered Trellis linkage extension."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-001",
+    "TR-CORE-018",
+    "TR-CORE-021",
+    "TR-CORE-030",
+    "TR-CORE-031",
+    "TR-CORE-050",
+    "TR-CORE-080",
+    "TR-CORE-169",
+]
+
+[inputs]
+signing_key      = "../../_keys/issuer-001.cose_key"
+mode_record      = "input-adr0066-record.cbor"
+authored_event   = "input-author-event-hash-preimage.cbor"
+supersedes_chain_id_payload = "input-supersedes-chain-id.cbor"
+superseded_checkpoint_hash = "input-superseded-checkpoint-hash.bin"
+
+[expected]
+author_event_hash = "author-event-hash.bin"
+canonical_event   = "expected-event-payload.cbor"
+signed_event      = "expected-event.cbor"
+append_head       = "expected-append-head.cbor"
+
+[derivation]
+document = "derivation.md"

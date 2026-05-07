@@ -18,6 +18,28 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 37 (2026-05-07) — TODO #11 ADR 0066 append vectors
+
+- Added generator `fixtures/vectors/_generator/gen_append_011_to_015.py` for
+  ADR 0066's five accepted modes.
+- Added active append fixtures:
+  `append/011-correction`, `append/012-amendment`,
+  `append/013-rescission`, `append/014-reinstatement`, and
+  `append/015-supersession`.
+- The first four vectors are ordinary same-chain WOS governance appends; the
+  supersession vector is a new-chain genesis event carrying
+  `EventPayload.extensions["trellis.supersedes-chain-id.v1"]` as
+  `SupersedesChainIdPayload { chain_id, checkpoint_hash }`.
+- Requirements matrix TR-CORE-169 is now fixture-backed by
+  `append/015-supersession`; TODO #11's single-chain and supersession-extension
+  fixture checkboxes are closed. Verifier D-3 semantics and
+  `supersession-graph.json` export composition remain open.
+- Verification: `cargo test -p trellis-conformance`;
+  `PYTHONPATH=trellis-py/src uv run --with cbor2 --with cryptography python
+  -m trellis_py.conformance --vectors fixtures/vectors`;
+  `uv run --with cbor2 --with cryptography python scripts/check-specs.py`;
+  `git diff --check`.
+
 ### Wave 36 (2026-05-07) — TODO #11/#12 append-ID reservation
 
 - Trellis TODO now reserves ADR 0066 amendment / rescission / reinstatement /
