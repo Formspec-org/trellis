@@ -31,7 +31,7 @@ def _load_manifest(vector_dir: Path) -> dict[str, Any]:
 def _sign1_payload_value(value: Any) -> Any:
     if isinstance(value, CBORTag) and value.tag == 18:
         body = value.value
-        if isinstance(body, list) and len(body) >= 3:
+        if isinstance(body, (list, tuple)) and len(body) >= 3:
             return body[2]
     raise ValueError("expected tag-18 COSE_Sign1")
 

@@ -18,6 +18,33 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 33 (2026-05-07) — Python parity for TODO #30 sidecar taxonomy
+
+Closes the remaining Python G-5 parity residue for the TODO #30 interop
+sidecar missing-vs-mismatch split. The Rust/spec/fixture train had already
+separated absent manifest-listed sidecars (`interop_sidecar_missing`) from
+present-but-mutated sidecars (`interop_sidecar_content_mismatch`); the Python
+verifier still used the older digest-mismatch bucket and, under current
+`cbor2`, rejected COSE_Sign1 bodies decoded as tuples before reaching the
+sidecar classifier.
+
+Train:
+- `trellis_py.verify` accepts tuple-backed COSE_Sign1 arrays and frozen empty
+  unprotected maps emitted by current `cbor2`.
+- Python sidecar verification now checks listed-file presence before digest
+  recomputation and emits `interop_sidecar_missing` for `tamper/044`.
+- `trellis_py.conformance` accepts tuple-backed COSE_Sign1 bodies when reading
+  fixture payloads.
+- `trellis-py/tests/test_tamper_vectors.py` pins the `tamper/044` taxonomy so
+  the Python verifier cannot collapse the two failure modes again.
+
+Verification: `uv run --with cbor2 --with cryptography --with pytest python -m
+pytest trellis-py/tests/test_tamper_vectors.py
+trellis-py/tests/test_interop_c2pa_byte_oracle.py -q` passed (5 tests), and
+`PYTHONPATH=trellis-py/src uv run --with cbor2 --with cryptography python -m
+trellis_py.conformance --vectors fixtures/vectors` passed (118 vectors, 0
+failures).
+
 ### Wave 32 (2026-05-06) — TODO #2/#3 verify-engine hygiene closeout
 
 Closes Trellis TODO items #2 and #3 as a docs-only evidence sweep. The

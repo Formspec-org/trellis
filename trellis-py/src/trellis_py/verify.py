@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import zipfile
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -671,7 +672,7 @@ def _parse_sign1_value(value: Any) -> ParsedSign1:
     if not isinstance(value, CBORTag) or value.tag != 18:
         raise VerifyError("value is not a tag-18 COSE_Sign1 item")
     body = value.value
-    if not isinstance(body, list) or len(body) != 4:
+    if not isinstance(body, (list, tuple)) or len(body) != 4:
         raise VerifyError("COSE_Sign1 body does not contain four fields")
     protected_bytes = body[0]
     unprotected = body[1]
@@ -679,7 +680,7 @@ def _parse_sign1_value(value: Any) -> ParsedSign1:
     sig_field = body[3]
     if not isinstance(protected_bytes, bytes):
         raise VerifyError("protected header is not a byte string")
-    if not isinstance(unprotected, dict) or len(unprotected) != 0:
+    if not isinstance(unprotected, Mapping) or len(unprotected) != 0:
         raise VerifyError("unprotected header map must be empty")
     if isinstance(payload_field, bytes):
         payload: Optional[bytes] = payload_field
@@ -711,7 +712,7 @@ def _parse_sign1_bytes(data: bytes) -> ParsedSign1:
 
 def _parse_sign1_array(data: bytes) -> list[ParsedSign1]:
     v = _decode_value(data)
-    if not isinstance(v, list):
+    if not isinstance(v, (list, tuple)):
         raise VerifyError("expected a dCBOR array")
     return [_parse_sign1_value(item) for item in v]
 
@@ -3912,8 +3913,9 @@ def _verify_interop_sidecars(
     Failure order per entry (first failure wins; mirrors
     ``trellis_verify::verify_interop_sidecars``): kind-registered →
     derivation-version-supported (``c2pa-manifest`` only) → path-prefix
-    valid → phase-1 lock-off → content-digest match; then unlisted files
-    under ``interop-sidecars/`` after the manifest walk.
+    valid → phase-1 lock-off → listed-file present (``interop_sidecar_missing``)
+    → content-digest match (``interop_sidecar_content_mismatch``); then
+    unlisted files under ``interop-sidecars/`` after the manifest walk.
 
     Returns ``(outcomes, fatal_report_or_None)``. When the second
     element is non-None, the caller MUST short-circuit and return it
@@ -4006,11 +4008,12 @@ def _verify_interop_sidecars(
                 "(ADR 0008 / ADR 0003)",
             )
 
-        # Step 2.e (content-digest-match) — TR-CORE-163.
+        # Step 2.e (listed-file-present) — TR-CORE-168. Absence is a catalog
+        # omission, not a digest mismatch (TR-CORE-163 is step 2.f only).
         actual_bytes = archive.get(path)
         if actual_bytes is None:
             return [], VerificationReport.fatal(
-                "interop_sidecar_content_mismatch",
+                "interop_sidecar_missing",
                 f"interop_sidecars[{index}].path {path!r} is missing from the export ZIP",
             )
         actual_digest = domain_separated_sha256(CONTENT_DOMAIN, actual_bytes)
