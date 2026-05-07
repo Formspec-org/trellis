@@ -22,14 +22,17 @@ use crate::merkle::{
     digest_path_from_values, merkle_leaf_hash, merkle_root, root_from_consistency_proof,
     root_from_inclusion_proof,
 };
+use crate::open_clocks::{verify_open_clocks, verify_unbound_open_clocks};
 use crate::parse::{
-    decode_event_details, decode_value, event_identity, parse_attachment_export_extension,
-    parse_attachment_manifest_entries, parse_bound_registry, parse_case_created_record,
-    parse_certificate_export_extension, parse_erasure_evidence_export_extension,
-    parse_intake_accepted_record, parse_intake_export_extension, parse_intake_manifest_entries,
-    parse_key_registry, parse_sign1_array, parse_sign1_bytes, parse_signature_affirmation_record,
-    parse_signature_export_extension, parse_signature_manifest_entries,
-    parse_supersession_graph_export_extension, readable_payload_bytes,
+    decode_event_details, decode_value, event_identity, map_lookup_timestamp,
+    parse_attachment_export_extension, parse_attachment_manifest_entries, parse_bound_registry,
+    parse_case_created_record, parse_certificate_export_extension,
+    parse_erasure_evidence_export_extension, parse_intake_accepted_record,
+    parse_intake_export_extension, parse_intake_manifest_entries, parse_key_registry,
+    parse_open_clocks_export_extension, parse_sign1_array, parse_sign1_bytes,
+    parse_signature_affirmation_record, parse_signature_export_extension,
+    parse_signature_manifest_entries, parse_supersession_graph_export_extension,
+    readable_payload_bytes,
 };
 use crate::supersession::{verify_supersession_graph, verify_unbound_supersession_graph};
 use crate::types::*;
@@ -293,6 +296,15 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
             );
         }
     };
+    let generated_at = match map_lookup_timestamp(manifest_map, "generated_at") {
+        Ok(timestamp) => timestamp,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("manifest generated_at is invalid: {error}"),
+            );
+        }
+    };
 
     let events = match archive.members.get("010-events.cbor") {
         Some(bytes) => match parse_sign1_array(bytes) {
@@ -421,6 +433,19 @@ pub fn verify_export_zip(export_zip: &[u8]) -> VerificationReport {
     );
     if let Some(extension) = supersession_graph_extension {
         verify_supersession_graph(&archive, &events, &scope, &extension, &mut report);
+    }
+    let open_clocks_extension = match parse_open_clocks_export_extension(manifest_map) {
+        Ok(extension) => extension,
+        Err(error) => {
+            return VerificationReport::fatal(
+                VerificationFailureKind::ManifestPayloadInvalid,
+                format!("open clocks export extension is invalid: {error}"),
+            );
+        }
+    };
+    verify_unbound_open_clocks(&archive, open_clocks_extension.is_some(), &mut report);
+    if let Some(extension) = open_clocks_extension {
+        verify_open_clocks(&archive, &extension, generated_at, &mut report);
     }
     for failure in &mut report.event_failures {
         if failure.kind == VerificationFailureKind::ScopeMismatch {

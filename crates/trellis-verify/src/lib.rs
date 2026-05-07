@@ -26,6 +26,8 @@ pub(crate) mod interop_sidecar;
 
 pub(crate) mod supersession;
 
+pub(crate) mod open_clocks;
+
 pub(crate) mod export;
 
 pub(crate) mod util;
@@ -99,6 +101,9 @@ const SUPERSEDES_CHAIN_ID_EVENT_EXTENSION: &str = "trellis.supersedes-chain-id.v
 /// ADR 0066 / Core §18.3b manifest extension binding
 /// `064-supersession-graph.json`.
 const SUPERSESSION_GRAPH_EXPORT_EXTENSION: &str = "trellis.export.supersession-graph.v1";
+
+/// ADR 0067 / Core §18.3c manifest extension binding `open-clocks.json`.
+const OPEN_CLOCKS_EXPORT_EXTENSION: &str = "trellis.export.open-clocks.v1";
 
 /// ADR 0010 §9.8 / Core §9 — domain-separation tag for the Ed25519 signature
 /// preimage carried by `UserContentAttestationPayload.signature`. Distinct

@@ -13,8 +13,8 @@ use trellis_types::{
 use super::{
     ATTACHMENT_EVENT_EXTENSION, ATTACHMENT_EXPORT_EXTENSION, CERTIFICATE_EVENT_EXTENSION,
     CERTIFICATE_EXPORT_EXTENSION, COSE_LABEL_ALG, COSE_LABEL_KID, ERASURE_EVIDENCE_EVENT_EXTENSION,
-    ERASURE_EVIDENCE_EXPORT_EXTENSION, INTAKE_EXPORT_EXTENSION, RESERVED_NON_SIGNING_KIND,
-    SIGNATURE_EXPORT_EXTENSION, SUPERSEDES_CHAIN_ID_EVENT_EXTENSION,
+    ERASURE_EVIDENCE_EXPORT_EXTENSION, INTAKE_EXPORT_EXTENSION, OPEN_CLOCKS_EXPORT_EXTENSION,
+    RESERVED_NON_SIGNING_KIND, SIGNATURE_EXPORT_EXTENSION, SUPERSEDES_CHAIN_ID_EVENT_EXTENSION,
     SUPERSESSION_GRAPH_EXPORT_EXTENSION, USER_CONTENT_ATTESTATION_EVENT_EXTENSION,
 };
 use crate::kinds::{VerificationFailureKind, VerifyErrorKind};
@@ -1009,6 +1009,29 @@ pub(crate) fn parse_supersession_graph_export_extension(
     Ok(Some(SupersessionGraphExportExtension {
         graph_digest: bytes_array(&map_lookup_fixed_bytes(extension_map, "graph_digest", 32)?),
         predecessor_count: map_lookup_u64(extension_map, "predecessor_count")?,
+    }))
+}
+
+pub(crate) fn parse_open_clocks_export_extension(
+    manifest_map: &[(Value, Value)],
+) -> Result<Option<OpenClocksExportExtension>, VerifyError> {
+    let Some(extensions) = map_lookup_optional_map(manifest_map, "extensions")? else {
+        return Ok(None);
+    };
+    let Some(extension_value) = map_lookup_optional_value(extensions, OPEN_CLOCKS_EXPORT_EXTENSION)
+    else {
+        return Ok(None);
+    };
+    let extension_map = extension_value
+        .as_map()
+        .ok_or_else(|| VerifyError::new("open clocks export extension is not a map"))?;
+    Ok(Some(OpenClocksExportExtension {
+        open_clocks_digest: bytes_array(&map_lookup_fixed_bytes(
+            extension_map,
+            "open_clocks_digest",
+            32,
+        )?),
+        open_clock_count: map_lookup_u64(extension_map, "open_clock_count")?,
     }))
 }
 

@@ -336,9 +336,12 @@ adopter-triggered work.
       `{ clock_id, clock_kind, computed_deadline, origin_event_hash }` for
       every `clockStarted` lacking a matching `clockResolved` at export time.
       Covered by TR-CORE-172. Runtime export/verify fixtures remain below.
-    + [ ] **Verifier — D-3 advisory:** open clock with
+    + [x] **Verifier — D-3 advisory:** open clock with
       `computed_deadline < bundle.sealed_at` and no `clockResolved` emits an
-      advisory diagnostic, not an integrity failure.
+      advisory diagnostic, not an integrity failure. Rust and Python verifiers
+      parse `trellis.export.open-clocks.v1`, hash-check `open-clocks.json`,
+      require catalog `sealed_at == ExportManifestPayload.generated_at`, and
+      emit `open_clock_overdue:<clock_id>:<origin_event_hash>` warnings.
     + [ ] **Verifier — D-4 composition:** walk the chain to compose pause
       segments into cumulative duration / segment accounting.
     + [ ] **Vectors:** `append/043-clock-started`, `044-clock-satisfied`,

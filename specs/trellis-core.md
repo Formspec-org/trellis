@@ -1359,7 +1359,6 @@ can bind the exact bytes. Its root object has exactly two required members:
 
 ```json
 {
-  "sealed_at": [1777000000, 0],
   "open_clocks": [
     {
       "clock_id": "statutory-review-window:case-123",
@@ -1367,7 +1366,8 @@ can bind the exact bytes. Its root object has exactly two required members:
       "computed_deadline": [1777604800, 0],
       "origin_event_hash": "<lowercase hex SHA-256 digest>"
     }
-  ]
+  ],
+  "sealed_at": [1777000000, 0]
 }
 ```
 
@@ -1480,7 +1480,10 @@ for any export whose chain contains an admitted `clockStarted` event without a
 matching admitted `clockResolved` event at the exported head. Omission does not
 make the single-chain export structurally invalid; it means offline reviewers
 must recompute open-clock state from the event stream rather than relying on
-the catalog.
+the catalog. A verifier that processes `open-clocks.json` MUST emit an advisory
+diagnostic for each row whose `computed_deadline < sealed_at`; that condition
+MUST NOT by itself change `integrity_verified` because an overdue open clock is
+operational posture, not export tamper evidence.
 Traceability: **TR-CORE-172**.
 
 ```cddl

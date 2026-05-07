@@ -724,6 +724,27 @@ pub(crate) struct SupersessionGraphExportExtension {
     pub(crate) predecessor_count: u64,
 }
 
+/// Optional `trellis.export.open-clocks.v1` manifest extension.
+#[derive(Clone, Debug)]
+pub(crate) struct OpenClocksExportExtension {
+    pub(crate) open_clocks_digest: [u8; 32],
+    pub(crate) open_clock_count: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OpenClockCatalog {
+    pub(crate) sealed_at: TrellisTimestamp,
+    pub(crate) open_clocks: Vec<OpenClockCatalogRow>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OpenClockCatalogRow {
+    pub(crate) clock_id: String,
+    pub(crate) clock_kind: String,
+    pub(crate) computed_deadline: TrellisTimestamp,
+    pub(crate) origin_event_hash: [u8; 32],
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SupersessionGraphPredecessor {
     pub(crate) chain_id: Vec<u8>,

@@ -114,6 +114,8 @@ SUPERSEDES_CHAIN_ID_EVENT_EXTENSION = "trellis.supersedes-chain-id.v1"
 SUPERSESSION_GRAPH_EXPORT_EXTENSION = "trellis.export.supersession-graph.v1"
 SUPERSESSION_GRAPH_MEMBER = "064-supersession-graph.json"
 SUPERSESSION_PREDECESSOR_PREFIX = "070-predecessors/"
+OPEN_CLOCKS_EXPORT_EXTENSION = "trellis.export.open-clocks.v1"
+OPEN_CLOCKS_MEMBER = "open-clocks.json"
 # Phase-1 identity-attestation event type (test-only). Core §6.7 + §10.6
 # reserve `x-trellis-test/*` for fixture authoring; admitted by
 # `_is_identity_attestation_event_type` until PLN-0381 ratifies the canonical
@@ -2972,6 +2974,22 @@ def _parse_supersession_graph_export_extension(
     return graph_digest, predecessor_count
 
 
+def _parse_open_clocks_export_extension(
+    manifest_map: dict,
+) -> Optional[tuple[bytes, int]]:
+    exts = _map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(OPEN_CLOCKS_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise VerifyError("open clocks export extension is not a map")
+    digest = _map_lookup_fixed_bytes(ext, "open_clocks_digest", 32)
+    count = int(_map_lookup_u64(ext, "open_clock_count"))
+    return digest, count
+
+
 def _parse_lower_hex(value: Any, field: str) -> bytes:
     if not isinstance(value, str):
         raise VerifyError(f"{field} is not a string")
@@ -3005,6 +3023,121 @@ def _render_supersession_graph(graph: dict[str, Any]) -> str:
         + ",".join(rows)
         + "]}\n"
     )
+
+
+def _render_json_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _render_json_timestamp(value: TrellisTimestamp) -> str:
+    return f"[{value.seconds},{value.nanos}]"
+
+
+def _parse_json_timestamp(value: Any, field: str) -> TrellisTimestamp:
+    if not isinstance(value, list) or len(value) != 2:
+        raise VerifyError(f"{field} must be a two-element timestamp array")
+    seconds, nanos = value
+    if (
+        not isinstance(seconds, int)
+        or seconds < 0
+        or not isinstance(nanos, int)
+        or not (0 <= nanos <= 999_999_999)
+    ):
+        raise VerifyError(f"{field} must be [uint, uint <= 999999999]")
+    return TrellisTimestamp(seconds, nanos)
+
+
+def _render_open_clocks_catalog(catalog: dict[str, Any]) -> str:
+    rows = []
+    for row in catalog["open_clocks"]:
+        rows.append(
+            '{"clock_id":'
+            + _render_json_string(row["clock_id"])
+            + ',"clock_kind":'
+            + _render_json_string(row["clock_kind"])
+            + ',"computed_deadline":'
+            + _render_json_timestamp(row["computed_deadline"])
+            + ',"origin_event_hash":"'
+            + _hex(row["origin_event_hash"])
+            + '"}'
+        )
+    return (
+        '{"open_clocks":['
+        + ",".join(rows)
+        + '],"sealed_at":'
+        + _render_json_timestamp(catalog["sealed_at"])
+        + "}\n"
+    )
+
+
+def _parse_open_clocks_catalog(data: bytes) -> dict[str, Any]:
+    if data.startswith(b"\xef\xbb\xbf"):
+        raise VerifyError("BOM is forbidden")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise VerifyError("catalog is not UTF-8") from exc
+    if not text.endswith("\n") or "\n" in text[:-1]:
+        raise VerifyError("catalog must have one trailing newline")
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise VerifyError(f"invalid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise VerifyError("catalog root is not an object")
+    if list(value.keys()) != ["open_clocks", "sealed_at"]:
+        raise VerifyError("catalog root keys are not exactly open_clocks/sealed_at")
+    raw_rows = value["open_clocks"]
+    if not isinstance(raw_rows, list):
+        raise VerifyError("open_clocks is not an array")
+    rows = []
+    for raw_row in raw_rows:
+        if not isinstance(raw_row, dict):
+            raise VerifyError("open clock row is not an object")
+        if list(raw_row.keys()) != [
+            "clock_id",
+            "clock_kind",
+            "computed_deadline",
+            "origin_event_hash",
+        ]:
+            raise VerifyError(
+                "open clock row keys are not exactly "
+                "clock_id/clock_kind/computed_deadline/origin_event_hash"
+            )
+        if not isinstance(raw_row["clock_id"], str):
+            raise VerifyError("clock_id is not a string")
+        if not isinstance(raw_row["clock_kind"], str):
+            raise VerifyError("clock_kind is not a string")
+        origin_event_hash = _parse_lower_hex(
+            raw_row["origin_event_hash"], "origin_event_hash"
+        )
+        if len(origin_event_hash) != 32:
+            raise VerifyError("origin_event_hash must decode to 32 bytes")
+        rows.append(
+            {
+                "clock_id": raw_row["clock_id"],
+                "clock_kind": raw_row["clock_kind"],
+                "computed_deadline": _parse_json_timestamp(
+                    raw_row["computed_deadline"], "computed_deadline"
+                ),
+                "origin_event_hash": origin_event_hash,
+            }
+        )
+    for left, right in zip(rows, rows[1:]):
+        if (left["origin_event_hash"], left["clock_id"].encode("utf-8")) > (
+            right["origin_event_hash"],
+            right["clock_id"].encode("utf-8"),
+        ):
+            raise VerifyError(
+                "open_clocks rows must be ordered by origin_event_hash then clock_id"
+            )
+    catalog = {
+        "open_clocks": rows,
+        "sealed_at": _parse_json_timestamp(value["sealed_at"], "sealed_at"),
+    }
+    if _render_open_clocks_catalog(catalog).encode("utf-8") != data:
+        raise VerifyError("catalog is not Trellis canonical JSON")
+    return catalog
 
 
 def _parse_supersession_graph(graph_bytes: bytes) -> dict[str, Any]:
@@ -3243,6 +3376,51 @@ def _verify_supersession_graph(
     _verify_supersession_predecessor_bundles(
         archive, graph, {graph["head_chain_id"]}, report
     )
+
+
+def _verify_open_clocks(
+    archive: dict[str, bytes],
+    extension: tuple[bytes, int],
+    sealed_at: TrellisTimestamp,
+    report: VerificationReport,
+) -> None:
+    expected_digest, expected_count = extension
+    catalog_bytes = archive.get(OPEN_CLOCKS_MEMBER)
+    if catalog_bytes is None:
+        report.event_failures.append(
+            VerificationFailure("archive_integrity_failure", OPEN_CLOCKS_MEMBER)
+        )
+        return
+    if _sha256(catalog_bytes) != expected_digest:
+        report.event_failures.append(
+            VerificationFailure("archive_integrity_failure", OPEN_CLOCKS_MEMBER)
+        )
+        return
+    try:
+        catalog = _parse_open_clocks_catalog(catalog_bytes)
+    except VerifyError as exc:
+        report.event_failures.append(
+            VerificationFailure(
+                "manifest_payload_invalid", f"{OPEN_CLOCKS_MEMBER}/{exc}"
+            )
+        )
+        return
+    if len(catalog["open_clocks"]) != expected_count:
+        report.event_failures.append(
+            VerificationFailure("manifest_payload_invalid", OPEN_CLOCKS_MEMBER)
+        )
+    if catalog["sealed_at"] != sealed_at:
+        report.event_failures.append(
+            VerificationFailure("manifest_payload_invalid", f"{OPEN_CLOCKS_MEMBER}/sealed_at")
+        )
+    for row in catalog["open_clocks"]:
+        if row["computed_deadline"] < catalog["sealed_at"]:
+            report.warnings.append(
+                "open_clock_overdue:"
+                + row["clock_id"]
+                + ":"
+                + _hex(row["origin_event_hash"])
+            )
 
 
 def _parse_certificate_catalog_entries(cat_bytes: bytes) -> list[dict[str, Any]]:
@@ -4547,6 +4725,12 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         scope = _map_lookup_bytes(manifest_map, "scope")
     except VerifyError as exc:
         return VerificationReport.fatal("manifest_payload_invalid", f"manifest scope is invalid: {exc}")
+    try:
+        generated_at = _map_lookup_timestamp(manifest_map, "generated_at")
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid", f"manifest generated_at is invalid: {exc}"
+        )
 
     events_bytes = archive["010-events.cbor"]
     try:
@@ -4623,6 +4807,13 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
             "manifest_payload_invalid",
             f"supersession graph export extension is invalid: {exc}",
         )
+    try:
+        open_clocks_ext = _parse_open_clocks_export_extension(manifest_map)
+    except VerifyError as exc:
+        return VerificationReport.fatal(
+            "manifest_payload_invalid",
+            f"open clocks export extension is invalid: {exc}",
+        )
     shared_event_by_hash: dict[bytes, EventDetails] = {}
     if (
         signature_catalog_digest is not None
@@ -4663,6 +4854,12 @@ def verify_export_zip(export_zip: bytes) -> VerificationReport:
         _verify_supersession_graph(
             archive, events, scope, supersession_graph_ext, report
         )
+    if open_clocks_ext is None and OPEN_CLOCKS_MEMBER in archive:
+        report.event_failures.append(
+            VerificationFailure("manifest_payload_invalid", OPEN_CLOCKS_MEMBER)
+        )
+    if open_clocks_ext is not None:
+        _verify_open_clocks(archive, open_clocks_ext, generated_at, report)
 
     for failure in report.event_failures:
         if failure.kind == "scope_mismatch":
