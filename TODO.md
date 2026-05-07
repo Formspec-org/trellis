@@ -141,15 +141,17 @@ adopter-triggered work.
     rather than parallel corpora. Parent backlog: **PLN-0067**.
 
  4. **Identity attestation bundle shape** — **S**.
-    *Land after parent ratifies the IdentityAttestation stack ADR per
-    **PLN-0381**.* Synthesis-merge 2026-04-27 promoted identity attestation
-    from Trigger to P0 center commitment; **PLN-0310 closed by supersession**.
-    Trellis-side action: declare how a provider-neutral identity-proofing
-    attestation lands as a canonical event kind and travels in the export
-    bundle. Composes with the new `wos.identity.*` event taxonomy (parent
-    **PLN-0384**, namespace gate) and PLN-0380 (signer-authority claim shape,
-    distinct from authentication-method). Cross-stack fixtures (Formspec → WOS
-    provenance → Trellis envelope) prove composition.
+    *Land after parent ratifies the event-type taxonomy in **PLN-0384**.*
+    Parent **PLN-0381** is closed by ADR 0068 D-3.1: the
+    `IdentityAttestation` Facts-tier record shape is now normative, and
+    **PLN-0310** remains closed by supersession. Remaining Trellis-side action:
+    register the canonical `wos.identity.*` identity-attestation event type
+    under Core §6.7, replace the current `x-trellis-test/identity-attestation/v1`
+    fixture-only allowance where appropriate, and declare how provider-neutral
+    identity-proofing attestations travel in export bundles. Composes with
+    PLN-0380 (signer-authority claim shape, distinct from authentication
+    method). Cross-stack fixtures (Formspec → WOS provenance → Trellis
+    envelope) prove composition.
 
  5. **Respondent Ledger ↔ Trellis `eventHash` MUST promotion** — **M**.
     *Prerequisite nuance:* Formspec Respondent Ledger §6.2 already requires
@@ -211,22 +213,33 @@ adopter-triggered work.
     — **M**.
     *Land after ADR 0069 acceptance.* Parent backlog: **PLN-0400**; composes
     with **PLN-0083** chain-order / time-order verification and unblocks
-    ADR 0067 statutory-clock precision. Trellis Core still declares
-    `timestamp = uint  ; Unix seconds UTC`; ADR 0069 D-2.1 pins `uint64`
-    nanoseconds-since-Unix-epoch as the sole accepted CBOR timestamp encoding.
-    Change the bytes before any production records exist.
-    + [ ] CDDL/Core: migrate the base timestamp type plus cited uses
-      (`valid_from`, `created_at`, checkpoint `timestamp`, timestamp-mismatch
-      reason-code references) to `uint64` nanoseconds since Unix epoch.
-    + [ ] Rust + Python parity per ADR 0004; Rust remains byte authority.
-    + [ ] Verifier rejects legacy second-precision encodings and
-      sub-nanosecond / non-integer encodings distinctly from signature/hash
-      integrity failures.
-    + [ ] Chain timestamp-order verification accepts non-decreasing envelope
-      timestamps and rejects backwards order even when hash chain validity
-      still holds.
-    + [ ] Vectors: `tamper/0NN-timestamp-uint-seconds-rejected` and
-      `tamper/0NN-timestamp-order-regression` (or equivalent final IDs).
+    ADR 0067 statutory-clock precision. Current Trellis Core / Rust / Python /
+    fixture bytes already moved off legacy bare seconds and use
+    `timestamp = [uint, uint .le 999999999]` (`[seconds, nanos]`), with
+    `tamper/041-timestamp-backwards` and
+    `tamper/042-timestamp-legacy-uint-rejected` covering D-3 and legacy bare
+    `uint` rejection. The remaining blocker is now a **source-of-truth
+    reconciliation**, not a greenfield implementation: parent ADR 0069 D-2.1
+    says Trellis CBOR timestamps are `uint64` nanoseconds-since-Unix-epoch,
+    while the ratified Trellis byte corpus and CDDL use `[seconds, nanos]`.
+    Resolve that contradiction before regenerating fixtures.
+    + [ ] Decision: either amend ADR 0069 D-2.1 to bless Trellis's current
+      `[seconds, nanos]` encoding, or migrate Trellis Core / Rust / Python /
+      fixtures to `uint64` nanoseconds. Do this before any production records
+      exist.
+    + [ ] Sweep stale timestamp prose in Trellis Core / matrix / verifier
+      comments that still says `uint seconds` or `uint exact`; wording should
+      name the chosen timestamp value type.
+    + [x] Verifier rejects legacy bare-second `uint` encodings distinctly from
+      signature/hash integrity failures (`legacy_timestamp_format`;
+      `tamper/042-timestamp-legacy-uint-rejected`).
+    + [x] Chain timestamp-order verification accepts non-decreasing envelope
+      timestamps and rejects backwards order even when hash-chain validity
+      still holds (`timestamp_order_violation`;
+      `tamper/041-timestamp-backwards`).
+    + [ ] Add or update vectors after the encoding decision, including the
+      final canonical-encoding negative and any leap-second parser fixture
+      retained from ADR 0069 D-4.
 
 10. **ADR 0071 execution — `CaseOpenPin` and migration transitions** — **M–L**.
     *Land after parent accepts ADR 0071 (gated on parent **PLN-0019** wire
