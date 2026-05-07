@@ -321,8 +321,10 @@ adopter-triggered work.
       implementation plan vs clock fixtures).
 
 12. **ADR 0067 execution — statutory clocks** — **M**.
+    **Closed 2026-05-07 (Wave 39); retained here until the next planned TODO
+    renumbering pass.**
     *Land stack implementation* (ADR 0067 **accepted** 2026-05-06 — Trellis
-    export/verifier/vectors remain open). Coordinate payload hashes with WOS
+    export/verifier/vectors are closed). Coordinate payload hashes with WOS
     `clockStarted` / `clockResolved` (parent
     [`work-spec/TODO.md`](../work-spec/TODO.md#adr-0067-exec-checklist)).
     Parent backlog: **PLN-0159** (`open-clocks.json` export), **PLN-0160**

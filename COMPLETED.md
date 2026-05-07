@@ -18,6 +18,38 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 39 (2026-05-07) — TODO #12 ADR 0067 statutory clocks
+
+- Rust and Python export verifiers now walk clock records in chain order,
+  tracking active and paused segments by `clockId`.
+- A resumed `clockStarted` after `clockResolved(resolution="paused")` must keep
+  the paused segment's `clockKind` and `calendarRef`; mismatch is localized as
+  `clock_calendar_mismatch`.
+- Core §19.1, the requirements matrix, and `scripts/check-specs.py` now include
+  the `clock_calendar_mismatch` failure kind.
+- Added generator `fixtures/vectors/_generator/gen_adr0067_clocks.py`.
+- Added active append fixtures `append/043-clock-started`,
+  `append/044-clock-satisfied`, `append/045-clock-elapsed`, and
+  `append/046-clock-paused-resumed`.
+- Added `verify/018-export-043-open-clocks`, which manifest-binds
+  `open-clocks.json` through `trellis.export.open-clocks.v1` and covers
+  TR-CORE-172.
+- Added `tamper/051-clock-calendar-mismatch`, which proves ADR 0067 D-4 refusal
+  on a validly signed pause/resume chain that changes `calendarRef`.
+- WOS `TODO.md` now points at the active Trellis fixture IDs instead of the
+  stale `014–018` range.
+
+Verification:
+- `cargo fmt --check`.
+- `python -m py_compile trellis-py/src/trellis_py/verify.py
+  fixtures/vectors/_generator/gen_adr0067_clocks.py`.
+- `cargo test -p trellis-verify`.
+- `cargo test -p trellis-conformance`.
+- `PYTHONPATH=trellis-py/src uv run --with cbor2 --with cryptography python
+  -m trellis_py.conformance --vectors fixtures/vectors`.
+- `uv run --with cbor2 --with cryptography python scripts/check-specs.py`.
+- `git diff --check`.
+
 ### Wave 38 (2026-05-07) — TODO #11 supersession graph export contract
 
 - Core §6.7 now registers
