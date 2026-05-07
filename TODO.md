@@ -264,10 +264,14 @@ adopter-triggered work.
     [`../work-spec/TODO.md#adr-0066-exec-checklist`](../work-spec/TODO.md#adr-0066-exec-checklist).
     Parent backlog: **PLN-0055**, **PLN-0056**, **PLN-0050**
     (`ResponseCorrection` linkage), **PLN-0051** (supersession-start linkage).
-    + [ ] `EventPayload.extensions` carries **`trellis.supersedes-chain-id.v1`**
-      per Core §6.7 (spec table landed); align Companion/CDDL + fixtures with
-      that identifier and payload `{ chain_id, checkpoint_hash }`; null /
-      absent on genesis non-superseding chains.
+    + [x] CDDL / traceability shape pinned for
+      **`trellis.supersedes-chain-id.v1`**:
+      `SupersedesChainIdPayload { chain_id: bstr, checkpoint_hash: digest }`
+      under `EventPayload.extensions` per Core §6.7 / §28 and TR-CORE-169;
+      null / absent means no superseded chain.
+    + [ ] Fixture alignment remains after vector-ID collision resolution:
+      encode the same identifier/payload in the supersession vector
+      (`append/015-supersession` or its renumbered successor).
     + [ ] Single-chain vectors: `append/011-correction`, `012-amendment`,
       `013-rescission`.
     + [ ] Verifier **D-3:** correction-preservation; rescission-terminality

@@ -18,6 +18,21 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 35 (2026-05-07) — TODO #11 supersedes-chain CDDL pin
+
+- Core §6.7 now names `SupersedesChainIdPayload` for
+  `EventPayload.extensions["trellis.supersedes-chain-id.v1"]` instead of
+  leaving ADR 0066's `{ chain_id, checkpoint_hash }` linkage as prose only.
+- Core §28 CDDL defines `chain_id = bstr` and
+  `SupersedesChainIdPayload { chain_id, checkpoint_hash }`, with null /
+  absent extension value meaning the event does not link to a superseded chain.
+- Requirements matrix TR-CORE-169 anchors the reject-if-unknown-at-version and
+  canonical hash-binding obligation as `spec-cross-ref` coverage; supersession
+  vector coverage remains open under TODO #11 until the append-ID collision is
+  resolved.
+- Verification: `uv run --with cbor2 --with cryptography python
+  scripts/check-specs.py`; `git diff --check`.
+
 ### Wave 34 (2026-05-07) — TODO #9 timestamp encoding closeout
 
 Closes Trellis TODO item #9 after ADR 0069 D-2.1 blessed Trellis's existing
