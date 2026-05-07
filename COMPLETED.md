@@ -18,6 +18,23 @@ cross-commit wave context that a raw log cannot reconstruct.
 
 ## Wave-by-wave dispatch history
 
+### Wave 38 (2026-05-07) — TODO #11 supersession graph export contract
+
+- Core §6.7 now registers
+  `ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"]`
+  as the ADR 0066 manifest hook for cross-chain supersession traversal.
+- Core §18 adds optional root member `064-supersession-graph.json`, encoded as
+  Trellis canonical JSON and bound by the extension's `graph_digest`.
+- Core §19 adds supersession graph validation: head-chain equality,
+  per-event `trellis.supersedes-chain-id.v1` row matching, breadth-first
+  predecessor traversal, cycle failure, and optional embedded predecessor
+  package checkpoint matching.
+- Requirements matrix TR-CORE-170 anchors the graph contract as
+  `spec-cross-ref`. Runtime verifier implementation and fixtures remain open
+  under TODO #11.
+- Verification: `uv run --with cbor2 --with cryptography python
+  scripts/check-specs.py`; `git diff --check`.
+
 ### Wave 37 (2026-05-07) — TODO #11 ADR 0066 append vectors
 
 - Added generator `fixtures/vectors/_generator/gen_append_011_to_015.py` for

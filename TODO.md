@@ -277,11 +277,16 @@ adopter-triggered work.
     + [ ] Verifier **D-3:** correction-preservation; rescission-terminality
       (any determination after `DeterminationRescinded` → integrity violation);
       chain-linkage with byte-equal predecessor checkpoint hash.
-    + [ ] Core §17 / §19 prose + export-manifest hooks; coordinate with
-      Formspec `ResponseCorrection` + WOS payload shapes.
-    + [ ] Cross-chain: normative `supersession-graph.json` at bundle root;
-      verifier BFS over `head_chain_id` / `predecessors`; cycles = integrity
-      failure (ADR default; Q2 alternative is linear-only).
+    + [x] Core §18 / §19 prose + export-manifest hook:
+      `ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"]`
+      binds optional `064-supersession-graph.json` with `graph_digest`; TR-CORE-170
+      pins canonical JSON shape and verifier obligations.
+    + [ ] Coordinate remaining Formspec `ResponseCorrection` + WOS payload
+      shapes for correction-preservation reports.
+    + [x] Cross-chain normative graph shape: `064-supersession-graph.json` at
+      bundle root carries `head_chain_id` / `predecessors`; cycles are integrity
+      failures under Core §19 step 6e.
+    + [ ] Runtime verifier BFS + vectors for `supersession_graph_*` diagnostics.
     + [ ] Optional predecessor chain members in export bundle (ADR D-4).
     + [x] **Vector IDs:** ADR 0066 keeps the contiguous open range
       `append/011-correction` … `append/015-supersession`. Item **#12** clock

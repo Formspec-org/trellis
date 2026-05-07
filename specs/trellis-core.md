@@ -325,6 +325,7 @@ Registered extension identifiers:
 | `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.signatureAffirmation` events; verifier obligations in §19. Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.intakeAccepted` events and optional paired `wos.kernel.caseCreated` events, carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; verifier obligations in §19. Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.supersession-graph.v1` | 1 | Binds optional `064-supersession-graph.json` via `graph_digest` (SHA-256 of Trellis canonical JSON bytes). Graph is chain-derived from ADR 0066 supersession linkage; verifier obligations in §19. Reject-if-unknown-at-version. Traceability: TR-CORE-170. |
 | `ExportManifestPayload.extensions` | `trellis.export.certificates-of-completion.v1` | 1 | Binds optional `065-certificates-of-completion.cbor` via `catalog_digest` (bare SHA-256 over the catalog member bytes — same hash construction as the four sibling catalogs `trellis.export.attachments.v1`, `trellis.export.signature-affirmations.v1`, `trellis.export.intake-handoffs.v1`, `trellis.export.erasure-evidence.v1`). Chain-derived catalog over admitted `trellis.certificate-of-completion.v1` events; entry shape per ADR 0007 §"Export manifest catalog". Catalog is performance convenience for auditor UX; exporters who omit it are conformant. Reject-if-unknown-at-version. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
@@ -1279,6 +1280,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/061-attachments.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/062-signature-affirmations.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/063-intake-handoffs.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/064-supersession-graph.json \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
   trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
   trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-x86_64 \
@@ -1305,6 +1307,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   061-attachments.cbor            ; OPTIONAL — dCBOR array of attachment-manifest entries (chain-derived; §6.7 `trellis.export.attachments.v1`, stack ADR 0072)
   062-signature-affirmations.cbor ; OPTIONAL — dCBOR array of signature-affirmation catalog entries (chain-derived; §6.7 `trellis.export.signature-affirmations.v1`)
   063-intake-handoffs.cbor        ; OPTIONAL — dCBOR array of intake-handoff catalog entries (chain-derived; §6.7 `trellis.export.intake-handoffs.v1`, stack ADR 0073)
+  064-supersession-graph.json     ; OPTIONAL — Trellis canonical JSON supersession graph (chain-derived; §6.7 `trellis.export.supersession-graph.v1`, stack ADR 0066)
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
   099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
@@ -1314,6 +1317,44 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
 ```
 
 Files marked OPTIONAL may be omitted; a verifier MUST NOT fail solely on their absence.
+
+`064-supersession-graph.json`, when present, is a Trellis canonical JSON
+document so that
+`ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"].graph_digest`
+can bind the exact bytes. Its root object has exactly two required members and
+one optional member per predecessor:
+
+```json
+{
+  "head_chain_id": "<lowercase hex of ChainId bytes>",
+  "predecessors": [
+    {
+      "chain_id": "<lowercase hex of predecessor ChainId bytes>",
+      "checkpoint_hash": "<lowercase hex SHA-256 digest>",
+      "bundle_path": null
+    }
+  ]
+}
+```
+
+`head_chain_id` is the chain exported by this package and MUST equal the
+manifest `scope` bytes encoded as lowercase hex. Each predecessor row MUST
+match one `EventPayload.extensions["trellis.supersedes-chain-id.v1"]` value
+reachable from the exported head chain, with byte-equal `chain_id` and
+`checkpoint_hash`. `bundle_path` is `null` when the predecessor chain is not
+embedded. If a predecessor package is embedded, `bundle_path` is a relative
+archive member path under `070-predecessors/` naming a deterministic Trellis
+export ZIP for that predecessor chain; verifiers that do not support nested
+predecessor verification MUST still verify the graph bytes and hash linkage.
+Traceability: **TR-CORE-170**.
+
+For this member, **Trellis canonical JSON** means: UTF-8; no byte-order mark;
+no insignificant whitespace outside string values; object members sorted by
+Unicode code point of their property names; arrays in authored order; strings
+escaped only as required by JSON; lowercase hexadecimal for byte fields; and a
+single trailing `\n` byte. Numbers are not used in this JSON member. These
+rules are local to `064-supersession-graph.json`; Trellis envelope bytes remain
+dCBOR-authoritative.
 
 ### 18.3 `ExportManifest`
 
@@ -1372,6 +1413,18 @@ gate), **TR-CORE-166** (`interop_sidecar_derivation_version_unknown`
 ISC-06 version pin), and **TR-CORE-167** (`interop_sidecar_path_invalid`
 path-prefix invariant; `trellis-verify` unit tests, no tamper ZIP), and
 **TR-CORE-168** (`interop_sidecar_missing` listed-file presence gate).
+
+**Supersession graph (§18.3b).** `trellis.export.supersession-graph.v1` is the
+manifest extension hook for ADR 0066 cross-chain supersession. When the
+extension is present, `064-supersession-graph.json` MUST be present and its
+SHA-256 digest MUST equal `graph_digest`. When `064-supersession-graph.json` is
+present, the extension MUST be present. An exporter SHOULD emit both the member
+and extension for any export whose chain contains a
+`trellis.supersedes-chain-id.v1` event extension or whose relying-party use
+case requires predecessor traversal. Omission does not make the single-chain
+export structurally invalid; it means the export cannot prove cross-chain
+supersession completeness without external predecessor material.
+Traceability: **TR-CORE-170**.
 
 ```cddl
 OmittedPayloadCheck = {
@@ -1461,6 +1514,10 @@ VERIFY(E) -> VerificationReport
      e. SHA-256(030-signing-key-registry.cbor) == manifest.signing_key_registry_digest
      f. For each RegistryBinding rb in manifest.registry_bindings:
           SHA-256(050-registries/<rb.registry_digest>.cbor) == rb.registry_digest
+     g. If manifest.extensions carries `trellis.export.supersession-graph.v1`:
+          SHA-256(064-supersession-graph.json) == graph_digest.
+        If `064-supersession-graph.json` is present without that manifest
+        extension, record `supersession_graph_unbound`.
    Any mismatch ⇒ abort with report.archive_integrity_failure.
 
 4. For each Event COSE_Sign1 e in 010-events.cbor (in order):
@@ -1895,6 +1952,30 @@ VERIFY(E) -> VerificationReport
      g. If `handoff.initiationMode = "workflowInitiated"`, `case_created_event_hash` MUST be absent.
      h. If `handoff.initiationMode = "publicIntake"`, `case_created_event_hash` MUST be present.
      i. Reject duplicate catalog rows that name the same `intake_event_hash`.
+
+**Supersession graph (optional, stack ADR 0066, step 6e).** If `ExportManifestPayload.extensions` carries `trellis.export.supersession-graph.v1` (§6.7), the verifier MUST:
+
+     a. Require the archive member `064-supersession-graph.json` (§18.2).
+     b. Verify `SHA-256(064-supersession-graph.json)` equals `graph_digest`
+        in the extension payload map.
+     c. Decode `064-supersession-graph.json` as Trellis canonical JSON with
+        the shape in §18.2. Non-canonical JSON or a malformed graph is an
+        integrity failure `supersession_graph_invalid`.
+     d. Check `head_chain_id` equals `manifest.scope` encoded as lowercase
+        hex. Mismatch is `supersession_graph_head_mismatch`.
+     e. For every exported event carrying
+        `EventPayload.extensions["trellis.supersedes-chain-id.v1"]`, require a
+        predecessor row with byte-equal `chain_id` and `checkpoint_hash`.
+        Missing or mismatched rows are
+        `supersession_graph_linkage_mismatch`.
+     f. Walk `predecessors` breadth-first by `chain_id`. A repeated `chain_id`
+        on one traversal path is a cycle and MUST fail with
+        `supersession_graph_cycle`.
+     g. If a predecessor row has non-null `bundle_path`, verify that member as
+        a deterministic Trellis export package and require its head checkpoint
+        digest to equal the row's `checkpoint_hash`. If the member is absent or
+        the digest mismatches, record
+        `supersession_predecessor_checkpoint_mismatch`.
 
 7. For each inclusion proof ip in 020-inclusion-proofs.cbor:
      a. Recompute Merkle root per ip.audit_path, ip.leaf_hash, ip.leaf_index.
@@ -2718,6 +2799,15 @@ ExportManifestPayload = {
   omitted_payload_checks:      [* OmittedPayloadCheck],
   ? interop_sidecars:            [* InteropSidecarEntry] / null,
   extensions:                  { * tstr => any } / null,
+}
+
+; Carried under
+; ExportManifestPayload.extensions["trellis.export.supersession-graph.v1"] (§18.3b).
+; Binds optional archive member 064-supersession-graph.json.
+; Traceability: TR-CORE-170.
+SupersessionGraphManifestExtension = {
+  graph_digest:      digest,
+  predecessor_count: uint,
 }
 
 ExportManifestHashPreimage = {
