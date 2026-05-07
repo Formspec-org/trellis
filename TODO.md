@@ -329,9 +329,13 @@ adopter-triggered work.
     (verifier diagnostics, severity per **PLN-0170**), **PLN-0161**
     (pause/resume composition), **PLN-0162** (vectors), **PLN-0164**
     (cross-stack composition fixture).
-    + [ ] **Export bundle:** normative `open-clocks.json` at bundle root —
+    + [x] **Export bundle:** normative `open-clocks.json` at bundle root —
+      manifest-bound by `trellis.export.open-clocks.v1` /
+      `open_clocks_digest`; root `sealed_at` equals
+      `ExportManifestPayload.generated_at`; `open_clocks[]` carries
       `{ clock_id, clock_kind, computed_deadline, origin_event_hash }` for
       every `clockStarted` lacking a matching `clockResolved` at export time.
+      Covered by TR-CORE-172. Runtime export/verify fixtures remain below.
     + [ ] **Verifier — D-3 advisory:** open clock with
       `computed_deadline < bundle.sealed_at` and no `clockResolved` emits an
       advisory diagnostic, not an integrity failure.

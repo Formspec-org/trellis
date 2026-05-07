@@ -327,6 +327,7 @@ Registered extension identifiers:
 | `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived catalog over admitted `wos.kernel.intakeAccepted` events and optional paired `wos.kernel.caseCreated` events, carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; verifier obligations in §19. Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.supersession-graph.v1` | 1 | Binds optional `064-supersession-graph.json` via `graph_digest` (SHA-256 of Trellis canonical JSON bytes). Graph is chain-derived from ADR 0066 supersession linkage; verifier obligations in §19. Reject-if-unknown-at-version. Traceability: TR-CORE-170. |
 | `ExportManifestPayload.extensions` | `trellis.export.certificates-of-completion.v1` | 1 | Binds optional `065-certificates-of-completion.cbor` via `catalog_digest` (bare SHA-256 over the catalog member bytes — same hash construction as the four sibling catalogs `trellis.export.attachments.v1`, `trellis.export.signature-affirmations.v1`, `trellis.export.intake-handoffs.v1`, `trellis.export.erasure-evidence.v1`). Chain-derived catalog over admitted `trellis.certificate-of-completion.v1` events; entry shape per ADR 0007 §"Export manifest catalog". Catalog is performance convenience for auditor UX; exporters who omit it are conformant. Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.open-clocks.v1` | 1 | Binds optional `open-clocks.json` via `open_clocks_digest` (SHA-256 of Trellis canonical JSON bytes). Chain-derived catalog over open ADR 0067 statutory clocks: every `clockStarted` lacking a matching `clockResolved` at export time appears with `clock_id`, `clock_kind`, `computed_deadline`, and `origin_event_hash`. Verifier obligations in §19. Reject-if-unknown-at-version. Traceability: TR-CORE-172. |
 
 Phase 1 producers MUST emit all `*.extensions` containers as `null` or empty maps, EXCEPT for registered identifiers whose Phase column is `1`, which MAY be emitted by Phase 1 producers and MUST be processed by Phase 1 verifiers per the identifier's reject-if-unknown-at-version obligation. Phase 1 verifiers MUST reject unknown top-level fields (strict-superset semantics) but MUST preserve unknown registered keys inside an `extensions` container. Phase 2+ additions MUST go in a reserved `extensions` container with a registered identifier and MUST NOT be added at the top level of `EventPayload`, `EventHeader`, `CheckpointPayload`, or `ExportManifestPayload`.
 
@@ -1281,6 +1282,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/062-signature-affirmations.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/063-intake-handoffs.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/064-supersession-graph.json \
+  trellis-export-<scope>-<tree_size>-<shorthash>/open-clocks.json \
   trellis-export-<scope>-<tree_size>-<shorthash>/070-predecessors/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
   trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
@@ -1309,6 +1311,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   062-signature-affirmations.cbor ; OPTIONAL — dCBOR array of signature-affirmation catalog entries (chain-derived; §6.7 `trellis.export.signature-affirmations.v1`)
   063-intake-handoffs.cbor        ; OPTIONAL — dCBOR array of intake-handoff catalog entries (chain-derived; §6.7 `trellis.export.intake-handoffs.v1`, stack ADR 0073)
   064-supersession-graph.json     ; OPTIONAL — Trellis canonical JSON supersession graph (chain-derived; §6.7 `trellis.export.supersession-graph.v1`, stack ADR 0066)
+  open-clocks.json                ; OPTIONAL — Trellis canonical JSON open-clock catalog (chain-derived; §6.7 `trellis.export.open-clocks.v1`, stack ADR 0067)
   070-predecessors/               ; OPTIONAL — embedded deterministic Trellis export ZIPs named by `064-supersession-graph.json` predecessor `bundle_path` entries
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
@@ -1349,6 +1352,37 @@ archive member path under `070-predecessors/` naming a deterministic Trellis
 export ZIP for that predecessor chain; verifiers that do not support nested
 predecessor verification MUST still verify the graph bytes and hash linkage.
 Traceability: **TR-CORE-170**.
+
+`open-clocks.json`, when present, is a Trellis canonical JSON document so that
+`ExportManifestPayload.extensions["trellis.export.open-clocks.v1"].open_clocks_digest`
+can bind the exact bytes. Its root object has exactly two required members:
+
+```json
+{
+  "sealed_at": [1777000000, 0],
+  "open_clocks": [
+    {
+      "clock_id": "statutory-review-window:case-123",
+      "clock_kind": "statutory-review-window",
+      "computed_deadline": [1777604800, 0],
+      "origin_event_hash": "<lowercase hex SHA-256 digest>"
+    }
+  ]
+}
+```
+
+`sealed_at` is the export's sealing timestamp and MUST equal
+`ExportManifestPayload.generated_at`. `open_clocks` is ordered by
+`origin_event_hash` bytewise ascending, then `clock_id` UTF-8 bytewise
+ascending. Each row represents one admitted `clockStarted` event for which no
+matching `clockResolved` event is admitted by the exported head. `clock_id` and
+`clock_kind` are WOS-owned strings carried by the source clock payload;
+`computed_deadline` is a Core timestamp (`[seconds, nanos]`); and
+`origin_event_hash` is the lowercase hex encoding of the `clockStarted`
+canonical event hash. Verifiers use this member for ADR 0067 advisory
+diagnostics; the catalog is not an integrity failure merely because an open
+clock is overdue at `sealed_at`.
+Traceability: **TR-CORE-172**.
 
 Members under `070-predecessors/` are optional predecessor-chain export
 packages. Each member MUST itself be a deterministic Trellis export ZIP
@@ -1436,6 +1470,18 @@ case requires predecessor traversal. Omission does not make the single-chain
 export structurally invalid; it means the export cannot prove cross-chain
 supersession completeness without external predecessor material.
 Traceability: **TR-CORE-170**.
+
+**Open statutory clocks (§18.3c).** `trellis.export.open-clocks.v1` is the
+manifest extension hook for ADR 0067 open statutory-clock export. When the
+extension is present, `open-clocks.json` MUST be present and its SHA-256 digest
+MUST equal `open_clocks_digest`. When `open-clocks.json` is present, the
+extension MUST be present. Exporters SHOULD emit both the member and extension
+for any export whose chain contains an admitted `clockStarted` event without a
+matching admitted `clockResolved` event at the exported head. Omission does not
+make the single-chain export structurally invalid; it means offline reviewers
+must recompute open-clock state from the event stream rather than relying on
+the catalog.
+Traceability: **TR-CORE-172**.
 
 ```cddl
 OmittedPayloadCheck = {
@@ -2834,6 +2880,15 @@ SupersessionGraphManifestExtension = {
   predecessor_count: uint,
 }
 
+; Carried under
+; ExportManifestPayload.extensions["trellis.export.open-clocks.v1"] (§18.3c).
+; Binds optional archive member open-clocks.json.
+; Traceability: TR-CORE-172.
+OpenClocksManifestExtension = {
+  open_clocks_digest: digest,
+  open_clock_count:   uint,
+}
+
 ExportManifestHashPreimage = {
   version:          uint .size 1,
   scope:            bstr,
@@ -3226,6 +3281,7 @@ Core traceability rows:
 - TR-CORE-158, TR-CORE-159, TR-CORE-160, TR-CORE-161, TR-CORE-162 (Core §17 idempotency wire-contract)
 - TR-CORE-163, TR-CORE-164, TR-CORE-165, TR-CORE-166, TR-CORE-167, TR-CORE-168 (Core §18.3a interop-sidecar dispatched-verifier obligations; Waves 25/29/31 / ADR 0008)
 - TR-CORE-169, TR-CORE-170, TR-CORE-171 (ADR 0066 supersession linkage, export graph, and rescission terminality)
+- TR-CORE-172 (ADR 0067 open statutory-clock export catalog)
 
 ## 31. References
 
