@@ -3750,10 +3750,20 @@ def _map_lookup_optional_text(m: dict, key: str) -> Optional[str]:
 
 
 def _map_lookup_str_alias(m: dict, key: str, legacy_key: str) -> str:
-    try:
-        return str(_map_lookup_str(m, key))
-    except VerifyError:
-        return str(_map_lookup_str(m, legacy_key))
+    """Returns ``m[key]`` when present and string-typed, else ``m[legacy_key]``.
+
+    Phase O narrowing (review F3): the legacy alias fallback is taken
+    ONLY when the preferred key is genuinely absent. A preferred key
+    that is present but malformed (wrong type) raises ``VerifyError`` so
+    the caller surfaces a parse failure rather than silently shadowing
+    the malformed value with a valid legacy alias.
+    """
+    if key in m:
+        v = m[key]
+        if not isinstance(v, str):
+            raise VerifyError(f"`{key}` is not text")
+        return v
+    return str(_map_lookup_str(m, legacy_key))
 
 
 def _parse_intake_handoff_details(value: Any) -> dict[str, Any]:

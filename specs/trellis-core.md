@@ -1912,7 +1912,13 @@ VERIFY(E) -> VerificationReport
    when the linked SignatureAffirmation declares `sha-256` but
    `signedPayloadDigest` is present and unparseable, surface
    `malformed_response_digest` rather than silently skipping the
-   step-7 equivalence check).
+   step-7 equivalence check), **TR-CORE-176** (alias-fallback
+   absence-only narrowing: WOS/Formspec record readers that admit a
+   preferred field name with a legacy alias — e.g.
+   `data.sourceResponseRef` / `data.formspecResponseRef` — MUST take the
+   legacy fallback only when the preferred key is genuinely absent; a
+   present-but-malformed preferred value MUST surface a parse failure
+   rather than silently shadowing under the legacy alias).
 
 6d. User-content-attestation processing. For each event e whose
    EventPayload.extensions carries `trellis.user-content-attestation.v1`

@@ -285,6 +285,39 @@ are post-MVP or adopter-triggered work.
     ISC-08 payload-disclosure honesty per kind. Unlocks the
     `vc-jose-cose-event` kind.
 
+17. **TRELLIS-CONFORMANCE-PYTHON-DRIFT-001 — Python `SignatureAffirmation`
+    parser stricter than Rust** — **S–M**.
+    Two pre-existing Python conformance failures persist in
+    `python -m trellis_py.conformance --vectors fixtures/vectors`:
+    `tamper/014-signature-catalog-digest-mismatch` and
+    `tamper/024-cert-response-ref-mismatch`. Rust conformance passes both.
+    Phase O's alias-fallback narrowing did NOT cause and does NOT fix these
+    failures (verified independently: same failure mode pre- and post-Phase
+    O).
+    + **Why:** `trellis_py.verify_wos._parse_signature_affirmation_record`
+      requires `sourceSignatureSystem`, `sourceSignatureId`,
+      `signedPayloadDigest`, `signedPayloadDigestAlgorithm`, and
+      `signingIntent`; the Rust mirror
+      (`crates/trellis-verify-wos/src/records.rs::parse_signature_affirmation_record`)
+      reads only the legacy field set and treats the new fields as optional
+      (`certificate_resolver.rs` reads them only on the resolver path,
+      gated by `if let Ok(...)`). Older fixtures (export-010 cohort) ship
+      without the new fields, so the Python parser raises `VerifyError:
+      missing 'sourceSignatureSystem'` before the digest / response-ref
+      check the manifest expects runs. The visible symptoms differ:
+      tamper/014 surfaces `signature_catalog_invalid`
+      ("missing `source_signature_system`") instead of the expected
+      `signature_catalog_digest_mismatch`; tamper/024 silently passes
+      (`integrity_verified == true`) because the resolver returns `None`
+      on parse failure and the response-ref equivalence step never marks
+      `had_resolvable_response`. Drift introduced in commits
+      `de15b2d`..`ff9582d` (boundary reconciliation, pre-Phase-M).
+    + **Done:** `python -m trellis_py.conformance --vectors fixtures/vectors`
+      reports 0 failed; the Python `SignatureAffirmation` reader matches
+      the Rust optional-field posture; root cause documented and
+      reproduced via a `pytest -k` test that decodes the export-010
+      `SignatureAffirmation` payload and asserts the parser admits it.
+
 ---
 
 ## Ratification close-out
