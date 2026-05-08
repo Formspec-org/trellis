@@ -20,6 +20,8 @@ pub(crate) mod erasure;
 
 pub(crate) mod certificate;
 
+pub mod certificate_proof;
+
 pub(crate) mod correction;
 
 pub(crate) mod user_attestation;
