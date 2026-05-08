@@ -4,7 +4,7 @@
 **Status:** Accepted (pending implementation)
 **Supersedes:** —
 **Superseded by:** —
-**Related:** ADR 0005 (crypto-erasure evidence — mirrors this doc's wire pattern); ADR 0008 (interop sidecar discipline — the `c2pa-manifest` interop sidecar kind binds this ADR's `PresentationArtifact`); WOS-T4 `SignatureAffirmation` work (Core §6.7 `trellis.export.signature-affirmations.v1`); ADR 0072 (evidence integrity + attachment binding) at parent; WOS [ADR 0062](../../../work-spec/thoughts/adr/0062-signature-profile-workflow-semantics.md) (Signature Profile workflow semantics); STACK.md end-state commitment #3 (one meaning of signing) + DocuSign-replacement positioning.
+**Related:** ADR 0005 (crypto-erasure evidence — mirrors this doc's wire pattern); ADR 0008 (interop sidecar discipline — the `c2pa-manifest` interop sidecar kind binds this ADR's `PresentationArtifact`); WOS-T4 `SignatureAffirmation` work (Core §6.7 `trellis.export.signature-affirmations.v1`); ADR 0072 (evidence integrity + attachment binding) at parent; WOS [ADR 0062](../../../work-spec/thoughts/adr/0062-signature-profile-workflow-semantics.md) (Signature Profile workflow semantics); STACK.md end-state commitment #3 (one meaning of signing) + DocuSign-replacement positioning; [ADR-0090 posture declaration object](../../thoughts/adr/0090-stack-posture-declaration-object.md).
 
 ## Decision
 
@@ -279,6 +279,12 @@ Each item below is a separate decision that does not block ADR 0007's claim. Whe
 3. **Cross-jurisdictional localization.** Date formats, name ordering, RTL scripts. Template-level concern; `signer_display.display_name` allows arbitrary strings. Becomes a separate ADR only if a deployment surfaces a normative localization contract.
 4. **PAdES / eIDAS / ESIGN integration.** Some jurisdictions require a PAdES-conformant signature inside the PDF itself (not just a Trellis-chain reference). If an operator needs this, they produce a PAdES-signed PDF themselves and bind it via this ADR; Trellis does not embed the PAdES signing. Separate ADR slot when a deployment requires it.
 5. **C2PA interop-sidecar binding.** Tracked at [`trellis/TODO.md`](../../TODO.md) item #21 (the `c2pa-manifest` adapter under ADR 0008). Separate ADR will pin assertion-label registration + manifest payload shape.
+
+**Amended 2026-05-08 (ADR-0090):** Certificate-of-completion embeds
+VerificationReceipt for each signature in the certificate's signature-event
+entries. The receipt is carried as COSE_Sign1 bytes alongside the UCA
+reference. Cross-reference the receipt-aware certificate shape in
+`trellis/crates/trellis-verify` certificate finalization.
 
 ## Cross-references
 

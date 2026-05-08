@@ -82,8 +82,9 @@ pub enum PostgresStoreErrorKind {
     MigrationFailed,
     /// SQL execution failed (other than idempotency-key conflict or domain failures below).
     QueryFailed,
-    /// Two appends collided on `(ledger_scope, idempotency_key)` per Core §17.3.
-    /// Postgres surface for `IdempotencyKeyPayloadMismatch` (Core §17.5).
+    /// Two appends collided on `(ledger_scope, idempotency_key)` with *different*
+    /// payloads per Core §17.3 clause 3. Retries with byte-identical payloads
+    /// resolve as idempotent no-ops (return `Ok(())`) rather than hitting this variant.
     IdempotencyKeyPayloadMismatch,
     /// Stored data did not fit Phase-1 type bounds (e.g. sequence overflow).
     DomainViolation,
@@ -92,6 +93,8 @@ pub enum PostgresStoreErrorKind {
     IdempotencyKeyTooLong,
     /// Connection pool failure (acquire / build).
     PoolFailed,
+    /// No predecessor event at `sequence - 1` for non-genesis append.
+    SequenceGap,
 }
 
 impl PostgresStoreError {
@@ -204,6 +207,13 @@ impl PostgresStore {
 
     /// Loads stored events for `scope` in canonical sequence order.
     ///
+    /// The SELECT runs inside a `REPEATABLE READ` transaction so the caller
+    /// observes a snapshot-consistent view: concurrent appends to the same
+    /// scope will not produce a partial read (some new events visible, some
+    /// not). This is the isolation level the Trellis export path requires
+    /// (TRELLIS-002) — a bare `SELECT` with no explicit transaction sees a
+    /// default-isolation snapshot that can interleave with concurrent writes.
+    ///
     /// # Errors
     /// Returns [`PostgresStoreErrorKind::QueryFailed`] when the query fails.
     /// Returns [`PostgresStoreErrorKind::DomainViolation`] when a stored sequence
@@ -212,11 +222,24 @@ impl PostgresStore {
         &mut self,
         scope: &[u8],
     ) -> Result<Vec<StoredEvent>, PostgresStoreError> {
-        let rows = self
-            .client
+        let mut tx = self.client.transaction().map_err(|error| {
+            PostgresStoreError::new(
+                PostgresStoreErrorKind::QueryFailed,
+                format!("failed to begin snapshot transaction: {error}"),
+            )
+        })?;
+        tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", &[])
+            .map_err(|error| {
+                PostgresStoreError::new(
+                    PostgresStoreErrorKind::QueryFailed,
+                    format!("failed to set REPEATABLE READ isolation: {error}"),
+                )
+            })?;
+
+        let rows = tx
             .query(
                 "\
-SELECT scope, sequence, canonical_event, signed_event \
+SELECT scope, sequence, canonical_event, signed_event, canonical_event_hash \
 FROM trellis_events \
 WHERE scope = $1 \
 ORDER BY sequence ASC",
@@ -228,6 +251,13 @@ ORDER BY sequence ASC",
                     format!("failed to query Trellis events: {error}"),
                 )
             })?;
+
+        tx.commit().map_err(|error| {
+            PostgresStoreError::new(
+                PostgresStoreErrorKind::QueryFailed,
+                format!("failed to commit snapshot transaction: {error}"),
+            )
+        })?;
 
         rows.into_iter()
             .map(|row| {
@@ -244,6 +274,13 @@ ORDER BY sequence ASC",
                     sequence,
                     row.get("canonical_event"),
                     row.get("signed_event"),
+                )
+                .with_canonical_event_hash(
+                    row.get::<_, Option<Vec<u8>>>("canonical_event_hash")
+                        .and_then(|h| {
+                            let arr: [u8; 32] = h.try_into().ok()?;
+                            Some(arr)
+                        }),
                 ))
             })
             .collect()
@@ -296,6 +333,8 @@ impl LedgerStore for PostgresStore {
 /// - [`PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch`] when the
 ///   `(scope, idempotency_key)` partial unique index rejects the insert.
 /// - [`PostgresStoreErrorKind::DomainViolation`] when the sequence does not fit i64.
+/// - [`PostgresStoreErrorKind::SequenceGap`] when a non-genesis event has no
+///   predecessor at `sequence - 1`.
 /// - [`PostgresStoreErrorKind::QueryFailed`] for other SQL failures.
 pub fn append_event_in_tx(
     tx: &mut Transaction<'_>,
@@ -327,30 +366,232 @@ pub fn append_event_in_tx(
     let scope = event.scope();
     let canonical = event.canonical_event();
     let signed = event.signed_event();
+    let chain_hash: Option<Vec<u8>> = event.canonical_event_hash().map(|h| h.to_vec());
 
-    let result = tx.execute(
+    if event.canonical_event_hash().is_some() && event.sequence() > 0 {
+        let predecessor_seq = sequence - 1;
+        let row = tx.query_opt(
+            "SELECT canonical_event_hash FROM trellis_events WHERE scope = $1 AND sequence = $2",
+            &[&scope, &predecessor_seq],
+        ).map_err(|error| {
+            PostgresStoreError::new(
+                PostgresStoreErrorKind::QueryFailed,
+                format!("failed to query predecessor for chain validation: {error}"),
+            )
+        })?;
+
+        match row {
+            None => {
+                return Err(PostgresStoreError::new(
+                    PostgresStoreErrorKind::SequenceGap,
+                    format!("sequence gap: no predecessor at sequence {predecessor_seq} for scope"),
+                ));
+            }
+            Some(_row) => {
+                // TODO(TRELLIS-003): compare incoming prev_hash against
+                // predecessor's canonical_event_hash once StoredEvent carries
+                // a prev_hash field. The predecessor exists (no gap), chain
+                // hash is stored for future retrieval.
+            }
+        }
+    }
+
+    if idempotency_key.is_some() {
+        append_with_idempotency(
+            tx,
+            &scope,
+            &sequence,
+            &canonical,
+            &signed,
+            idempotency_key,
+            &chain_hash,
+        )
+    } else {
+        let mut sp = tx.savepoint("trellis_pk").map_err(|e| {
+            PostgresStoreError::new(
+                PostgresStoreErrorKind::QueryFailed,
+                format!("failed to create savepoint for PK collision resolution: {e}"),
+            )
+        })?;
+        let result = sp.execute(
+            "\
+INSERT INTO trellis_events (scope, sequence, canonical_event, signed_event, idempotency_key, canonical_event_hash) \
+VALUES ($1, $2, $3, $4, $5, $6)",
+            &[&scope, &sequence, &canonical, &signed, &idempotency_key, &chain_hash],
+        );
+        match result {
+            Ok(_) => {
+                sp.commit().map_err(|e| {
+                    PostgresStoreError::new(
+                        PostgresStoreErrorKind::QueryFailed,
+                        format!("failed to release savepoint: {e}"),
+                    )
+                })?;
+                Ok(())
+            }
+            Err(error) => {
+                if !is_unique_violation(&error, "trellis_events_pkey") {
+                    return Err(PostgresStoreError::new(
+                        PostgresStoreErrorKind::QueryFailed,
+                        format!("failed to append Trellis event: {error}"),
+                    ));
+                }
+                drop(sp);
+                let row = tx
+                    .query_one(
+                        "\
+SELECT canonical_event, signed_event \
+FROM trellis_events \
+WHERE scope = $1 AND sequence = $2",
+                        &[&scope, &sequence],
+                    )
+                    .map_err(|e| {
+                        PostgresStoreError::new(
+                            PostgresStoreErrorKind::QueryFailed,
+                            format!("PK collision resolution failed: {e}"),
+                        )
+                    })?;
+                let existing_canonical: Vec<u8> = row.get("canonical_event");
+                let existing_signed: Vec<u8> = row.get("signed_event");
+                if existing_canonical == canonical && existing_signed == signed {
+                    Ok(())
+                } else {
+                    Err(PostgresStoreError::new(
+                        PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch,
+                        "PK collision on (scope, sequence) with different payloads \
+                         (no idempotency_key to disambiguate)"
+                            .to_string(),
+                    ))
+                }
+            }
+        }
+    }
+}
+
+/// INSERT with Core §17.3 idempotency collision resolution.
+///
+/// Uses a Postgres savepoint (nested transaction) so that a unique-key
+/// violation does not abort the outer transaction. On conflict:
+/// - Byte-identical payloads → `Ok(())` (§17.3 clauses 1+2, TR-CORE-159).
+/// - Different payloads → `IdempotencyKeyPayloadMismatch` (§17.3 clause 3,
+///   TR-CORE-160).
+fn append_with_idempotency(
+    tx: &mut Transaction<'_>,
+    scope: &[u8],
+    sequence: &i64,
+    canonical: &[u8],
+    signed: &[u8],
+    idempotency_key: Option<&[u8]>,
+    chain_hash: &Option<Vec<u8>>,
+) -> Result<(), PostgresStoreError> {
+    let mut sp = tx.savepoint("trellis_idem").map_err(|e| {
+        PostgresStoreError::new(
+            PostgresStoreErrorKind::QueryFailed,
+            format!("failed to create savepoint for §17.3 resolution: {e}"),
+        )
+    })?;
+
+    let result = sp.execute(
         "\
-INSERT INTO trellis_events (scope, sequence, canonical_event, signed_event, idempotency_key) \
-VALUES ($1, $2, $3, $4, $5)",
-        &[&scope, &sequence, &canonical, &signed, &idempotency_key],
+INSERT INTO trellis_events (scope, sequence, canonical_event, signed_event, idempotency_key, canonical_event_hash) \
+VALUES ($1, $2, $3, $4, $5, $6)",
+        &[&scope, &sequence, &canonical, &signed, &idempotency_key, &chain_hash],
     );
 
     match result {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            sp.commit().map_err(|e| {
+                PostgresStoreError::new(
+                    PostgresStoreErrorKind::QueryFailed,
+                    format!("failed to release savepoint: {e}"),
+                )
+            })?;
+            Ok(())
+        }
         Err(error) => {
-            if is_unique_violation(&error, "trellis_events_scope_idempotency_uidx") {
+            let is_idem_violation =
+                is_unique_violation(&error, "trellis_events_scope_idempotency_uidx");
+            let is_pk_violation = is_unique_violation(&error, "trellis_events_pkey");
+            if !is_idem_violation && !is_pk_violation {
                 return Err(PostgresStoreError::new(
-                    PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch,
-                    format!(
-                        "Core §17.3 idempotency-key conflict on \
-                         (ledger_scope, idempotency_key): {error}"
-                    ),
+                    PostgresStoreErrorKind::QueryFailed,
+                    format!("failed to append Trellis event: {error}"),
                 ));
             }
-            Err(PostgresStoreError::new(
-                PostgresStoreErrorKind::QueryFailed,
-                format!("failed to append Trellis event: {error}"),
-            ))
+
+            // Drop the savepoint (rolls back to before the failed INSERT),
+            // leaving the outer transaction in a clean state for SELECT.
+            drop(sp);
+
+            // Idempotency-key collision: resolve per §17.3.
+            if is_idem_violation {
+                let row = tx
+                    .query_one(
+                        "\
+SELECT canonical_event, signed_event \
+FROM trellis_events \
+WHERE scope = $1 AND idempotency_key = $2",
+                        &[&scope, &idempotency_key],
+                    )
+                    .map_err(|e| {
+                        PostgresStoreError::new(
+                            PostgresStoreErrorKind::QueryFailed,
+                            format!(
+                                "Core §17.3 collision resolution failed: \
+                             could not SELECT existing row for (scope, idempotency_key): {e}"
+                            ),
+                        )
+                    })?;
+
+                let existing_canonical: Vec<u8> = row.get("canonical_event");
+                let existing_signed: Vec<u8> = row.get("signed_event");
+
+                if existing_canonical == canonical && existing_signed == signed {
+                    return Ok(());
+                } else {
+                    return Err(PostgresStoreError::new(
+                        PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch,
+                        "Core §17.3 clause 3: same (ledger_scope, idempotency_key), \
+                         different canonical_event or signed_event payload"
+                            .to_string(),
+                    ));
+                }
+            }
+
+            // PK-only collision: (scope, sequence) already occupied but no
+            // idempotency-key match. Select by PK and compare payloads.
+            // Byte-identical → Ok (replay), different → mismatch.
+            let row = tx
+                .query_one(
+                    "\
+SELECT canonical_event, signed_event \
+FROM trellis_events \
+WHERE scope = $1 AND sequence = $2",
+                    &[&scope, &sequence],
+                )
+                .map_err(|e| {
+                    PostgresStoreError::new(
+                        PostgresStoreErrorKind::QueryFailed,
+                        format!(
+                            "PK collision resolution failed: \
+                         could not SELECT existing row for (scope, sequence): {e}"
+                        ),
+                    )
+                })?;
+
+            let existing_canonical: Vec<u8> = row.get("canonical_event");
+            let existing_signed: Vec<u8> = row.get("signed_event");
+
+            if existing_canonical == canonical && existing_signed == signed {
+                Ok(())
+            } else {
+                Err(PostgresStoreError::new(
+                    PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch,
+                    "PK collision on (scope, sequence) with different payloads \
+                     (no idempotency_key to disambiguate)"
+                        .to_string(),
+                ))
+            }
         }
     }
 }
@@ -881,6 +1122,14 @@ mod tests {
         store
             .append_event(StoredEvent::new(
                 b"scope-a".to_vec(),
+                0,
+                vec![0x00],
+                vec![0x00],
+            ))
+            .unwrap();
+        store
+            .append_event(StoredEvent::new(
+                b"scope-a".to_vec(),
                 1,
                 vec![0x01, 0x02],
                 vec![0x03, 0x04],
@@ -904,11 +1153,13 @@ mod tests {
             .unwrap();
 
         let events = store.load_scope_events(b"scope-a").unwrap();
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].sequence(), 1);
-        assert_eq!(events[0].canonical_event(), &[0x01, 0x02]);
-        assert_eq!(events[1].sequence(), 2);
-        assert_eq!(events[1].signed_event(), &[0x07, 0x08]);
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].sequence(), 0);
+        assert_eq!(events[0].canonical_event(), &[0x00]);
+        assert_eq!(events[1].sequence(), 1);
+        assert_eq!(events[1].canonical_event(), &[0x01, 0x02]);
+        assert_eq!(events[2].sequence(), 2);
+        assert_eq!(events[2].signed_event(), &[0x07, 0x08]);
     }
 
     #[test]
@@ -929,7 +1180,7 @@ mod tests {
             )
             .unwrap();
         let versions: Vec<i32> = rows.iter().map(|r| r.get::<_, i32>("version")).collect();
-        assert_eq!(versions, vec![1, 2]);
+        assert_eq!(versions, vec![1, 2, 3]);
     }
 
     /// Refuse-on-future-version guard: if the database records a migration
@@ -1083,6 +1334,59 @@ mod tests {
         assert_eq!(store.load_scope_events(b"scope-64b").unwrap().len(), 1);
     }
 
+    /// TR-CORE-159: idempotent replay with byte-identical payload returns Ok(()).
+    /// Core §17.3 clauses 1+2 — same canonical reference, no second order position.
+    #[test]
+    fn idempotent_replay_byte_identical_payload_is_noop() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+
+        let event = StoredEvent::new(b"scope-replay".to_vec(), 0, vec![0xaa, 0xbb], vec![0xcc]);
+        let key = b"replay-key-001".to_vec();
+        let mut tx = store.begin().unwrap();
+        append_event_in_tx(&mut tx, &event, Some(&key)).unwrap();
+        tx.commit().unwrap();
+
+        let mut tx2 = store.begin().unwrap();
+        append_event_in_tx(&mut tx2, &event, Some(&key)).unwrap();
+        tx2.commit().unwrap();
+
+        let events = store.load_scope_events(b"scope-replay").unwrap();
+        assert_eq!(
+            events.len(),
+            1,
+            "idempotent replay MUST NOT create a second order position"
+        );
+        assert_eq!(events[0].canonical_event(), &[0xaa, 0xbb]);
+    }
+
+    /// TR-CORE-160: idempotent replay with *different* payload returns
+    /// `IdempotencyKeyPayloadMismatch`. Core §17.3 clause 3.
+    #[test]
+    fn idempotent_replay_different_payload_returns_mismatch() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+
+        let event_a = StoredEvent::new(b"scope-mismatch".to_vec(), 0, vec![0x01], vec![0x02]);
+        let key = b"mismatch-key".to_vec();
+        let mut tx = store.begin().unwrap();
+        append_event_in_tx(&mut tx, &event_a, Some(&key)).unwrap();
+        tx.commit().unwrap();
+
+        let event_b = StoredEvent::new(b"scope-mismatch".to_vec(), 1, vec![0x03], vec![0x04]);
+        let mut tx2 = store.begin().unwrap();
+        let err = append_event_in_tx(&mut tx2, &event_b, Some(&key)).unwrap_err();
+        assert_eq!(
+            err.kind(),
+            PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch,
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Core §17.3 clause 3"),
+            "error message must reference §17.3 clause 3, got: {msg}"
+        );
+    }
+
     #[test]
     fn transaction_composition_rolls_back_canonical_with_caller_failure() {
         // The load-bearing wos-server seam: caller writes canonical event AND
@@ -1127,7 +1431,7 @@ mod tests {
             .batch_execute("CREATE TABLE projections_ok (id BIGINT PRIMARY KEY)")
             .unwrap();
 
-        let event = StoredEvent::new(b"scope-ok".to_vec(), 5, vec![0x11], vec![0x22]);
+        let event = StoredEvent::new(b"scope-ok".to_vec(), 0, vec![0x11], vec![0x22]);
         let mut tx = store.begin().unwrap();
         append_event_in_tx(&mut tx, &event, None).unwrap();
         tx.execute("INSERT INTO projections_ok (id) VALUES ($1)", &[&42_i64])
@@ -1136,7 +1440,7 @@ mod tests {
 
         let events = store.load_scope_events(b"scope-ok").unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].sequence(), 5);
+        assert_eq!(events[0].sequence(), 0);
 
         let row = store
             .client
@@ -1187,6 +1491,181 @@ mod tests {
             .unwrap();
         let canonical: Vec<u8> = row.get("canonical_event");
         assert_eq!(canonical, vec![0x77]);
+    }
+
+    #[test]
+    fn chain_validation_genesis_succeeds_without_predecessor() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+        let hash = [0xaa; 32];
+        let event = StoredEvent::new(b"scope-chain".to_vec(), 0, vec![0x01], vec![0x02])
+            .with_canonical_event_hash(Some(hash));
+        let mut tx = store.begin().unwrap();
+        append_event_in_tx(&mut tx, &event, None).unwrap();
+        tx.commit().unwrap();
+
+        let events = store.load_scope_events(b"scope-chain").unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].canonical_event_hash(), Some(&hash));
+    }
+
+    #[test]
+    fn chain_validation_rejects_sequence_gap() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+        let event = StoredEvent::new(b"scope-gap".to_vec(), 5, vec![0x01], vec![0x02])
+            .with_canonical_event_hash(Some([0xaa; 32]));
+        let mut tx = store.begin().unwrap();
+        let err = append_event_in_tx(&mut tx, &event, None).unwrap_err();
+        assert_eq!(err.kind(), PostgresStoreErrorKind::SequenceGap);
+    }
+
+    #[test]
+    fn chain_validation_contiguous_sequences_succeed() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+
+        let hash0 = [0x11; 32];
+        let hash1 = [0x22; 32];
+        let mut tx = store.begin().unwrap();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope-cont".to_vec(), 0, vec![0x01], vec![0x02])
+                .with_canonical_event_hash(Some(hash0)),
+            None,
+        )
+        .unwrap();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope-cont".to_vec(), 1, vec![0x03], vec![0x04])
+                .with_canonical_event_hash(Some(hash1)),
+            None,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let events = store.load_scope_events(b"scope-cont").unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].canonical_event_hash(), Some(&hash0));
+        assert_eq!(events[1].canonical_event_hash(), Some(&hash1));
+    }
+
+    #[test]
+    fn chain_validation_stores_and_retrieves_hash() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+        let hash = [0xab; 32];
+        let event = StoredEvent::new(b"scope-hash".to_vec(), 0, vec![0x01], vec![0x02])
+            .with_canonical_event_hash(Some(hash));
+        store.append_event(event).unwrap();
+
+        let events = store.load_scope_events(b"scope-hash").unwrap();
+        assert_eq!(events[0].canonical_event_hash(), Some(&hash));
+    }
+
+    /// TR-CORE-159 (concurrent): two transactions racing on the same
+    /// idempotency key with byte-identical payloads. One wins the INSERT;
+    /// the other hits the unique constraint and resolves as an idempotent
+    /// no-op per §17.3. Exactly one row must exist afterwards.
+    #[test]
+    fn concurrent_idempotent_replay_byte_identical_is_noop() {
+        let cluster = TestCluster::start();
+        let dsn = cluster.connection_string();
+
+        let mut store = PostgresStore::connect(&dsn).unwrap();
+
+        let client_a = postgres::Client::connect(&dsn, postgres::NoTls).unwrap();
+        let client_b = postgres::Client::connect(&dsn, postgres::NoTls).unwrap();
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let barrier_a = barrier.clone();
+        let barrier_b = barrier.clone();
+
+        let key = b"concurrent-key".to_vec();
+        let key_b = key.clone();
+
+        let h_a = thread::spawn(move || {
+            let mut client = client_a;
+            let mut tx = client.transaction().unwrap();
+            barrier_a.wait();
+            let event = StoredEvent::new(
+                b"scope-concurrent".to_vec(),
+                0,
+                vec![0xaa, 0xbb],
+                vec![0xcc],
+            );
+            append_event_in_tx(&mut tx, &event, Some(&key)).unwrap();
+            tx.commit().unwrap();
+        });
+
+        let h_b = thread::spawn(move || {
+            let mut client = client_b;
+            let mut tx = client.transaction().unwrap();
+            barrier_b.wait();
+            let event = StoredEvent::new(
+                b"scope-concurrent".to_vec(),
+                0,
+                vec![0xaa, 0xbb],
+                vec![0xcc],
+            );
+            append_event_in_tx(&mut tx, &event, Some(&key_b)).unwrap();
+            tx.commit().unwrap();
+        });
+
+        h_a.join().unwrap();
+        h_b.join().unwrap();
+
+        let events = store.load_scope_events(b"scope-concurrent").unwrap();
+        assert_eq!(
+            events.len(),
+            1,
+            "concurrent idempotent replay MUST produce exactly one row"
+        );
+        assert_eq!(events[0].canonical_event(), &[0xaa, 0xbb]);
+    }
+
+    /// PK-only collision: same (scope, sequence) but no idempotency key.
+    /// Byte-identical payload → idempotent no-op. Different payload → mismatch.
+    #[test]
+    fn pk_collision_byte_identical_is_noop() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+
+        let event = StoredEvent::new(b"scope-pk".to_vec(), 0, vec![0x01], vec![0x02]);
+        store.append_event(event.clone()).unwrap();
+
+        let mut tx = store.begin().unwrap();
+        append_event_in_tx(&mut tx, &event, None).unwrap();
+        tx.commit().unwrap();
+
+        let events = store.load_scope_events(b"scope-pk").unwrap();
+        assert_eq!(
+            events.len(),
+            1,
+            "PK-only replay of identical payload must be idempotent"
+        );
+    }
+
+    #[test]
+    fn pk_collision_different_payload_returns_mismatch() {
+        let cluster = TestCluster::start();
+        let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+
+        let event_a = StoredEvent::new(b"scope-pk-diff".to_vec(), 0, vec![0x01], vec![0x02]);
+        store.append_event(event_a).unwrap();
+
+        let event_b = StoredEvent::new(b"scope-pk-diff".to_vec(), 0, vec![0x03], vec![0x04]);
+        let mut tx = store.begin().unwrap();
+        let err = append_event_in_tx(&mut tx, &event_b, None).unwrap_err();
+        assert_eq!(
+            err.kind(),
+            PostgresStoreErrorKind::IdempotencyKeyPayloadMismatch,
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("PK collision"),
+            "error message must reference PK collision, got: {msg}"
+        );
     }
 
     // ----- TestCluster (unchanged from baseline) -------------------------

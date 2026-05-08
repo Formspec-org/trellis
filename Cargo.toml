@@ -16,6 +16,7 @@ members = [
     "crates/trellis-interop-vc",
     "crates/trellis-interop-c2pa",
     "crates/trellis-interop-did",
+    "crates/trellis-formspec-signature",
 ]
 resolver = "2"
 

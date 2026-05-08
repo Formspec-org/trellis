@@ -558,19 +558,16 @@ class WosFormspecResolver:
         # interpret. Phase N narrows the silent-skip path to the
         # absent-digest case only.
         if record.get("signed_payload_digest_algorithm") == "sha-256":
-            digest_text = str(record["signed_payload_digest"])
-            try:
-                digest = core._parse_sha256_hex(digest_text)
-            except (core.VerifyError, ValueError) as exc:
-                # `_parse_sha256_hex` may raise `VerifyError` on wrong byte
-                # length or `ValueError` from the underlying `int(_, 16)`
-                # when the text contains non-hex characters; both flow into
-                # the fail-closed `MalformedResponseDigestError`.
-                raise core.MalformedResponseDigestError(
-                    f"signedPayloadDigest {digest_text!r} does not match "
-                    f"sha-256 hex format (expected 64 hex chars)"
-                ) from exc
-            return core.CertificateResponseProof(response_hash=digest)
+            digest_text = record.get("signed_payload_digest")
+            if isinstance(digest_text, str):
+                try:
+                    digest = core._parse_sha256_hex(digest_text)
+                except (core.VerifyError, ValueError) as exc:
+                    raise core.MalformedResponseDigestError(
+                        f"signedPayloadDigest {digest_text!r} does not match "
+                        f"sha-256 hex format (expected 64 hex chars)"
+                    ) from exc
+                return core.CertificateResponseProof(response_hash=digest)
         try:
             digest = _signature_affirmation_response_digest(record)
         except core.VerifyError:
@@ -586,6 +583,15 @@ class WosFormspecResolver:
         if isinstance(signer_id, str):
             return signer_id
         return None
+
+
+def _optional_str(value: Any) -> Optional[str]:
+    """Return the string value or None if absent/null."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return None
 
 
 def _parse_signature_affirmation_record(payload_bytes: bytes) -> dict[str, Any]:
@@ -619,15 +625,21 @@ def _parse_signature_affirmation_record(payload_bytes: bytes) -> dict[str, Any]:
         "consent_reference": cr,
         "signature_provider": str(core._map_lookup_str(data, "signatureProvider")),
         "ceremony_id": str(core._map_lookup_str(data, "ceremonyId")),
-        "source_signature_system": str(
-            core._map_lookup_str(data, "sourceSignatureSystem")
+        "source_signature_system": _optional_str(
+            data.get("sourceSignatureSystem")
         ),
-        "source_signature_id": str(core._map_lookup_str(data, "sourceSignatureId")),
-        "signed_payload_digest": str(core._map_lookup_str(data, "signedPayloadDigest")),
-        "signed_payload_digest_algorithm": str(
-            core._map_lookup_str(data, "signedPayloadDigestAlgorithm")
+        "source_signature_id": _optional_str(
+            data.get("sourceSignatureId")
         ),
-        "signing_intent": str(core._map_lookup_str(data, "signingIntent")),
+        "signed_payload_digest": _optional_str(
+            data.get("signedPayloadDigest")
+        ),
+        "signed_payload_digest_algorithm": _optional_str(
+            data.get("signedPayloadDigestAlgorithm")
+        ),
+        "signing_intent": _optional_str(
+            data.get("signingIntent")
+        ),
         "profile_ref": str(pr) if isinstance(pr, str) else None,
         "profile_key": str(pk) if isinstance(pk, str) else None,
         "source_response_ref": core._map_lookup_str_alias(

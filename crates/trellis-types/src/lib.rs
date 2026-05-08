@@ -48,6 +48,7 @@ pub struct StoredEvent {
     canonical_event: Vec<u8>,
     signed_event: Vec<u8>,
     idempotency_key: Option<Vec<u8>>,
+    canonical_event_hash: Option<[u8; 32]>,
 }
 
 impl StoredEvent {
@@ -77,6 +78,7 @@ impl StoredEvent {
             canonical_event,
             signed_event,
             idempotency_key: None,
+            canonical_event_hash: None,
         }
     }
 
@@ -100,6 +102,7 @@ impl StoredEvent {
             canonical_event,
             signed_event,
             idempotency_key: Some(idempotency_key),
+            canonical_event_hash: None,
         }
     }
 
@@ -128,6 +131,15 @@ impl StoredEvent {
     /// to enforce the §17.3 unique-`(ledger_scope, idempotency_key)` invariant.
     pub fn idempotency_key(&self) -> Option<&[u8]> {
         self.idempotency_key.as_deref()
+    }
+
+    pub fn canonical_event_hash(&self) -> Option<&[u8; 32]> {
+        self.canonical_event_hash.as_ref()
+    }
+
+    pub fn with_canonical_event_hash(mut self, hash: Option<[u8; 32]>) -> Self {
+        self.canonical_event_hash = hash;
+        self
     }
 }
 

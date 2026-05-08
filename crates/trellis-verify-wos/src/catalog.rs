@@ -353,6 +353,11 @@ fn signature_entry_matches_record(
         && cbor_nested_map_semantic_eq(&entry.consent_reference, &record.consent_reference)
         && entry.signature_provider == record.signature_provider
         && entry.ceremony_id == record.ceremony_id
+        && entry.source_signature_system == record.source_signature_system
+        && entry.source_signature_id == record.source_signature_id
+        && entry.signed_payload_digest == record.signed_payload_digest
+        && entry.signed_payload_digest_algorithm == record.signed_payload_digest_algorithm
+        && entry.signing_intent == record.signing_intent
         && entry.profile_ref == record.profile_ref
         && entry.profile_key == record.profile_key
         && entry.formspec_response_ref == record.formspec_response_ref

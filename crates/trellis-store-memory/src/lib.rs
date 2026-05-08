@@ -115,36 +115,71 @@ pub fn append_event_in_tx(
         if !idempotency_key_length_in_bound(key) {
             return Err(MemoryAppendError::IdempotencyKeyTooLong(key.len()));
         }
-        let collides_in_store = tx
+        if let Some(existing) = tx
             .store
             .events
             .iter()
-            .any(|stored| stored.scope() == event.scope() && stored_key(stored) == Some(key));
-        let collides_in_buffer = tx
-            .buffered
-            .iter()
-            .any(|buffered| buffered.scope() == event.scope() && stored_key(buffered) == Some(key));
-        if collides_in_store || collides_in_buffer {
-            return Err(MemoryAppendError::IdempotencyKeyConflict);
+            .chain(tx.buffered.iter())
+            .find(|stored| stored.scope() == event.scope() && stored_key(stored) == Some(key))
+        {
+            return resolve_memory_collision(existing, event);
         }
     }
 
-    // `StoredEvent::idempotency_key` now carries the parsed Core §6.1 / §17.2
-    // wire-contract identity through (item #2 closed Wave 24). The collision
-    // check above is therefore live — both `stored_key` and the buffered
-    // events return the threaded value.
-    tx.buffered.push(event.clone());
+    if event.canonical_event_hash().is_some() && event.sequence() > 0 {
+        let predecessor_seq = event.sequence() - 1;
+        let has_predecessor = tx
+            .store
+            .events
+            .iter()
+            .chain(tx.buffered.iter())
+            .any(|stored| stored.scope() == event.scope() && stored.sequence() == predecessor_seq);
+        if !has_predecessor {
+            return Err(MemoryAppendError::SequenceGap);
+        }
+    }
+
+    let to_store = match idempotency_key {
+        Some(key) => {
+            let mut ev = StoredEvent::with_idempotency_key(
+                event.scope().to_vec(),
+                event.sequence(),
+                event.canonical_event().to_vec(),
+                event.signed_event().to_vec(),
+                key.to_vec(),
+            );
+            ev = ev.with_canonical_event_hash(event.canonical_event_hash().copied());
+            ev
+        }
+        None => event.clone(),
+    };
+    tx.buffered.push(to_store);
     Ok(())
+}
+
+/// Core §17.3 collision resolution for the in-memory store.
+///
+/// - Byte-identical payloads → idempotent no-op per §17.3 clauses 1+2.
+/// - Different payloads → `IdempotencyKeyConflict` per §17.3 clause 3.
+fn resolve_memory_collision(
+    existing: &StoredEvent,
+    incoming: &StoredEvent,
+) -> Result<(), MemoryAppendError> {
+    if existing.canonical_event() == incoming.canonical_event()
+        && existing.signed_event() == incoming.signed_event()
+    {
+        Ok(())
+    } else {
+        Err(MemoryAppendError::IdempotencyKeyConflict)
+    }
 }
 
 /// Failure cases for [`append_event_in_tx`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum MemoryAppendError {
-    /// `idempotency_key` length outside the Core §6.1 bound (empty or too long).
-    /// Variant name is historical; [`Display`](std::fmt::Display) states `1..=64`.
     IdempotencyKeyTooLong(usize),
-    /// Same `(scope, idempotency_key)` already appended.
     IdempotencyKeyConflict,
+    SequenceGap,
 }
 
 impl std::fmt::Display for MemoryAppendError {
@@ -159,6 +194,10 @@ impl std::fmt::Display for MemoryAppendError {
             Self::IdempotencyKeyConflict => write!(
                 f,
                 "Core §17.3 idempotency-key conflict on (ledger_scope, idempotency_key)"
+            ),
+            Self::SequenceGap => write!(
+                f,
+                "sequence gap: no predecessor at sequence - 1 for non-genesis append"
             ),
         }
     }
@@ -299,6 +338,95 @@ mod tests {
             &mut tx,
             &StoredEvent::new(b"scope-64b".to_vec(), 0, vec![], vec![]),
             Some(&[0x55_u8; 64]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(store.events().len(), 2);
+    }
+
+    /// TR-CORE-159: idempotent replay with byte-identical payload returns Ok(()).
+    /// Core §17.3 clauses 1+2 — same canonical reference, no duplicate position.
+    #[test]
+    fn idempotent_replay_byte_identical_payload_is_noop() {
+        let mut store = MemoryStore::new();
+
+        let event = StoredEvent::new(b"scope-replay".to_vec(), 0, vec![0xaa], vec![0xbb]);
+        let key = b"replay-key".to_vec();
+        let mut tx = store.begin();
+        append_event_in_tx(&mut tx, &event, Some(&key)).unwrap();
+        tx.commit().unwrap();
+
+        let mut tx2 = store.begin();
+        append_event_in_tx(&mut tx2, &event, Some(&key)).unwrap();
+        tx2.commit().unwrap();
+
+        assert_eq!(
+            store.events().len(),
+            1,
+            "idempotent replay MUST NOT create a second order position"
+        );
+    }
+
+    /// TR-CORE-160: idempotent replay with different payload returns
+    /// IdempotencyKeyConflict. Core §17.3 clause 3.
+    #[test]
+    fn idempotent_replay_different_payload_returns_conflict() {
+        let mut store = MemoryStore::new();
+
+        let event_a = StoredEvent::new(b"scope-mm".to_vec(), 0, vec![0x01], vec![0x02]);
+        let key = b"mm-key".to_vec();
+        let mut tx = store.begin();
+        append_event_in_tx(&mut tx, &event_a, Some(&key)).unwrap();
+        tx.commit().unwrap();
+
+        let event_b = StoredEvent::new(b"scope-mm".to_vec(), 1, vec![0x03], vec![0x04]);
+        let mut tx2 = store.begin();
+        let err = append_event_in_tx(&mut tx2, &event_b, Some(&key)).unwrap_err();
+        assert_eq!(err, MemoryAppendError::IdempotencyKeyConflict);
+    }
+
+    #[test]
+    fn chain_validation_genesis_succeeds_without_predecessor() {
+        let mut store = MemoryStore::new();
+        let mut tx = store.begin();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope".to_vec(), 0, vec![0x01], vec![0x02]),
+            None,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(store.events().len(), 1);
+    }
+
+    #[test]
+    fn chain_validation_rejects_sequence_gap() {
+        let mut store = MemoryStore::new();
+        let mut tx = store.begin();
+        let err = append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope".to_vec(), 5, vec![0x01], vec![0x02])
+                .with_canonical_event_hash(Some([0xaa; 32])),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err, MemoryAppendError::SequenceGap);
+    }
+
+    #[test]
+    fn chain_validation_contiguous_sequences_succeed() {
+        let mut store = MemoryStore::new();
+        let mut tx = store.begin();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope".to_vec(), 0, vec![0x01], vec![0x02]),
+            None,
+        )
+        .unwrap();
+        append_event_in_tx(
+            &mut tx,
+            &StoredEvent::new(b"scope".to_vec(), 1, vec![0x03], vec![0x04]),
+            None,
         )
         .unwrap();
         tx.commit().unwrap();

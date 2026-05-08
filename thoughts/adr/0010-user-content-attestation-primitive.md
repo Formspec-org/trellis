@@ -4,7 +4,7 @@
 **Status:** Accepted (pending implementation)
 **Supersedes:** —
 **Superseded by:** —
-**Related:** ADR 0001-0004 (DAG envelope + Rust byte authority); ADR 0006 (KeyEntry signing class); ADR 0007 (certificate-of-completion — top-level artifact that cites this primitive in its `attestations[]`); WOS [Signature Profile §2.8 SignatureAffirmation](../../../work-spec/specs/profiles/signature.md) (workflow-level provenance record that carries this primitive); proposed parent-repo identity-attestation stack ADR (PLN-0381); proposed `work-spec/specs/profiles/signature.md` §1.3 reopen + extension (PLN-0380).
+**Related:** ADR 0001-0004 (DAG envelope + Rust byte authority); ADR 0006 (KeyEntry signing class); ADR 0007 (certificate-of-completion — top-level artifact that cites this primitive in its `attestations[]`); WOS [Signature Profile §2.8 SignatureAffirmation](../../../work-spec/specs/profiles/signature.md) (workflow-level provenance record that carries this primitive); proposed parent-repo identity-attestation stack ADR (PLN-0381); proposed `work-spec/specs/profiles/signature.md` §1.3 reopen + extension (PLN-0380); [Formspec Signature Corroboration companion spec](../../specs/companion/formspec-signature-corroboration.md) (COSE_Sign1 signature bytes carried via UCA for integrity corroboration).
 
 ## Decision
 
@@ -197,6 +197,13 @@ Each item below is a separate decision; none blocks ADR 0010's claim. When activ
 3. **Certificate-of-completion `attestations[]` discriminated union.** ADR 0007's `attestations: [+ Attestation]` field reuses A.5's `Attestation`. A follow-on ADR may extend the field to a discriminated union admitting both A.5 and user-content shapes. Sequenced after ADR 0010 ratification; not a "phase" of this one.
 4. **Rotation grace-window admission.** TODO item #5 ratifies the lifecycle `Rotating` overlap window. When that lands, step 6 of verifier obligations admits `Rotating` alongside `Active`. Until then, `Rotating` is not admitted.
 5. **CLI ergonomics extension.** `trellis-cli sign-user-content` is non-normative and may grow flags (template-bound intent, identity-attestation auto-resolution, batch mode). Lands with adopter feedback; not a separate ADR.
+
+### Formspec Signature Corroboration
+
+UCA can carry COSE_Sign1 `signatureValue` bytes from Formspec authored
+signatures. See `trellis/specs/companion/formspec-signature-corroboration.md`
+for the binding contract. UCA is integrity attestation, not verification;
+cryptographic verification remains via the Formspec verifier port (ADR-0088).
 
 ## Cross-references
 

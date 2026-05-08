@@ -4103,6 +4103,16 @@ def _readable_payload_bytes(
     return None
 
 
+def _optional_str_entry(m: dict, key: str) -> Optional[str]:
+    """Return the string value of `key` or None if the key is absent or null."""
+    v = m.get(key)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    return None
+
+
 def _parse_signature_catalog_entries(data: bytes) -> list[dict[str, Any]]:
     v = _decode_value(data)
     if not isinstance(v, list):
@@ -4133,15 +4143,19 @@ def _parse_signature_catalog_entries(data: bytes) -> list[dict[str, Any]]:
                 "consent_reference": cr,
                 "signature_provider": str(_map_lookup_str(entry, "signature_provider")),
                 "ceremony_id": str(_map_lookup_str(entry, "ceremony_id")),
-                "source_signature_system": str(
-                    _map_lookup_str(entry, "source_signature_system")
+                "source_signature_system": _optional_str_entry(
+                    entry, "source_signature_system"
                 ),
-                "source_signature_id": str(_map_lookup_str(entry, "source_signature_id")),
-                "signed_payload_digest": str(_map_lookup_str(entry, "signed_payload_digest")),
-                "signed_payload_digest_algorithm": str(
-                    _map_lookup_str(entry, "signed_payload_digest_algorithm")
+                "source_signature_id": _optional_str_entry(
+                    entry, "source_signature_id"
                 ),
-                "signing_intent": str(_map_lookup_str(entry, "signing_intent")),
+                "signed_payload_digest": _optional_str_entry(
+                    entry, "signed_payload_digest"
+                ),
+                "signed_payload_digest_algorithm": _optional_str_entry(
+                    entry, "signed_payload_digest_algorithm"
+                ),
+                "signing_intent": _optional_str_entry(entry, "signing_intent"),
                 "profile_ref": str(pr) if isinstance(pr, str) else None,
                 "profile_key": str(pk) if isinstance(pk, str) else None,
                 "source_response_ref": _map_lookup_str_alias(

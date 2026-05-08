@@ -52,6 +52,12 @@ ALTER TABLE trellis_events
     );
 ",
     ),
+    (
+        3,
+        "\
+ALTER TABLE trellis_events ADD COLUMN canonical_event_hash BYTEA NULL;
+",
+    ),
 ];
 
 /// Apply pending migrations against an existing client (connection or pooled).

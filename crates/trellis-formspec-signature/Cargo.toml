@@ -1,0 +1,19 @@
+[package]
+name = "trellis-formspec-signature"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Trellis-COSE Formspec signature adapter — implements Verifier port using trellis-cose primitives"
+repository = "https://github.com/anomalyco/trellis"
+
+[features]
+default = []
+allow_placeholder_verify = []
+
+[dependencies]
+formspec-signature-port = { version = "0.1.0", path = "../../../formspec/crates/formspec-signature-port" }
+trellis-cose = { version = "0.1.0", path = "../trellis-cose" }
+trellis-core = { version = "0.1.0", path = "../trellis-core" }
+base64 = "0.22"
+
+[dev-dependencies]
