@@ -143,14 +143,34 @@ def _validate_export(
     for failure in duplicate_failures:
         findings.append(_failure(failure.kind, None, failure.location))
 
-    signature_catalog_digest = _parse_signature_export_extension(manifest_map)
+    try:
+        signature_catalog_digest = _parse_signature_export_extension(manifest_map)
+    except core.VerifyError as exc:
+        findings.append(
+            _failure(
+                "signature_catalog_invalid",
+                None,
+                f"signature export extension is invalid: {exc}",
+            )
+        )
+        signature_catalog_digest = None
     if signature_catalog_digest is not None:
         findings.extend(
             _validate_signature_catalog(
                 archive, payload_blobs, signature_catalog_digest, event_by_hash
             )
         )
-    intake_catalog_digest = _parse_intake_export_extension(manifest_map)
+    try:
+        intake_catalog_digest = _parse_intake_export_extension(manifest_map)
+    except core.VerifyError as exc:
+        findings.append(
+            _failure(
+                "intake_handoff_catalog_invalid",
+                None,
+                f"intake export extension is invalid: {exc}",
+            )
+        )
+        intake_catalog_digest = None
     if intake_catalog_digest is not None:
         findings.extend(
             _validate_intake_catalog(
