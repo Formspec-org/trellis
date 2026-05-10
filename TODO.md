@@ -289,25 +289,15 @@ are post-MVP or adopter-triggered work.
     ISC-08 payload-disclosure honesty per kind. Unlocks the
     `vc-jose-cose-event` kind.
 
-17. **TRELLIS-CONFORMANCE-PYTHON-DRIFT-001 — Python `SignatureAffirmation`
-    parser stricter than Rust** — **S–M**. Status: NOT DONE (was marked Done in error).
-    Two pre-existing Python conformance failures persist in
-    `python -m trellis_py.conformance --vectors fixtures/vectors`:
-    `tamper/014-signature-catalog-digest-mismatch` and
-    `tamper/024-cert-response-ref-mismatch`. Rust conformance passes both.
-    Root cause: `trellis_py.verify_wos._parse_signature_affirmation_record`
-    requires `sourceSignatureSystem`, `sourceSignatureId`, `signedPayloadDigest`,
-    `signedPayloadDigestAlgorithm`, and `signingIntent` as mandatory; Rust mirror
-    (`crates/trellis-verify-wos/src/records.rs::parse_signature_affirmation_record`)
-    treats them as optional (`if let Ok(...)` gate). Drift introduced in commits
-    `de15b2d`..`ff9582d` (boundary reconciliation, pre-Phase-M).
-    Phase 4 shipment: companion spec (trellis/specs/companion/formspec-signature-corroboration.md)
-    written; ADR 0010 + 0007 cross-references added. Actual parser fix not yet shipped.
-    Remaining: tighten Rust parse_signature_affirmation_record to require the same
-    five fields Python requires, OR relax Python to match Rust optional-field posture;
-    re-run conformance: `PYTHONPATH=trellis-py/src uv run --with cbor2 --with cryptography
-    python -m trellis_py.conformance --vectors fixtures/vectors` → 0 failures;
-    `pytest -k` test reproducing export-010 parse admission; close this row.
+17. **TRELLIS-CONFORMANCE-PYTHON-DRIFT-001 — Python/Rust WOS verifier parity guard**
+    — **S**. Status: GREEN; keep as a guard row until the next WOS signature vector lands.
+    Previous drift around `SignatureAffirmation` optional fields has been corrected: Rust and
+    Python WOS-composed verifiers now accept the same current vector corpus. Verification command:
+    `PYTHONPATH=trellis-py/src uv run --with cbor2 --with cryptography
+    python -m trellis_py.conformance --vectors fixtures/vectors` reports 139 total / 0 failed.
+    Remaining: when receipt-bearing certificates land, add Python/Rust vectors for receipt
+    positive, missing receipt, wrong signature event, digest mismatch, and invalid receipt
+    signature so parity remains vector-enforced instead of prose-enforced.
 
 18. **TRELLIS-FORMSPEC-SIGNATURE-ADAPTER-001 — Optional Trellis-COSE adapter
     implementing Formspec Verifier port** `[6 / 5 / 5]` (30) — **M**. Status: PARTIAL
@@ -319,7 +309,10 @@ are post-MVP or adopter-triggered work.
     Implementation landed: `trellis/crates/trellis-formspec-signature` implements the
     Formspec Verifier port and verifies Ed25519 COSE_Sign1 bytes against detached signed payload
     bytes using the shared Formspec COSE helper crate plus Trellis-side key semantics.
-    Remaining: PQC suites as Trellis adds them; receipt signing using Trellis-managed signing
+    Stack convergence plan: [`../thoughts/plans/2026-05-09-signature-wire-convergence-plan.md`](../thoughts/plans/2026-05-09-signature-wire-convergence-plan.md).
+    Remaining: fix the dependency/story mismatch (`trellis-formspec-signature` claims Trellis-COSE
+    but uses `formspec-signature-cose`; either remove unused `trellis-cose` / `trellis-core` deps
+    or migrate to the settled shared COSE primitive); PQC suites as Trellis adds them; receipt signing using Trellis-managed signing
     keys; cross-adapter byte-equivalence test
     (same signature verified by webcrypto AND Trellis adapter produces identical receipts
     modulo adapter id field); Python mirror at trellis/trellis-py/src/trellis_py/formspec_signature.py.
@@ -329,13 +322,26 @@ are post-MVP or adopter-triggered work.
     Per Trellis ADR 0007 (as amended 2026-05-08 by ADR-0090): certificate-of-completion
     embeds VerificationReceipt for each signature in the certificate's signature-event
     entries. The receipt is carried as COSE_Sign1 bytes alongside the UCA reference.
-    Remaining: update trellis.certificate-of-completion.v1 shape per spec;
+    Stack convergence plan: [`../thoughts/plans/2026-05-09-signature-wire-convergence-plan.md`](../thoughts/plans/2026-05-09-signature-wire-convergence-plan.md).
+    Remaining: settle the single normative receipt location (UCA payload, certificate
+    signature-event row, or both with one authoritative binding rule); update
+    trellis.certificate-of-completion.v1 shape per spec;
     update Rust verifier (trellis-verify certificate finalization) to validate
     receipt-aware certificate; update Python mirror; update
     trellis/specs/trellis-requirements-matrix.md with TR-CORE rows for
     receipt-bearing certificates.
     Gate: TRELLIS-FORMSPEC-SIGNATURE-ADAPTER-001 must land first (receipt bytes
     must be producible before they can be embedded).
+
+ 19a. **TRELLIS-COSE-PRIMITIVE-BOUNDARY-001 — Clarify Trellis COSE substrate**
+    `[6 / 3 / 5]` (30) — **S**.
+    `trellis-cose` currently constructs Trellis Phase-1 COSE_Sign1 bytes; parsing lives in
+    `trellis-verify`, while Formspec detached-payload parsing lives in `formspec-signature-cose`.
+    That split is acceptable only if it is named honestly and covered by vectors.
+    Remaining: decide whether `trellis-cose` expands into generic parse/verify helpers used by
+    `trellis-verify` and `trellis-formspec-signature`, or stays a Trellis event-signing
+    construction crate while shared generic COSE lives elsewhere; update crate docs/deps and
+    add profile-equivalence vectors for overlapping `Sig_structure` behavior.
 
  20. **TRELLIS-003 residue — `prev_hash` write guard at append time** — **XS**.
     DDIA remediation landed sequence-continuity validation + `SequenceGap` error
