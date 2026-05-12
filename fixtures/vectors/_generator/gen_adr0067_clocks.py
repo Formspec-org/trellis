@@ -311,7 +311,7 @@ def append_specs() -> list[dict]:
             "dir": "append/043-clock-started",
             "vector_id": "043",
             "description": "ADR 0067 clockStarted record opening a statutory response clock.",
-            "event_type": b"wos.clock.started",
+            "event_type": b"wos.governance.clock_started",
             "sequence": 0,
             "timestamp": ts(1_777_001_043),
             "idempotency_key": b"idemp-adr0067-043",
@@ -331,7 +331,7 @@ def append_specs() -> list[dict]:
             "dir": "append/044-clock-satisfied",
             "vector_id": "044",
             "description": "ADR 0067 clockResolved record satisfying the opened response clock.",
-            "event_type": b"wos.clock.resolved",
+            "event_type": b"wos.governance.clock_resolved",
             "sequence": 1,
             "timestamp": ts(1_777_001_044),
             "idempotency_key": b"idemp-adr0067-044",
@@ -349,7 +349,7 @@ def append_specs() -> list[dict]:
             "dir": "append/045-clock-elapsed",
             "vector_id": "045",
             "description": "ADR 0067 clockResolved record marking an independent notice clock elapsed.",
-            "event_type": b"wos.clock.resolved",
+            "event_type": b"wos.governance.clock_resolved",
             "sequence": 2,
             "timestamp": ts(1_777_001_045),
             "idempotency_key": b"idemp-adr0067-045",
@@ -367,7 +367,7 @@ def append_specs() -> list[dict]:
             "dir": "append/046-clock-paused-resumed",
             "vector_id": "046",
             "description": "ADR 0067 residual clockStarted segment after a pause/resume boundary.",
-            "event_type": b"wos.clock.started",
+            "event_type": b"wos.governance.clock_started",
             "sequence": 3,
             "timestamp": ts(1_777_001_046),
             "idempotency_key": b"idemp-adr0067-046",
@@ -690,11 +690,11 @@ def build_export(
             "ruleset_digest": marker_bytes("clock-ruleset"),
         },
         "event_types": {
-            "wos.clock.resolved": {
+            "wos.governance.clock_resolved": {
                 "privacy_class": "public",
                 "commitment_schema": "x-trellis-test/clock-resolved-v1",
             },
-            "wos.clock.started": {
+            "wos.governance.clock_started": {
                 "privacy_class": "public",
                 "commitment_schema": "x-trellis-test/clock-started-v1",
             },
@@ -841,7 +841,7 @@ def generate_verify_and_tamper(seed: bytes, kid: bytes, pubkey: bytes, appends: 
 
     tamper_specs = [
         {
-            "event_type": b"wos.clock.started",
+            "event_type": b"wos.governance.clock_started",
             "sequence": 0,
             "timestamp": ts(1_777_001_151),
             "idempotency_key": b"idemp-adr0067-tamper-start",
@@ -858,14 +858,14 @@ def generate_verify_and_tamper(seed: bytes, kid: bytes, pubkey: bytes, appends: 
             ),
         },
         {
-            "event_type": b"wos.clock.resolved",
+            "event_type": b"wos.governance.clock_resolved",
             "sequence": 1,
             "timestamp": ts(1_777_001_152),
             "idempotency_key": b"idemp-adr0067-tamper-pause",
             "record": None,
         },
         {
-            "event_type": b"wos.clock.started",
+            "event_type": b"wos.governance.clock_started",
             "sequence": 2,
             "timestamp": ts(1_777_001_153),
             "idempotency_key": b"idemp-adr0067-tamper-resume",

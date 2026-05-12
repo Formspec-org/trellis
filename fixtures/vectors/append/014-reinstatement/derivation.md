@@ -7,7 +7,7 @@ ADR 0066 mode 5 reinstatement event on the same chain.
 - Issuer key: `_keys/issuer-001.cose_key` (Ed25519 / suite-id 1).
 - `ledger_scope` = `wos-case:adr0066-fixture-primary`
 - `sequence` = `3`
-- `prev_hash` = `77e0d5c74dc9f6817cfb101eed28352f826de0a0db51f5f82417500667b145ec`
+- `prev_hash` = `7d3677f5dad1a17e3e5c8cb498cd2ac04ecd033c207b9285c1614d67087aa649`
 - `event_type` = `wos.governance.reinstated`
 - WOS/Formspec-owned payload bytes: `input-adr0066-record.cbor`.
 
@@ -19,7 +19,7 @@ signature, and `canonical_event_hash`.
 ## Pinned hashes
 
 - `content_hash` = `f2f4c6c32dfa930212d98656567fe988838699a1ea3120e9cf0d5b9cb3e05f4b`
-- `author_event_hash` = `92e9095ba9caa2215684b63e727e7bd7bd40987b4c892a2f738bbd6663977e3a`
-- `canonical_event_hash` = `4de23e6fd5982d4cadb65d4ff561486fbb46060d27d7999b9c368b72cf0cfef7`
+- `author_event_hash` = `f32f4ec6d0bdf0b3f8a00d2aa1ab9e1f824bccf6e09cc8a60ff7d46ef964b967`
+- `canonical_event_hash` = `6db7fe19a9c4b17698a15281004031b949bb3cac598c2fe3324822e43f74699b`
 
 Generator: `fixtures/vectors/_generator/gen_append_011_to_015.py`.

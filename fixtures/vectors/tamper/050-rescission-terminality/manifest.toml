@@ -1,7 +1,7 @@
 id = "tamper/050-rescission-terminality"
 op = "tamper"
 status = "active"
-description = "Validly signs and hash-links a determination amendment after `wos.governance.determinationRescinded` without an intervening reinstatement. ADR 0066 D-3 requires `rescission_terminality_violation`."
+description = "Validly signs and hash-links a determination amendment after `wos.governance.determination_rescinded` without an intervening reinstatement. ADR 0066 D-3 requires `rescission_terminality_violation`."
 
 [coverage]
 tr_core = [
@@ -19,7 +19,7 @@ structure_verified = true
 integrity_verified = false
 readability_verified = true
 tamper_kind = "rescission_terminality_violation"
-failing_event_id = "cdd4221c5b5bbc78c59b9a173e773cabf9eefbb491e22c9554bf11fac974042e"
+failing_event_id = "8f4cb327446d72a0040b536c9b8794cfa6619f5a07ce86c529965cc6883a74fe"
 
 [derivation]
 document = "derivation.md"

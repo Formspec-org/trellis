@@ -116,7 +116,7 @@ def build_domain_registry() -> bytes:
                 "ruleset_digest": sha256(b"x-trellis-test/governance-ruleset-signature-v1"),
             },
             "event_types": {
-                "wos.kernel.signatureAffirmation": {
+                "wos.kernel.signature_affirmation": {
                     "privacy_class": "restricted",
                     "binding_family": "wos.signatureProfile",
                 }

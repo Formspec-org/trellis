@@ -3,7 +3,7 @@
 Genesis append vector for a WOS Signature Profile `SignatureAffirmation`
 Facts-tier provenance record. Same §23 composition contract as
 `append/010-wos-custody-hook-state-transition`, but the payload family is
-`wos.kernel.signatureAffirmation` and the readable inline bytes are the
+`wos.kernel.signature_affirmation` and the readable inline bytes are the
 WOS-authored `signatureAffirmation` record (dCBOR).
 
 ## Pinned WOS inputs

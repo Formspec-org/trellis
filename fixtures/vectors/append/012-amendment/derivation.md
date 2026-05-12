@@ -7,8 +7,8 @@ ADR 0066 mode 2 determination-changing amendment event on the same chain.
 - Issuer key: `_keys/issuer-001.cose_key` (Ed25519 / suite-id 1).
 - `ledger_scope` = `wos-case:adr0066-fixture-primary`
 - `sequence` = `1`
-- `prev_hash` = `0a18e130f3c5f47957860066ddffcc0ffb2e1c138ce951c6cb0a7c3c20197634`
-- `event_type` = `wos.governance.determinationAmended`
+- `prev_hash` = `cdc659202e1bcd425cf18e36202793e7300491e0043f5d7907106dbd51421ef0`
+- `event_type` = `wos.governance.determination_amended`
 - WOS/Formspec-owned payload bytes: `input-adr0066-record.cbor`.
 
 The payload record is dCBOR-encoded as the inline ciphertext marker. Trellis
@@ -19,7 +19,7 @@ signature, and `canonical_event_hash`.
 ## Pinned hashes
 
 - `content_hash` = `d6cb0b7a5147516c3d4f13c80525b8eed37fb9f4bd96ae83f8c6c61d35e666ac`
-- `author_event_hash` = `c564517ca11cef44d303197507b0a8acf01a051936c5567cad4f397989252076`
-- `canonical_event_hash` = `6af990a8cadb34f4deb57fcf39c0b03d09382222750f05609a7277804ad66acd`
+- `author_event_hash` = `84d40e7c0ccaccc0cd4345a867fa58076bd37eec8f656664e89e204dc5c20742`
+- `canonical_event_hash` = `948cb5ec7f4afcd1842c66de18c02ed5d34ff2499e28daea6588390ee3910e97`
 
 Generator: `fixtures/vectors/_generator/gen_append_011_to_015.py`.

@@ -231,11 +231,11 @@ def build_domain_registry() -> bytes:
                 "ruleset_digest": sha256(b"x-trellis-test/governance-ruleset-intake-v1"),
             },
             "event_types": {
-                "wos.kernel.intakeAccepted": {
+                "wos.kernel.intake_accepted": {
                     "privacy_class": "restricted",
                     "binding_family": "wos.intake",
                 },
-                "wos.kernel.caseCreated": {
+                "wos.kernel.case_created": {
                     "privacy_class": "restricted",
                     "binding_family": "wos.intake",
                 },
@@ -861,7 +861,7 @@ def build_vectors() -> None:
             case_ref=WORKFLOW_CASE_ID,
         ),
         case_id=WORKFLOW_CASE_ID,
-        event_type=b"wos.kernel.intakeAccepted",
+        event_type=b"wos.kernel.intake_accepted",
         authored_at=WORKFLOW_AUTHORED_AT,
         sequence=0,
         prev_hash=None,
@@ -892,7 +892,7 @@ is `attachToExistingCase` and no `caseCreated` record is emitted.
             definition_version=WORKFLOW_DEFINITION_VERSION,
         ),
         case_id=PUBLIC_CASE_ID,
-        event_type=b"wos.kernel.intakeAccepted",
+        event_type=b"wos.kernel.intake_accepted",
         authored_at=PUBLIC_INTAKE_AUTHORED_AT,
         sequence=0,
         prev_hash=None,
@@ -919,7 +919,7 @@ Definition URL/version that justified the new governed case.
             handoff=public,
         ),
         case_id=PUBLIC_CASE_ID,
-        event_type=b"wos.kernel.caseCreated",
+        event_type=b"wos.kernel.case_created",
         authored_at=PUBLIC_CASE_CREATED_AUTHORED_AT,
         sequence=1,
         prev_hash=append_021["canonical_event_hash"],
@@ -981,8 +981,8 @@ This fixture realizes the Trellis side of ADR 0073 for the public-intake path.
 
 The export carries two admitted WOS facts-tier events in canonical order:
 
-1. `wos.kernel.intakeAccepted`
-2. `wos.kernel.caseCreated`
+1. `wos.kernel.intake_accepted`
+2. `wos.kernel.case_created`
 
 `063-intake-handoffs.cbor` is chain-derived rather than independently authored:
 it names the admitting event hashes, embeds the exact Formspec `IntakeHandoff`,
@@ -1111,7 +1111,7 @@ Response bytes.
     append_021_empty = build_signed_append_event(
         record=public_empty_intake,
         case_id=PUBLIC_CASE_ID,
-        event_type=b"wos.kernel.intakeAccepted",
+        event_type=b"wos.kernel.intake_accepted",
         authored_at=PUBLIC_INTAKE_AUTHORED_AT,
         sequence=0,
         prev_hash=None,
@@ -1119,7 +1119,7 @@ Response bytes.
     append_022_empty = build_signed_append_event(
         record=public_empty_case_created,
         case_id=PUBLIC_CASE_ID,
-        event_type=b"wos.kernel.caseCreated",
+        event_type=b"wos.kernel.case_created",
         authored_at=PUBLIC_CASE_CREATED_AUTHORED_AT,
         sequence=1,
         prev_hash=append_021_empty["canonical_event_hash"],

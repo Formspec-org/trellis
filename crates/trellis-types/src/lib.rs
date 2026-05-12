@@ -32,6 +32,16 @@ pub const COSE_LABEL_SUITE_ID: i128 = -65_537;
 /// [`COSE_LABEL_SUITE_ID`] (here `n = 65536` gives `-65537`).
 pub const COSE_SUITE_ID_LABEL_MAGNITUDE: u64 = 65_536;
 
+/// COSE protected-header map label for Trellis `profile_id` (Core §7.4).
+///
+/// The label follows the sequentially-descending Trellis private-use header
+/// allocation after `suite_id = -65537` and `artifact_type = -65538`.
+pub const COSE_LABEL_PROFILE_ID: i128 = -65_539;
+
+/// Unsigned magnitude `n` such that the CBOR negative integer `-1 - n` equals
+/// [`COSE_LABEL_PROFILE_ID`] (here `n = 65538` gives `-65539`).
+pub const COSE_PROFILE_ID_LABEL_MAGNITUDE: u64 = 65_538;
+
 /// Signed and canonical event bytes stored after a successful append.
 ///
 /// `idempotency_key` is the optional Core §6.1 / §17 wire-contract
@@ -234,6 +244,14 @@ pub fn encode_cbor_negative_int(n: u64) -> Vec<u8> {
 #[must_use]
 pub fn encode_cose_suite_id_label() -> Vec<u8> {
     encode_major_len(1, COSE_SUITE_ID_LABEL_MAGNITUDE)
+}
+
+/// Encodes the CBOR map key bytes for [`COSE_LABEL_PROFILE_ID`].
+///
+/// Equivalent to canonical CBOR for integer `-65539` (`-1 - 65538`).
+#[must_use]
+pub fn encode_cose_profile_id_label() -> Vec<u8> {
+    encode_major_len(1, COSE_PROFILE_ID_LABEL_MAGNITUDE)
 }
 
 /// Computes a Trellis domain-separated SHA-256 digest.
@@ -492,7 +510,7 @@ fn encode_major_len(major: u8, value: u64) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_cose_suite_id_label, encode_uint};
+    use super::{encode_cose_profile_id_label, encode_cose_suite_id_label, encode_uint};
 
     #[test]
     fn encode_uint_matches_single_byte_for_small_suite_ids() {
@@ -504,6 +522,14 @@ mod tests {
         assert_eq!(
             encode_cose_suite_id_label(),
             vec![0x3a, 0x00, 0x01, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn encode_cose_profile_id_label_matches_allocated_bytes() {
+        assert_eq!(
+            encode_cose_profile_id_label(),
+            vec![0x3a, 0x00, 0x01, 0x00, 0x02]
         );
     }
 }

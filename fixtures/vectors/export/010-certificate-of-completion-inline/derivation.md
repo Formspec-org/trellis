@@ -9,11 +9,11 @@ three events on `ledger_scope = b'trellis-cert:export-010'`:
    "trellis-content-v1")`. The `trellis.evidence-attachment-binding.v1`
    extension declares `attachment_id = 'urn:trellis:attachment:cert-export-010'`.
 
-2. **Event 1 (sequence 1).** `wos.kernel.signatureAffirmation` Facts-tier
-   provenance record. `data.formspecResponseRef = "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"` —
-   a `sha256:<hex>` digest text so ADR 0007 step 7 cross-check has
-   parseable input. The certificate's `chain_summary.response_ref` echoes
-   the same 32-byte digest.
+2. **Event 1 (sequence 1).** `wos.kernel.signature_affirmation` Facts-tier
+   provenance record. `data.signedPayloadDigest = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"` —
+   a 32-byte sha-256 hex digest so ADR 0007 step 7 cross-check has parseable
+   input. The certificate's `chain_summary.response_ref` echoes the same
+   digest as bytes.
 
 3. **Event 2 (sequence 2).** `trellis.certificate-of-completion.v1` —
    `presentation_artifact.attachment_id` resolves through event 0's

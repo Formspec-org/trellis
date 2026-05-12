@@ -9,8 +9,10 @@ use ciborium::Value;
 use trellis_verify::{DomainEvent, DomainExport, RecordValidator, Severity, TrellisTimestamp};
 
 use crate::event_types::{
-    OPEN_CLOCKS_EXPORT_EXTENSION, WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE,
-    WOS_GOVERNANCE_REINSTATED_EVENT_TYPE, WOS_IDENTITY_ATTESTATION_EVENT_TYPE,
+    OPEN_CLOCKS_EXPORT_EXTENSION, WOS_CASE_CREATED_EVENT_TYPE,
+    WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE, WOS_GOVERNANCE_REINSTATED_EVENT_TYPE,
+    WOS_IDENTITY_ATTESTATION_EVENT_TYPE, WOS_INTAKE_ACCEPTED_EVENT_TYPE,
+    WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE,
 };
 use crate::validator::WosRecordValidator;
 
@@ -83,7 +85,25 @@ fn validator_admits_wos_identity_attestation_event_type() {
     );
     assert!(
         !WosRecordValidator
-            .admits_identity_attestation_event_type("wos.identity.authenticationMethod")
+            .admits_identity_attestation_event_type("wos.identity.authentication_method")
+    );
+}
+
+#[test]
+fn wos_event_type_constants_use_f13_snake_case_literals() {
+    assert_eq!(
+        WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE,
+        "wos.kernel.signature_affirmation"
+    );
+    assert_eq!(WOS_INTAKE_ACCEPTED_EVENT_TYPE, "wos.kernel.intake_accepted");
+    assert_eq!(WOS_CASE_CREATED_EVENT_TYPE, "wos.kernel.case_created");
+    assert_eq!(
+        WOS_IDENTITY_ATTESTATION_EVENT_TYPE,
+        "wos.assurance.identity_attestation"
+    );
+    assert_eq!(
+        WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE,
+        "wos.governance.determination_rescinded"
     );
 }
 
@@ -91,7 +111,7 @@ fn validator_admits_wos_identity_attestation_event_type() {
 fn validator_reports_rescission_terminality_as_wos_finding() {
     let findings = WosRecordValidator.validate_events(&[
         event(WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE, 1, None),
-        event("wos.governance.determinationDenied", 2, None),
+        event("wos.governance.determination_denied", 2, None),
     ]);
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].kind, "rescission_terminality_violation");
@@ -103,7 +123,7 @@ fn validator_allows_determination_after_reinstatement() {
     let findings = WosRecordValidator.validate_events(&[
         event(WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE, 1, None),
         event(WOS_GOVERNANCE_REINSTATED_EVENT_TYPE, 2, None),
-        event("wos.governance.determinationDenied", 3, None),
+        event("wos.governance.determination_denied", 3, None),
     ]);
     assert!(findings.is_empty());
 }
@@ -112,17 +132,17 @@ fn validator_allows_determination_after_reinstatement() {
 fn validator_reports_clock_calendar_mismatch_as_wos_finding() {
     let findings = WosRecordValidator.validate_events(&[
         event(
-            "wos.governance.clockStarted",
+            "wos.governance.clock_started",
             1,
             Some(clock_started("clock-1", "review", Some("fed-calendar"))),
         ),
         event(
-            "wos.governance.clockResolved",
+            "wos.governance.clock_resolved",
             2,
             Some(clock_paused("clock-1")),
         ),
         event(
-            "wos.governance.clockStarted",
+            "wos.governance.clock_started",
             3,
             Some(clock_started("clock-1", "review", Some("state-calendar"))),
         ),

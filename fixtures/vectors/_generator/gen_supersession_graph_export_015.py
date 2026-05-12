@@ -125,7 +125,7 @@ def build_event_payload(
 ) -> tuple[dict, bytes, bytes]:
     content_hash = domain_separated_sha256(TAG_TRELLIS_CONTENT_V1, payload_marker)
     header = {
-        "event_type": b"wos.case.supersessionStarted",
+        "event_type": b"wos.kernel.supersession_started",
         "extensions": None,
         "authored_at": authored_at,
         "witness_ref": None,
@@ -258,7 +258,7 @@ def build_custom_export(
             "ruleset_digest": sha256(b"adr0066-supersession-graph-ruleset"),
         },
         "event_types": {
-            "wos.case.supersessionStarted": {
+            "wos.kernel.supersession_started": {
                 "privacy_class": "public",
                 "commitment_schema": "x-trellis-test/adr0066-supersession-started-v1",
             }
@@ -393,7 +393,7 @@ def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, byte
             "ruleset_digest": sha256(b"adr0066-supersession-graph-ruleset"),
         },
         "event_types": {
-            "wos.case.supersessionStarted": {
+            "wos.kernel.supersession_started": {
                 "privacy_class": "public",
                 "commitment_schema": "x-trellis-test/adr0066-supersession-started-v1",
             }

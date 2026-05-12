@@ -22,7 +22,7 @@ The authored WOS record is the dCBOR-native record in
 - `event = "submitted"`
 - `timestamp = "2026-04-21T14:30:00Z"`
 
-The Trellis event header uses `event_type = "wos.kernel.stateTransition"`.
+The Trellis event header uses `event_type = "wos.kernel.state_transition"`.
 This satisfies Core §23.4's `wos.*` namespace rule and remains
 outcome-neutral: the event type names the WOS record family, not whether a
 benefit, permit, claim, or other adjudication was granted or denied.

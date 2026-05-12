@@ -5,10 +5,10 @@ The vector builds a valid four-event chain:
 1. `append/011-correction`
 2. `append/012-amendment`
 3. `append/013-rescission`
-4. a freshly signed `wos.governance.determinationAmended` event
+4. a freshly signed `wos.governance.determination_amended` event
 
 The final event is hash-linked, content-hash-valid, and signature-valid, but
-it appears after `wos.governance.determinationRescinded` without an
+it appears after `wos.governance.determination_rescinded` without an
 intervening `wos.governance.reinstated` event. Core §19 step 4.h therefore
 must report `rescission_terminality_violation`.
 """
@@ -138,7 +138,7 @@ def build_terminality_event(
     record_bytes = dcbor(record)
     content_hash = domain_separated_sha256(TAG_TRELLIS_CONTENT_V1, record_bytes)
     header = build_event_header(
-        b"wos.governance.determinationAmended",
+        b"wos.governance.determination_amended",
         ts(1_777_000_050),
     )
     payload_ref = {
@@ -188,7 +188,7 @@ def manifest_for(failing_event_id: str) -> str:
     return f'''id = "tamper/050-rescission-terminality"
 op = "tamper"
 status = "active"
-description = "Validly signs and hash-links a determination amendment after `wos.governance.determinationRescinded` without an intervening reinstatement. ADR 0066 D-3 requires `rescission_terminality_violation`."
+description = "Validly signs and hash-links a determination amendment after `wos.governance.determination_rescinded` without an intervening reinstatement. ADR 0066 D-3 requires `rescission_terminality_violation`."
 
 [coverage]
 tr_core = [
@@ -219,18 +219,18 @@ def derivation_for(failing_event_id: str, rescission_hash: str) -> str:
 This vector exercises ADR 0066 D-3 rescission terminality. The first three
 events are copied byte-for-byte from `append/011-correction`,
 `append/012-amendment`, and `append/013-rescission`. The fourth event is a new
-`wos.governance.determinationAmended` event with:
+`wos.governance.determination_amended` event with:
 
 - `sequence` = `3`
 - `prev_hash` = `{rescission_hash}`
-- `event_type` = `wos.governance.determinationAmended`
+- `event_type` = `wos.governance.determination_amended`
 
 The fourth event recomputes `content_hash`, `author_event_hash`, and
 `canonical_event_hash`, then signs the resulting payload under
 `issuer-001`. Hash linkage, content hash, and signature verification all pass.
 
 The failure is semantic and chain-local: the chain already observed
-`wos.governance.determinationRescinded`, and no
+`wos.governance.determination_rescinded`, and no
 `wos.governance.reinstated` event appears before the later determination
 amendment. Core section 19 step 4.h / TR-CORE-171 requires the verifier to
 record `rescission_terminality_violation`.

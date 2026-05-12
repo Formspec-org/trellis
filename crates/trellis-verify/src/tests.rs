@@ -21,13 +21,13 @@ use crate::{verify_event_set, verify_export_zip, verify_single_event, verify_tam
 #[test]
 fn identity_attestation_event_type_is_core_fixture_only() {
     assert!(!is_identity_attestation_event_type(
-        "wos.identity.identityAttestation"
+        "wos.assurance.identity_attestation"
     ));
     assert!(is_identity_attestation_event_type(
         "x-trellis-test/identity-attestation/v1"
     ));
     assert!(!is_identity_attestation_event_type(
-        "wos.identity.authenticationMethod"
+        "wos.identity.authentication_method"
     ));
 }
 

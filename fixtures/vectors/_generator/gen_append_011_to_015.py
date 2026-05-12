@@ -214,7 +214,7 @@ def mode_specs() -> list[dict]:
             "mode": "correction",
             "ledger_scope": CHAIN_SCOPE,
             "sequence": 0,
-            "event_type": b"wos.governance.correctionAuthorized",
+            "event_type": b"wos.governance.correction_authorized",
             "timestamp": ts(1_777_000_011),
             "idempotency_key": b"idemp-adr0066-011",
             "record": {
@@ -240,7 +240,7 @@ def mode_specs() -> list[dict]:
             "mode": "amendment",
             "ledger_scope": CHAIN_SCOPE,
             "sequence": 1,
-            "event_type": b"wos.governance.determinationAmended",
+            "event_type": b"wos.governance.determination_amended",
             "timestamp": ts(1_777_000_012),
             "idempotency_key": b"idemp-adr0066-012",
             "record": {
@@ -266,7 +266,7 @@ def mode_specs() -> list[dict]:
             "mode": "rescission",
             "ledger_scope": CHAIN_SCOPE,
             "sequence": 2,
-            "event_type": b"wos.governance.determinationRescinded",
+            "event_type": b"wos.governance.determination_rescinded",
             "timestamp": ts(1_777_000_013),
             "idempotency_key": b"idemp-adr0066-013",
             "record": {
@@ -311,7 +311,7 @@ def mode_specs() -> list[dict]:
             "mode": "supersession",
             "ledger_scope": SUPERSEDING_SCOPE,
             "sequence": 0,
-            "event_type": b"wos.case.supersessionStarted",
+            "event_type": b"wos.kernel.supersession_started",
             "timestamp": ts(1_777_000_015),
             "idempotency_key": b"idemp-adr0066-015",
             "extensions": {

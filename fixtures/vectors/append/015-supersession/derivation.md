@@ -8,7 +8,7 @@ ADR 0066 mode 3 new-chain supersession event with registered Trellis linkage ext
 - `ledger_scope` = `wos-case:adr0066-fixture-superseding`
 - `sequence` = `0`
 - `prev_hash` = `null`
-- `event_type` = `wos.case.supersessionStarted`
+- `event_type` = `wos.kernel.supersession_started`
 - WOS/Formspec-owned payload bytes: `input-adr0066-record.cbor`.
 
 The payload record is dCBOR-encoded as the inline ciphertext marker. Trellis
@@ -29,7 +29,7 @@ This pins Core section 6.7 / section 28 and TR-CORE-169 at the fixture layer.
 ## Pinned hashes
 
 - `content_hash` = `664844849cf23dd192b8f417259472980393649479a453bb0834f1f23e02d002`
-- `author_event_hash` = `93dd707574bd3dca9664acbdfa66dde24feb298f5dae0e370f96e7894911f2ec`
-- `canonical_event_hash` = `fe36ecae153d6d430a07b06ef57ddfe718d33cd579978c65125cf50882258278`
+- `author_event_hash` = `fe961a0cb52e4e87419fea6122774a7cd9bcdfa3dead8210fc8b9bac164ae4e3`
+- `canonical_event_hash` = `d20ed042de676cc31d2772b269878261635ac6faf372e93a2bd44369b6a6b4d0`
 
 Generator: `fixtures/vectors/_generator/gen_append_011_to_015.py`.

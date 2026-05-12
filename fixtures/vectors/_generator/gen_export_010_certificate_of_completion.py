@@ -11,7 +11,7 @@ Chain shape (single ledger_scope `trellis-cert:export-010`):
   | seq | event                           | event_type                              |
   |-----|---------------------------------|----------------------------------------|
   | 0   | attachment-binding event        | formspec.attachment.added              |
-  | 1   | WOS SignatureAffirmation event  | wos.kernel.signatureAffirmation        |
+  | 1   | WOS SignatureAffirmation event  | wos.kernel.signature_affirmation        |
   | 2   | certificate-of-completion event | trellis.certificate-of-completion.v1   |
 
 Event 0 binds the attachment that carries the presentation-artifact bytes
@@ -261,7 +261,7 @@ def build_domain_registry() -> bytes:
                     "privacy_class": "restricted",
                     "binding_family": "trellis.attachment-binding",
                 },
-                "wos.kernel.signatureAffirmation": {
+                "wos.kernel.signature_affirmation": {
                     "privacy_class": "restricted",
                     "binding_family": "wos.signature-affirmation",
                 },
@@ -459,7 +459,7 @@ def build_signature_affirmation_event(
     signed_payload_digest_override: str | None = None,
     idempotency_preimage_record_id: str = "export-010-prov-001",
 ) -> dict:
-    """Event 1 — wos.kernel.signatureAffirmation Facts-tier provenance.
+    """Event 1 — wos.kernel.signature_affirmation Facts-tier provenance.
     Mirrors `append/019-wos-signature-affirmation` shape, but uses the
     deterministic `signedPayloadDigest` marker so ADR 0007 step 7 has
     parseable sha-256 input without overloading `sourceResponseRef`.
@@ -530,7 +530,7 @@ def build_signature_affirmation_event(
         sequence=1,
         prev_hash=prev_hash,
         authored_at=ts(GENERATED_AT[0] - 50),
-        event_type="wos.kernel.signatureAffirmation",
+        event_type="wos.kernel.signature_affirmation",
         classification=CLASSIFICATION_SIGAFF,
         content_hash=content_hash,
         payload_ref=payload_ref,
@@ -918,7 +918,7 @@ def build_export_010(
         f'''id          = "export/010-certificate-of-completion-inline"
 op          = "export"
 status      = "active"
-description = """ADR 0007 §"Export manifest catalog" positive vector. Three-event chain `[attachment-binding, wos.kernel.signatureAffirmation, trellis.certificate-of-completion.v1]` with `065-certificates-of-completion.cbor` bound through `trellis.export.certificates-of-completion.v1`. Exercises the full ADR 0007 verifier-obligations path: step 4 (attachment lineage + content-hash recompute), step 5 (signing-event resolution), step 6 (timestamp equivalence), step 7 (response_ref cross-check)."""
+description = """ADR 0007 §"Export manifest catalog" positive vector. Three-event chain `[attachment-binding, wos.kernel.signature_affirmation, trellis.certificate-of-completion.v1]` with `065-certificates-of-completion.cbor` bound through `trellis.export.certificates-of-completion.v1`. Exercises the full ADR 0007 verifier-obligations path: step 4 (attachment lineage + content-hash recompute), step 5 (signing-event resolution), step 6 (timestamp equivalence), step 7 (response_ref cross-check)."""
 
 [coverage]
 tr_core = [
@@ -965,7 +965,7 @@ three events on `ledger_scope = {LEDGER_SCOPE!r}`:
    "trellis-content-v1")`. The `trellis.evidence-attachment-binding.v1`
    extension declares `attachment_id = {ATTACHMENT_ID!r}`.
 
-2. **Event 1 (sequence 1).** `wos.kernel.signatureAffirmation` Facts-tier
+2. **Event 1 (sequence 1).** `wos.kernel.signature_affirmation` Facts-tier
    provenance record. `data.signedPayloadDigest = "{RESPONSE_HASH_HEX}"` —
    a 32-byte sha-256 hex digest so ADR 0007 step 7 cross-check has parseable
    input. The certificate's `chain_summary.response_ref` echoes the same
