@@ -44,15 +44,17 @@ This companion is stable for production use as of the 1.0.0 release. Where this 
 
 Trellis Core and this companion divide the Trellis specification surface along a single boundary: **bytes versus obligations**.
 
-**Trellis Core owns:**
+**Substrate authority.** As of 2026-05-12, the byte-level primitives that Trellis Core composes (CBOR encoding, COSE_Sign1 envelope, length-prefixed domain separation, deterministic ZIP) are owned upstream by `integrity-stack/crates/` (see Trellis Core §1 (Introduction) §1.5 and §7 (Signature Profile)'s signature profile composition). Trellis Core is the Trellis composition over that substrate; this companion is the operator-obligation layer above Trellis Core. The boundary below is unchanged in substance — Core still owns "bytes," this companion still owns "obligations" — but Core's authority over those byte structures is by composition over the substrate, not by independent re-specification.
 
-- canonical CBOR encoding,
-- envelope shape, header fields, and reserved positions,
-- hash construction over ciphertext,
+**Trellis Core owns (as the Core profile composition over `integrity-stack/`):**
+
+- canonical CBOR encoding (substrate: `integrity-cbor`),
+- envelope shape, header fields, and reserved positions (substrate: `integrity-cose` for COSE_Sign1 envelope; `integrity-event` for identity-free event sequence / kind / hash primitives),
+- hash construction over ciphertext (substrate: `integrity-canonical` for the domain-prefixed framing),
 - signature suite identity and the signing-key registry,
 - chain construction (`prev_hash`, causal-dependency reserve),
 - checkpoint format and the append-head binding,
-- export package layout,
+- export package layout (substrate: `integrity-bundle` for the deterministic ZIP byte structure),
 - key-lifecycle cryptographic mechanics (crypto-shredding primitives, re-wrap rules, `LedgerServiceWrapEntry`),
 - the offline verification algorithm,
 - the verification-independence contract,

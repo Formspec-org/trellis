@@ -98,6 +98,26 @@ This specification does not define:
 
 **The Phase 1 envelope IS the Phase 3 case-ledger event format.** Phase 2 and Phase 3 are strict supersets: they add runtime attestation (Phase 2) and case-scoped composition (Phase 3); they do not redefine the event. Later phases add data only through reserved extension containers defined in §6 and §11, and preserve the Phase 1 payload fields byte-for-byte. Phase 1 verifiers reject unknown top-level payload fields; forward compatibility comes from registered extension containers, not from accepting arbitrary top-level data. This is a normative commitment (§6.5 MUST-clause).
 
+### 1.5 Substrate authority (`integrity-stack/`)
+
+**This specification is the Trellis Core profile composition over the shared `integrity-stack/` byte substrate.** As of 2026-05-12 (per `REFACTOR-TODO.md` Phase 6), every byte-level primitive that Trellis composes is owned upstream by a substrate crate in `integrity-stack/crates/`:
+
+| Trellis section | Byte primitive | Substrate authority |
+|---|---|---|
+| §5 Canonical Encoding (dCBOR rules, map ordering, definite lengths) | CBOR encoding helpers | `integrity-stack/crates/integrity-cbor/` |
+| §7 Signature Profile (COSE_Sign1 envelope, `Sig_structure`, protected-header serialization) | COSE_Sign1 byte structure | `integrity-stack/crates/integrity-cose/` |
+| §9.1 Domain separation discipline (`len(tag) ‖ tag ‖ len(component) ‖ component` framing); §9.3 Content hash framing | Domain-prefixed canonical-bytes framing | `integrity-stack/crates/integrity-canonical/` |
+| §6.1 Event Format (sequence, prev_hash, content_hash structure as identity-free primitives) | Event-sequence / event-kind value types | `integrity-stack/crates/integrity-event/` |
+| §18 Export Package Layout (deterministic ZIP byte rules: STORED-only, zero extra fields, fixed mtime, lexicographic ordering, central-directory ordering, ZIP64 thresholds) | Deterministic ZIP byte structure | `integrity-stack/crates/integrity-bundle/` |
+
+The Trellis Core text below is the **profile composition**: it pins the Trellis-specific protected-header labels (`suite_id = -65537`, `artifact_type = -65538`, `profile_id = -65539`), the Trellis-specific domain-separation tags (`trellis-event-v1`, `trellis-author-event-v1`, `trellis-content-v1`, `trellis-checkpoint-v1`, `trellis-export-manifest-v1`, `trellis-merkle-leaf-v1`, `trellis-merkle-interior-v1`, and the application-specific tags registered in §9.8), the Trellis Phase 1 signature suite (`suite_id = 1` → Ed25519 over COSE_Sign1), the Trellis HPKE wrap discipline, the Trellis chain-construction rules (§10), the Trellis checkpoint format (§11), the Trellis export package layout and required archive members (§18), and the offline verification algorithm (§19) — none of which the substrate crates define.
+
+Where this document restates byte-level rules that the substrate owns (encoding rules in §5, COSE_Sign1 envelope rules in §7.4, the length-prefixed domain-separation framing in §9.1, the deterministic-ZIP rules in §18.1), the restatement is **for reader-coherence only**; if a future revision of this document drifts from substrate behavior, the substrate prevails by construction. A conformant implementation is one that composes the substrate primitives in the orders pinned here; an implementation that re-implements a substrate primitive locally and disagrees with substrate output is non-conformant.
+
+Implementations of this specification SHOULD depend directly on `integrity-stack/` crates rather than maintaining parallel byte-encoding code paths. The Rust reference (`trellis-core`, `trellis-cose`, `trellis-cbor`, `trellis-bundle`, `trellis-verify`) consumes the substrate crates by path under `Cargo.toml` workspace coupling; cross-language implementations SHOULD likewise treat the substrate vectors (when available) as the byte-authoritative cross-implementation reference for the primitives, with Trellis-specific vectors (§29, `fixtures/vectors/**`) authoritative for the Trellis Core profile composition.
+
+Traceability: **TR-CORE-177** (substrate-authority anchor row).
+
 ---
 
 ## 2. Conformance
@@ -164,6 +184,8 @@ Trellis-bound Formspec processors MUST implement at least Formspec Core conforma
 ## 5. Canonical Encoding
 
 **Requirement class:** Fact Producer, Canonical Append Service, Verifier, Export Generator.
+
+**Substrate authority.** Per §1.5, the dCBOR encoding helpers (`encode_uint`, `encode_bstr`, `encode_tstr`, `encode_major_len`, map-ordering and definite-length enforcement, CBOR map lookup) are owned by `integrity-stack/crates/integrity-cbor/`. The rules below restate the substrate's encoding profile so a reader can verify byte structure from this document alone; the substrate crate is the byte-authoritative implementation. An implementation that calls substrate helpers, in the orders pinned by this section, is correct by composition. The Trellis-specific concerns in §5 are the choice of dCBOR (RFC 8949 §4.2.2 Core Deterministic Encoding) as the pinned canonical encoding for every Trellis byte-level structure, and the reproducibility obligation (§5.2) that fixtures byte-match across implementations.
 
 ### 5.1 Pinned encoding: dCBOR
 
@@ -368,6 +390,8 @@ Traceability: **TR-CORE-069** (registry rule), **TR-OP-046** (custody-model + di
 ## 7. Signature Profile
 
 **Requirement class:** Fact Producer, Verifier.
+
+**Substrate authority.** Per §1.5, the COSE_Sign1 byte envelope — protected-header construction, RFC 9052 `Sig_structure` array assembly, payload-mode handling (embedded vs. detached), and Ed25519 sign/verify helper operations — is owned by `integrity-stack/crates/integrity-cose/`. The substrate crate also owns the COSE label allocation discipline used by Trellis: `COSE_LABEL_ALG = 1`, `COSE_LABEL_KID = 4`, `COSE_LABEL_SUITE_ID = -65537`, and `COSE_LABEL_PROFILE_ID = -65539`. The Trellis Signature Profile in §7 is the Trellis-specific composition of those substrate primitives: it pins `alg = -8` (EdDSA) and `suite_id = 1` (Ed25519) as the Phase 1 mandatory suite, names `artifact_type` under integer label `-65538`, defines the artifact-type values (`"event"`, `"checkpoint"`, `"manifest"`), specifies the migration discipline that makes a 2026 signature resolvable in 2045 (§7.3), and reserves the `suite_id` registry codepoints (§7.2). Substrate test vectors cover the COSE_Sign1 byte envelope; Trellis fixtures (§29, `fixtures/vectors/**`) cover the Trellis profile composition.
 
 Every signed artifact in Trellis — events, checkpoints, manifests, and signing-key-registry administrative entries — is a COSE_Sign1 value and carries an explicit `suite_id` identifying the signature suite used. A verifier that encounters an unregistered `suite_id` MUST reject the artifact. The `suite_id` registry (§26.2) is part of the IANA considerations.
 
@@ -647,6 +671,8 @@ ADR 0005 `ErasureEvidencePayload.key_class` uses the same five literals as `KeyE
 ## 9. Hash Construction
 
 **Requirement class:** Fact Producer, Canonical Append Service, Verifier.
+
+**Substrate authority.** Per §1.5, the length-prefixed domain-separation framing —`SHA-256(len(tag) ‖ tag ‖ len(component) ‖ component)` with 4-byte big-endian length prefixes — is owned by `integrity-stack/crates/integrity-canonical/`. The substrate crate exports the canonical framing primitive and the SHA-256 / SHA-384 / SHA-512 digest helpers used by every byte-level integrity construction in the stack (Formspec response signing, Trellis event/content/checkpoint hashing). The Trellis-specific concerns in §9 are the Trellis domain-tag namespace (§9.8: `trellis-event-v1`, `trellis-author-event-v1`, `trellis-content-v1`, `trellis-checkpoint-v1`, `trellis-export-manifest-v1`, `trellis-merkle-leaf-v1`, `trellis-merkle-interior-v1`, and the per-application tags), the choice of components per construction (`CanonicalEventHashPreimage`, `AuthorEventHashPreimage`, `CheckpointHashPreimage`, `ExportManifestHashPreimage`), the ciphertext-vs-plaintext discipline (§9.3 / §6.4 — load-bearing for crypto-shredding), the HPKE Base-mode payload-key wrap (§9.4), and the `author_event_hash` construction immutable under signing-key rotation (§9.5). The framing rule is restated below in skeleton form for reader-coherence; the substrate's framing function is the byte-authoritative implementation.
 
 ### 9.1 Domain separation discipline
 
@@ -1259,6 +1285,8 @@ Additional codes MAY be registered in Phase 2+.
 ## 18. Export Package Layout
 
 **Requirement class:** Export Generator (produces), Verifier (consumes).
+
+**Substrate authority.** Per §1.5, the deterministic-ZIP byte structure — entry ordering, local-file-header rules (zero extra-field length, fixed `1980-01-01T00:00:00Z` mtime in DOS time, zero external file attributes), the central-directory ordering, CRC32 computation, and the STORED-only compression-method requirement — is owned by `integrity-stack/crates/integrity-bundle/`. The substrate crate exports `BundleEntry`, the ZIP local-file-header / central-directory writer, and the deterministic-archive assembler used by every bundle composition in the stack. The Trellis-specific concerns in §18 are the export package's required archive members (§18.2), the filename-prefix convention (`000-`, `010-`, `020-`, `030-`, `040-`, `050-`, `060-`, `061-`, `062-`, `063-`, `064-`, `070-`, `090-`, `098-`, `099-`) that makes lexicographic order the required processing order, the manifest digest binding for every archive member (§18.3), the optional chain-derived catalog members (`061-attachments.cbor`, `062-signature-affirmations.cbor`, `063-intake-handoffs.cbor`, `064-supersession-graph.json`, `065-certificates-of-completion.cbor`, `open-clocks.json`), the head-format version commitment (§18.7) that pins Phase-1-vs-Phase-3 forward composition, and the `verify.sh` / `README.md` orientation members. The substrate is the byte-authoritative implementation of the ZIP wire shape; this section is the byte-authoritative spec for the Trellis archive composition.
 
 ### 18.1 Deterministic ZIP
 

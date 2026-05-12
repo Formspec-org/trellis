@@ -331,6 +331,22 @@ actively verified to be semantically identical. Not drift; cross-check.
 - If Python maintenance burden grows disproportionately to its
   integrity contribution.
 
+**Addendum 2026-05-12 — substrate split.** Per `REFACTOR-TODO.md` Phase 6
+/ Task 6.2, the Rust byte authority for primitive byte protocols (CBOR
+encoding, COSE_Sign1 envelope, length-prefixed domain separation,
+deterministic ZIP) now lives in `integrity-stack/crates/` (`integrity-cbor`,
+`integrity-cose`, `integrity-canonical`, `integrity-bundle`,
+`integrity-event`). Trellis Rust composes those substrate crates; Trellis
+spec prose composes their byte rules (Trellis Core §1.5 introduces the
+substrate authority pattern, §5 / §7 / §9.1 / §18.1 reference the
+substrate crates at their byte-protocol sections, and TR-CORE-177 anchors
+the substrate-authority requirement in the matrix). ADR 0004's "Rust is
+the byte authority" claim is unchanged in substance — Rust still wins on
+byte disagreement — but the authoritative Rust crates for the primitives
+are upstream substrate crates, not Trellis-local crates. Python
+generators in `fixtures/vectors/_generator/` remain the dual-impl
+cross-check for the Trellis profile composition.
+
 ---
 
 ## Implications for TODO.md
