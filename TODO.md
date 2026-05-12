@@ -299,23 +299,22 @@ are post-MVP or adopter-triggered work.
     positive, missing receipt, wrong signature event, digest mismatch, and invalid receipt
     signature so parity remains vector-enforced instead of prose-enforced.
 
-18. **TRELLIS-FORMSPEC-SIGNATURE-ADAPTER-001 — Optional Trellis-COSE adapter
-    implementing Formspec Verifier port** `[6 / 5 / 5]` (30) — **M**. Status: PARTIAL
-    Phase 4 of substrate boundary plan: create `trellis/crates/trellis-formspec-signature/`.
+18. **TRELLIS-FORMSPEC-SIGNATURE-ADAPTER-001 — Optional Trellis-owned
+    Formspec Verifier port adapter** `[6 / 5 / 5]` (30) — **M**. Status: RETIRED
+    The optional Trellis-owned verifier adapter was removed during stack
+    convergence. Trellis now stays on the UCA/certificate corroboration side of
+    the boundary, while Formspec verifier adapters own cryptographic receipt
+    production and registry policy.
     Spec-level deliverables landed: companion spec at
     trellis/specs/companion/formspec-signature-corroboration.md defining
     UCA→Formspec binding contract; ADR 0010 + 0007 cross-references for
     VerificationReceipt embedding in certificates.
-    Implementation landed: `trellis/crates/trellis-formspec-signature` implements the
-    Formspec Verifier port and verifies Ed25519 COSE_Sign1 bytes against detached signed payload
-    bytes using the shared Formspec COSE helper crate plus Trellis-side key semantics.
+    Implementation outcome: the adapter was not kept as a Trellis workspace
+    crate. Its Ed25519 detached COSE_Sign1 encode/decode/verify round-trip was
+    migrated into the shared COSE primitive test suite before deletion.
     Stack convergence plan: [`../thoughts/plans/2026-05-09-signature-wire-convergence-plan.md`](../thoughts/plans/2026-05-09-signature-wire-convergence-plan.md).
-    Remaining: fix the dependency/story mismatch (`trellis-formspec-signature` claims Trellis-COSE
-    but uses `formspec-signature-cose`; either remove unused `trellis-cose` / `trellis-core` deps
-    or migrate to the settled shared COSE primitive); PQC suites as Trellis adds them; receipt signing using Trellis-managed signing
-    keys; cross-adapter byte-equivalence test
-    (same signature verified by webcrypto AND Trellis adapter produces identical receipts
-    modulo adapter id field); Python mirror at trellis/trellis-py/src/trellis_py/formspec_signature.py.
+    Remaining: receipt-bearing certificate shape and verification remain tracked
+    below; no Trellis-owned Formspec verifier adapter work remains live here.
 
  19. **TRELLIS-CERTIFICATE-RECEIPT-EMBEDDING-001 — Embed VerificationReceipt
     in certificates of completion** `[5 / 4 / 4]` (20) — **S**.
@@ -335,13 +334,13 @@ are post-MVP or adopter-triggered work.
 
  19a. **TRELLIS-COSE-PRIMITIVE-BOUNDARY-001 — Clarify Trellis COSE substrate**
     `[6 / 3 / 5]` (30) — **S**.
-    `trellis-cose` currently constructs Trellis Phase-1 COSE_Sign1 bytes; parsing lives in
-    `trellis-verify`, while Formspec detached-payload parsing lives in `formspec-signature-cose`.
-    That split is acceptable only if it is named honestly and covered by vectors.
-    Remaining: decide whether `trellis-cose` expands into generic parse/verify helpers used by
-    `trellis-verify` and `trellis-formspec-signature`, or stays a Trellis event-signing
-    construction crate while shared generic COSE lives elsewhere; update crate docs/deps and
-    add profile-equivalence vectors for overlapping `Sig_structure` behavior.
+    `trellis-cose` currently re-exports the shared COSE_Sign1 primitives used by
+    Trellis event-signing construction and `trellis-verify` parsing. Formspec
+    detached-payload parsing also re-exports the same shared primitive through
+    its compatibility crate.
+    Remaining: keep Trellis-specific constructors and Formspec adapter policy
+    layered above the shared primitive; add profile-equivalence vectors when new
+    overlapping `Sig_structure` behavior lands.
 
  20. **TRELLIS-003 residue — `prev_hash` write guard at append time** — **XS**.
     DDIA remediation landed sequence-continuity validation + `SequenceGap` error

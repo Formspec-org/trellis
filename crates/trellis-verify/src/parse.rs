@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use ciborium::Value;
 use trellis_types::{
-    COSE_LABEL_SUITE_ID, decode_cbor_value, map_lookup_array, map_lookup_bool, map_lookup_bytes,
-    map_lookup_fixed_bytes, map_lookup_integer_label_bytes, map_lookup_integer_label_value,
+    decode_cbor_value, map_lookup_array, map_lookup_bool, map_lookup_bytes, map_lookup_fixed_bytes,
     map_lookup_map, map_lookup_optional_bytes, map_lookup_optional_fixed_bytes,
     map_lookup_optional_map, map_lookup_optional_text, map_lookup_optional_value, map_lookup_text,
     map_lookup_u64,
@@ -11,7 +10,7 @@ use trellis_types::{
 
 use super::{
     ATTACHMENT_EVENT_EXTENSION, ATTACHMENT_EXPORT_EXTENSION, CERTIFICATE_EVENT_EXTENSION,
-    CERTIFICATE_EXPORT_EXTENSION, COSE_LABEL_ALG, COSE_LABEL_KID, ERASURE_EVIDENCE_EVENT_EXTENSION,
+    CERTIFICATE_EXPORT_EXTENSION, ERASURE_EVIDENCE_EVENT_EXTENSION,
     ERASURE_EVIDENCE_EXPORT_EXTENSION, OPEN_CLOCKS_EXPORT_EXTENSION, RESERVED_NON_SIGNING_KIND,
     SUPERSEDES_CHAIN_ID_EVENT_EXTENSION, SUPERSESSION_GRAPH_EXPORT_EXTENSION,
     USER_CONTENT_ATTESTATION_EVENT_EXTENSION,
@@ -38,70 +37,30 @@ pub(crate) fn parse_sign1_bytes(bytes: &[u8]) -> Result<ParsedSign1, VerifyError
 }
 
 pub(crate) fn parse_sign1_value(value: &Value) -> Result<ParsedSign1, VerifyError> {
-    let tagged = match value {
-        Value::Tag(18, inner) => inner,
-        Value::Tag(tag, _) => {
-            return Err(VerifyError::new(format!(
-                "unexpected COSE tag {tag}; expected 18"
-            )));
-        }
-        _ => return Err(VerifyError::new("value is not a tag-18 COSE_Sign1 item")),
-    };
-    let items = tagged
-        .as_array()
-        .ok_or_else(|| VerifyError::new("COSE_Sign1 body is not an array"))?;
-    if items.len() != 4 {
-        return Err(VerifyError::new(
-            "COSE_Sign1 body does not contain four fields",
-        ));
-    }
-
-    let protected_bytes = items[0]
-        .as_bytes()
-        .cloned()
-        .ok_or_else(|| VerifyError::new("protected header is not a byte string"))?;
-    let protected_value = decode_value(&protected_bytes)?;
-    let protected_map = protected_value
-        .as_map()
-        .ok_or_else(|| VerifyError::new("protected header does not decode to a map"))?;
-    let kid = map_lookup_integer_label_bytes(protected_map, COSE_LABEL_KID)?;
-    let alg = map_lookup_integer_label_value(protected_map, COSE_LABEL_ALG)
-        .and_then(|value| value.as_integer())
+    let sign1 = trellis_cose::decode_cose_sign1_value(value)
+        .map_err(|error| VerifyError::new(error.to_string()))?;
+    let kid = sign1
+        .kid()
+        .map(<[u8]>::to_vec)
+        .ok_or_else(|| VerifyError::new("missing COSE label 4 bytes"))?;
+    let alg = sign1
+        .alg()
+        .ok_or_else(|| VerifyError::new("missing COSE label 1 integer"))?;
+    let suite_id = sign1
+        .suite_id()
         .map(i128::from)
-        .ok_or_else(|| VerifyError::new(format!("missing COSE label {COSE_LABEL_ALG} integer")))?;
-    let suite_id = map_lookup_integer_label_value(protected_map, COSE_LABEL_SUITE_ID)
-        .and_then(|value| value.as_integer())
-        .map(i128::from)
-        .ok_or_else(|| {
-            VerifyError::new(format!("missing COSE label {COSE_LABEL_SUITE_ID} integer"))
-        })?;
-
-    match &items[1] {
-        Value::Map(entries) if entries.is_empty() => {}
-        Value::Map(_) => return Err(VerifyError::new("unprotected header map must be empty")),
-        _ => return Err(VerifyError::new("unprotected header is not a map")),
-    }
-
-    let payload = match &items[2] {
-        Value::Bytes(bytes) => Some(bytes.clone()),
-        Value::Null => None,
-        _ => return Err(VerifyError::new("payload is neither bytes nor null")),
-    };
-    let signature = items[3]
-        .as_bytes()
-        .cloned()
-        .ok_or_else(|| VerifyError::new("signature is not a byte string"))?;
-    let signature: [u8; 64] = signature
-        .as_slice()
+        .ok_or_else(|| VerifyError::new("missing COSE label -65537 integer"))?;
+    let signature: [u8; 64] = sign1
+        .signature()
         .try_into()
         .map_err(|_| VerifyError::new("signature is not 64 bytes"))?;
 
     Ok(ParsedSign1 {
-        protected_bytes,
+        protected_bytes: sign1.protected_header().to_vec(),
         kid,
         alg,
         suite_id,
-        payload,
+        payload: sign1.payload().map(<[u8]>::to_vec),
         signature,
     })
 }

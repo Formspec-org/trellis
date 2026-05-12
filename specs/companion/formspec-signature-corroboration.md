@@ -16,12 +16,17 @@
 - The chain position is attested via `attested_event_hash` + `attested_event_position`.
 - Identity binding is attested via `identity_attestation_ref` (references an identity-attestation event whose subject equals the attestor).
 
-## Trellis Formspec Signature Adapter
+## Verification Boundary
 
-A new consumer-owned adapter crate `trellis/crates/trellis-formspec-signature/` implements the Formspec `Verifier` trait (from `formspec-signature-port`) using `trellis-cose` primitives. This is a consumer-owned adapter per ADR-0086 D-7 dependency inversion — it is NOT a Trellis center crate.
+Formspec cryptographic verification remains outside the Trellis center. Trellis
+uses shared COSE_Sign1 primitives to decode and corroborate byte identity, while
+Formspec verifier adapters own `VerificationReceipt` production and registry
+policy for Formspec signature methods.
 
-Implementation deferred to Phase 2.5 follow-up (requires COSE library integration). The adapter:
-- Implements `verify(signed_bytes, signature_bytes, signature_method, key_ref) -> VerificationReceipt`
-- Same registry coverage as webcrypto/ring (ed25519, ecdsa-p256, rsa-pss-sha256)
-- PQC suites composable as Trellis adds them
-- Receipt signing uses Trellis-managed signing keys
+Implementation follow-up:
+- Keep Trellis UCA/certificate verification receipt-aware without making Trellis
+  a Formspec verifier implementation.
+- Use the shared COSE primitive for any overlapping Sig_structure or COSE_Sign1
+  byte behavior.
+- PQC suites remain composable as Trellis adds them.
+- Receipt signing uses the owner verifier service's signing keys.
