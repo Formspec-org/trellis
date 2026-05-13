@@ -197,7 +197,7 @@ pub(crate) fn erasure_catalog_row_matches_details(
     row: &ErasureEvidenceCatalogEntryRow,
     details: &EventDetails,
 ) -> bool {
-    let Some(erasure) = details.erasure.as_ref() else {
+    let Some(erasure) = details.erasure() else {
         return false;
     };
     if row.canonical_event_hash != details.canonical_event_hash {

@@ -770,13 +770,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integrity-bundle"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
-]
-
-[[package]]
 name = "integrity-canonical"
 version = "0.1.0"
 dependencies = [
@@ -804,22 +797,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "integrity-event"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "integrity-verify"
 version = "0.1.0"
 dependencies = [
- "integrity-bundle",
  "integrity-canonical",
- "integrity-cbor",
  "integrity-cose",
- "integrity-event",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1877,7 +1859,6 @@ name = "trellis-interop-c2pa"
 version = "0.1.0"
 dependencies = [
  "ciborium",
- "hex",
  "thiserror",
  "trellis-types",
 ]
@@ -1934,7 +1915,6 @@ dependencies = [
  "ed25519-dalek",
  "integrity-verify",
  "serde_json",
- "sha2 0.10.9",
  "trellis-cddl",
  "trellis-cose",
  "trellis-types",
@@ -1947,7 +1927,6 @@ version = "0.1.0"
 dependencies = [
  "ciborium",
  "serde_json",
- "sha2 0.10.9",
  "trellis-types",
  "trellis-verify",
 ]

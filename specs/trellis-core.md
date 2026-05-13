@@ -106,11 +106,11 @@ This specification does not define:
 |---|---|---|
 | §5 Canonical Encoding (dCBOR rules, map ordering, definite lengths) | CBOR encoding helpers | `integrity-stack/crates/integrity-cbor/` |
 | §7 Signature Profile (COSE_Sign1 envelope, `Sig_structure`, protected-header serialization) | COSE_Sign1 byte structure | `integrity-stack/crates/integrity-cose/` |
-| §9.1 Domain separation discipline (`len(tag) ‖ tag ‖ len(component) ‖ component` framing); §9.3 Content hash framing | Domain-prefixed canonical-bytes framing | `integrity-stack/crates/integrity-canonical/` |
+| §9.1 Domain separation discipline (`len(tag) ‖ tag ‖ len(component) ‖ component` framing); §9.3 Content hash framing | Length-prefixed hash-domain framing (`integrity-canonical/length-prefix` family), distinct from the canonical JSON `domain ‖ NUL ‖ JCS(value)` family (`integrity-canonical-json-v1`) | `integrity-stack/crates/integrity-canonical/` |
 | §6.1 Event Format (sequence, prev_hash, content_hash structure as identity-free primitives) | Event-sequence / event-kind value types | `integrity-stack/crates/integrity-event/` |
 | §18 Export Package Layout (deterministic ZIP byte rules: STORED-only, zero extra fields, fixed mtime, lexicographic ordering, central-directory ordering, ZIP64 thresholds) | Deterministic ZIP byte structure | `integrity-stack/crates/integrity-bundle/` |
 
-The Trellis Core text below is the **profile composition**: it pins the Trellis-specific protected-header labels (`suite_id = -65537`, `artifact_type = -65538`, `profile_id = -65539`), the Trellis-specific domain-separation tags (`trellis-event-v1`, `trellis-author-event-v1`, `trellis-content-v1`, `trellis-checkpoint-v1`, `trellis-export-manifest-v1`, `trellis-merkle-leaf-v1`, `trellis-merkle-interior-v1`, and the application-specific tags registered in §9.8), the Trellis Phase 1 signature suite (`suite_id = 1` → Ed25519 over COSE_Sign1), the Trellis HPKE wrap discipline, the Trellis chain-construction rules (§10), the Trellis checkpoint format (§11), the Trellis export package layout and required archive members (§18), and the offline verification algorithm (§19) — none of which the substrate crates define.
+The Trellis Core text below is the **profile composition**: it pins the Trellis-specific protected-header labels (`suite_id = -65537`, `artifact_type = -65538`, `profile_id = -65539`), the Trellis-specific domain-separation tags (`trellis-event-v1`, `trellis-author-event-v1`, `trellis-content-v1`, `trellis-checkpoint-v1`, `trellis-export-manifest-v1`, `trellis-merkle-leaf-v1`, `trellis-merkle-interior-v1`, and the application-specific tags registered in §9.8), the Trellis Phase 1 signature suite (`suite_id = 1` → Ed25519 over COSE_Sign1), the Trellis HPKE wrap discipline, the Trellis chain-construction rules (§10), the Trellis checkpoint format (§11), the Trellis export package layout and required archive members (§18), and the offline verification algorithm (§19) — none of which the substrate crates define. Where `integrity-canonical` is named below, Trellis §9 composes the length-prefixed hash-domain family; it is not referring to the Formspec canonical JSON `domain ‖ NUL ‖ JCS(value)` profile except where a JSON-profile section names that family explicitly.
 
 Where this document restates byte-level rules that the substrate owns (encoding rules in §5, COSE_Sign1 envelope rules in §7.4, the length-prefixed domain-separation framing in §9.1, the deterministic-ZIP rules in §18.1), the restatement is **for reader-coherence only**; if a future revision of this document drifts from substrate behavior, the substrate prevails by construction. A conformant implementation is one that composes the substrate primitives in the orders pinned here; an implementation that re-implements a substrate primitive locally and disagrees with substrate output is non-conformant.
 
@@ -185,19 +185,15 @@ Trellis-bound Formspec processors MUST implement at least Formspec Core conforma
 
 **Requirement class:** Fact Producer, Canonical Append Service, Verifier, Export Generator.
 
-**Substrate authority.** Per §1.5, the dCBOR encoding helpers (`encode_uint`, `encode_bstr`, `encode_tstr`, `encode_major_len`, map-ordering and definite-length enforcement, CBOR map lookup) are owned by `integrity-stack/crates/integrity-cbor/`. The rules below restate the substrate's encoding profile so a reader can verify byte structure from this document alone; the substrate crate is the byte-authoritative implementation. An implementation that calls substrate helpers, in the orders pinned by this section, is correct by composition. The Trellis-specific concerns in §5 are the choice of dCBOR (RFC 8949 §4.2.2 Core Deterministic Encoding) as the pinned canonical encoding for every Trellis byte-level structure, and the reproducibility obligation (§5.2) that fixtures byte-match across implementations.
+**Substrate authority.** Per §1.5, the dCBOR encoding helpers (`encode_uint`, `encode_bstr`, `encode_tstr`, `encode_major_len`, map-ordering and definite-length enforcement, CBOR map lookup) are owned by `integrity-stack/crates/integrity-cbor/`. The rules below name the profile and Trellis composition obligations; the substrate crate is the byte-authoritative implementation of the exact encoding behavior. An implementation that calls substrate helpers, in the orders pinned by this section, is correct by composition. The Trellis-specific concerns in §5 are the choice of dCBOR (RFC 8949 §4.2.2 Core Deterministic Encoding) as the pinned canonical encoding for every Trellis byte-level structure, and the reproducibility obligation (§5.2) that fixtures byte-match across implementations.
 
 ### 5.1 Pinned encoding: dCBOR
 
-All Trellis byte-level structures — events, checkpoints, signing-key registry entries, export manifests, inclusion proofs, consistency proofs — are serialized as **deterministic CBOR (dCBOR)**, which for this specification means the Core Deterministic Encoding profile of [RFC 8949] §4.2.2:
+All Trellis byte-level structures — events, checkpoints, signing-key registry entries, export manifests, inclusion proofs, consistency proofs — are serialized as **deterministic CBOR (dCBOR)**, pinned to the Core Deterministic Encoding profile of [RFC 8949] §4.2.2 as implemented by `integrity-cbor`.
 
-- Integers encoded in the smallest possible representation (no leading zero-length prefixes).
-- Map keys sorted in byte-wise lexicographic order of their canonical CBOR encoding; duplicate keys rejected.
-- No indefinite-length items (all arrays, maps, byte strings, text strings use definite-length encoding).
-- Floating-point values, if used, encoded as the shortest form that round-trips to the same value; NaN and infinities rejected in all fields normatively defined here.
-- Byte strings (`bstr`) used for all binary material; text strings (`tstr`) used only for human-readable identifiers.
+Implementations MUST compose the substrate dCBOR encoder and decoder rather than locally redefining integer width, map-ordering, definite-length, floating-point, duplicate-key, or CBOR lookup behavior. Trellis structures use byte strings (`bstr`) for binary material and text strings (`tstr`) only for human-readable identifiers.
 
-Implementations MUST NOT emit non-deterministic CBOR. A record that does not round-trip byte-for-byte through a conformant dCBOR encoder is not a canonical record.
+Implementations MUST NOT emit non-deterministic CBOR. A record that does not round-trip byte-for-byte through the substrate dCBOR encoder is not a canonical record.
 
 ### 5.2 Reproducibility requirement
 
@@ -2607,6 +2603,17 @@ This specification requests registration of the media type `application/trellis-
 ### 26.2 `suite_id` registry
 
 A new IANA registry `Trellis Signature Suites` is requested. Registration policy: Specification Required. Initial contents per §7.2. Each registration MUST include: suite identifier, signature algorithm, digest algorithm, reference specification, status.
+
+### 26.2.1 `profile_id` value registry
+
+The `profile_id` protected-header label registered in §7.4 carries an unsigned integer value from this sub-registry. Trellis maintainers own the registry until IANA assignment under the shared governance of the Formspec/WOS/Trellis working group.
+
+Allocation is sequential from `1`. Value `0` is reserved and MUST NOT identify a profile. Each registration MUST include: profile identifier, profile name, owning specification, verification plugin owner, and status.
+
+| profile_id | Dispatch name | Owning specification | Status |
+|------------|---------|----------------------|--------|
+| 1 | WOS workflow event | WOS / `WOS_PROFILE_ID` | Active |
+| 2 | Formspec authored signature | Formspec Core §2.1.6 / `FORMSPEC_PROFILE_ID` | Active |
 
 ### 26.3 Custody Models registry
 

@@ -21,6 +21,7 @@ WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signature_affirmation"
 WOS_INTAKE_ACCEPTED_EVENT_TYPE = "wos.kernel.intake_accepted"
 WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.case_created"
 WOS_IDENTITY_ATTESTATION_EVENT_TYPE = "wos.assurance.identity_attestation"
+WOS_OPERATOR_URI_PREFIX = "urn:wos:operator:"
 WOS_GOVERNANCE_DETERMINATION_PREFIX = "wos.governance.determination"
 WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE = (
     "wos.governance.determination_rescinded"
@@ -57,6 +58,7 @@ def verify_export_zip(export_zip: bytes) -> WosVerificationReport:
     trellis = core.verify_export_zip(
         export_zip,
         identity_event_type_admitted=_is_wos_identity_attestation_event_type,
+        operator_uri_admitted=_is_wos_operator_uri,
         resolver=WosFormspecResolver(),
     )
     if not trellis.structure_verified:
@@ -87,6 +89,7 @@ def verify_tampered_ledger(
         initial_posture_declaration,
         posture_declaration,
         identity_event_type_admitted=_is_wos_identity_attestation_event_type,
+        operator_uri_admitted=_is_wos_operator_uri,
         resolver=WosFormspecResolver(),
     )
     if not trellis.structure_verified:
@@ -142,6 +145,10 @@ def _validate_events(
 
 def _is_wos_identity_attestation_event_type(event_type: str) -> bool:
     return event_type == WOS_IDENTITY_ATTESTATION_EVENT_TYPE
+
+
+def _is_wos_operator_uri(value: str) -> bool:
+    return value.startswith(WOS_OPERATOR_URI_PREFIX)
 
 
 def _validate_export(

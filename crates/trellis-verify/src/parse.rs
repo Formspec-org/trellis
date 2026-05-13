@@ -128,29 +128,14 @@ pub(crate) fn decode_event_details_with_identity_admission(
         }
     };
 
-    let (
-        transition,
-        attachment_binding,
-        erasure,
-        certificate,
-        user_content_attestation,
-        identity_attestation_subject,
-        supersedes_chain,
-    ) = match map_lookup_optional_map(payload_map, "extensions")? {
-        Some(extensions) => (
-            decode_transition_details(extensions)?,
-            decode_attachment_binding_details(extensions)?,
-            decode_erasure_evidence_details(extensions, authored_at)?,
-            decode_certificate_payload(extensions)?,
-            decode_user_content_attestation_payload(extensions, authored_at)?,
-            decode_identity_attestation_subject(
-                extensions,
-                &event_type,
-                identity_event_type_admitted,
-            ),
-            decode_supersedes_chain_id_payload(extensions)?,
-        ),
-        None => (None, None, None, None, None, None, None),
+    let profile_extensions = match map_lookup_optional_map(payload_map, "extensions")? {
+        Some(extensions) => decode_profile_extensions(
+            extensions,
+            authored_at,
+            &event_type,
+            identity_event_type_admitted,
+        )?,
+        None => ProfileExtensionMap::new(),
     };
     let wrap_recipients = decode_key_bag_recipients(payload_map)?;
 
@@ -166,15 +151,63 @@ pub(crate) fn decode_event_details_with_identity_admission(
         canonical_event_hash,
         idempotency_key,
         payload_ref,
-        transition,
-        attachment_binding,
-        erasure,
-        certificate,
-        user_content_attestation,
-        identity_attestation_subject,
-        supersedes_chain,
+        profile_extensions,
         wrap_recipients,
     })
+}
+
+fn decode_profile_extensions(
+    extensions: &[(Value, Value)],
+    authored_at: TrellisTimestamp,
+    event_type: &str,
+    identity_event_type_admitted: &dyn Fn(&str) -> bool,
+) -> Result<ProfileExtensionMap, VerifyError> {
+    let mut decoded = ProfileExtensionMap::new();
+    if let Some(transition) = decode_transition_details(extensions)? {
+        decoded.insert(
+            ProfileExtensionKind::Transition,
+            ProfileExtensionDetails::Transition(transition),
+        );
+    }
+    if let Some(binding) = decode_attachment_binding_details(extensions)? {
+        decoded.insert(
+            ProfileExtensionKind::AttachmentBinding,
+            ProfileExtensionDetails::AttachmentBinding(binding),
+        );
+    }
+    if let Some(erasure) = decode_erasure_evidence_details(extensions, authored_at)? {
+        decoded.insert(
+            ProfileExtensionKind::ErasureEvidence,
+            ProfileExtensionDetails::ErasureEvidence(erasure),
+        );
+    }
+    if let Some(certificate) = decode_certificate_payload(extensions)? {
+        decoded.insert(
+            ProfileExtensionKind::CertificateOfCompletion,
+            ProfileExtensionDetails::CertificateOfCompletion(certificate),
+        );
+    }
+    if let Some(attestation) = decode_user_content_attestation_payload(extensions, authored_at)? {
+        decoded.insert(
+            ProfileExtensionKind::UserContentAttestation,
+            ProfileExtensionDetails::UserContentAttestation(attestation),
+        );
+    }
+    if let Some(subject) =
+        decode_identity_attestation_subject(extensions, event_type, identity_event_type_admitted)
+    {
+        decoded.insert(
+            ProfileExtensionKind::IdentityAttestationSubject,
+            ProfileExtensionDetails::IdentityAttestationSubject(subject),
+        );
+    }
+    if let Some(supersedes_chain) = decode_supersedes_chain_id_payload(extensions)? {
+        decoded.insert(
+            ProfileExtensionKind::SupersedesChainId,
+            ProfileExtensionDetails::SupersedesChainId(supersedes_chain),
+        );
+    }
+    Ok(decoded)
 }
 
 pub(crate) fn decode_supersedes_chain_id_payload(

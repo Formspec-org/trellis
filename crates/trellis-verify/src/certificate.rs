@@ -242,7 +242,7 @@ pub(crate) fn certificate_catalog_row_matches_details(
     row: &CertificateCatalogEntryRow,
     details: &EventDetails,
 ) -> bool {
-    let Some(certificate) = details.certificate.as_ref() else {
+    let Some(certificate) = details.certificate() else {
         return false;
     };
     if row.canonical_event_hash != details.canonical_event_hash {
@@ -409,7 +409,7 @@ pub(crate) fn verify_certificate_attachment_lineage(
         BTreeMap::new();
     for event in events {
         if let Ok(details) = decode_event_details(event)
-            && let Some(binding) = &details.attachment_binding
+            && let Some(binding) = details.attachment_binding()
         {
             binding_by_attachment_id.insert(
                 binding.attachment_id.clone(),
@@ -430,7 +430,7 @@ pub(crate) fn verify_certificate_attachment_lineage(
     let mut cert_events_by_index: BTreeMap<usize, EventDetails> = BTreeMap::new();
     for (index, event) in events.iter().enumerate() {
         if let Ok(details) = decode_event_details(event)
-            && details.certificate.is_some()
+            && details.certificate().is_some()
         {
             cert_events_by_index.insert(index, details);
         }
@@ -452,7 +452,7 @@ pub(crate) fn verify_certificate_attachment_lineage(
             continue;
         };
         let canonical_hash_hex = hex_string(&details.canonical_event_hash);
-        let Some(certificate) = details.certificate.as_ref() else {
+        let Some(certificate) = details.certificate() else {
             continue;
         };
 

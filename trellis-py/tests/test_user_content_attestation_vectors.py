@@ -7,13 +7,15 @@ the full stranger gate.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import pytest
 
 from trellis_py.conformance import _assert_tamper, _load_manifest
+from trellis_py import verify
 from trellis_py import verify_wos
-from trellis_py.verify import _is_identity_attestation_event_type
+from trellis_py.verify import _is_identity_attestation_event_type, _is_operator_uri
 
 
 def _vectors_root() -> Path:
@@ -52,3 +54,46 @@ def test_wos_identity_attestation_event_type_is_adapter_owned() -> None:
     assert not verify_wos._is_wos_identity_attestation_event_type(  # noqa: SLF001
         "wos.identity.authentication_method"
     )
+
+
+def test_wos_operator_uri_prefix_is_adapter_owned() -> None:
+    assert _is_operator_uri("urn:trellis:operator:reviewer")
+    assert not _is_operator_uri("urn:wos:operator:caseworker")
+    assert verify_wos._is_wos_operator_uri("urn:wos:operator:caseworker")  # noqa: SLF001
+    assert not verify_wos._is_wos_operator_uri(  # noqa: SLF001
+        "urn:trellis:operator:reviewer"
+    )
+
+
+def test_core_operator_uri_hook_preserves_positional_resolver_slot() -> None:
+    assert list(inspect.signature(verify.verify_export_zip).parameters) == [
+        "export_zip",
+        "identity_event_type_admitted",
+        "resolver",
+        "operator_uri_admitted",
+    ]
+    assert list(inspect.signature(verify.verify_tampered_ledger).parameters) == [
+        "signing_key_registry",
+        "ledger",
+        "initial_posture_declaration",
+        "posture_declaration",
+        "identity_event_type_admitted",
+        "resolver",
+        "operator_uri_admitted",
+    ]
+    assert list(inspect.signature(verify.verify_single_event).parameters) == [
+        "public_key_bytes",
+        "signed_event",
+        "identity_event_type_admitted",
+        "resolver",
+        "operator_uri_admitted",
+    ]
+    for fn in (
+        verify.verify_export_zip,
+        verify.verify_tampered_ledger,
+        verify.verify_single_event,
+    ):
+        assert (
+            inspect.signature(fn).parameters["operator_uri_admitted"].kind
+            is inspect.Parameter.KEYWORD_ONLY
+        )

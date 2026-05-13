@@ -314,7 +314,7 @@ pub(crate) fn finalize_user_content_attestations(
                             // identity events can extend this to fetch from
                             // payload_blobs; Phase-1 inline events carry the
                             // subject directly.
-                            match identity_event.identity_attestation_subject.as_deref() {
+                            match identity_event.identity_attestation_subject() {
                                 Some(s) if s == payload.attestor => {}
                                 _ => {
                                     outcome.identity_resolved = false;

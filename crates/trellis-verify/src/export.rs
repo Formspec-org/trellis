@@ -1121,7 +1121,7 @@ pub(crate) fn verify_attachment_manifest(
             continue;
         }
         let details = matching_events[0];
-        let Some(binding) = &details.attachment_binding else {
+        let Some(binding) = details.attachment_binding() else {
             report.event_failures.push(VerificationFailure::new(
                 VerificationFailureKind::AttachmentBindingMissing,
                 hex_string(&entry.binding_event_hash),

@@ -377,6 +377,30 @@ pub(crate) struct ParsedSign1 {
     pub(crate) signature: [u8; 64],
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ProfileExtensionKind {
+    Transition,
+    AttachmentBinding,
+    ErasureEvidence,
+    CertificateOfCompletion,
+    UserContentAttestation,
+    SupersedesChainId,
+    IdentityAttestationSubject,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ProfileExtensionDetails {
+    Transition(TransitionDetails),
+    AttachmentBinding(AttachmentBindingDetails),
+    ErasureEvidence(ErasureEvidenceDetails),
+    CertificateOfCompletion(CertificateDetails),
+    UserContentAttestation(UserContentAttestationDetails),
+    SupersedesChainId(SupersedesChainIdDetails),
+    IdentityAttestationSubject(String),
+}
+
+pub(crate) type ProfileExtensionMap = BTreeMap<ProfileExtensionKind, ProfileExtensionDetails>;
+
 #[derive(Clone, Debug)]
 pub(crate) struct EventDetails {
     pub(crate) scope: Vec<u8>,
@@ -395,65 +419,112 @@ pub(crate) struct EventDetails {
     /// identity with divergent canonical material.
     pub(crate) idempotency_key: Vec<u8>,
     pub(crate) payload_ref: PayloadRef,
-    pub(crate) transition: Option<TransitionDetails>,
-    pub(crate) attachment_binding: Option<AttachmentBindingDetails>,
-    /// Decoded ADR 0005 erasure-evidence payload, populated when
-    /// `EventPayload.extensions["trellis.erasure-evidence.v1"]` is present.
-    /// `None` for non-erasure events. The decoder runs ADR 0005 §"Verifier
-    /// obligations" steps 1, 3, 6 (CDDL + subject_scope shape + hsm_receipt
-    /// null-consistency) inline; structural failures surface as `Err`
-    /// `VerifyError` from `decode_erasure_evidence_details` and bubble up
-    /// to a `tamper_kind` via `VerifyError::with_kind`. Step 2 (registry
-    /// bind), step 4 (destroyed_at vs host), step 5 (cross-event group),
-    /// step 7 (attestation), and step 8 (chain consistency) run from the
-    /// caller after collecting all events.
-    pub(crate) erasure: Option<ErasureEvidenceDetails>,
-    /// Decoded ADR 0007 certificate-of-completion payload, populated when
-    /// `EventPayload.extensions["trellis.certificate-of-completion.v1"]` is
-    /// present. `None` for non-certificate events. The decoder runs ADR 0007
-    /// §"Verifier obligations" step 1 (CDDL decode + per-event invariants
-    /// `signer_count == len(signing_events)`, `len(signer_display) ==
-    /// len(signing_events)`, HTML→`template_hash` non-null) inline; structural
-    /// failures bubble up via `VerifyError`, with cross-summary invariant
-    /// failures tagged `certificate_chain_summary_mismatch`. Steps 2 (per-index
-    /// principal-ref / id-collision), 3 (attestation crypto — Phase-2),
-    /// 4 (attachment lineage), 5 (signing-event resolution), 6 (timestamp
-    /// equivalence), 7 (response_ref equivalence) run in
-    /// [`finalize_certificates_of_completion`] from the caller after every
-    /// event is decoded.
-    pub(crate) certificate: Option<CertificateDetails>,
-    /// Decoded ADR 0010 user-content-attestation payload, populated when
-    /// `EventPayload.extensions["trellis.user-content-attestation.v1"]` is
-    /// present. `None` for non-attestation events. The decoder runs ADR 0010
-    /// §"Verifier obligations" step 1 (CDDL decode) and step 2 partial
-    /// (`signing_intent` URI well-formedness, `attested_at == authored_at`)
-    /// inline; structural failures surface as `Err` `VerifyError` from
-    /// `decode_user_content_attestation_payload` with typed kinds via
-    /// `VerifyError::with_kind`. Cross-event steps 3 (chain-position
-    /// resolution), 4 (identity resolution), 5 (signature verification),
-    /// 6 (key-state check), 7 (collision detection), 8 (operator-in-user-slot
-    /// enforcement), and 9 (outcome accumulation) run in
-    /// [`finalize_user_content_attestations`] from the caller after every
-    /// event is decoded.
-    pub(crate) user_content_attestation: Option<UserContentAttestationDetails>,
-    /// Decoded ADR 0066 supersession linkage, populated when
-    /// `EventPayload.extensions["trellis.supersedes-chain-id.v1"]` is
-    /// present. Export-bundle verification cross-checks these rows against
-    /// `064-supersession-graph.json` (Core §19 step 6e).
-    pub(crate) supersedes_chain: Option<SupersedesChainIdDetails>,
-    /// Identity-attestation subject for events whose `event_type` matches
-    /// one of the registered identity-attestation taxonomies (Phase-1
-    /// admission via `is_identity_attestation_event_type`). Populated from
-    /// `EventPayload.extensions[event_type]["subject"]` when present.
-    /// `None` for non-identity events or for identity events whose
-    /// payload omits the subject field. ADR 0010 §"Verifier obligations"
-    /// step 4 reads this for the subject-equals-attestor check.
-    pub(crate) identity_attestation_subject: Option<String>,
+    /// Bounded decoded profile-extension payloads.
+    ///
+    /// The wire `EventPayload.extensions` map remains open, but the core
+    /// verifier only materializes extension families it owns or dispatches.
+    /// Unknown consumer profile extensions stay behind the `RecordValidator`
+    /// seam instead of becoming fixed fields on this internal event summary.
+    pub(crate) profile_extensions: ProfileExtensionMap,
     /// Wrap recipients from `key_bag.entries[*].recipient`. Bytes copied
     /// verbatim from the wire so step 8 can compare against `kid_destroyed`
     /// (a `bstr .size 16`) for `post_erasure_wrap` detection. Empty when
     /// the event has no key_bag entries (Phase-1 plaintext path).
     pub(crate) wrap_recipients: Vec<Vec<u8>>,
+}
+
+impl EventDetails {
+    pub(crate) fn take_transition(&mut self) -> Option<TransitionDetails> {
+        match self
+            .profile_extensions
+            .remove(&ProfileExtensionKind::Transition)
+        {
+            Some(ProfileExtensionDetails::Transition(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn attachment_binding(&self) -> Option<&AttachmentBindingDetails> {
+        match self
+            .profile_extensions
+            .get(&ProfileExtensionKind::AttachmentBinding)
+        {
+            Some(ProfileExtensionDetails::AttachmentBinding(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn erasure(&self) -> Option<&ErasureEvidenceDetails> {
+        match self
+            .profile_extensions
+            .get(&ProfileExtensionKind::ErasureEvidence)
+        {
+            Some(ProfileExtensionDetails::ErasureEvidence(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn take_erasure(&mut self) -> Option<ErasureEvidenceDetails> {
+        match self
+            .profile_extensions
+            .remove(&ProfileExtensionKind::ErasureEvidence)
+        {
+            Some(ProfileExtensionDetails::ErasureEvidence(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn certificate(&self) -> Option<&CertificateDetails> {
+        match self
+            .profile_extensions
+            .get(&ProfileExtensionKind::CertificateOfCompletion)
+        {
+            Some(ProfileExtensionDetails::CertificateOfCompletion(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn take_certificate(&mut self) -> Option<CertificateDetails> {
+        match self
+            .profile_extensions
+            .remove(&ProfileExtensionKind::CertificateOfCompletion)
+        {
+            Some(ProfileExtensionDetails::CertificateOfCompletion(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn take_user_content_attestation(
+        &mut self,
+    ) -> Option<UserContentAttestationDetails> {
+        match self
+            .profile_extensions
+            .remove(&ProfileExtensionKind::UserContentAttestation)
+        {
+            Some(ProfileExtensionDetails::UserContentAttestation(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn supersedes_chain(&self) -> Option<&SupersedesChainIdDetails> {
+        match self
+            .profile_extensions
+            .get(&ProfileExtensionKind::SupersedesChainId)
+        {
+            Some(ProfileExtensionDetails::SupersedesChainId(details)) => Some(details),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn identity_attestation_subject(&self) -> Option<&str> {
+        match self
+            .profile_extensions
+            .get(&ProfileExtensionKind::IdentityAttestationSubject)
+        {
+            Some(ProfileExtensionDetails::IdentityAttestationSubject(subject)) => Some(subject),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

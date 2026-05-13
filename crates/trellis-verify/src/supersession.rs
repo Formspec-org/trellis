@@ -96,7 +96,7 @@ fn verify_graph_linkage(
         let Ok(details) = decode_event_details(event) else {
             continue;
         };
-        let Some(linkage) = details.supersedes_chain else {
+        let Some(linkage) = details.supersedes_chain() else {
             continue;
         };
         if !graph_contains_linkage(graph, &linkage) {

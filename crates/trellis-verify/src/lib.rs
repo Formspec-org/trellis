@@ -37,8 +37,8 @@ use trellis_types::{CONTENT_DOMAIN, CborHelperError, SUITE_ID_PHASE_1, domain_se
 /// WOS / Trellis-specific profile plugin (`trellis-verify-wos`) will
 /// implement `ProfileVerifier` against this trait in 3C.3.
 pub use integrity_verify::{
-    BundleEntryView as UniversalBundleEntryView,
-    BundleStructuralCheck as UniversalBundleCheck, CanonicalCheck as UniversalCanonicalCheck,
+    BundleEntryView as UniversalBundleEntryView, BundleStructuralCheck as UniversalBundleCheck,
+    CanonicalCheck as UniversalCanonicalCheck,
     CanonicalDigestCheck as UniversalCanonicalDigestCheck, ChainContinuityCheck,
     ChainEventView as UniversalChainEventView, CoseEnvelopeCheck, ProfileRegistry,
     ProfileVerificationResult, ProfileVerifier, UniversalFailureKind,
@@ -735,13 +735,13 @@ pub(crate) fn verify_event_set_with_classes(
             wrap_recipients: details.wrap_recipients.clone(),
             canonical_event_hash: details.canonical_event_hash,
         });
-        if let Some(erasure) = details.erasure.take() {
+        if let Some(erasure) = details.take_erasure() {
             erasure_payloads.push((index, erasure, details.canonical_event_hash));
         }
-        if let Some(certificate) = details.certificate.take() {
+        if let Some(certificate) = details.take_certificate() {
             certificate_payloads.push((index, certificate, details.canonical_event_hash));
         }
-        if let Some(uca) = details.user_content_attestation.take() {
+        if let Some(uca) = details.take_user_content_attestation() {
             user_content_attestation_payloads.push((index, uca, details.canonical_event_hash));
         }
 
@@ -752,7 +752,7 @@ pub(crate) fn verify_event_set_with_classes(
             authored_at: details.authored_at,
         });
 
-        if let Some(transition) = details.transition.take() {
+        if let Some(transition) = details.take_transition() {
             let mut outcome = PostureTransitionOutcome {
                 transition_id: transition.transition_id.clone(),
                 kind: transition.kind.as_report_str().to_string(),

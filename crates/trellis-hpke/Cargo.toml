@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["hkdf", "sha2"]
+
 # Phase-1 HPKE wrap/unwrap for `KeyBagEntry.wrapped_dek` (Core §9.4 suite 1:
 # RFC 9180 Base mode, X25519-HKDF-SHA256-ChaCha20-Poly1305).
 #

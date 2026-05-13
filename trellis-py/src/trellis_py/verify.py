@@ -111,9 +111,9 @@ OPEN_CLOCKS_MEMBER = "open-clocks.json"
 PHASE_1_TEST_IDENTITY_EVENT_TYPE = "x-trellis-test/identity-attestation/v1"
 # Companion §6.4 operator-URI prefix conventions (Phase-1 baseline). Step 8
 # of ADR 0010 verifier obligations rejects user-content-attestation events
-# whose `attestor` matches either prefix. Mirror Rust constants.
+# whose `attestor` matches the Trellis operator prefix. Consumer-owned
+# operator URI taxonomies are admitted through composed verifier hooks.
 OPERATOR_URI_PREFIX_TRELLIS = "urn:trellis:operator:"
-OPERATOR_URI_PREFIX_WOS = "urn:wos:operator:"
 
 
 @dataclass
@@ -2020,11 +2020,13 @@ def _is_syntactically_valid_uri(value: str) -> bool:
 def _is_operator_uri(value: str) -> bool:
     """Companion §6.4 operator-URI prefix check used for ADR 0010 step 8
     (`user_content_attestation_operator_in_user_slot`). Phase-1 baseline;
-    deployments substitute or extend via deployment-local lint. Mirrors Rust
-    `is_operator_uri`."""
-    return value.startswith(OPERATOR_URI_PREFIX_TRELLIS) or value.startswith(
-        OPERATOR_URI_PREFIX_WOS
-    )
+    consumer-owned operator URI taxonomies are admitted through composed
+    verifier hooks. Mirrors Rust `is_operator_uri`."""
+    return value.startswith(OPERATOR_URI_PREFIX_TRELLIS)
+
+
+def _is_consumer_operator_uri(value: str) -> bool:
+    return False
 
 
 def _is_identity_attestation_event_type(event_type: str) -> bool:
@@ -2193,6 +2195,7 @@ def _finalize_user_content_attestations(
     registry: dict[bytes, SigningKeyEntry],
     posture_declaration: Optional[bytes],
     identity_event_type_admitted: Callable[[str], bool],
+    operator_uri_admitted: Callable[[str], bool],
     event_failures: list[VerificationFailure],
 ) -> list[UserContentAttestationOutcome]:
     """ADR 0010 §"Verifier obligations" cross-event finalization. Step 1 +
@@ -2261,7 +2264,7 @@ def _finalize_user_content_attestations(
             continue
 
         # Step 8 — operator-in-user-slot.
-        if _is_operator_uri(payload.attestor):
+        if _is_operator_uri(payload.attestor) or operator_uri_admitted(payload.attestor):
             outcome.failures.append("user_content_attestation_operator_in_user_slot")
             event_failures.append(
                 VerificationFailure(
@@ -2384,6 +2387,7 @@ def _verify_event_set(
     payload_blobs: Optional[dict[bytes, bytes]],
     non_signing_registry: Optional[dict[bytes, NonSigningKeyEntry]] = None,
     identity_event_type_admitted: Callable[[str], bool] = _is_identity_attestation_event_type,
+    operator_uri_admitted: Callable[[str], bool] = _is_consumer_operator_uri,
     resolver: Optional[ResponseProofResolver] = None,
 ) -> VerificationReport:
     event_failures: list[VerificationFailure] = []
@@ -2672,6 +2676,7 @@ def _verify_event_set(
         registry,
         posture_declaration,
         identity_event_type_admitted,
+        operator_uri_admitted,
         event_failures,
     )
     posture_ok = all(
@@ -4404,6 +4409,8 @@ def verify_export_zip(
     export_zip: bytes,
     identity_event_type_admitted: Callable[[str], bool] = _is_identity_attestation_event_type,
     resolver: Optional[ResponseProofResolver] = None,
+    *,
+    operator_uri_admitted: Callable[[str], bool] = _is_consumer_operator_uri,
 ) -> VerificationReport:
     try:
         archive = parse_export_zip(export_zip)
@@ -4588,6 +4595,7 @@ def verify_export_zip(
         payload_blobs,
         non_signing_registry=non_signing_registry,
         identity_event_type_admitted=identity_event_type_admitted,
+        operator_uri_admitted=operator_uri_admitted,
         resolver=resolver,
     )
     # ADR 0008 / Core §18.3a — Wave 25 dispatched-verifier outcomes.
@@ -4926,6 +4934,8 @@ def verify_tampered_ledger(
     posture_declaration: Optional[bytes] = None,
     identity_event_type_admitted: Callable[[str], bool] = _is_identity_attestation_event_type,
     resolver: Optional[ResponseProofResolver] = None,
+    *,
+    operator_uri_admitted: Callable[[str], bool] = _is_consumer_operator_uri,
 ) -> VerificationReport:
     try:
         registry, non_signing_registry = _parse_key_registry(signing_key_registry)
@@ -4953,6 +4963,7 @@ def verify_tampered_ledger(
         None,
         non_signing_registry=non_signing_registry,
         identity_event_type_admitted=identity_event_type_admitted,
+        operator_uri_admitted=operator_uri_admitted,
         resolver=resolver,
     )
 
@@ -4962,6 +4973,8 @@ def verify_single_event(
     signed_event: bytes,
     identity_event_type_admitted: Callable[[str], bool] = _is_identity_attestation_event_type,
     resolver: Optional[ResponseProofResolver] = None,
+    *,
+    operator_uri_admitted: Callable[[str], bool] = _is_consumer_operator_uri,
 ) -> VerificationReport:
     try:
         parsed = _parse_sign1_bytes(signed_event)
@@ -4977,5 +4990,6 @@ def verify_single_event(
         None,
         None,
         identity_event_type_admitted=identity_event_type_admitted,
+        operator_uri_admitted=operator_uri_admitted,
         resolver=resolver,
     )

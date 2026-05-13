@@ -144,13 +144,7 @@ mod tests {
             canonical_event_hash: [0; 32],
             idempotency_key: b"id".to_vec(),
             payload_ref: crate::types::PayloadRef::Inline(bytes.clone()),
-            transition: None,
-            attachment_binding: None,
-            erasure: None,
-            certificate: None,
-            user_content_attestation: None,
-            supersedes_chain: None,
-            identity_attestation_subject: None,
+            profile_extensions: crate::types::ProfileExtensionMap::new(),
             wrap_recipients: Vec::new(),
         };
 
