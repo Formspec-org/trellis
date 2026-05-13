@@ -14,13 +14,78 @@ use ciborium::Value;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WitnessRegistryError {
+    Encode(String),
+    Decode(String),
+}
+
+impl Display for WitnessRegistryError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Encode(message) | Self::Decode(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for WitnessRegistryError {}
+
+/// Core `timestamp` wire shape: `[seconds UTC, nanos]` with `nanos <= 999_999_999` (Core §9 / CDDL `timestamp`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrellisTimestamp {
+    pub unix_secs: u64,
+    pub subsec_nanos: u32,
+}
+
+impl TrellisTimestamp {
+    pub const MAX_SUBSEC_NANOS: u32 = 999_999_999;
+
+    /// Builds a timestamp; rejects out-of-range subsecond nanoseconds per Core CDDL.
+    pub fn new(unix_secs: u64, subsec_nanos: u32) -> Result<Self, WitnessRegistryError> {
+        if subsec_nanos > Self::MAX_SUBSEC_NANOS {
+            return Err(WitnessRegistryError::Decode(format!(
+                "timestamp nanoseconds {subsec_nanos} exceed {}",
+                Self::MAX_SUBSEC_NANOS
+            )));
+        }
+        Ok(Self {
+            unix_secs,
+            subsec_nanos,
+        })
+    }
+
+    fn to_cbor_value(self) -> Value {
+        Value::Array(vec![
+            Value::Integer(self.unix_secs.into()),
+            Value::Integer(self.subsec_nanos.into()),
+        ])
+    }
+
+    fn from_cbor_value(value: &Value, field: &'static str) -> Result<Self, WitnessRegistryError> {
+        let items = value.as_array().ok_or_else(|| {
+            WitnessRegistryError::Decode(format!("`{field}` is not a CBOR array"))
+        })?;
+        if items.len() != 2 {
+            return Err(WitnessRegistryError::Decode(format!(
+                "`{field}` timestamp must be a two-element array"
+            )));
+        }
+        let secs = nonnegative_u64(&items[0], &format!("{field}[0]"))?;
+        let nanos_u64 = nonnegative_u64(&items[1], &format!("{field}[1]"))?;
+        let subsec_nanos = u32::try_from(nanos_u64).map_err(|_| {
+            WitnessRegistryError::Decode(format!("`{field}[1]` does not fit u32"))
+        })?;
+        Self::new(secs, subsec_nanos)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WitnessKeyEntry {
     pub kid: [u8; 16],
     pub pubkey: Vec<u8>,
     pub suite_id: u64,
-    pub effective_from: String,
-    pub valid_to: Option<String>,
+    pub effective_from: TrellisTimestamp,
+    pub valid_to: Option<TrellisTimestamp>,
     pub supersedes: Option<[u8; 16]>,
     pub witness_kind: WitnessKind,
 }
@@ -34,7 +99,7 @@ pub enum WitnessKind {
     Other(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WitnessKeyRegistry {
     pub version: u32,
     pub entries: Vec<WitnessKeyEntry>,
@@ -134,7 +199,7 @@ impl WitnessKeyEntry {
             ("kid", Value::Bytes(self.kid.to_vec())),
             ("pubkey", Value::Bytes(self.pubkey.clone())),
             ("suite_id", Value::Integer(self.suite_id.into())),
-            ("effective_from", Value::Text(self.effective_from.clone())),
+            ("effective_from", self.effective_from.to_cbor_value()),
             (
                 "supersedes",
                 self.supersedes
@@ -145,7 +210,7 @@ impl WitnessKeyEntry {
                 "valid_to",
                 self.valid_to
                     .as_ref()
-                    .map_or(Value::Null, |value| Value::Text(value.clone())),
+                    .map_or(Value::Null, |ts| ts.to_cbor_value()),
             ),
             (
                 "witness_kind",
@@ -167,15 +232,10 @@ impl WitnessKeyEntry {
             ));
         }
         let suite_id = lookup_u64(map, "suite_id")?;
-        let effective_from = lookup_text(map, "effective_from")?.to_string();
+        let effective_from = TrellisTimestamp::from_cbor_value(lookup_value(map, "effective_from")?, "effective_from")?;
         let valid_to = match lookup_value(map, "valid_to")? {
             Value::Null => None,
-            Value::Text(value) => Some(value.clone()),
-            _ => {
-                return Err(WitnessRegistryError::Decode(
-                    "witness valid_to is neither text nor null".to_string(),
-                ));
-            }
+            other => Some(TrellisTimestamp::from_cbor_value(other, "valid_to")?),
         };
         let supersedes = match lookup_value(map, "supersedes")? {
             Value::Null => None,
@@ -245,21 +305,16 @@ impl<'de> Deserialize<'de> for WitnessKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WitnessRegistryError {
-    Encode(String),
-    Decode(String),
+fn nonnegative_u64(value: &Value, label: &str) -> Result<u64, WitnessRegistryError> {
+    value
+        .as_integer()
+        .and_then(|integer| integer.try_into().ok())
+        .ok_or_else(|| {
+            WitnessRegistryError::Decode(format!(
+                "`{label}` is not a non-negative integer that fits u64"
+            ))
+        })
 }
-
-impl Display for WitnessRegistryError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Encode(message) | Self::Decode(message) => f.write_str(message),
-        }
-    }
-}
-
-impl std::error::Error for WitnessRegistryError {}
 
 fn canonical_text_map(fields: Vec<(&'static str, Value)>) -> Value {
     let mut fields = fields
@@ -332,12 +387,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn trellis_timestamp_rejects_excess_subsec_nanos() {
+        let err = TrellisTimestamp::new(0, 1_000_000_000).expect_err("nanos");
+        assert!(err.to_string().contains("nanoseconds"), "{err}");
+    }
+
+    #[test]
     fn witness_key_registry_round_trips_cbor() {
+        let ts = TrellisTimestamp::new(1, 0).expect("ts");
         let registry = WitnessKeyRegistry::new(vec![WitnessKeyEntry {
             kid: [0x01; 16],
             pubkey: vec![0xAA; 32],
             suite_id: 1,
-            effective_from: "2026-05-13T00:00:00Z".to_string(),
+            effective_from: ts,
             valid_to: None,
             supersedes: None,
             witness_kind: WitnessKind::LocalServer,
@@ -361,11 +423,12 @@ mod tests {
 
     #[test]
     fn witness_key_registry_uses_canonical_map_order() {
+        let ts = TrellisTimestamp::new(1, 0).expect("ts");
         let registry = WitnessKeyRegistry::new(vec![WitnessKeyEntry {
             kid: [0x01; 16],
             pubkey: vec![0xAA; 32],
             suite_id: 1,
-            effective_from: "2026-05-13T00:00:00Z".to_string(),
+            effective_from: ts,
             valid_to: None,
             supersedes: None,
             witness_kind: WitnessKind::Rfc3161Tsa,
@@ -423,11 +486,12 @@ mod tests {
 
     #[test]
     fn witness_key_registry_rejects_short_pubkey() {
+        let ts = TrellisTimestamp::new(1, 0).expect("ts");
         let registry = WitnessKeyRegistry::new(vec![WitnessKeyEntry {
             kid: [0x01; 16],
             pubkey: vec![0xAA; 31],
             suite_id: 1,
-            effective_from: "2026-05-13T00:00:00Z".to_string(),
+            effective_from: ts,
             valid_to: None,
             supersedes: None,
             witness_kind: WitnessKind::LocalServer,
@@ -439,11 +503,12 @@ mod tests {
 
     #[test]
     fn witness_key_registry_preserves_extension_witness_kind() {
+        let ts = TrellisTimestamp::new(1, 0).expect("ts");
         let registry = WitnessKeyRegistry::new(vec![WitnessKeyEntry {
             kid: [0x01; 16],
             pubkey: vec![0xAA; 32],
             suite_id: 1,
-            effective_from: "2026-05-13T00:00:00Z".to_string(),
+            effective_from: ts,
             valid_to: None,
             supersedes: Some([0x02; 16]),
             witness_kind: WitnessKind::Other("x-agency-notary".to_string()),

@@ -95,9 +95,13 @@ impl ExportPackage {
     }
 
     /// Adds the optional witness-key registry member under the export root.
+    ///
+    /// `root_dir` must not end with `/`; trailing slashes are stripped so paths
+    /// stay normalized (`root` not `root//031-…`).
     pub fn add_witness_key_registry(&mut self, root_dir: &str, bytes: Vec<u8>) {
+        let root = root_dir.trim_end_matches('/');
         self.add_entry(ExportEntry::new(
-            format!("{root_dir}/{WITNESS_KEY_REGISTRY_MEMBER}"),
+            format!("{root}/{WITNESS_KEY_REGISTRY_MEMBER}"),
             bytes,
         ));
     }
@@ -282,6 +286,17 @@ mod tests {
                 "root/030-signing-key-registry.cbor",
                 "root/031-witness-key-registry.cbor"
             ]
+        );
+    }
+
+    #[test]
+    fn witness_key_registry_path_trims_trailing_slash_on_root_dir() {
+        let mut package = ExportPackage::new();
+        package.add_witness_key_registry("root/", vec![0x31]);
+
+        assert_eq!(
+            package.entries()[0].path(),
+            "root/031-witness-key-registry.cbor"
         );
     }
 

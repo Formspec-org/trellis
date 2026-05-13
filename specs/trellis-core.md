@@ -688,7 +688,7 @@ TR-CORE-039 anchors the unified `KeyEntry` taxonomy + verifier dispatch on `kind
 
 #### 8.7.6 Cross-class references (ADR 0005 reconciliation)
 
-ADR 0005 `ErasureEvidencePayload.key_class` uses the same five literals as `KeyEntry.kind`. **Normative name for HPKE / subject-wrap material is `subject`**; the wire string `"wrap"` is a deprecated synonym retained for pre-reconciliation interop. Verifiers MUST normalize `"wrap"` → `"subject"` before any `kind` comparison or registry resolution. `kid_destroyed` resolves against the **single** key registry: signing-class entries via the legacy shape OR the `KeyEntry` signing arm; non-signing classes via `KeyEntry` non-signing arms.
+ADR 0005 `ErasureEvidencePayload.key_class` uses the five literals `signing`, `tenant-root`, `scope`, `subject`, and `recovery` (after `wrap`→`subject` normalization). The reserved `witness` class exists on `KeyEntry` (§8.7) but MUST NOT appear in `ErasureEvidencePayload.key_class`: witness material is out of scope for cryptographic-erasure credential checks. **Normative name for HPKE / subject-wrap material is `subject`**; the wire string `"wrap"` is a deprecated synonym retained for pre-reconciliation interop. Verifiers MUST normalize `"wrap"` → `"subject"` before any `kind` comparison or registry resolution. `kid_destroyed` resolves against the **single** key registry: signing-class entries via the legacy shape OR the `KeyEntry` signing arm; non-signing classes via `KeyEntry` non-signing arms.
 
 ---
 
@@ -1344,6 +1344,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/020-inclusion-proofs.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/025-consistency-proofs.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/030-signing-key-registry.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/031-witness-key-registry.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/040-checkpoints.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/050-registries/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/060-payloads/... \
@@ -2278,7 +2279,7 @@ semantics.
 | `attestation_insufficient` | 6.d | Posture-transition event fails Companion §10 attestation-count, or an attestation signature does not verify. |
 | `posture_declaration_digest_mismatch` | 6.c | Posture-declaration document is present but its recomputed digest does not equal the event's `declaration_doc_digest`. |
 | `attachment_manifest_digest_mismatch` | 3.f / extensions check | `061-attachments.cbor` digest does not match the manifest's `trellis.export.attachments.v1` binding (ADR 0072). |
-| `key_class_mismatch` | 4.a (key-class dispatch) | A COSE_Sign1 protected-header `kid` resolves to a `KeyEntry` whose `kind` is a reserved non-signing class (`tenant-root`, `scope`, `subject`, `recovery`); only `signing`-class kids may sign canonical events (Core §8.7.3 step 4 / ADR 0006). |
+| `key_class_mismatch` | 4.a (key-class dispatch) | A COSE_Sign1 protected-header `kid` resolves to a `KeyEntry` whose `kind` is a reserved non-signing class (`tenant-root`, `scope`, `subject`, `recovery`, `witness`); only `signing`-class kids may sign canonical events (Core §8.7.3 step 4 / ADR 0006). |
 | `key_entry_attributes_shape_mismatch` | 3 (registry decode) | A `KeyEntry` whose `kind` is a reserved non-signing class is missing its `attributes` map or carries an `attributes` value whose shape does not match the per-class CDDL group in Core §8.7.2. |
 | `idempotency_key_length_invalid` | 1 / 4.c | An event's `EventPayload.idempotency_key` is missing, not a CBOR byte string, empty, or longer than 64 bytes — violates the `bstr .size (1..64)` structural bound (Core §6.1 / §17.2 / §28). |
 | `idempotency_key_payload_mismatch` | 4.h (per-event-set) | Two events in scope share `(ledger_scope, idempotency_key)` but their canonical material disagrees on `content_hash`, `author_event_hash`, or `canonical_event_hash` — the §17.3 clause-3 wire-contract violation (`IdempotencyKeyPayloadMismatch` rejection from §17.5, lifted to verifier-detectable tamper). |
