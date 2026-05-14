@@ -116,8 +116,13 @@ RkafFindingPayload = {
                                               ; re-normalize; idempotency / collision detection (step 4)
                                               ; is byte-exact at the consumer.
                                               ; Idempotency key within ledger_scope: two events sharing
-                                              ; the same finding_iri MUST carry byte-identical canonical
-                                              ; payloads or the verifier flags rkaf_finding_iri_collision.
+                                              ; the same finding_iri carry byte-identical canonical
+                                              ; payloads (silent idempotent), differ only in freshness
+                                              ; fields (rkaf_finding_iri_collision, collision_class =
+                                              ; "freshness_update", advisory — Plan 7d re-emission), or
+                                              ; differ in other fields (rkaf_finding_iri_collision,
+                                              ; collision_class = "structural", global-integrity
+                                              ; failure). See "Verifier obligations" step 4.
   finding_kind:       tstr,                   ; MUST be one of the closed #FindingKind values per
                                               ; PKAF/constraints/core/finding.cue at the producer's
                                               ; declared PKAF version (see pkaf_version below).
@@ -160,7 +165,7 @@ Naming convention: snake_case for Trellis wire (per ADR 0001 byte-style), with `
 
 Two faithful implementations MUST produce byte-identical `RkafFindingPayload` bytes from the same logical Finding. To foreclose divergence the spec pins:
 
-1. **`finding_iri` normalization.** RFC 3987 §5.3 admits multiple equivalent serializations of the same IRI; the verifier MUST NOT silently normalize. Producers SHOULD apply §5.3 normalization before emission; consumers compare bytes exactly. A producer that emits a non-normalized IRI is byte-locked to that form for collision and idempotency purposes — re-emission under a different normalized form is `rkaf_finding_iri_collision`.
+1. **`finding_iri` normalization.** RFC 3987 §5.3 admits multiple equivalent serializations of the same IRI; the verifier MUST NOT silently normalize. Producers SHOULD apply §5.3 normalization before emission; consumers compare bytes exactly. Two events whose `finding_iri` bytes differ (even if RFC 3987 §5.3 would equate them as the same logical IRI) are treated as DIFFERENT Findings by the Trellis verifier — no collision detection fires. The collision rule (step 4) is keyed on byte-exact `finding_iri` equality. Consumer-domain code MAY layer §5.3 normalization on top as part of Rulespec-graph reconciliation; that is OUT of scope for the Trellis verifier.
 
 2. **Field and nested-map ordering.** Top-level `RkafFindingPayload` keys and any nested map inside `extensions` follow Core §5 dCBOR deterministic key ordering recursively. The `extensions` `{ * tstr => any }` shape does not relax this rule — implementations MUST sort keys per dCBOR at every map level inside the value.
 
@@ -217,8 +222,11 @@ A conforming Phase-1 verifier processing an export bundle containing `trellis.rk
 3. **Validate intra-payload invariants:**
    - `detected_at == envelope.authored_at` exactly (no skew slack). Mismatch flags `rkaf_finding_timestamp_mismatch`.
    - `finding_iri`, `detected_by`, `subject`, and (when non-null) `verified_by` are syntactically valid IRIs per RFC 3987. Malformed flag `rkaf_finding_iri_malformed` localized to the offending field.
-   - When `last_verified_at` is non-null, it MUST be `<= detected_at` (a Finding cannot be verified later than it was detected and still appear in the same event — re-verification produces a NEW Finding event, not a retroactive update; this is the Plan 7d freshness discipline binding). Mismatch flags `rkaf_finding_freshness_temporal_inversion`.
-4. **Detect IRI collision.** After decoding all `rkaf-finding.v1` events in `ledger_scope`, two events sharing `finding_iri` with disagreeing canonical payloads flag `rkaf_finding_iri_collision`. Re-emission with byte-identical canonical payloads is idempotent and silent (first-seen wins is non-normative).
+   - When `last_verified_at` is non-null, it MUST be `>= detected_at` (PKAF Plan 7d freshness semantics: `lastVerifiedAt` answers "when did someone last confirm this Finding still holds?" — re-verification of an existing detection, by definition LATER than or equal to detection. A freshness timestamp earlier than the detection it claims to re-verify is malformed). Mismatch flags `rkaf_finding_freshness_precedes_detection`.
+4. **Detect IRI collision.** After decoding all `rkaf-finding.v1` events in `ledger_scope`, two events sharing `finding_iri` are classified as follows:
+   - **Byte-identical canonical payloads** → idempotent and silent (no flag; first-seen wins is non-normative).
+   - **Differing bytes confined to the freshness fields** (`last_verified_at` and/or `verified_by`; all other fields byte-identical) → flag `rkaf_finding_iri_collision` with `collision_class = "freshness_update"`. This is the PKAF Plan 7d freshness re-emission case; the Trellis layer surfaces the signal but consumer-domain (Studio / WOS) resolves admissibility. NOT a global-integrity failure.
+   - **Differing bytes outside the freshness fields** → flag `rkaf_finding_iri_collision` with `collision_class = "structural"`. A `rkaf:Finding` IRI identifies one detection; structurally-disagreeing re-emissions under the same IRI are producer error or tampering. IS a global-integrity failure.
 5. **Cross-check detector identity (advisory).** `RkafFindingPayload.detected_by` is the Rulespec detector IRI; `EventHeader.author` is the Trellis principal URI of the signer. These two are linked at the deployment layer (the Posture Declaration declares which Trellis principals are authorized to sign Findings on behalf of which Rulespec detectors). The Trellis verifier MUST surface the pair in the report but MUST NOT enforce a binding rule at this layer — detector↔principal mapping is consumer-domain (Studio / `wos-server` / BVR runtime), not Trellis-domain. The optional `report.rkaf_findings[*].detector_principal_consistent` field is populated only when a consumer-domain resolver is provided to the verifier (parallel to the `trellis-verify-wos` consumer-resolver pattern from ADR 0008 path-(b) and the identity-attestation resolver in ADR 0010 §"Verifier obligations" step 4). The contract for this resolver is pinned in §"Resolver contract" below; when no resolver is provided, the field is `null` and global integrity is not affected by this check.
 6. **Accumulate** outcomes into `VerificationReport.rkaf_findings`, parallel to `posture_transitions` / `erasure_evidence` / `certificates_of_completion` / `user_content_attestations` / `interop_sidecars`. Each entry carries:
 
@@ -234,12 +242,13 @@ A conforming Phase-1 verifier processing an export bundle containing `trellis.rk
      taxonomy_valid:                bool,
      intra_payload_invariants_ok:   bool,
      iri_collision:                 bool,
+     collision_class:               tstr / null,    ; "freshness_update" or "structural" when iri_collision = true; null otherwise.
      detector_principal_consistent: bool / null,    ; null when no consumer resolver is provided
      failures:                      [* tstr],
    }
    ```
 
-**Global integrity (Finding slice).** `integrity_verified = false` if any entry has any of `structure_valid = false`, `taxonomy_valid = false`, `intra_payload_invariants_ok = false`, or `iri_collision = true`. `detector_principal_consistent = false` is NOT a global-integrity failure — it surfaces in the consumer-domain layer (Studio / WOS verifier) per ADR 0008 ISC-01 / ADR 0008 path-(b) discipline.
+**Global integrity (Finding slice).** `integrity_verified = false` if any entry has any of `structure_valid = false`, `taxonomy_valid = false`, `intra_payload_invariants_ok = false`, OR (`iri_collision = true` AND `collision_class = "structural"`). A `freshness_update` collision is NOT a global-integrity failure — it is the Plan 7d freshness re-emission case, surfaced to the consumer-domain layer (Studio / WOS) which resolves admissibility per ADR 0008 ISC-01 / ADR 0008 path-(b) discipline. `detector_principal_consistent = false` is also NOT a global-integrity failure (same discipline).
 
 ### Resolver contract
 
@@ -282,9 +291,12 @@ This placement is normative for implementation; the crate need not exist until a
 
 ## Idempotency, mutability, and supersession
 
-- **Idempotency.** Re-emission of a Finding event with the same `finding_iri` MUST carry byte-identical canonical payload bytes (idempotent by hash). Collision flags `rkaf_finding_iri_collision` per §"Verifier obligations" step 4.
-- **Mutability.** Findings are append-only at the Trellis layer. "The detector re-checked at T+1 and found the same issue" produces a NEW Finding event (new `finding_iri`, new `detected_at`) and SHOULD use ADR 0066 supersession linkage (`trellis.supersedes-chain-id.v1`) if it logically supersedes a prior Finding about the same subject. Studio's "waived" lifecycle composes via PKAF `Attestation(targetFinding=…)` referencing the Finding IRI, NOT by mutating the Finding event.
-- **Lifecycle state outside Trellis.** Whether a Finding is "open" / "waived" / "remediated" is consumer-domain (Studio readiness-tier projection per PKAF ADR-0093). Trellis stores the detection; the lifecycle is a downstream graph computation over the case ledger.
+- **Idempotency.** Re-emission of a Finding event with the same `finding_iri` AND byte-identical canonical payload bytes is idempotent and silent (no `rkaf_finding_iri_collision`; first-seen wins is non-normative).
+- **Same-IRI re-emission with differing bytes** (collision) covers two distinct cases:
+  - **Freshness re-emission** (PKAF Plan 7d): re-verification of an existing Finding updates `last_verified_at` and `verified_by` on the SAME `finding_iri`, producing a NEW event whose bytes differ from the prior emission. The `finding_iri` collision flag (`rkaf_finding_iri_collision`) fires correctly as the structural-change signal — but the Trellis-layer interpretation is **advisory only**. Whether the freshness update is admitted is consumer-domain (Studio / WOS readiness-tier projection): for the Trellis verifier, a collision whose differing bytes are confined to `last_verified_at` and/or `verified_by` (with all other fields byte-identical to the prior emission) does NOT fail `integrity_verified`; it surfaces as `iri_collision = true` with a `collision_class = "freshness_update"` localizer in the report entry so the consumer-domain layer can resolve.
+  - **Structural collision**: differing bytes outside the freshness fields (e.g., `severity` changed, `subject` changed, `finding_kind` changed) is a hard collision. The Trellis verifier flags `rkaf_finding_iri_collision` with `collision_class = "structural"` AND fails `integrity_verified` — a `rkaf:Finding` IRI is intended to identify one detection; structurally-disagreeing re-emissions under the same IRI is producer error or tampering.
+- **Mutability.** Findings are append-only at the Trellis layer; freshness re-emissions are the ONE in-IRI mutation admitted (per Plan 7d). A logical supersession ("the detector re-checked at T+1 and now reports a different severity / different subject / a related new detection") MUST use a NEW `finding_iri` and SHOULD use ADR 0066 supersession linkage (`trellis.supersedes-chain-id.v1`) if it logically supersedes a prior Finding about the same subject. Studio's "waived" lifecycle composes via PKAF `Attestation(targetFinding=…)` referencing the Finding IRI, NOT by mutating the Finding event.
+- **Lifecycle state outside Trellis.** Whether a Finding is "open" / "waived" / "remediated" is consumer-domain (Studio readiness-tier projection per PKAF ADR-0093). Trellis stores the detection (and admits freshness re-emissions per Plan 7d); the lifecycle is a downstream graph computation over the case ledger.
 
 ## Fixture plan
 
@@ -298,8 +310,9 @@ Deferred to the implementation trigger (Open questions §3). When the first emit
 | `tamper/NNN-rkaf-finding-severity-unregistered` | `severity = "rkaf:catastrophic"`; verifier fails with `rkaf_finding_severity_unregistered`. |
 | `tamper/NNN-rkaf-finding-timestamp-mismatch` | `detected_at != envelope.authored_at`; verifier fails with `rkaf_finding_timestamp_mismatch`. |
 | `tamper/NNN-rkaf-finding-iri-malformed` | `finding_iri` is not a valid RFC 3987 IRI; verifier fails with `rkaf_finding_iri_malformed`. |
-| `tamper/NNN-rkaf-finding-iri-collision` | Two events sharing `finding_iri` with disagreeing canonical payloads; verifier fails with `rkaf_finding_iri_collision`. |
-| `tamper/NNN-rkaf-finding-freshness-inversion` | `last_verified_at > detected_at`; verifier fails with `rkaf_finding_freshness_temporal_inversion`. |
+| `tamper/NNN-rkaf-finding-iri-collision-structural` | Two events sharing `finding_iri` with differing bytes outside the freshness fields (e.g., `severity` changed); verifier fails with `rkaf_finding_iri_collision` and `collision_class = "structural"` — IS a global-integrity failure. |
+| `append/NNN-rkaf-finding-freshness-reemission` | Two events sharing `finding_iri` with differing bytes confined to `last_verified_at` and/or `verified_by`; verifier flags `rkaf_finding_iri_collision` with `collision_class = "freshness_update"` but does NOT fail `integrity_verified` (Plan 7d re-verification case). |
+| `tamper/NNN-rkaf-finding-freshness-precedes-detection` | `last_verified_at < detected_at`; verifier fails with `rkaf_finding_freshness_precedes_detection` (Plan 7d freshness MUST be `>= detected_at`). |
 | `tamper/NNN-rkaf-finding-pkaf-version-unknown` | `pkaf_version = "99.99.99"`; verifier fails with `rkaf_finding_pkaf_version_unknown`. |
 
 Slot numbers TBD per the corpus-batching convention in effect at implementation time.
