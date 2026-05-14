@@ -1,7 +1,7 @@
 # ADR 0012 — `rkaf:Finding` Anchoring Binding
 
 **Date:** 2026-05-14
-**Status:** Proposal — open. Wire shape and verifier obligations defined here; Rust types, fixtures, and adapter wiring deferred until a concrete adopter (Studio compiler, BVR runtime, or `wos-server` validation event emitter) triggers implementation per the "no stubs" rule (CLAUDE.md). PKAF ADR-0093 lands the Finding primitive on the Rulespec side; this ADR is Trellis's side of the §4.6 binding.
+**Status:** Proposal — open. Wire shape and verifier obligations defined here; matrix row `TR-CORE-178` landed (binding / sidecar boundary §1.16) so the normative MUSTs in §"Verifier obligations" have traceability per CLAUDE.md "spec + matrix + fixture in the same commit." Rust types, fixtures, and adapter wiring deferred until a concrete adopter (Studio compiler, BVR runtime, or `wos-server` validation event emitter) triggers implementation per the "no stubs" rule. PKAF ADR-0093 lands the Finding primitive on the Rulespec side; this ADR is Trellis's side of the §4.6 binding.
 **Supersedes:** —
 **Superseded by:** —
 **Related:**
@@ -323,7 +323,7 @@ Slot numbers TBD per the corpus-batching convention in effect at implementation 
 - **PKAF §4.6** — abstract anchoring contract. Trellis is one of several plausible bindings; the framework is honest that VC / COSE_Sign1 / Sigstore / IPFS are equally valid alternative bindings, and adopters MAY use multiple bindings simultaneously.
 - **Core §6.7 Extension Registry** — one row addition (table above).
 - **Core §19** — adds step 6f (new substep) with the verifier checklist above. Step 6e is already occupied by ADR 0066 cross-chain supersession-graph verification (`trellis-core.md` §19 step 6 supersession block); the next free slot is 6f. Companion update lands with implementation.
-- **TR-CORE-178 (new row, to be added to `specs/trellis-requirements-matrix.md`)** — anchors the verifier obligations above and the closed-taxonomy snapshot discipline. `Verification = test-vector` (deferred until the fixture corpus above lands). This ADR's `Status: Proposal — open` is preserved on the matrix row until the Rust binding ships.
+- **TR-CORE-178** — landed in `specs/trellis-requirements-matrix.md` §1.16 (Binding / Sidecar Boundary) co-located with the ADR. Anchors the verifier obligations above and the closed-taxonomy snapshot discipline. `Verification = test-vector` (corpus deferred until the fixture batch enumerated in §"Fixture plan" lands with the first adopter). This ADR's `Status: Proposal — open` is preserved on the matrix row's verification posture until the Rust binding ships.
 - **ADR 0010** — comparator pattern for "external-content-anchored event with structural payload"; differences enumerated under §"Decision" R2.
 - **ADR 0008** — comparator pattern for "cross-spec interop addition"; differences enumerated under §"Decision" R1.
 - **ADR 0066** — supersession linkage primitive that Findings about the same subject SHOULD compose with.

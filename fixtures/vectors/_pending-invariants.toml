@@ -14,5 +14,18 @@
 # Wave 25 (c2pa-manifest activation; ADR 0008 Phase-2 unlock):
 #   TR-CORE-163..166 normative in commit 1 (spec deltas);
 #   fixtures land in commit 4 (`tamper/037..040`). Cleared in commit 4.
+#
+# ADR 0012 (rkaf:Finding anchoring binding):
+#   TR-CORE-178 lands the verifier-obligation row + Core §6.7 registry row in
+#   the same change train as the ADR; the fixture corpus
+#   (append/NNN-rkaf-finding-{emission,optional-fields-omitted,freshness-reemission}
+#   and the seven `tamper/NNN-rkaf-finding-*` vectors) is deferred to the
+#   first concrete adopter (Studio compiler / BVR runtime / wos-server
+#   validation emitter) per the CLAUDE.md "no stubs" rule. The matrix-row
+#   `Status: Proposal — open` is the load-bearing posture; this allowlist
+#   entry forecloses the silent-skip alternative while the Rust types and
+#   vectors are deferred. Clear when the first adopter ships the corpus.
 
-pending_matrix_rows = []
+pending_matrix_rows = [
+    "TR-CORE-178",
+]
