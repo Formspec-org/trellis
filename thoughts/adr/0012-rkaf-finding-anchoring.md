@@ -183,13 +183,13 @@ Add to the Core §6.7 Extension Registry:
 
 | Container | Identifier | Phase | Purpose |
 |---|---|---|---|
-| `EventPayload.extensions` | `trellis.rkaf-finding.v1` | 1 | `rkaf:Finding` (PKAF ADR-0093) anchoring binding per ADR 0012. Payload shape `RkafFindingPayload` (ADR 0012 §"Wire shape"). Verifier obligations in §19 step 6e under no new domain tag (the host event's `trellis-event-v1` is sufficient — Findings are not separately signed; ADR 0012 §"Decision" R3). PKAF §4.6 anchor type URI `urn:rkaf:anchor:trellis/1`. Reject-if-unknown-at-version. |
+| `EventPayload.extensions` | `trellis.rkaf-finding.v1` | 1 | `rkaf:Finding` (PKAF ADR-0093) anchoring binding per ADR 0012. Payload shape `RkafFindingPayload` (ADR 0012 §"Wire shape"). Verifier obligations in §19 step 6f under no new domain tag (the host event's `trellis-event-v1` is sufficient — Findings are not separately signed; ADR 0012 §"Decision" R3). PKAF §4.6 anchor type URI `urn:rkaf:anchor:trellis/1`. Reject-if-unknown-at-version. |
 
 ## Domain-separation tag (Core §9.8)
 
 **None added.** Rationale recorded under §"Decision" R3.
 
-## Verifier obligations (Core §19 step 6e — new substep)
+## Verifier obligations (Core §19 step 6f — new substep)
 
 A conforming Phase-1 verifier processing an export bundle containing `trellis.rkaf-finding.v1` events MUST, in order:
 
@@ -200,7 +200,7 @@ A conforming Phase-1 verifier processing an export bundle containing `trellis.rk
    - `finding_iri`, `detected_by`, `subject`, and (when non-null) `verified_by` are syntactically valid IRIs per RFC 3987. Malformed flag `rkaf_finding_iri_malformed` localized to the offending field.
    - When `last_verified_at` is non-null, it MUST be `<= detected_at` (a Finding cannot be verified later than it was detected and still appear in the same event — re-verification produces a NEW Finding event, not a retroactive update; this is the Plan 7d freshness discipline binding). Mismatch flags `rkaf_finding_freshness_temporal_inversion`.
 4. **Detect IRI collision.** After decoding all `rkaf-finding.v1` events in `ledger_scope`, two events sharing `finding_iri` with disagreeing canonical payloads flag `rkaf_finding_iri_collision`. Re-emission with byte-identical canonical payloads is idempotent and silent (first-seen wins is non-normative).
-5. **Cross-check detector identity (advisory).** `RkafFindingPayload.detected_by` is the Rulespec detector IRI; `EventHeader.author` is the Trellis principal URI of the signer. These two are linked at the deployment layer (the Posture Declaration declares which Trellis principals are authorized to sign Findings on behalf of which Rulespec detectors). The Trellis verifier MUST surface the pair in the report but MUST NOT enforce a binding rule at this layer — detector↔principal mapping is consumer-domain (Studio / `wos-server` / BVR runtime), not Trellis-domain. The optional `report.rkaf_findings[*].detector_principal_consistent` field is populated only when a consumer-domain resolver is provided to the verifier (parallel to the `trellis-verify-wos` resolver pattern in ADR 0007); when absent, the field is `null` and global integrity is not affected by this check.
+5. **Cross-check detector identity (advisory).** `RkafFindingPayload.detected_by` is the Rulespec detector IRI; `EventHeader.author` is the Trellis principal URI of the signer. These two are linked at the deployment layer (the Posture Declaration declares which Trellis principals are authorized to sign Findings on behalf of which Rulespec detectors). The Trellis verifier MUST surface the pair in the report but MUST NOT enforce a binding rule at this layer — detector↔principal mapping is consumer-domain (Studio / `wos-server` / BVR runtime), not Trellis-domain. The optional `report.rkaf_findings[*].detector_principal_consistent` field is populated only when a consumer-domain resolver is provided to the verifier (parallel to the `trellis-verify-wos` consumer-resolver pattern from ADR 0008 path-(b) and the identity-attestation resolver in ADR 0010 §"Verifier obligations" step 4). The contract for this resolver is pinned in §"Resolver contract" below; when no resolver is provided, the field is `null` and global integrity is not affected by this check.
 6. **Accumulate** outcomes into `VerificationReport.rkaf_findings`, parallel to `posture_transitions` / `erasure_evidence` / `certificates_of_completion` / `user_content_attestations` / `interop_sidecars`. Each entry carries:
 
    ```cddl
@@ -220,7 +220,17 @@ A conforming Phase-1 verifier processing an export bundle containing `trellis.rk
    }
    ```
 
-**Global integrity (Finding slice).** `integrity_verified = false` if any entry has any of `structure_valid = false`, `taxonomy_valid = false`, `intra_payload_invariants_ok = false`, or `iri_collision = true`. `detector_principal_consistent = false` is NOT a global-integrity failure — it surfaces in the consumer-domain layer (Studio / WOS verifier) per ADR 0008 ISC-01 / ADR 0007 path-(b) discipline.
+**Global integrity (Finding slice).** `integrity_verified = false` if any entry has any of `structure_valid = false`, `taxonomy_valid = false`, `intra_payload_invariants_ok = false`, or `iri_collision = true`. `detector_principal_consistent = false` is NOT a global-integrity failure — it surfaces in the consumer-domain layer (Studio / WOS verifier) per ADR 0008 ISC-01 / ADR 0008 path-(b) discipline.
+
+### Resolver contract
+
+The detector↔principal cross-check (step 5) is **optional** at the Trellis layer but its API surface is pinned here so two implementations facing the same posture cannot legally disagree on whether to populate the field. The Trellis verifier takes an optional consumer-domain resolver (parallel to `trellis-verify-wos::WosFormspecResolver` per ADR 0008 path-(b) consumer pattern, and the cross-spec resolver shape ADR 0010 step 4 uses for identity-attestation resolution at `trellis-core.md` §19 step 6d):
+
+- **(a) Resolver provided.** The verifier MUST invoke the resolver for every `RkafFindingPayload` decoded in step 1, MUST surface a non-null `detector_principal_consistent: bool` in the corresponding `RkafFindingVerificationEntry`, and MUST record the resolver's failure code (when `false`) under `failures: [* tstr]`. A resolver that itself errors out for reasons unrelated to the detector↔principal mapping (e.g., transport failure) is reported as `detector_principal_consistent = null` with a localized `resolver_error` failure — distinct from "resolver ran and said inconsistent."
+- **(b) Resolver NOT provided.** The verifier MUST set `detector_principal_consistent = null` and MUST NOT fail `integrity_verified` on the absent cross-check. The advisory nature of the field is honest reporting of "no consumer-domain validator was wired in," not a silent pass.
+- **(c) Posture Declaration field shape.** OPEN (Open question §2 — the Posture Declaration shape `authorized_rkaf_detectors: [{ trellis_principal, detector_iri }]` is illustrative, not pre-committed). The resolver API surface (this subsection) is CLOSED here — Posture Declaration shape can evolve without breaking the verifier interface.
+
+This mirrors the discipline ADR 0010 §"Verifier obligations" step 4 applies to identity-attestation resolution: the resolver interface is consumer-supplied, the verifier reports honestly when absent, and absence is not silent-pass.
 
 ## Closed-taxonomy registry
 
@@ -279,7 +289,7 @@ Slot numbers TBD per the corpus-batching convention in effect at implementation 
 - **PKAF ADR-0093** — promotes `rkaf:Finding` to first-class primitive; names this Trellis binding as the open cross-stack work item. This ADR closes that item from the Trellis side.
 - **PKAF §4.6** — abstract anchoring contract. Trellis is one of several plausible bindings; the framework is honest that VC / COSE_Sign1 / Sigstore / IPFS are equally valid alternative bindings, and adopters MAY use multiple bindings simultaneously.
 - **Core §6.7 Extension Registry** — one row addition (table above).
-- **Core §19** — adds step 6e (new substep) with the verifier checklist above. Companion update lands with implementation.
+- **Core §19** — adds step 6f (new substep) with the verifier checklist above. Step 6e is already occupied by ADR 0066 cross-chain supersession-graph verification (`trellis-core.md` §19 step 6 supersession block); the next free slot is 6f. Companion update lands with implementation.
 - **TR-CORE-178 (new row, to be added to `specs/trellis-requirements-matrix.md`)** — anchors the verifier obligations above and the closed-taxonomy snapshot discipline. `Verification = test-vector` (deferred until the fixture corpus above lands). This ADR's `Status: Proposal — open` is preserved on the matrix row until the Rust binding ships.
 - **ADR 0010** — comparator pattern for "external-content-anchored event with structural payload"; differences enumerated under §"Decision" R2.
 - **ADR 0008** — comparator pattern for "cross-spec interop addition"; differences enumerated under §"Decision" R1.
