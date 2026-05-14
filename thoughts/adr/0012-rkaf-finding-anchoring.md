@@ -23,7 +23,7 @@ The §4.6 abstract anchoring contract is satisfied as follows:
 |---|---|
 | **(1) Anchor type URI** | `urn:rkaf:anchor:trellis/1` |
 | **(2) What the anchor commits to** | `dCBOR(EventPayload)` of the host Trellis event whose `EventPayload.extensions["trellis.rkaf-finding.v1"]` decodes to `RkafFindingPayload`, where `RkafFindingPayload.finding_iri` equals the `rkaf:Finding`'s `@id`. The canonical-serialization function (§4.6 req 2) is `λ Finding . dCBOR(RkafFindingPayload(Finding))`. |
-| **(3) Verification function** | The Phase-1 Trellis verifier (Core §19) over the host event, plus the structural decode + invariant checks enumerated in §"Verifier obligations" below. Returns `commit` iff `integrity_verified = true` AND `finding_iri` matches the Rulespec subgraph the consumer is checking against. |
+| **(3) Verification function** | The Phase-1 Trellis verifier (Core §19) over the host event, plus the structural decode + invariant checks enumerated in §"Verifier obligations" below. Returns `commit` iff `integrity_verified = true` AND `finding_iri` matches the Rulespec subgraph the consumer is checking against. The anchor IRI (§4.6 requirement 1) resolves to `(ledger_scope, canonical_event_hash[, checkpoint_tree_size])` via the URI template pinned in §"Anchor IRI resolution" below; the verifier resolves a Finding by `canonical_event_hash`, so the URI template is read-only on the Trellis side. |
 | **(4) Spec published outside Rulespec** | This ADR. PKAF spec does not name Trellis. |
 
 The Rulespec consumer expresses the binding in its graph with:
@@ -34,7 +34,26 @@ The Rulespec consumer expresses the binding in its graph with:
 # Binding-defined: anchorIRI dereferences to the Trellis event hash + checkpoint coordinates.
 ```
 
-The shape of `?anchorIRI` (resolution URI scheme, how it composes the Trellis event hash + checkpoint coordinates) is **deferred to a follow-on RFC** (see Open questions §1). Phase-1 adopters MAY use any URI that resolves to a `(ledger_scope, canonical_event_hash, checkpoint_ref)` triple; the Trellis side does not need to know how `?anchorIRI` is minted because the verifier resolves the Finding by hash, not by URI.
+The shape of `?anchorIRI` is **pinned here** (closes Open question §1 partial — full HTTPS-resolver discussion remains open) so that two consumers reading the same Rulespec graph derive the same Trellis coordinates without coordination. See §"Anchor IRI resolution" below for the URI template. The verifier resolves a Finding by `canonical_event_hash`, not by URI; the URI template is the Rulespec-graph-readable form that consumers parse to recover the resolution coordinates.
+
+### Anchor IRI resolution
+
+The Rulespec `?anchorIRI` for a Trellis-bound Finding follows the URI template:
+
+```
+urn:rkaf:anchor:trellis/1:<ledger_scope>:<canonical_event_hash>[:<checkpoint_tree_size>]
+```
+
+with the following normative production rules:
+
+- `<ledger_scope>` is the lowercase hex encoding of the host event's `EventHeader.ledger_scope` per Core §4 (case-ledger scope identifier). Bytes are encoded as a single lowercase hex string with no separators.
+- `<canonical_event_hash>` is the lowercase hex encoding of the host event's `canonical_event_hash` per Core §10 (the byte-exact hash that anchors the Finding event in the chain). 64 hex characters for SHA-256.
+- `<checkpoint_tree_size>` is OPTIONAL. When present, it is the decimal `tree_size` (Core §11) of a Checkpoint that includes the host event in its Merkle tree. Producers MAY omit it; consumers MAY tolerate either form. When two `?anchorIRI` values differ only in the presence/value of `<checkpoint_tree_size>` they refer to the same Finding — `canonical_event_hash` is the disambiguator.
+- The colon separator is the URN `:` character per RFC 8141; no percent-encoding is applied to the hex/decimal segments (they are already URI-safe).
+
+Phase-1 verifiers do not parse `?anchorIRI` — they receive a `canonical_event_hash` from the export bundle directly. The URI template is the **producer-side and Rulespec-graph-side** canonical form; the Trellis verifier reads the host event hash from the bundle and the consumer reconciles by comparing hash bytes after parsing the URI.
+
+An HTTPS-resolver variant for follow-on RFC work (e.g., `https://<trellis-deployment>/anchor/v1/<ledger_scope>/<canonical_event_hash>`) remains open (Open question §1 retained); the `urn:rkaf:anchor:trellis/1:…` URN form is the wire-canonical shape that bindings MUST emit.
 
 ### Rejected alternatives
 
@@ -244,12 +263,13 @@ The PKAF `#FindingKind` and `#FindingSeverity` enumerations are versioned by PKA
 
 ## Crate placement
 
-When Rust implementation triggers (Open questions §3), the binding code lives in **a new sibling crate `trellis-rkaf`** in `trellis/crates/`, NOT in `trellis-core` / `trellis-types` / `trellis-verify`. Rationale:
+When Rust implementation triggers (Open questions §3), the binding code lives in **a new sibling crate `trellis-rkaf`** in `trellis/crates/`, NOT in `trellis-core` / `trellis-types` / `trellis-verify`, and NOT under the `trellis-interop-*` cluster. Rationale:
 
 - Core §16 verification independence (CLAUDE.md "verification independence contract is load-bearing") forbids non-essential dependencies in `trellis-verify`.
 - Per ADR 0008 ISC-05 and the consumer-crate-boundary discipline in CLAUDE.md, consumer-specific (here: Rulespec-specific) semantics live outside Trellis center crates.
+- **Why not `trellis-interop-rkaf`?** The `trellis-interop-*` cluster (`trellis-interop-c2pa`, `trellis-interop-did`, `trellis-interop-scitt`, `trellis-interop-vc`) is the home for **export-bundle sidecars** per ADR 0008: deterministic derivations of canonical records into external-ecosystem envelope formats, carried alongside canonical bytes in `interop-sidecars/` and dispatched path-(b) by the verifier (digest-binds only; no `source_ref` resolution). ADR 0012 is structurally different — it is a **first-class event payload extension** under `EventPayload.extensions["trellis.rkaf-finding.v1"]`, anchored by the host event's COSE_Sign1 + Merkle inclusion (not by sidecar digest). This is the same event-extension-vs-sidecar distinction enumerated in §"Decision" R1. The `interop-*` naming would conflate two architecturally distinct patterns (event-extension and export-sidecar) and force the wrong dispatch shape onto consumers.
 - The dependency graph is one-way: `trellis-rkaf → trellis-types` (for `EventPayload` access). `trellis-verify` MAY depend on `trellis-rkaf` for the dispatch path (parallel to how `trellis-verify-wos` is the WOS dispatch path), but `trellis-core` MUST NOT.
-- A future `trellis-interop-rkaf` adapter could emit a SCITT receipt or VC envelope over Findings per ADR 0008; that adapter (when needed) lives separately and depends on `trellis-rkaf` for the canonical struct.
+- A future `trellis-interop-rkaf` adapter could emit a SCITT receipt or VC envelope over Findings per ADR 0008 — that **would** belong under the `interop-*` cluster because it would be an export-bundle sidecar derivation. That adapter (when needed) lives separately and depends on `trellis-rkaf` for the canonical struct. The two crates compose without overlap: `trellis-rkaf` owns the in-chain event extension; `trellis-interop-rkaf` (hypothetical) would own the sidecar derivation.
 
 This placement is normative for implementation; the crate need not exist until an adopter triggers it.
 
@@ -298,7 +318,7 @@ Slot numbers TBD per the corpus-batching convention in effect at implementation 
 
 ## Open questions / follow-ons
 
-1. **`?anchorIRI` resolution URI scheme.** PKAF §4.6 declares Rulespec assertions point at anchors via `rkaf:anchoredBy ?anchorIRI` where the anchor IRI's structure is binding-defined. This ADR defers the concrete URI shape (probably `urn:rkaf:anchor:trellis/1:<ledger_scope>:<canonical_event_hash hex>[:<checkpoint_tree_size>]` or a Trellis-hosted HTTPS resolver). Decided in a follow-on RFC alongside the broader `source_ref` resolution question raised in ADR 0008 Open Q5. This is benign for verification (the verifier resolves Findings by canonical_event_hash, not by anchor IRI) but matters for Rulespec graph readability.
+1. **`?anchorIRI` HTTPS-resolver variant.** **Partially closed:** the URN-form wire-canonical shape `urn:rkaf:anchor:trellis/1:<ledger_scope hex>:<canonical_event_hash hex>[:<checkpoint_tree_size>]` is pinned in §"Anchor IRI resolution" — this is the form bindings MUST emit. **Open:** an HTTPS-resolver variant (e.g., `https://<trellis-deployment>/anchor/v1/<ledger_scope>/<canonical_event_hash>`) for browser-readable Rulespec graphs. Decided in a follow-on RFC alongside the broader `source_ref` resolution question raised in ADR 0008 Open Q5. The wire form is benign for verification (the verifier resolves Findings by canonical_event_hash, not by URI); the HTTPS variant matters for human-readable Rulespec graph rendering.
 2. **Detector-principal mapping at the Posture Declaration.** §"Verifier obligations" step 5 surfaces detector↔principal consistency as advisory. The companion-spec change (Posture Declaration field declaring `authorized_rkaf_detectors: [{ trellis_principal, detector_iri }]`) lands when the first Rulespec-aware deployment configures one — likely co-landed with the `trellis-verify-wos`-style resolver for Findings. The ADR does not pre-commit the Posture Declaration shape; it pre-commits the verifier API surface (`detector_principal_consistent` is nullable, populated by an optional resolver).
 3. **Rust implementation trigger.** The first concrete adopter (Studio compiler emitting Findings, `wos-server` validation event emission, or a standalone BVR runtime) triggers `trellis-rkaf` crate creation + fixture corpus + Python stranger mirror. The CLAUDE.md "no stubs" rule forbids creating the crate empty.
 4. **Studio readiness-tier projection.** PKAF ADR-0093 names this as a Studio-side concern: Findings + their PKAF Attestation waivers compose into a readiness tier per case. Trellis's responsibility ends at "Findings are anchored, addressable, and verifiable offline"; readiness projection is over the case ledger graph, not in the wire shape. Documented here to foreclose scope creep into Trellis.
