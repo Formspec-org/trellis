@@ -791,9 +791,39 @@ dependencies = [
 name = "integrity-cose"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "ed25519-dalek",
+ "hex",
  "integrity-cbor",
+ "integrity-seam",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "integrity-hpke"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "hkdf",
+ "hpke",
+ "integrity-seam",
+ "rand_core 0.9.5",
+ "sha2 0.10.9",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "integrity-seam"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "hex",
+ "integrity-canonical",
+ "integrity-cbor",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -1852,12 +1882,8 @@ dependencies = [
 name = "trellis-hpke"
 version = "0.1.0"
 dependencies = [
- "chacha20poly1305",
- "hkdf",
  "hpke",
- "rand_core 0.9.5",
- "sha2 0.10.9",
- "x25519-dalek",
+ "integrity-hpke",
 ]
 
 [[package]]

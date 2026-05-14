@@ -4,71 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[package.metadata.cargo-machete]
-ignored = ["hkdf", "sha2"]
-
-# Phase-1 HPKE wrap/unwrap for `KeyBagEntry.wrapped_dek` (Core §9.4 suite 1:
-# RFC 9180 Base mode, X25519-HKDF-SHA256-ChaCha20-Poly1305).
-#
-# Crate selection: `hpke` (rozbb/rust-hpke), version-pinned per
-# ADR 0009 (`thoughts/adr/0009-hpke-crate-selection.md`; promoted from the
-# 2026-04-24 spike). Pinned to `=0.13.0` (latest stable). The
-# `0.14.0-pre.2` pre-release pulls in a broken `sha3 0.11.0-rc.7` chain;
-# we are not opting into pre-release crypto.
-#
-# `wrap_dek` / `unwrap_dek` go through hpke's RFC-blessed public API
-# (`single_shot_seal` / `setup_receiver`). The fixture-only
-# `wrap_dek_with_pinned_ephemeral` path is gated behind the
-# `test-vectors` Cargo feature (default off). It bypasses hpke's
-# `setup_sender` (which always derives the ephemeral via
-# `DeriveKeyPair(GenerateRandomBytes())`) and reaches into hpke's
-# lower-level `LabeledExtract` / `ExtractAndExpand` helpers — the only
-# way to produce HPKE bytes that match the Python fixture generator's
-# "raw 32-byte seed = X25519 scalar" carve-out (Core §9.4 test-vector
-# carve-out). x25519-dalek and chacha20poly1305 are explicit deps so
-# the carve-out path does not lean on hpke's transitive graph; both are
-# only referenced under `#[cfg(feature = "test-vectors")]` in the
-# crate.
-#
-# Isolated from `trellis-cose` so HPKE deps do not leak into `trellis-verify`
-# via the existing `trellis-verify -> trellis-cose` chain (Core §16
-# verification independence). The verifier-isolation invariant is
-# CI-asserted by `scripts/check-verifier-isolation.sh` — `cargo tree -p
-# trellis-verify` MUST NOT mention `hpke`, `x25519-dalek`,
-# `chacha20poly1305`, or `hkdf`.
-#
-# # DO NOT BUMP without re-verifying:
-# (1) `hpke = "=0.13.0"` — `wrap_dek_with_pinned_ephemeral` reaches into
-#     `hpke::kdf::{labeled_extract, extract_and_expand, LabeledExpand}`
-#     (all `#[doc(hidden)]` but `pub`). Any minor-version bump may make
-#     these symbols private and silently break the fixture-only carve-out
-#     path that produces `append/004-hpke-wrapped-inline` bytes.
-# (2) `chacha20poly1305 = "=0.10.1"`, `hkdf = "=0.12.4"`,
-#     `x25519-dalek = "=2.0.1"`, `sha2 = "=0.10.9"`,
-#     `rand_core = "=0.9.5"` — byte-exact reproducibility for
-#     `append/004` flows through these directly; AEAD nonce schedules,
-#     KDF derivation, X25519 scalar clamping, and HKDF chaining are
-#     under-specified to the version. Re-run
-#     `cargo nextest run -p trellis-hpke --features test-vectors` after any
-#     bump and confirm the `append_004_byte_match.rs` byte oracle is
-#     still green.
-# (3) Crate spike → ADR promotion: `thoughts/adr/0009-hpke-crate-selection.md`
-#     §Lifecycle pins "promote-on-bump." Any bump here is the trigger to
-#     re-read the ADR and update its decision-log entry.
-
 [features]
-# Default off. Gates `wrap_dek_with_pinned_ephemeral` and the related
-# fixture-only KDF / X25519 / AEAD imports so the production
-# crate-graph cannot link the Core §9.4 test-vector carve-out. Enable
-# in test invocations that replay the `append/004` byte oracle:
-# `cargo nextest run -p trellis-hpke --features test-vectors`.
 default = []
-test-vectors = []
+test-vectors = ["integrity-hpke/test-vectors"]
 
 [dependencies]
+integrity-hpke = { path = "../../../integrity-stack/crates/integrity-hpke" }
+
+[dev-dependencies]
 hpke = { version = "=0.13.0" }
-chacha20poly1305 = "=0.10.1"
-hkdf = "=0.12.4"
-rand_core = { version = "=0.9.5", features = ["os_rng"] }
-sha2 = "=0.10.9"
-x25519-dalek = { version = "=2.0.1", features = ["static_secrets"] }
