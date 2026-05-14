@@ -91,6 +91,11 @@ Under `EventPayload.extensions["trellis.rkaf-finding.v1"]`:
 
 RkafFindingPayload = {
   finding_iri:        tstr,                   ; the rkaf:Finding @id; MUST be an absolute IRI per RFC 3987.
+                                              ; Byte-determinism: finding_iri is emitted byte-exact as the
+                                              ; producer received it; producers SHOULD apply RFC 3987 §5.3
+                                              ; normalization before emission. The verifier does NOT
+                                              ; re-normalize; idempotency / collision detection (step 4)
+                                              ; is byte-exact at the consumer.
                                               ; Idempotency key within ledger_scope: two events sharing
                                               ; the same finding_iri MUST carry byte-identical canonical
                                               ; payloads or the verifier flags rkaf_finding_iri_collision.
@@ -110,19 +115,37 @@ RkafFindingPayload = {
   subject:            tstr,                   ; IRI of the object the finding concerns.
   severity:           tstr / null,            ; MUST be one of the closed #FindingSeverity values when
                                               ; non-null, per the registry snapshot keyed by pkaf_version.
-  rationale:          tstr / null,            ; Free text per PKAF.
-  last_verified_at:   uint / null,            ; Plan 7d freshness; Unix seconds UTC.
-  verified_by:        tstr / null,            ; Plan 7d freshness; verifier IRI.
-  pkaf_version:       tstr,                   ; SemVer of the PKAF release whose closed taxonomies
-                                              ; bind this Finding (e.g. "0.1.x" or "0.2.0"). The
-                                              ; verifier resolves finding_kind / severity admissibility
-                                              ; against this version's registry snapshot; unknown
-                                              ; versions flag rkaf_finding_pkaf_version_unknown.
+                                              ; PKAF-absent ↔ CDDL null; see "Cross-spec field mapping"
+                                              ; for the round-trip rule.
+  rationale:          tstr / null,            ; Free text per PKAF. PKAF-absent ↔ CDDL null.
+  last_verified_at:   uint / null,            ; Plan 7d freshness; Unix seconds UTC. PKAF-absent ↔
+                                              ; CDDL null. When non-null, see verifier-step-3 invariant.
+  verified_by:        tstr / null,            ; Plan 7d freshness; verifier IRI. PKAF-absent ↔ CDDL null.
+  pkaf_version:       tstr,                   ; Strict SemVer 2.0.0 string identifying the PKAF release
+                                              ; whose closed taxonomies bind this Finding (e.g. "0.1.0",
+                                              ; "0.2.0"). Range or wildcard keys (e.g. "0.1.x", "^0.2",
+                                              ; "0.1") are NOT admitted — verifier flags
+                                              ; rkaf_finding_pkaf_version_unknown if pkaf_version does
+                                              ; not parse as strict SemVer 2.0.0 OR is not present in
+                                              ; the verifier's supported set.
   extensions:         { * tstr => any } / null,
+                                              ; Sub-map ordering follows Core §5 dCBOR deterministic
+                                              ; key ordering recursively; nested maps inherit the same
+                                              ; rule. See "Byte determinism corners" below.
 }
 ```
 
 Naming convention: snake_case for Trellis wire (per ADR 0001 byte-style), with `finding_iri` instead of `@id` because dCBOR map keys are text strings without JSON-LD `@`-prefix semantics. The `@id` ↔ `finding_iri` lift is lossless and pinned in §"Cross-spec field mapping" below.
+
+### Byte-determinism corners
+
+Two faithful implementations MUST produce byte-identical `RkafFindingPayload` bytes from the same logical Finding. To foreclose divergence the spec pins:
+
+1. **`finding_iri` normalization.** RFC 3987 §5.3 admits multiple equivalent serializations of the same IRI; the verifier MUST NOT silently normalize. Producers SHOULD apply §5.3 normalization before emission; consumers compare bytes exactly. A producer that emits a non-normalized IRI is byte-locked to that form for collision and idempotency purposes — re-emission under a different normalized form is `rkaf_finding_iri_collision`.
+
+2. **Field and nested-map ordering.** Top-level `RkafFindingPayload` keys and any nested map inside `extensions` follow Core §5 dCBOR deterministic key ordering recursively. The `extensions` `{ * tstr => any }` shape does not relax this rule — implementations MUST sort keys per dCBOR at every map level inside the value.
+
+3. **`pkaf_version` form.** Strict SemVer 2.0.0 strings only. Range expressions, wildcards, partial versions (`"0.1"`), pre-release tags admitted as long as the string parses under SemVer 2.0.0; an unparseable string OR a string not present in the verifier's supported set flags `rkaf_finding_pkaf_version_unknown`. This forecloses the "0.1.x vs 0.1.0 vs ^0.1" ambiguity that two implementers could resolve differently.
 
 ### Cross-spec field mapping
 
@@ -141,6 +164,14 @@ Naming convention: snake_case for Trellis wire (per ADR 0001 byte-style), with `
 | (none — Trellis-side only) | `pkaf_version` | Pins the registry snapshot version. PKAF's own version stamping (e.g. JSON-LD `@context` URI) is consumer-side; Trellis carries an explicit version because the verifier needs to know which closed-taxonomy snapshot to check against. |
 
 This mapping is **the canonical serialization function** (PKAF §4.6 requirement 2). Two consumers given the same PKAF Finding MUST produce byte-identical `RkafFindingPayload` bytes after dCBOR encoding under deterministic field ordering (Core §5 dCBOR). Byte-exact equivalence is the Trellis-side guarantee that re-anchoring the same Rulespec subgraph produces a verifiable equality test.
+
+**Null vs absent round-trip.** PKAF CUE marks `rkaf:severity`, `rkaf:rationale`, `rkaf:lastVerifiedAt`, `rkaf:verifiedBy` as OPTIONAL (`?`-suffixed). The Trellis wire admits these fields as REQUIRED-but-nullable (`tstr / null` / `uint / null`). The canonical round-trip rule is:
+
+- PKAF field **absent** ↔ Trellis CDDL field set to **`null`** (the field is still present in the dCBOR map with a null value).
+- PKAF field **present-and-null** is **illegal** under PKAF §5.3 (CUE `?: string` admits absent or string, never explicit null in the JSON-LD form).
+- PKAF field **present with a value** ↔ Trellis CDDL field set to that value (with type-coerced encoding per §"Cross-spec field mapping").
+
+A producer encountering PKAF-present-and-null MUST treat the input as malformed PKAF (escalate to the PKAF layer); it MUST NOT silently lower it to CDDL null. This forecloses the "two implementers disagree on what absent-vs-null means" failure mode.
 
 ### Authority ladder note
 
