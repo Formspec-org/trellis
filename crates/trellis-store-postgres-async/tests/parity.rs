@@ -4,7 +4,6 @@ mod support;
 
 use sqlx::PgPool;
 use support::TestCluster;
-use trellis_store_postgres::PostgresStoreErrorKind as SyncKind;
 use trellis_store_postgres_async::{AppendError, append_event_in_tx, run_migrations};
 use trellis_store_postgres_shared::migrations::MIGRATIONS;
 use trellis_types::StoredEvent;
@@ -21,13 +20,13 @@ fn event(scope: &[u8], sequence: u64, canonical: &[u8], signed: &[u8], idem: &[u
 
 async fn started_pool() -> (TestCluster, PgPool) {
     let cluster = TestCluster::start_without_migrations();
-    let pool = cluster.tls_pool(4).await;
+    let pool = cluster.tls_pool(8).await;
     run_migrations(&pool).await.unwrap();
     (cluster, pool)
 }
 
 #[tokio::test]
-async fn ddl_matches_shared_sync_async_contract() {
+async fn ddl_matches_shared_migration_contract() {
     let (_cluster, pool) = started_pool().await;
 
     let applied_versions: Vec<i32> =
@@ -126,60 +125,54 @@ WHERE table_class.relname = 'trellis_events'
 }
 
 #[tokio::test]
-async fn async_append_errors_map_to_sync_error_classes() {
+async fn append_error_variants_are_exercised_without_sync_oracle() {
     let (_cluster, pool) = started_pool().await;
 
-    assert_eq!(
-        sync_class_for(
-            &append_error(
-                &pool,
-                event(b"scope-long", 0, b"canonical", b"signed", &[0xab; 65]),
-            )
-            .await
-        ),
-        SyncKind::IdempotencyKeyTooLong
-    );
+    assert!(matches!(
+        append_error(
+            &pool,
+            event(b"scope-long", 0, b"canonical", b"signed", &[0xab; 65]),
+        )
+        .await,
+        AppendError::IdempotencyKeyTooLong(65)
+    ));
 
-    assert_eq!(
-        sync_class_for(
-            &append_error(
-                &pool,
-                StoredEvent::new(
-                    b"scope-domain".to_vec(),
-                    (i64::MAX as u64) + 1,
-                    b"canonical".to_vec(),
-                    b"signed".to_vec(),
-                ),
-            )
-            .await
-        ),
-        SyncKind::DomainViolation
-    );
+    assert!(matches!(
+        append_error(
+            &pool,
+            StoredEvent::new(
+                b"scope-domain".to_vec(),
+                (i64::MAX as u64) + 1,
+                b"canonical".to_vec(),
+                b"signed".to_vec(),
+            ),
+        )
+        .await,
+        AppendError::DomainViolation(_)
+    ));
 
-    assert_eq!(
-        sync_class_for(
-            &append_error(
-                &pool,
-                StoredEvent::new(
-                    b"scope-gap".to_vec(),
-                    1,
-                    b"canonical".to_vec(),
-                    b"signed".to_vec(),
-                )
-                .with_canonical_event_hash(Some([0xaa; 32])),
+    assert!(matches!(
+        append_error(
+            &pool,
+            StoredEvent::new(
+                b"scope-gap".to_vec(),
+                1,
+                b"canonical".to_vec(),
+                b"signed".to_vec(),
             )
-            .await
-        ),
-        SyncKind::SequenceGap
-    );
+            .with_canonical_event_hash(Some([0xaa; 32])),
+        )
+        .await,
+        AppendError::SequenceGap(0)
+    ));
 
     let ev_a = event(b"scope-idem", 0, b"canonical-a", b"signed-a", b"idem");
     append_ok(&pool, &ev_a).await;
     let ev_b = event(b"scope-idem", 1, b"canonical-b", b"signed-b", b"idem");
-    assert_eq!(
-        sync_class_for(&append_error(&pool, ev_b).await),
-        SyncKind::IdempotencyKeyPayloadMismatch
-    );
+    assert!(matches!(
+        append_error(&pool, ev_b).await,
+        AppendError::IdempotencyKeyPayloadMismatch
+    ));
 
     let pk_a = StoredEvent::new(
         b"scope-pk".to_vec(),
@@ -194,47 +187,35 @@ async fn async_append_errors_map_to_sync_error_classes() {
         b"canonical-b".to_vec(),
         b"signed-b".to_vec(),
     );
-    assert_eq!(
-        sync_class_for(&append_error(&pool, pk_b).await),
-        SyncKind::IdempotencyKeyPayloadMismatch
+    assert!(matches!(
+        append_error(&pool, pk_b).await,
+        AppendError::PkCollisionMismatch
+    ));
+
+    sqlx::query("DROP TABLE trellis_events")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let sql_broken = StoredEvent::new(
+        b"scope-sql".to_vec(),
+        0,
+        b"canonical".to_vec(),
+        b"signed".to_vec(),
     );
+    assert!(matches!(
+        append_error(&pool, sql_broken).await,
+        AppendError::Sqlx(_)
+    ));
 }
 
 #[tokio::test]
 async fn byte_authority_corpus_round_trips_without_reconstructing_events() {
     let (_cluster, pool) = started_pool().await;
-    let scope = b"scope-byte-authority";
-    let events = vec![
-        event(
-            scope,
-            0,
-            br#"{"amount":9007199254740993,"kind":"int-not-float"}"#,
-            &[0xd2, 0x84, 0x43, 0xa1, 0x01, 0x26],
-            b"idem-corpus-0",
-        )
-        .with_canonical_event_hash(Some([0x01; 32])),
-        event(
-            scope,
-            1,
-            b"\0{\"unicode\":\"\\u0000 stays escaped\",\"order\":[3,2,1]}",
-            b"signature-bytes-with\nembedded-newline",
-            b"idem-corpus-1",
-        )
-        .with_canonical_event_hash(Some([0x02; 32])),
-        StoredEvent::new(
-            scope.to_vec(),
-            2,
-            vec![0xff, 0x00, 0x7f, b'{', b'}'],
-            vec![0x01, 0x02, 0x03, 0x04],
-        )
-        .with_canonical_event_hash(Some([0x03; 32])),
-    ];
+    let events = byte_authority_corpus();
 
-    let mut tx = pool.begin().await.unwrap();
     for event in &events {
-        append_event_in_tx(&mut tx, event).await.unwrap();
+        append_ok(&pool, event).await;
     }
-    tx.commit().await.unwrap();
 
     let rows: Vec<(
         Vec<u8>,
@@ -247,16 +228,21 @@ async fn byte_authority_corpus_round_trips_without_reconstructing_events() {
         "\
 SELECT scope, sequence, canonical_event, signed_event, idempotency_key, canonical_event_hash
 FROM trellis_events
-WHERE scope = $1
-ORDER BY sequence",
+ORDER BY scope, sequence",
     )
-    .bind(scope.as_ref())
     .fetch_all(&pool)
     .await
     .unwrap();
 
-    assert_eq!(rows.len(), events.len());
-    for (row, event) in rows.iter().zip(events.iter()) {
+    let mut expected = events.iter().collect::<Vec<_>>();
+    expected.sort_by(|left, right| {
+        left.scope()
+            .cmp(right.scope())
+            .then_with(|| left.sequence().cmp(&right.sequence()))
+    });
+
+    assert_eq!(rows.len(), expected.len());
+    for (row, event) in rows.iter().zip(expected) {
         assert_eq!(row.0, event.scope());
         assert_eq!(row.1, i64::try_from(event.sequence()).unwrap());
         assert_eq!(row.2, event.canonical_event());
@@ -282,14 +268,49 @@ async fn append_error(pool: &PgPool, event: StoredEvent) -> AppendError {
     error
 }
 
-fn sync_class_for(error: &AppendError) -> SyncKind {
-    match error {
-        AppendError::IdempotencyKeyTooLong(_) => SyncKind::IdempotencyKeyTooLong,
-        AppendError::DomainViolation(_) => SyncKind::DomainViolation,
-        AppendError::SequenceGap(_) => SyncKind::SequenceGap,
-        AppendError::IdempotencyKeyPayloadMismatch | AppendError::PkCollisionMismatch => {
-            SyncKind::IdempotencyKeyPayloadMismatch
-        }
-        AppendError::Sqlx(_) => SyncKind::QueryFailed,
-    }
+fn byte_authority_corpus() -> Vec<StoredEvent> {
+    vec![
+        event(b"corpus-empty", 0, b"", b"", b"i"),
+        event(
+            b"corpus-nul-bom",
+            0,
+            &[0x00, b'a', 0x00, b'z'],
+            &[0xef, 0xbb, 0xbf, b's', b'i', b'g'],
+            &[0x32; 32],
+        ),
+        event(
+            b"corpus-large",
+            0,
+            &deterministic_bytes(8 * 1024, 0x13),
+            &deterministic_bytes(8 * 1024, 0x71),
+            &[0x64; 64],
+        ),
+        StoredEvent::new(
+            b"corpus-chain".to_vec(),
+            0,
+            b"genesis-canonical".to_vec(),
+            b"genesis-signed".to_vec(),
+        ),
+        event(
+            b"corpus-chain",
+            1,
+            b"non-genesis-canonical",
+            b"non-genesis-signed",
+            b"chain-idem",
+        )
+        .with_canonical_event_hash(Some([0x42; 32])),
+        event(
+            b"corpus-i64-max",
+            i64::MAX as u64,
+            b"max-sequence-canonical",
+            b"max-sequence-signed",
+            b"m",
+        ),
+    ]
+}
+
+fn deterministic_bytes(len: usize, seed: u8) -> Vec<u8> {
+    (0..len)
+        .map(|index| seed.wrapping_add((index % 251) as u8))
+        .collect()
 }

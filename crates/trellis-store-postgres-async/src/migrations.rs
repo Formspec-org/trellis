@@ -23,7 +23,7 @@ pub enum MigrationError {
 
 /// Applies pending Trellis Postgres migrations.
 ///
-/// The migration list and advisory-lock key are shared with the sync adapter.
+/// The migration list and advisory-lock key come from the shared Postgres contract.
 /// Rows are append-only: old migration SQL must not be edited after landing.
 ///
 /// # Errors
