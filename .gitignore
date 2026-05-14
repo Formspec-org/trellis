@@ -1,3 +1,6 @@
+# Local agent tooling (worktrees, wrappers); never ship as repo content
+.claude/
+
 __pycache__/
 *.pyc
 *.pyo
