@@ -186,6 +186,20 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def top_level_spec_paths(errors: list[str]) -> list[Path]:
+    paths: list[Path] = []
+    for path in TOP_LEVEL_SPECS:
+        if path.exists():
+            paths.append(path)
+            continue
+        if ROOT != REAL_ROOT:
+            continue
+        message = f"{path.relative_to(ROOT)}: required top-level spec does not exist"
+        if message not in errors:
+            errors.append(message)
+    return paths
+
+
 def relpath(path: Path) -> Path:
     """Return a display path relative to ROOT when possible."""
     try:
@@ -1209,7 +1223,7 @@ def check_model_check_evidence(
 
 
 def check_forbidden_terms(errors: list[str]) -> None:
-    for path in TOP_LEVEL_SPECS:
+    for path in top_level_spec_paths(errors):
         text = read(path)
         for pattern, label in FORBIDDEN_PATTERNS:
             for match in pattern.finditer(text):
@@ -1250,7 +1264,7 @@ def check_requirement_ids(errors: list[str]) -> None:
         seen.add(requirement_id)
 
     known = set(ids)
-    for path in TOP_LEVEL_SPECS:
+    for path in top_level_spec_paths(errors):
         text = read(path)
         for match in re.finditer(r"\bTR-(?:CORE|OP)-[0-9]{3}\b", text):
             requirement_id = match.group(0)
@@ -1269,7 +1283,7 @@ def check_traceability_anchors(errors: list[str]) -> None:
 
 
 def check_bare_profile(errors: list[str]) -> None:
-    for path in TOP_LEVEL_SPECS:
+    for path in top_level_spec_paths(errors):
         text = read(path)
         for match in re.finditer(r"\b[Pp]rofile(?:s)?\b", text):
             line_start = text.rfind("\n", 0, match.start()) + 1
@@ -2125,7 +2139,7 @@ def check_tamper_kind_enum(
             continue
         if kind not in TAMPER_KIND_ENUM:
             errors.append(
-                f"{rel}: tamper_kind={kind!r} is not in the verifier enum; "
+                f"{rel}: tamper_kind={kind!r} is not in the Core §19.1 enum; "
                 f"allowed values are {sorted(TAMPER_KIND_ENUM)}"
             )
 
