@@ -15,6 +15,7 @@ pub use stack_common_error::StackError;
 pub use stack_common_object_store::{ObjectByteEvidence, S3ObjectConfig};
 pub use stack_common_postgres::PoolConfig as PostgresPoolConfig;
 pub use trellis_core::LedgerStore;
+pub use trellis_service_client::{ComputeContext, ComputeSensitivity};
 use trellis_types::StoredEvent;
 
 /// Ledger scope bytes.
@@ -248,35 +249,6 @@ pub trait ScopeAuthorizer: Send + Sync {
     async fn authorize(&self, request: &ScopeAuthorization<'_>) -> Result<(), Self::Error>;
 }
 
-/// Stored idempotency replay result.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum IdempotencyReplay {
-    Miss,
-    Hit(Vec<u8>),
-    Conflict,
-}
-
-/// Idempotency/replay port for Trellis HTTP requests.
-#[async_trait]
-pub trait IdempotencyStore: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
-
-    async fn resolve(
-        &self,
-        scope: &[u8],
-        key: &[u8],
-        request_hash: &[u8],
-    ) -> Result<IdempotencyReplay, Self::Error>;
-
-    async fn record(
-        &self,
-        scope: &[u8],
-        key: &[u8],
-        request_hash: &[u8],
-        response: &[u8],
-    ) -> Result<(), Self::Error>;
-}
-
 /// Clock port for deterministic tests and production time.
 pub trait Clock {
     fn now_unix_millis(&self) -> u64;
@@ -294,35 +266,6 @@ pub trait EntropySource {
     type Error: std::error::Error + Send + Sync + 'static;
 
     fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error>;
-}
-
-/// Sensitivity class disclosed for delegated compute.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ComputeSensitivity {
-    PublicMetadata,
-    ProviderReadable,
-    ReaderHeld,
-    Restricted,
-}
-
-impl ComputeSensitivity {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::PublicMetadata => "publicMetadata",
-            Self::ProviderReadable => "providerReadable",
-            Self::ReaderHeld => "readerHeld",
-            Self::Restricted => "restricted",
-        }
-    }
-}
-
-/// Required delegated-compute disclosure context.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ComputeContext {
-    pub declaration_id: String,
-    pub actor: String,
-    pub sensitivity: ComputeSensitivity,
 }
 
 /// Compute-disclosure port. Producers cannot create an append unit of work
@@ -737,9 +680,18 @@ impl EventTypeRegistry for ReviewGateEventTypeRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use trellis_service_client as trellis_client;
 
     fn event(scope: &[u8], sequence: u64) -> StoredEvent {
         StoredEvent::new(scope.to_vec(), sequence, vec![sequence as u8], vec![0xaa])
+    }
+
+    #[test]
+    fn given_compute_types_reexported_when_used_then_match_trellis_service_client() {
+        fn assert_client(_: trellis_client::ComputeContext) {}
+
+        let ctx = ComputeContext::no_delegated_compute("actor");
+        assert_client(ctx);
     }
 
     #[test]

@@ -8,11 +8,8 @@ use stack_common_error::StackError;
 use trellis_core::{AuthoredEvent, LedgerStore};
 use trellis_export_writer::PostureDeclaration as ExportPostureDeclaration;
 use trellis_export_writer::TrellisTimestamp;
-use trellis_server_ports::{
-    AdmissionEvent, AppendUnitOfWork, ComputeContext as PortComputeContext,
-    ComputeSensitivity as PortComputeSensitivity,
-};
-use trellis_service_client::{ComputeSensitivity, SubstrateAppendBody, SubstrateAppendResult};
+use trellis_server_ports::{AdmissionEvent, AppendUnitOfWork, ComputeContext, ComputeSensitivity};
+use trellis_service_client::{SubstrateAppendBody, SubstrateAppendResult};
 use trellis_types::{CONTENT_DOMAIN, StoredEvent};
 
 use crate::{
@@ -27,7 +24,7 @@ pub struct AppendCommand {
     pub event_type: String,
     pub idempotency_key: String,
     pub payload: serde_json::Value,
-    pub compute_context: PortComputeContext,
+    pub compute_context: ComputeContext,
 }
 
 /// Stored event plus wire result produced by one coordinator pass.
@@ -163,22 +160,22 @@ impl<'a> AppendCoordinator<'a> {
 
 /// Public-metadata posture used when republishing bundles outside an append receipt.
 #[must_use]
-pub fn default_public_compute_context() -> PortComputeContext {
-    PortComputeContext {
+pub fn default_public_compute_context() -> ComputeContext {
+    ComputeContext {
         declaration_id: "compute:public-metadata:append".to_string(),
         actor: "trellis-server".to_string(),
-        sensitivity: PortComputeSensitivity::PublicMetadata,
+        sensitivity: ComputeSensitivity::PublicMetadata,
     }
 }
 
 /// Maps append-time compute disclosure into the export manifest posture block.
 #[must_use]
-pub fn export_posture_from_compute(compute: &PortComputeContext) -> ExportPostureDeclaration {
+pub fn export_posture_from_compute(compute: &ComputeContext) -> ExportPostureDeclaration {
     let (provider_readable, reader_held, delegated_compute) = match compute.sensitivity {
-        PortComputeSensitivity::PublicMetadata => (true, false, false),
-        PortComputeSensitivity::ProviderReadable => (true, false, true),
-        PortComputeSensitivity::ReaderHeld => (false, true, false),
-        PortComputeSensitivity::Restricted => (false, true, false),
+        ComputeSensitivity::PublicMetadata => (true, false, false),
+        ComputeSensitivity::ProviderReadable => (true, false, true),
+        ComputeSensitivity::ReaderHeld => (false, true, false),
+        ComputeSensitivity::Restricted => (false, true, false),
     };
     ExportPostureDeclaration {
         provider_readable,
@@ -195,24 +192,10 @@ pub fn export_posture_from_compute(compute: &PortComputeContext) -> ExportPostur
     }
 }
 
-/// Maps the wire compute context into the composition-root port type.
+/// Clones compute context from the shared wire DTO (`trellis-service-client`).
 #[must_use]
-pub fn port_compute_context(body: &SubstrateAppendBody) -> PortComputeContext {
-    let sensitivity = match body.compute_context.sensitivity {
-        ComputeSensitivity::PublicMetadata => {
-            trellis_server_ports::ComputeSensitivity::PublicMetadata
-        }
-        ComputeSensitivity::ProviderReadable => {
-            trellis_server_ports::ComputeSensitivity::ProviderReadable
-        }
-        ComputeSensitivity::ReaderHeld => trellis_server_ports::ComputeSensitivity::ReaderHeld,
-        ComputeSensitivity::Restricted => trellis_server_ports::ComputeSensitivity::Restricted,
-    };
-    PortComputeContext {
-        declaration_id: body.compute_context.declaration_id.clone(),
-        actor: body.compute_context.actor.clone(),
-        sensitivity,
-    }
+pub fn port_compute_context(body: &SubstrateAppendBody) -> ComputeContext {
+    body.compute_context.clone()
 }
 
 #[derive(Clone, Debug)]
@@ -360,10 +343,10 @@ mod tests {
 
     #[test]
     fn given_provider_readable_compute_when_mapped_then_delegated_compute_is_true() {
-        let compute = PortComputeContext {
+        let compute = ComputeContext {
             declaration_id: "compute:provider-readable:test".to_string(),
             actor: "test-actor".to_string(),
-            sensitivity: PortComputeSensitivity::ProviderReadable,
+            sensitivity: ComputeSensitivity::ProviderReadable,
         };
         let posture = export_posture_from_compute(&compute);
         assert!(posture.provider_readable);
@@ -373,10 +356,10 @@ mod tests {
 
     #[test]
     fn given_reader_held_compute_when_mapped_then_reader_held_is_true() {
-        let compute = PortComputeContext {
+        let compute = ComputeContext {
             declaration_id: "compute:reader-held:test".to_string(),
             actor: "test-actor".to_string(),
-            sensitivity: PortComputeSensitivity::ReaderHeld,
+            sensitivity: ComputeSensitivity::ReaderHeld,
         };
         let posture = export_posture_from_compute(&compute);
         assert!(posture.reader_held);

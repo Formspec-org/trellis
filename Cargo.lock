@@ -3567,6 +3567,7 @@ dependencies = [
  "stack-common-postgres",
  "tokio",
  "trellis-core",
+ "trellis-service-client",
  "trellis-types",
 ]
 

@@ -11,6 +11,7 @@ stack-common-error = { path = "../../../stack-common/crates/stack-common-error",
 stack-common-object-store = { path = "../../../stack-common/crates/stack-common-object-store" }
 stack-common-postgres = { path = "../../../stack-common/crates/stack-common-postgres", default-features = false, features = ["pool"] }
 trellis-core = { path = "../trellis-core" }
+trellis-service-client = { path = "../trellis-service-client" }
 trellis-types = { path = "../trellis-types" }
 
 [dev-dependencies]

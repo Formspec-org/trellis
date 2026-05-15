@@ -54,7 +54,6 @@ use trellis_export_writer::{
     ExportWriterInput, RegistrySnapshot as ExportRegistrySnapshot,
     SigningKeyMaterial as ExportSigningKey, TrellisTimestamp, write_export,
 };
-use trellis_server_ports::ComputeContext as PortComputeContext;
 use trellis_server_ports::{
     AdmissionEvent, ArtifactRef, ArtifactStore, EventAdmissionPolicy, S3CompatibleArtifactStore,
     S3ObjectConfig, ScopeAction, ScopeAuthorization, ScopeAuthorizer,
@@ -155,7 +154,7 @@ fn profile_id_for_admitted_event(event_type: &str) -> Result<u64, StackError> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TenantHeaderMode {
+pub enum TenantHeaderMode {
     Wos,
     Formspec,
     MultiProducer,
@@ -1107,7 +1106,7 @@ pub(crate) async fn publish_bundle(
     scope: &[u8],
     events: &[StoredEvent],
     update_head: bool,
-    compute: &PortComputeContext,
+    compute: &ComputeContext,
 ) -> Result<BundleRecord, StackError> {
     if events.is_empty() {
         return Err(StackError::not_found("scope has no events"));
@@ -2017,6 +2016,51 @@ mod tests {
     }
 
     #[test]
+    fn twref055_trellis_server_ports_has_no_parallel_http_idempotency_trait() {
+        const PORTS_LIB: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../trellis-server-ports/src/lib.rs"
+        ));
+        assert!(
+            !PORTS_LIB.contains("trait IdempotencyStore"),
+            "TWREF-055: HTTP replay stays on stack_common_idempotency::HttpReplayStore (ADR 0092c)"
+        );
+        assert!(
+            !PORTS_LIB.contains("IdempotencyReplay"),
+            "TWREF-055: orphan IdempotencyReplay must not return alongside duplicate traits"
+        );
+    }
+
+    /// Given distinct WOS tenant headers, when the same idempotency key and POST body are used,
+    /// then the second tenant must not replay the first tenant's HTTP middleware cache entry.
+    #[tokio::test]
+    async fn given_distinct_wos_tenants_when_same_idempotency_body_then_no_cross_tenant_http_replay()
+     {
+        let app = router(test_state()).expect("router");
+        let body = append_body("twref055-tenant-scope");
+        let first = app
+            .clone()
+            .oneshot(post_request("/v1/scopes/case_123/events", body.clone()))
+            .await
+            .expect("tenant-a append");
+        assert_eq!(first.status(), StatusCode::CREATED);
+
+        let second = app
+            .oneshot(post_request_with_wos_tenant(
+                "/v1/scopes/case_123/events",
+                body,
+                "tenant-b",
+            ))
+            .await
+            .expect("tenant-b append");
+        assert_eq!(second.status(), StatusCode::CREATED);
+        assert!(
+            second.headers().get(IDEMPOTENCY_REPLAY_HEADER).is_none(),
+            "tenant B must not replay tenant A's HttpReplayStore entry"
+        );
+    }
+
+    #[test]
     fn given_wos_event_types_when_checked_against_provenance_kind_then_all_resolve() {
         for literal in WOS_EVENT_TYPES {
             assert!(
@@ -2163,6 +2207,20 @@ mod tests {
             .header("content-type", "application/json")
             .header(IDEMPOTENCY_KEY_HEADER, idempotency_from_body(&body))
             .header("x-wos-tenant-id", "tenant-a")
+            .header("x-wos-workspace-id", "workspace-a")
+            .header("x-wos-environment-id", "prod")
+            .header("x-wos-cell-id", "cell-a")
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    fn post_request_with_wos_tenant(path: &str, body: Vec<u8>, tenant: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header(IDEMPOTENCY_KEY_HEADER, idempotency_from_body(&body))
+            .header("x-wos-tenant-id", tenant)
             .header("x-wos-workspace-id", "workspace-a")
             .header("x-wos-environment-id", "prod")
             .header("x-wos-cell-id", "cell-a")
