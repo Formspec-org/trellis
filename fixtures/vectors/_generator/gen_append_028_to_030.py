@@ -23,7 +23,7 @@ All three vectors:
   reference `append/019-wos-signature-affirmation`'s canonical event hash;
   in the genesis-append context the verifier explicitly skips step-5/6/7
   resolution (see `finalize_certificates_of_completion` Phase-1 chain-context
-  posture in `crates/trellis-verify/src/lib.rs`). Export-bundle resolution
+  posture in `integrity-verify::trellis`). Export-bundle resolution
   (Deliverable 3) ships in `export/010-certificate-of-completion-inline`.
 * Sign the COSE_Sign1 envelope with `_keys/issuer-001.cose_key`.
 * Carry the `trellis.certificate-of-completion.v1` payload under
@@ -856,7 +856,7 @@ ADR 0007 §\"Wire shape\" positive vector for `trellis.certificate-of-completion
 
 ## Phase-1 verifier posture
 
-Per `finalize_certificates_of_completion` in `crates/trellis-verify/src/lib.rs`:
+Per `finalize_certificates_of_completion` in `integrity-verify::trellis`:
 genesis-append context skips step 5 / 6 / 7 cross-event resolution because
 the in-scope `events` slice does not carry the referenced
 SignatureAffirmation. Step 4 (attachment lineage + content-hash recompute)

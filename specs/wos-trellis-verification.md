@@ -84,5 +84,6 @@ reported as WOS findings, not added to the Core enum.
 ## 5. Implementation Mapping
 
 The Rust implementation lives in `crates/trellis-verify-wos`. It depends on
-`trellis-verify` and composes through the Core domain-validator seam. It MUST
-not introduce a dependency from `trellis-verify` back to WOS runtime crates.
+`integrity-verify::trellis` and composes through the Core domain-validator seam.
+It MUST not introduce a dependency from the integrity verifier back to WOS
+runtime crates.

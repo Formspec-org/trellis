@@ -7,6 +7,6 @@ license.workspace = true
 [dependencies]
 trellis-cddl = { path = "../trellis-cddl" }
 trellis-core = { path = "../trellis-core" }
-trellis-export = { path = "../trellis-export" }
 trellis-store-memory = { path = "../trellis-store-memory" }
-trellis-verify = { path = "../trellis-verify" }
+integrity-verify = { path = "../../../integrity-stack/crates/integrity-verify" }
+trellis-verify-wos = { path = "../trellis-verify-wos" }

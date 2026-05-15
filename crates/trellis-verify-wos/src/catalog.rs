@@ -5,8 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use integrity_verify::trellis::{DomainEvent, DomainExport, DomainFinding, Severity};
 use trellis_types::sha256_bytes;
-use trellis_verify::{DomainEvent, DomainExport, DomainFinding, Severity};
 
 use crate::event_types::{
     INTAKE_EXPORT_EXTENSION, SIGNATURE_EXPORT_EXTENSION, WOS_CASE_CREATED_EVENT_TYPE,

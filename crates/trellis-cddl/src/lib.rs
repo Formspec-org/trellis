@@ -188,7 +188,7 @@ pub fn parse_canonical_event(bytes: &[u8]) -> Result<ParsedCanonicalEvent, CddlE
 ///
 /// Phase-1 append fixtures use a 12-field authored ledger-event map; the
 /// canonical event adds `author_event_hash` as the **13th and last** map entry.
-/// `trellis-verify` recovers the authored preimage by locating that field and
+/// `integrity-verify` recovers the authored preimage by locating that field and
 /// must stay in lockstep with this encoding if the CDDL map shape changes.
 const AUTHORED_LEDGER_EVENT_MAP_ENTRY_COUNT: u8 = 12;
 const AUTHORED_LEDGER_EVENT_MAP_PREFIX: u8 = (5 << 5) | AUTHORED_LEDGER_EVENT_MAP_ENTRY_COUNT;

@@ -287,7 +287,7 @@ def build_uca_payload(
 
 def build_identity_extension(subject: str) -> dict:
     """Phase-1 deployment-local identity-attestation payload shape.
-    Mirrors `parse_identity_attestation_subject` in trellis-verify."""
+    Mirrors `parse_identity_attestation_subject` in the Trellis verifier."""
     return {
         EVENT_TYPE_IDENTITY.decode("utf-8"): {
             "subject": subject,

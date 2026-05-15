@@ -28,6 +28,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    trellis_cli_verify_script,
     ts,
 )
 
@@ -720,16 +721,7 @@ def build_export(
     domain_registry_member = f"050-registries/{domain_registry_digest.hex()}.cbor"
     members_data[domain_registry_member] = domain_registry
 
-    verify_script = (
-        "#!/bin/sh\n"
-        "set -eu\n\n"
-        "if command -v trellis-verify >/dev/null 2>&1; then\n"
-        "  exec trellis-verify \"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n"
-        "fi\n\n"
-        "echo \"trellis-verify not found in PATH.\" >&2\n"
-        "exit 2\n"
-    )
-    members_data["090-verify.sh"] = verify_script.encode("utf-8")
+    members_data["090-verify.sh"] = trellis_cli_verify_script()
     members_data["098-README.md"] = (
         f"# Trellis Export (Fixture) — {readme_title}\n\n{readme_body}\n"
     ).encode("utf-8")

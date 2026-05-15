@@ -1,8 +1,0 @@
-[package]
-name = "trellis-verify"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-integrity-verify = { path = "../../../integrity-stack/crates/integrity-verify" }

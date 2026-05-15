@@ -6,12 +6,12 @@
 use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 
+use integrity_cose::{
+    derive_kid, protected_header_bytes, sig_structure_bytes, sign_ed25519, sign1_bytes,
+};
 use trellis_cddl::{
     append_head_bytes, canonical_event_from_authored, canonical_event_hash_preimage,
     parse_authored_event, parse_ed25519_cose_key,
-};
-use trellis_cose::{
-    derive_kid, protected_header_bytes, sig_structure_bytes, sign_ed25519, sign1_bytes,
 };
 use trellis_types::{
     AUTHOR_EVENT_DOMAIN, AppendArtifacts, AppendHead, EVENT_DOMAIN, StoredEvent,

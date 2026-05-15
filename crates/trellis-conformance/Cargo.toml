@@ -16,10 +16,10 @@ serde = { version = "1.0", features = ["derive"] }
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio-rustls"] }
 stack-common-postgres = { path = "../../../stack-common/crates/stack-common-postgres", default-features = false, features = ["testing"] }
 trellis-cddl = { path = "../trellis-cddl" }
-trellis-export = { path = "../trellis-export" }
+integrity-bundle = { path = "../../../integrity-stack/crates/integrity-bundle" }
 trellis-store-postgres-async = { path = "../trellis-store-postgres-async" }
 trellis-types = { path = "../trellis-types" }
-trellis-verify = { path = "../trellis-verify" }
+integrity-verify = { path = "../../../integrity-stack/crates/integrity-verify" }
 trellis-verify-wos = { path = "../trellis-verify-wos" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 toml = "0.8"

@@ -15,7 +15,7 @@ license.workspace = true
 # C2PA SDK and call `extract_trellis_assertion` on the bytes they
 # extract from the manifest store.
 #
-# `trellis-verify` and `trellis-types` MUST NOT pull in this crate
+# `integrity-verify` and `trellis-types` MUST NOT pull in this crate
 # transitively (ISC-05). The Phase-1 core verifier runs path-(b)
 # digest-binds only and never decodes the C2PA manifest bytes.
 [dependencies]

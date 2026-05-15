@@ -807,23 +807,22 @@ fn default_verify_script() -> Vec<u8> {
     ("#!/bin/sh\n\
          set -eu\n\
          \n\
-         # Trellis Phase-1 export verifier invocation (\u{00a7}18.8).\n\
+         # Trellis export verifier invocation (\u{00a7}18.8).\n\
          #\n\
-         # Placeholder: this script only becomes runnable once the G-4 Rust\n\
-         # `trellis-verify` binary lands per\n\
-         # `thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`.\n\
-         # Until then the fixture deliberately ships no `099-*` bundled\n\
-         # verifier and this script exits 2 with a human-facing pointer.\n\
-         #\n\
-         # If you have a verifier installed as `trellis-verify`, this script\n\
-         # invokes it against the directory containing this script.\n\
+         # Pass the export ZIP path as the only argument; the operator CLI\n\
+         # verifies it through trellis-verify-wos.\n\
          \n\
-         if command -v trellis-verify >/dev/null 2>&1; then\n\
-         \x20 exec trellis-verify \"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n\
+         if [ \"$#\" -ne 1 ]; then\n\
+         \x20 echo \"usage: $0 <export.zip>\" >&2\n\
+         \x20 exit 2\n\
          fi\n\
          \n\
-         echo \"trellis-verify not found in PATH (fixture export/001).\" >&2\n\
-         echo \"Run your verifier against this export directory.\" >&2\n\
+         if command -v trellis-cli >/dev/null 2>&1; then\n\
+         \x20 exec trellis-cli verify-export \"$1\"\n\
+         fi\n\
+         \n\
+         echo \"trellis-cli not found in PATH.\" >&2\n\
+         echo \"Run `trellis-cli verify-export $1`.\" >&2\n\
          exit 2\n")
         .as_bytes()
         .to_vec()
@@ -1195,7 +1194,7 @@ mod tests {
         assert!(verification.trellis.integrity_verified, "{verification:#?}");
         assert_eq!(
             hex_lower(&sha256_bytes(&package.zip_bytes)),
-            "e50c9327dc9d979317bea05c0198ad97c1ee71ae9839c2e1a9d2f1020e44f934"
+            "8c79630db6accc5fd01be3a37f01a4c01c367e0bdfaa5af79cc24ac7d6c87279"
         );
     }
 

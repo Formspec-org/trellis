@@ -3,17 +3,17 @@
 
 #![forbid(unsafe_code)]
 
-pub type WosFinding = trellis_verify::DomainFinding;
+pub type WosFinding = integrity_verify::trellis::DomainFinding;
 
 /// WOS verification report.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WosVerificationReport {
-    pub trellis: trellis_verify::VerificationReport,
+    pub trellis: integrity_verify::trellis::VerificationReport,
     pub wos_findings: Vec<WosFinding>,
 }
 
-impl From<trellis_verify::VerificationWithDomain> for WosVerificationReport {
-    fn from(value: trellis_verify::VerificationWithDomain) -> Self {
+impl From<integrity_verify::trellis::VerificationWithDomain> for WosVerificationReport {
+    fn from(value: integrity_verify::trellis::VerificationWithDomain) -> Self {
         Self {
             trellis: value.trellis,
             wos_findings: value.domain_findings,

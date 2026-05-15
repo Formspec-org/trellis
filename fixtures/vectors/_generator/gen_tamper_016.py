@@ -9,7 +9,7 @@ audit. Exercises Core §19 step 6.b — the state-continuity check — on the
 `trellis.disclosure-profile-transition.v1` extension (Companion Appendix A.5.2)
 rather than the custody-model axis.
 
-Before this vector landed, `trellis-verify`'s `decode_transition_details`
+Before this vector landed, the Trellis verifier's `decode_transition_details`
 handled only custody-model transitions; a tampered `from_disclosure_profile`
 value passed verification. The companion Rust fix extends the decode arm to
 disclosure-profile transitions, adds a parallel `shadow_disclosure_profile`

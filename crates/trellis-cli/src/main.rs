@@ -1,16 +1,15 @@
 // Rust guideline compliant 2026-02-21
-//! Fixture-oriented CLI for the current Trellis Rust scaffold.
+//! Fixture-oriented CLI for Trellis smoke checks and export verification.
 
 #![forbid(unsafe_code)]
 
 use std::fs;
 use std::path::Path;
 
+use integrity_verify::trellis::{Severity, verify_single_event};
 use trellis_cddl::parse_ed25519_cose_key;
 use trellis_core::{AuthoredEvent, SigningKeyMaterial, append_event};
-use trellis_export::{ExportEntry, ExportPackage};
 use trellis_store_memory::MemoryStore;
-use trellis_verify::verify_single_event;
 
 #[derive(Clone, Copy)]
 struct FixtureCase {
@@ -40,11 +39,10 @@ fn main() {
 }
 
 fn usage_top_level() -> String {
-    "usage: trellis-cli <append-001|append-002|verify-001|verify-002|export-001|export-002|erase-key|seal-completion>\n\
+    "usage: trellis-cli <append-001|append-002|verify-001|verify-002|verify-export <bundle.zip>>\n\
      \n\
-     These commands mirror a small smoke subset of the Trellis fixture corpus.\n\
-     `erase-key --help` prints the ADR 0005 CLI contract (Phase-1 stub; KMS wiring not landed).\n\
-     `seal-completion --help` prints the ADR 0007 CLI contract (Phase-1 stub; KMS + ledger append not landed).\n\
+     Fixture commands mirror a small smoke subset of the Trellis append corpus.\n\
+     `verify-export` verifies a Trellis/WOS export ZIP through trellis-verify-wos.\n\
      Run the full committed vector set via the `trellis-conformance` binary."
         .to_string()
 }
@@ -54,95 +52,16 @@ fn run(args: &[String]) -> Result<(), String> {
         .get(1)
         .map(String::as_str)
         .ok_or_else(usage_top_level)?;
-    match command {
-        "erase-key" => erase_key_command(args),
-        "seal-completion" => seal_completion_command(args),
-        _ => dispatch_command(command),
-    }
+    dispatch_command(args, command)
 }
 
-fn erase_key_command(args: &[String]) -> Result<(), String> {
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        eprintln!(
-            "\
-trellis-cli erase-key (Phase-1 stub)
-
-Planned contract per ADR 0005 — reference UX for emitting `trellis.erasure-evidence.v1`:
-
-  trellis-cli erase-key \\
-    --evidence-id <stable-id> \\
-    --kid <kid-hex> \\
-    --key-class signing|tenant-root|scope|subject|wrap|recovery \\
-    --subject-scope per-subject|per-scope|per-tenant|deployment-wide \\
-    --subject-refs <uri-list> \\
-    --cascade-scopes CS-01,CS-03 \\
-    --reason-code 1..5|255 \\
-    --policy-authority <uri> \\
-    --destruction-actor <uri> \\
-    --attestation-key <cose-key-file> \\
-    [--hsm-receipt <file> --hsm-receipt-kind <id>] \\
-    --completion-mode complete|in-progress|best-effort
-
-This build does not perform KMS destruction or ledger append; pass --help any time to show this text.
-"
-        );
-        return Ok(());
-    }
-    Err(
-        "trellis-cli erase-key: not wired in this build (ADR 0005 Phase-1 stub). \
-         Run `trellis-cli erase-key --help` for the planned flag contract."
-            .into(),
-    )
-}
-
-fn seal_completion_command(args: &[String]) -> Result<(), String> {
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        eprintln!(
-            "\
-trellis-cli seal-completion (Phase-1 stub)
-
-Planned contract per ADR 0007 — reference UX for emitting `trellis.certificate-of-completion.v1`:
-
-  trellis-cli seal-completion \\
-    --workflow-ref <uri>                    # optional
-    --case-ref <uri>                        # optional
-    --response-ref <digest>                 # optional; sha256:<hex>
-    --signing-events <digest>,<digest>,...  # canonical_event_hash per SignatureAffirmation
-    --signer-display <json-array-file>      # structured signer display entries
-    --workflow-status completed|countersigned|notarized|partially-completed|<custom>
-    --impact-level low|moderate|high        # optional
-    --template-id <id>                      # optional
-    --presentation-artifact <path>          # path to PDF/HTML file
-    --media-type application/pdf|text/html  # default application/pdf
-    --attestation-key <cose-key-file>       # repeatable; ≥1 required
-
-The command performs a single atomic unit:
-  (a) hash the presentation artifact under `trellis-presentation-artifact-v1` (Core §9.8);
-  (b) construct the canonical certificate-of-completion event payload;
-  (c) bind the artifact via ADR 0072 attachment-binding mechanism;
-  (d) sign the event under the operator key + attest under each --attestation-key;
-  (e) append to the ledger.
-
-This build does not perform KMS attestation, attachment binding, or ledger append; pass --help any time to show this text.
-"
-        );
-        return Ok(());
-    }
-    Err(
-        "trellis-cli seal-completion: not wired in this build (ADR 0007 Phase-1 stub). \
-         Run `trellis-cli seal-completion --help` for the planned flag contract."
-            .into(),
-    )
-}
-
-fn dispatch_command(command: &str) -> Result<(), String> {
+fn dispatch_command(args: &[String], command: &str) -> Result<(), String> {
     match command {
         "append-001" => append_fixture_command(&FIXTURE_001),
         "append-002" => append_fixture_command(&FIXTURE_002),
         "verify-001" => verify_fixture_command(&FIXTURE_001),
         "verify-002" => verify_fixture_command(&FIXTURE_002),
-        "export-001" => export_fixture_command(&FIXTURE_001),
-        "export-002" => export_fixture_command(&FIXTURE_002),
+        "verify-export" => verify_export_command(args),
         _ => Err(format!("unknown command `{command}`")),
     }
 }
@@ -183,33 +102,36 @@ fn verify_fixture_command(fixture: &FixtureCase) -> Result<(), String> {
     Ok(())
 }
 
-fn export_fixture_command(fixture: &FixtureCase) -> Result<(), String> {
-    let (authored_event, signing_key) = fixture_inputs(fixture)?;
-    let mut store = MemoryStore::new();
-    let artifacts = append_event(
-        &mut store,
-        &SigningKeyMaterial::new(signing_key),
-        &AuthoredEvent::new(authored_event),
-    )
-    .map_err(|error| error.to_string())?;
+fn verify_export_command(args: &[String]) -> Result<(), String> {
+    let path = args
+        .get(2)
+        .ok_or_else(|| "usage: trellis-cli verify-export <bundle.zip>".to_string())?;
+    let bytes = fs::read(path)
+        .map_err(|error| format!("failed to read export bundle `{path}`: {error}"))?;
+    let report = trellis_verify_wos::verify_export_zip(&bytes);
+    let trellis_failures = report.trellis.event_failures.len()
+        + report.trellis.checkpoint_failures.len()
+        + report.trellis.proof_failures.len();
+    let wos_failures = report
+        .wos_findings
+        .iter()
+        .filter(|finding| finding.severity == Severity::Failure)
+        .count();
+    let failures = trellis_failures + wos_failures;
 
-    let mut package = ExportPackage::new();
-    package.add_entry(ExportEntry::new(
-        "010-canonical-event.cbor",
-        artifacts.canonical_event,
-    ));
-    package.add_entry(ExportEntry::new(
-        "020-signed-event.cbor",
-        artifacts.signed_event,
-    ));
-    package.add_entry(ExportEntry::new(
-        "030-append-head.cbor",
-        artifacts.append_head,
-    ));
-
-    let zip_bytes = package.to_zip_bytes().map_err(|error| error.to_string())?;
-    println!("zip_bytes={}", zip_bytes.len());
-    Ok(())
+    println!(
+        "verified={} trellis_failures={} wos_findings={}",
+        report.trellis.structure_verified && report.trellis.integrity_verified && failures == 0,
+        trellis_failures,
+        report.wos_findings.len()
+    );
+    if report.trellis.structure_verified && report.trellis.integrity_verified && failures == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "export verification failed with {failures} failure finding(s)"
+        ))
+    }
 }
 
 fn fixture_inputs(fixture: &FixtureCase) -> Result<(Vec<u8>, Vec<u8>), String> {
@@ -234,54 +156,30 @@ mod tests {
     use super::{dispatch_command, run};
 
     #[test]
-    fn erase_key_help_succeeds() {
-        run(&["trellis-cli".into(), "erase-key".into(), "--help".into()]).unwrap();
-    }
-
-    #[test]
-    fn erase_key_without_help_errors() {
-        let err = run(&["trellis-cli".into(), "erase-key".into()]).unwrap_err();
-        assert!(err.contains("not wired"), "{err}");
-    }
-
-    #[test]
-    fn seal_completion_help_succeeds() {
-        run(&[
-            "trellis-cli".into(),
-            "seal-completion".into(),
-            "--help".into(),
-        ])
-        .unwrap();
-    }
-
-    #[test]
-    fn seal_completion_without_help_errors() {
-        let err = run(&["trellis-cli".into(), "seal-completion".into()]).unwrap_err();
-        assert!(err.contains("not wired"), "{err}");
-    }
-
-    #[test]
     fn dispatch_rejects_unknown_command() {
         assert_eq!(
-            dispatch_command("not-a-real-command").unwrap_err(),
+            dispatch_command(
+                &["trellis-cli".into(), "not-a-real-command".into()],
+                "not-a-real-command"
+            )
+            .unwrap_err(),
             "unknown command `not-a-real-command`"
         );
     }
 
     #[test]
     fn dispatch_accepts_fixture_command_names() {
-        for cmd in [
-            "append-001",
-            "append-002",
-            "verify-001",
-            "verify-002",
-            "export-001",
-            "export-002",
-        ] {
+        for cmd in ["append-001", "append-002", "verify-001", "verify-002"] {
             assert!(
-                dispatch_command(cmd).is_ok(),
+                dispatch_command(&["trellis-cli".into(), cmd.into()], cmd).is_ok(),
                 "fixture command `{cmd}` should run against committed vectors"
             );
         }
+    }
+
+    #[test]
+    fn verify_export_requires_path() {
+        let err = run(&["trellis-cli".into(), "verify-export".into()]).unwrap_err();
+        assert!(err.contains("verify-export <bundle.zip>"), "{err}");
     }
 }

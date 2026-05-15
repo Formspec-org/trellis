@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use ciborium::Value;
-use trellis_verify::{DomainEvent, DomainExport, RecordValidator, Severity, TrellisTimestamp};
+use integrity_verify::trellis::{
+    DomainEvent, DomainExport, RecordValidator, Severity, TrellisTimestamp,
+};
 
 use crate::event_types::{
     OPEN_CLOCKS_EXPORT_EXTENSION, WOS_CASE_CREATED_EVENT_TYPE,

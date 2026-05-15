@@ -18,7 +18,7 @@ verification paths. Both can run; neither replaces canonical bytes
 
 ### Path-(b) — canonical bytes only (Phase-1 core)
 
-The Phase-1 core verifier (`trellis-verify::verify_export_zip`) walks
+The Phase-1 core verifier (`integrity_verify::trellis::verify_export_zip`) walks
 `manifest.interop_sidecars`, recomputes `content_digest` against the
 on-disk file under `trellis-content-v1`, and validates `kind` /
 `derivation_version` / `path` against the closed registry. It does
@@ -27,7 +27,7 @@ detects sidecar-bytes tampering — a stranger walking only the export
 ZIP catches mutation by digest cross-check.
 
 This path runs offline, uses no ecosystem libraries, and depends only
-on `trellis-verify`. It does not import this crate.
+on `integrity-verify`. It does not import this crate.
 
 ### Path-(a) — C2PA-tooling consumer
 
@@ -51,7 +51,7 @@ only the assertion emitter, parser, and cross-check; the consumer is
 responsible for picking and managing their own C2PA SDK plus the
 PDF/JPEG embedding pipeline. Keeping the SDK boundary outside this
 crate preserves Core §16 verification independence (ISC-05) — neither
-`trellis-verify` nor `trellis-types` pulls a 328-crate ecosystem
+`integrity-verify` nor `trellis-types` pulls a 328-crate ecosystem
 dep tree, and a deployment that doesn't ship C2PA at all has zero
 adapter footprint.
 

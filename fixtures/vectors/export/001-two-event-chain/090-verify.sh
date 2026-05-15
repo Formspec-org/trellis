@@ -1,21 +1,20 @@
 #!/bin/sh
 set -eu
 
-# Trellis Phase-1 export verifier invocation (§18.8).
+# Trellis export verifier invocation (§18.8).
 #
-# Placeholder: this script only becomes runnable once the G-4 Rust
-# `trellis-verify` binary lands per
-# `thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`.
-# Until then the fixture deliberately ships no `099-*` bundled
-# verifier and this script exits 2 with a human-facing pointer.
-#
-# If you have a verifier installed as `trellis-verify`, this script
-# invokes it against the directory containing this script.
+# Pass the export ZIP path as the only argument; the operator CLI
+# verifies it through trellis-verify-wos.
 
-if command -v trellis-verify >/dev/null 2>&1; then
-  exec trellis-verify "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if [ "$#" -ne 1 ]; then
+  echo "usage: $0 <export.zip>" >&2
+  exit 2
 fi
 
-echo "trellis-verify not found in PATH (fixture export/001)." >&2
-echo "Run your verifier against this export directory." >&2
+if command -v trellis-cli >/dev/null 2>&1; then
+  exec trellis-cli verify-export "$1"
+fi
+
+echo "trellis-cli not found in PATH." >&2
+echo "Run `trellis-cli verify-export $1`." >&2
 exit 2

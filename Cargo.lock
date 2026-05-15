@@ -1312,7 +1312,6 @@ dependencies = [
  "integrity-canonical",
  "integrity-cose",
  "serde_json",
- "trellis-cose",
  "trellis-types",
 ]
 
@@ -3260,11 +3259,11 @@ dependencies = [
 name = "trellis-cli"
 version = "0.1.0"
 dependencies = [
+ "integrity-verify",
  "trellis-cddl",
  "trellis-core",
- "trellis-export",
  "trellis-store-memory",
- "trellis-verify",
+ "trellis-verify-wos",
 ]
 
 [[package]]
@@ -3272,6 +3271,8 @@ name = "trellis-conformance"
 version = "0.1.0"
 dependencies = [
  "ciborium",
+ "integrity-bundle",
+ "integrity-verify",
  "proptest",
  "serde",
  "sha2",
@@ -3281,11 +3282,9 @@ dependencies = [
  "toml",
  "trellis-cddl",
  "trellis-core",
- "trellis-export",
  "trellis-store-memory",
  "trellis-store-postgres-async",
  "trellis-types",
- "trellis-verify",
  "trellis-verify-wos",
 ]
 
@@ -3293,24 +3292,9 @@ dependencies = [
 name = "trellis-core"
 version = "0.1.0"
 dependencies = [
- "trellis-cddl",
- "trellis-cose",
- "trellis-types",
-]
-
-[[package]]
-name = "trellis-cose"
-version = "0.1.0"
-dependencies = [
  "integrity-cose",
-]
-
-[[package]]
-name = "trellis-export"
-version = "0.1.0"
-dependencies = [
- "ciborium",
- "crc32fast",
+ "trellis-cddl",
+ "trellis-types",
 ]
 
 [[package]]
@@ -3329,14 +3313,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "trellis-hpke"
-version = "0.1.0"
-dependencies = [
- "hpke",
- "integrity-hpke",
-]
-
-[[package]]
 name = "trellis-interop-c2pa"
 version = "0.1.0"
 dependencies = [
@@ -3351,14 +3327,6 @@ version = "0.1.0"
 dependencies = [
  "trellis-types",
 ]
-
-[[package]]
-name = "trellis-interop-scitt"
-version = "0.1.0"
-
-[[package]]
-name = "trellis-interop-vc"
-version = "0.1.0"
 
 [[package]]
 name = "trellis-server"
@@ -3448,20 +3416,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "trellis-verify"
-version = "0.1.0"
-dependencies = [
- "integrity-verify",
-]
-
-[[package]]
 name = "trellis-verify-wos"
 version = "0.1.0"
 dependencies = [
  "ciborium",
+ "integrity-verify",
  "serde_json",
  "trellis-types",
- "trellis-verify",
 ]
 
 [[package]]

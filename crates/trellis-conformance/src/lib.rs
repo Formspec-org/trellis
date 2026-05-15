@@ -12,14 +12,16 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use ciborium::Value;
+    use integrity_bundle::{Bundle, BundleEntry};
+    use integrity_verify::trellis::{
+        VerificationReport, verify_export_zip, verify_tampered_ledger,
+    };
     use trellis_cddl::canonical_event_hash_preimage;
     use trellis_core::{AuthoredEvent, SigningKeyMaterial, append_event};
-    use trellis_export::{ExportEntry, ExportPackage};
     use trellis_store_memory::MemoryStore;
     use trellis_types::{
         EVENT_DOMAIN, checkpoint_digest, decode_cbor_value, domain_separated_sha256, sha256_bytes,
     };
-    use trellis_verify::{VerificationReport, verify_export_zip, verify_tampered_ledger};
 
     fn fixture_label(fixture: &Path) -> String {
         format!("fixture `{}`", fixture.display())
@@ -192,10 +194,10 @@ mod tests {
             .as_array()
             .unwrap();
 
-        let mut package = ExportPackage::new();
+        let mut package = Bundle::new();
         for member in members {
             let member_name = member.as_text().unwrap();
-            package.add_entry(ExportEntry::new(
+            package.add_entry(BundleEntry::new(
                 format!("{root_dir}/{member_name}"),
                 read_fixture_bytes(root, &root.join(member_name), "export package member"),
             ));
@@ -457,7 +459,7 @@ mod tests {
         report
             .wos_findings
             .iter()
-            .find(|finding| finding.severity == trellis_verify::Severity::Failure)
+            .find(|finding| finding.severity == integrity_verify::trellis::Severity::Failure)
     }
 
     fn is_wos_kind(kind: &str) -> bool {
@@ -503,7 +505,9 @@ mod tests {
         text
     }
 
-    fn first_failure(report: &VerificationReport) -> Option<&trellis_verify::VerificationFailure> {
+    fn first_failure(
+        report: &VerificationReport,
+    ) -> Option<&integrity_verify::trellis::VerificationFailure> {
         report
             .event_failures
             .first()

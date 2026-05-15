@@ -1,8 +1,0 @@
-[package]
-name = "trellis-cose"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-integrity-cose = { path = "../../../integrity-stack/crates/integrity-cose" }

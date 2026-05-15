@@ -116,7 +116,7 @@ The Trellis Core text below is the **profile composition**: it pins the Trellis-
 
 Where this document restates byte-level rules that the substrate owns (encoding rules in §5, COSE_Sign1 envelope rules in §7.4, the length-prefixed domain-separation framing in §9.1, the deterministic-ZIP rules in §18.1), the restatement is **for reader-coherence only**; if a future revision of this document drifts from substrate behavior, the substrate prevails by construction. A conformant implementation is one that composes the substrate primitives in the orders pinned here; an implementation that re-implements a substrate primitive locally and disagrees with substrate output is non-conformant.
 
-Implementations of this specification SHOULD depend directly on `integrity-stack/` crates rather than maintaining parallel byte-encoding code paths. The Rust reference (`trellis-core`, `trellis-cose`, `trellis-cbor`, `trellis-bundle`, `trellis-verify`) consumes the substrate crates by path under `Cargo.toml` workspace coupling; cross-language implementations SHOULD likewise treat the substrate vectors (when available) as the byte-authoritative cross-implementation reference for the primitives, with Trellis-specific vectors (§29, `fixtures/vectors/**`) authoritative for the Trellis Core profile composition.
+Implementations of this specification SHOULD depend directly on `integrity-stack/` crates rather than maintaining parallel byte-encoding code paths. The Rust reference (`trellis-core`, `trellis-export-writer`, `trellis-verify-wos`, and `trellis-cli`) consumes the substrate crates by path under `Cargo.toml` workspace coupling; cross-language implementations SHOULD likewise treat the substrate vectors (when available) as the byte-authoritative cross-implementation reference for the primitives, with Trellis-specific vectors (§29, `fixtures/vectors/**`) authoritative for the Trellis Core profile composition.
 
 Traceability: **TR-CORE-177** (substrate-authority anchor row).
 
@@ -1361,9 +1361,9 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/070-predecessors/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
   trellis-export-<scope>-<tree_size>-<shorthash>/098-README.md \
-  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-x86_64 \
-  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-linux-aarch64 \
-  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-verify-darwin-arm64
+  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-cli-linux-x86_64 \
+  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-cli-linux-aarch64 \
+  trellis-export-<scope>-<tree_size>-<shorthash>/099-trellis-cli-darwin-arm64
 ```
 
 Implementations that cannot coerce a platform `zip` into fully deterministic output MUST use a library-level ZIP writer that emits the fixed fields above directly.
@@ -1391,10 +1391,10 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   070-predecessors/               ; OPTIONAL — embedded deterministic Trellis export ZIPs named by `064-supersession-graph.json` predecessor `bundle_path` entries
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
   098-README.md                   ; §18.9 — human-readable orientation
-  099-trellis-verify-linux-x86_64 ; OPTIONAL — statically linked verifier binary
-  099-trellis-verify-linux-aarch64 ; OPTIONAL — statically linked verifier binary
-  099-trellis-verify-darwin-arm64 ; OPTIONAL — statically linked verifier binary
-  099-trellis-verify-windows-x86_64.exe ; OPTIONAL — statically linked verifier binary
+  099-trellis-cli-linux-x86_64 ; OPTIONAL — statically linked verifier CLI binary
+  099-trellis-cli-linux-aarch64 ; OPTIONAL — statically linked verifier CLI binary
+  099-trellis-cli-darwin-arm64 ; OPTIONAL — statically linked verifier CLI binary
+  099-trellis-cli-windows-x86_64.exe ; OPTIONAL — statically linked verifier CLI binary
 ```
 
 Files marked OPTIONAL may be omitted; a verifier MUST NOT fail solely on their absence.
@@ -1542,7 +1542,7 @@ recompute), **TR-CORE-164** (`interop_sidecar_kind_unknown` closed-registry
 gate), **TR-CORE-165** (`interop_sidecar_unlisted_file` manifest-completeness
 gate), **TR-CORE-166** (`interop_sidecar_derivation_version_unknown`
 ISC-06 version pin), and **TR-CORE-167** (`interop_sidecar_path_invalid`
-path-prefix invariant; `trellis-verify` unit tests, no tamper ZIP), and
+path-prefix invariant; verifier unit tests, no tamper ZIP), and
 **TR-CORE-168** (`interop_sidecar_missing` listed-file presence gate).
 
 **Supersession graph (§18.3b).** `trellis.export.supersession-graph.v1` is the

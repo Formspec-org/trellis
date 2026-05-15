@@ -6,9 +6,11 @@
 use std::collections::BTreeMap;
 
 use ciborium::Value;
+use integrity_verify::trellis::{
+    DomainEvent, DomainExport, DomainFinding, Severity, TrellisTimestamp,
+};
 use serde_json::Value as JsonValue;
 use trellis_types::{map_lookup_map, map_lookup_optional_value, map_lookup_text};
-use trellis_verify::{DomainEvent, DomainExport, DomainFinding, Severity, TrellisTimestamp};
 
 use crate::event_types::{
     OPEN_CLOCKS_EXPORT_EXTENSION, WOS_GOVERNANCE_CLOCK_RESOLVED_EVENT_TYPE,

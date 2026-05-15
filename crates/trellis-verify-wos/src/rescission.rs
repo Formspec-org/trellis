@@ -3,7 +3,7 @@
 
 #![forbid(unsafe_code)]
 
-use trellis_verify::{DomainEvent, DomainFinding, Severity};
+use integrity_verify::trellis::{DomainEvent, DomainFinding, Severity};
 
 use crate::event_types::{
     WOS_GOVERNANCE_DETERMINATION_PREFIX, WOS_GOVERNANCE_DETERMINATION_RESCINDED_EVENT_TYPE,

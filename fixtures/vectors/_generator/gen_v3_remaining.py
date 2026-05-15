@@ -42,6 +42,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    trellis_cli_verify_script_text,
     ts,
 )
 
@@ -117,7 +118,7 @@ def load_seed_and_pubkey(path: Path) -> tuple[bytes, bytes]:
 
 def derive_kid(suite_id: int, pubkey_raw: bytes) -> bytes:
     # Preimage uses canonical CBOR unsigned encoding for `suite_id`, matching
-    # Rust `trellis_types::encode_uint` / `trellis_cose::derive_kid`.
+    # Rust `trellis_types::encode_uint` / `integrity_cose::derive_kid`.
     return hashlib.sha256(dcbor(suite_id) + pubkey_raw).digest()[:16]
 
 
@@ -400,16 +401,7 @@ def write_export_vector(
         write_bytes(out_dir / member, member_bytes)
         members_data[member] = member_bytes
 
-    verify_script = (
-        "#!/bin/sh\n"
-        "set -eu\n\n"
-        "if command -v trellis-verify >/dev/null 2>&1; then\n"
-        "  exec trellis-verify \"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n"
-        "fi\n\n"
-        f"echo \"trellis-verify not found in PATH ({vector_id}).\" >&2\n"
-        "exit 2\n"
-    )
-    write_text(out_dir / "090-verify.sh", verify_script)
+    write_text(out_dir / "090-verify.sh", trellis_cli_verify_script_text())
     members_data["090-verify.sh"] = (out_dir / "090-verify.sh").read_bytes()
 
     omitted_payload_checks: list[str] = []

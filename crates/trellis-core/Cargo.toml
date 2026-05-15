@@ -6,5 +6,5 @@ license.workspace = true
 
 [dependencies]
 trellis-cddl = { path = "../trellis-cddl" }
-trellis-cose = { path = "../trellis-cose" }
+integrity-cose = { path = "../../../integrity-stack/crates/integrity-cose" }
 trellis-types = { path = "../trellis-types" }

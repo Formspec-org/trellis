@@ -9,7 +9,7 @@
 //! or `Ok(None)` if the payload is not a signing-event payload this
 //! resolver knows how to interpret.
 //!
-//! Phase M relocated these readers from `trellis-verify` into
+//! Phase M relocated these readers from the universal verifier into
 //! `trellis-verify-wos`. Phase N flips the malformed-digest branch from
 //! silent-skip (`Ok(None)`) to fail-closed
 //! [`ResolverError::MalformedResponseDigest`]: when the consumer-domain
@@ -21,10 +21,10 @@
 
 #![forbid(unsafe_code)]
 
-use trellis_types::{decode_cbor_value, map_lookup_map, map_lookup_text};
-use trellis_verify::certificate_proof::{
+use integrity_verify::trellis::certificate_proof::{
     CertificateResponseProof, ResolverError, ResponseProofResolver,
 };
+use trellis_types::{decode_cbor_value, map_lookup_map, map_lookup_text};
 
 /// WOS/Formspec consumer-domain implementation of
 /// [`ResponseProofResolver`]. Stateless; instantiate per-call.

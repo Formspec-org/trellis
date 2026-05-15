@@ -125,7 +125,7 @@ Two W3C-style specs, not one, not eight.
 Plus:
 
 - **~50 test vectors** — language-neutral JSON under `fixtures/vectors/{append,verify,export,tamper}/`; every byte-level claim corresponds to at least one vector.
-- **Rust reference implementation** — crates: `trellis-core`, `trellis-cose`, `trellis-store-postgres-async`, `trellis-store-memory`, `trellis-verify`, `trellis-cli`, `trellis-conformance`. Public API is three functions: `append`, `verify`, `export`.
+- **Rust reference implementation** — crates: `trellis-core`, `trellis-types`, `trellis-store-postgres-async`, `trellis-store-memory`, `trellis-export-writer`, `trellis-verify-wos`, `trellis-cli`, and `trellis-conformance`, composed over the shared `integrity-stack` primitives. Public API is append, export, and `verify-export`.
 - **CLI + WASM bindings** — `trellis verify | append | export`; WASM for browser-side respondent-facing verification.
 - **One independent second implementation** — `trellis-py` or `trellis-go`, written by someone who only reads the spec, passing every vector byte-for-byte.
 

@@ -8,4 +8,4 @@ license.workspace = true
 ciborium = "0.2"
 serde_json = "1.0"
 trellis-types = { path = "../trellis-types" }
-trellis-verify = { path = "../trellis-verify" }
+integrity-verify = { path = "../../../integrity-stack/crates/integrity-verify" }

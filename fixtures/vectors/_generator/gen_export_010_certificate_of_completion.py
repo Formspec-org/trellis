@@ -72,6 +72,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    trellis_cli_verify_script,
     ts,
 )
 
@@ -782,15 +783,7 @@ def compose_export_members(
     catalog = dcbor([cert_catalog_row(cert["canonical_event_hash"], cert["cert_payload"])])
     members_data["065-certificates-of-completion.cbor"] = catalog
 
-    members_data["090-verify.sh"] = (
-        "#!/bin/sh\n"
-        "set -eu\n\n"
-        "if command -v trellis-verify >/dev/null 2>&1; then\n"
-        "  exec trellis-verify \"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n"
-        "fi\n\n"
-        "echo \"trellis-verify not found in PATH (export/010).\" >&2\n"
-        "exit 2\n"
-    ).encode("utf-8")
+    members_data["090-verify.sh"] = trellis_cli_verify_script()
 
     members_data["098-README.md"] = (
         "# Trellis Export — export/010-certificate-of-completion-inline\n\n"

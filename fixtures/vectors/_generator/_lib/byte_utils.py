@@ -113,3 +113,34 @@ def deterministic_zipinfo(arcname: str) -> zipfile.ZipInfo:
     info.flag_bits = 0
     info.create_system = 0
     return info
+
+
+def trellis_cli_verify_script_text() -> str:
+    """Human-facing export verifier shim for active export fixtures."""
+    return (
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "\n"
+        "# Trellis export verifier invocation (§18.8).\n"
+        "#\n"
+        "# Pass the export ZIP path as the only argument; the operator CLI\n"
+        "# verifies it through trellis-verify-wos.\n"
+        "\n"
+        "if [ \"$#\" -ne 1 ]; then\n"
+        "  echo \"usage: $0 <export.zip>\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "\n"
+        "if command -v trellis-cli >/dev/null 2>&1; then\n"
+        "  exec trellis-cli verify-export \"$1\"\n"
+        "fi\n"
+        "\n"
+        "echo \"trellis-cli not found in PATH.\" >&2\n"
+        "echo \"Run `trellis-cli verify-export $1`.\" >&2\n"
+        "exit 2\n"
+    )
+
+
+def trellis_cli_verify_script() -> bytes:
+    """Byte form of [`trellis_cli_verify_script_text`]."""
+    return trellis_cli_verify_script_text().encode("utf-8")

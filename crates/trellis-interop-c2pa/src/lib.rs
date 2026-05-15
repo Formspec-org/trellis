@@ -23,7 +23,7 @@
 //!   to check the five-field cross-binding. **This path is not exercised
 //!   by the Phase-1 core verifier** — it lives in adopter / consumer code
 //!   so the core verifier preserves Core §16 independence (ISC-05; no
-//!   ecosystem deps in `trellis-core` / `trellis-verify` / `trellis-types`).
+//!   ecosystem deps in `trellis-core` / `integrity-verify` / `trellis-types`).
 //!
 //! * **Path-(b) — canonical bytes only.** The Phase-1 core verifier walks
 //!   `manifest.interop_sidecars`, recomputes `content_digest` against the

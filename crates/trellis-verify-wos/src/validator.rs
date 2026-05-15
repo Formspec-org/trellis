@@ -3,8 +3,8 @@
 
 #![forbid(unsafe_code)]
 
-use trellis_verify::certificate_proof::ResponseProofResolver;
-use trellis_verify::{DomainEvent, DomainExport, DomainFinding, RecordValidator};
+use integrity_verify::trellis::certificate_proof::ResponseProofResolver;
+use integrity_verify::trellis::{DomainEvent, DomainExport, DomainFinding, RecordValidator};
 
 use crate::certificate_resolver::WosFormspecResolver;
 

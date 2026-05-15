@@ -159,7 +159,7 @@ def build_user_content_attestation_preimage(
     identity_attestation_ref, signing_intent, attested_at])`.
 
     Mirrors `compute_user_content_attestation_preimage` in
-    `crates/trellis-verify/src/lib.rs` byte-for-byte.
+    `integrity-verify::trellis` byte-for-byte.
     """
     return dcbor([
         attestation_id,
@@ -181,7 +181,7 @@ def sign_user_content_attestation(
     `domain_separated_sha256(trellis-user-content-attestation-v1, preimage)`.
 
     Mirrors `verify_user_content_attestation_signature` in
-    `crates/trellis-verify/src/lib.rs` byte-for-byte (signing side).
+    `integrity-verify::trellis` byte-for-byte (signing side).
     """
     digest = domain_separated_sha256(TAG_USER_CONTENT_ATTESTATION_V1, preimage)
     sk = Ed25519PrivateKey.from_private_bytes(signing_seed)
@@ -718,7 +718,7 @@ ADR 0010 §\"Wire shape\" positive vector for `trellis.user-content-attestation.
 ## Phase-1 verifier posture
 
 Per `decode_user_content_attestation_payload` in
-`crates/trellis-verify/src/lib.rs`: this vector exercises step 1 (CDDL decode)
+`integrity-verify::trellis`: this vector exercises step 1 (CDDL decode)
 and step 2 partial (`attested_at == authored_at`; `signing_intent` RFC 3986
 well-formedness) at the per-event path. Cross-event steps 3 / 4 / 5 / 6 / 7 / 8
 require multi-event chain context and exercise via `tamper/028..034`.

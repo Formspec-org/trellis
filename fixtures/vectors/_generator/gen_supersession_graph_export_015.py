@@ -37,6 +37,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    trellis_cli_verify_script,
     ts,
 )
 
@@ -511,8 +512,7 @@ def build_export(out_dir: Path, *, graph_variant: str) -> tuple[str, bytes, byte
         f"- superseded_chain_id: `{predecessor_chain_id.hex()}`\n"
         f"- graph_digest: `{graph_digest.hex()}`\n"
     ).encode("utf-8")
-    verify_sh = b"#!/bin/sh\nset -eu\necho \"Run a Trellis verifier against this export.\" >&2\n"
-    write_bytes(out_dir / "090-verify.sh", verify_sh)
+    write_bytes(out_dir / "090-verify.sh", trellis_cli_verify_script())
     write_bytes(out_dir / "098-README.md", readme)
 
     manifest_payload = {

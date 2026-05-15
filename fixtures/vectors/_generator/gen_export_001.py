@@ -53,6 +53,7 @@ from _lib.byte_utils import (  # noqa: E402
     dcbor,
     deterministic_zipinfo,
     domain_separated_sha256,
+    trellis_cli_verify_script,
     ts,
 )
 
@@ -316,30 +317,7 @@ def main() -> None:
     write_bytes(OUT_DIR / "040-checkpoints.cbor", checkpoints_cbor)
 
     # 10) Human-facing members (§18.8, §18.9).
-    verify_sh = (
-        "#!/bin/sh\n"
-        "set -eu\n"
-        "\n"
-        "# Trellis Phase-1 export verifier invocation (§18.8).\n"
-        "#\n"
-        "# Placeholder: this script only becomes runnable once the G-4 Rust\n"
-        "# `trellis-verify` binary lands per\n"
-        "# `thoughts/specs/2026-04-18-trellis-g4-rust-workspace-plan.md`.\n"
-        "# Until then the fixture deliberately ships no `099-*` bundled\n"
-        "# verifier and this script exits 2 with a human-facing pointer.\n"
-        "#\n"
-        "# If you have a verifier installed as `trellis-verify`, this script\n"
-        "# invokes it against the directory containing this script.\n"
-        "\n"
-        "if command -v trellis-verify >/dev/null 2>&1; then\n"
-        "  exec trellis-verify \"$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\"\n"
-        "fi\n"
-        "\n"
-        "echo \"trellis-verify not found in PATH (fixture export/001).\" >&2\n"
-        "echo \"Run your verifier against this export directory.\" >&2\n"
-        "exit 2\n"
-    ).encode("utf-8")
-    write_bytes(OUT_DIR / "090-verify.sh", verify_sh)
+    write_bytes(OUT_DIR / "090-verify.sh", trellis_cli_verify_script())
 
     # README fields are normative (§18.9): scope, tree_size, head hash, posture,
     # omitted checks, and verification invocation.
