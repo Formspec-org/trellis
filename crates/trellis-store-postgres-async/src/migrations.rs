@@ -1,7 +1,10 @@
 //! Async migration runner for the Trellis Postgres schema.
 
 use sqlx::PgPool;
+use stack_common_postgres::{MigrationSet, run_sqlx_migrations};
 use trellis_store_postgres_shared::migrations::{ADVISORY_LOCK_KEY, MIGRATIONS};
+
+const LEDGER_TABLE: &str = "trellis_schema_migrations";
 
 /// Error returned by async migration setup.
 #[derive(Debug, thiserror::Error)]
@@ -19,6 +22,25 @@ pub enum MigrationError {
     /// SQL execution failed while applying or recording migrations.
     #[error("sqlx: {0}")]
     Sqlx(#[from] sqlx::Error),
+    /// Shared migration runner rejected the request.
+    #[error("shared migration runner: {0}")]
+    Shared(String),
+}
+
+impl From<stack_common_postgres::MigrationError> for MigrationError {
+    fn from(error: stack_common_postgres::MigrationError) -> Self {
+        match error {
+            stack_common_postgres::MigrationError::SchemaAhead {
+                applied_version,
+                declared_max,
+            } => Self::SchemaAhead {
+                applied_version,
+                declared_max,
+            },
+            stack_common_postgres::MigrationError::Sqlx(error) => Self::Sqlx(error),
+            other => Self::Shared(other.to_string()),
+        }
+    }
 }
 
 /// Applies pending Trellis Postgres migrations.
@@ -32,56 +54,10 @@ pub enum MigrationError {
 /// migration than this binary declares, or [`MigrationError::Sqlx`] for SQL
 /// execution failures.
 pub async fn run_migrations(pool: &PgPool) -> Result<(), MigrationError> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(ADVISORY_LOCK_KEY)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query(
-        "\
-CREATE TABLE IF NOT EXISTS trellis_schema_migrations (
-    version INTEGER PRIMARY KEY,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-)",
+    run_sqlx_migrations(
+        pool,
+        MigrationSet::new(LEDGER_TABLE, ADVISORY_LOCK_KEY, MIGRATIONS),
     )
-    .execute(&mut *tx)
     .await?;
-
-    let applied: Vec<i32> = sqlx::query_scalar("SELECT version FROM trellis_schema_migrations")
-        .fetch_all(&mut *tx)
-        .await?;
-    detect_forward_rollback(&applied)?;
-
-    for migration in MIGRATIONS {
-        if applied.contains(&migration.version) {
-            continue;
-        }
-        sqlx::raw_sql(migration.up_sql).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO trellis_schema_migrations (version) VALUES ($1)")
-            .bind(migration.version)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    tx.commit().await?;
-    Ok(())
-}
-
-fn detect_forward_rollback(applied: &[i32]) -> Result<(), MigrationError> {
-    let Some(applied_version) = applied.iter().max().copied() else {
-        return Ok(());
-    };
-    let declared_max = MIGRATIONS
-        .iter()
-        .map(|migration| migration.version)
-        .max()
-        .unwrap_or_default();
-    if applied_version > declared_max {
-        return Err(MigrationError::SchemaAhead {
-            applied_version,
-            declared_max,
-        });
-    }
     Ok(())
 }

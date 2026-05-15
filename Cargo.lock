@@ -2391,6 +2391,14 @@ name = "stack-common-idempotency"
 version = "0.1.0"
 
 [[package]]
+name = "stack-common-postgres"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2794,6 +2802,7 @@ version = "0.1.0"
 dependencies = [
  "sqlx",
  "stack-common-idempotency",
+ "stack-common-postgres",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -2804,6 +2813,9 @@ dependencies = [
 [[package]]
 name = "trellis-store-postgres-shared"
 version = "0.1.0"
+dependencies = [
+ "stack-common-postgres",
+]
 
 [[package]]
 name = "trellis-types"

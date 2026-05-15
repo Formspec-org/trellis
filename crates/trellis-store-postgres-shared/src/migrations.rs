@@ -1,15 +1,6 @@
 //! Shared migration list for Trellis Postgres adapters.
 
-/// One append-only schema migration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Migration {
-    /// Monotonic migration version.
-    pub version: i32,
-    /// Stable migration name for diagnostics and tests.
-    pub name: &'static str,
-    /// SQL applied for this migration.
-    pub up_sql: &'static str,
-}
+pub use stack_common_postgres::Migration;
 
 /// Postgres advisory-lock key for the migration runner.
 ///
