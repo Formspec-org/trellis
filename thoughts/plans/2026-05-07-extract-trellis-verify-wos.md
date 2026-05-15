@@ -252,7 +252,7 @@ Lean: (a). Single conformance binary, single fixture-corpus invariant ("Vectors 
 
 | Consumer | Change |
 |---|---|
-| `workspec-server/crates/wos-server/` | Switch dep from `trellis-verify` to `trellis-verify-wos`. Cargo.toml edge: `trellis-verify-wos = { path = "../../../trellis/crates/trellis-verify-wos" }` (matches existing `trellis-store-postgres` path-dep style). Call sites: `verify_export_zip` and `verify_single_event` swap to the WOS-aware versions. Composes `EventStore` write-path and bundle export. |
+| `workspec-server/crates/wos-server/` | Switch dep from `trellis-verify` to `trellis-verify-wos`. Cargo.toml edge: `trellis-verify-wos = { path = "../../../trellis/crates/trellis-verify-wos" }` (matches existing `trellis-store-postgres-async` path-dep style). Call sites: `verify_export_zip` and `verify_single_event` swap to the WOS-aware versions. Composes `EventStore` write-path and bundle export. |
 | `trellis/crates/trellis-cli/` | Stays on `trellis-verify`. Reports integrity-only. (Optional: add `--wos` flag pulling `trellis-verify-wos` via feature — defer; not in this train.) |
 | `trellis/crates/trellis-interop-c2pa/` | Stays on `trellis-verify`. C2PA path is envelope-only. |
 | `trellis/crates/trellis-conformance/` | Either feature-flagged WOS coverage or sibling test crate (Phase 4 decision). |

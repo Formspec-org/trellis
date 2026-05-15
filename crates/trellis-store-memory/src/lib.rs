@@ -1,7 +1,7 @@
 // Rust guideline compliant 2026-02-21
 //! In-memory `LedgerStore` for the Phase-1 append scaffold and conformance corpus.
 //!
-//! Provides a parity surface to [`trellis_store_postgres`]: a buffered
+//! Provides a parity surface to the async Postgres adapter: a buffered
 //! "transaction" type and an [`append_event_in_tx`] free function so
 //! conformance / cross-store parity tests can target both stores through
 //! the same composition shape (canonical write + caller-supplied side
@@ -39,7 +39,7 @@ impl MemoryStore {
     /// [`append_event_in_tx`] against it (and optionally their own side
     /// effects), then call [`MemoryTransaction::commit`] to flush. Drop
     /// without commit discards the buffer — the parity surface for
-    /// `trellis_store_postgres::append_event_in_tx` rollback semantics.
+    /// `trellis_store_postgres_async::append_event_in_tx` rollback semantics.
     pub fn begin(&mut self) -> MemoryTransaction<'_> {
         MemoryTransaction {
             store: self,
@@ -94,7 +94,7 @@ impl Drop for MemoryTransaction<'_> {
 
 /// Appends one event into the supplied buffered transaction.
 ///
-/// Parity counterpart to `trellis_store_postgres::append_event_in_tx` so
+/// Parity counterpart to `trellis_store_postgres_async::append_event_in_tx` so
 /// cross-store composition tests can write a single generic body. The
 /// `idempotency_key` parameter is accepted for shape parity; memory
 /// enforces only the Core §6.1 length bound and reports a duplicate
@@ -223,7 +223,7 @@ impl LedgerStore for MemoryStore {
         append_event_in_tx(&mut tx, &event, key.as_deref())?;
         // `MemoryTransaction::commit` returns `Result<(), Infallible>`;
         // the `?` here is structurally unreachable but kept for parity with
-        // `trellis-store-postgres`.
+        // `trellis-store-postgres-async`.
         let _ = tx.commit();
         Ok(())
     }
@@ -280,8 +280,8 @@ mod tests {
 
     /// Pins the parity rationale for the `Result<(), Infallible>` return:
     /// a generic test body can `?`-chain `tx.commit()` and the shape works
-    /// against both this adapter and `trellis-store-postgres` whose
-    /// `Transaction::commit` returns `Result<(), postgres::Error>`.
+    /// against both this adapter and `trellis-store-postgres-async` whose
+    /// `Transaction::commit` returns `Result<(), sqlx::Error>`.
     #[test]
     fn commit_supports_question_mark_chaining() {
         fn drive(store: &mut MemoryStore) -> Result<(), Infallible> {

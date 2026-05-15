@@ -1,8 +1,0 @@
-[package]
-name = "trellis-store-postgres-shared"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-stack-common-postgres = { path = "../../../stack-common/crates/stack-common-postgres", default-features = false, features = ["migration-types"] }

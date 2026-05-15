@@ -1,28 +1,28 @@
 // Rust guideline compliant 2026-02-21
 //! Cross-store parity: every `append/*` fixture produces byte-identical
 //! stored canonical + signed bytes whether the underlying store is
-//! `trellis-store-memory` or `trellis-store-postgres`.
+//! `trellis-store-memory` or `trellis-store-postgres-async`.
 //!
 //! Conformance-side enforcement of the wos-server commitment that
-//! `trellis-store-postgres` is a drop-in canonical-side composition partner
-//! for the in-memory test oracle (per VISION.md §III + §V — "Trellis IS
-//! the database"; the canonical schema is byte-equivalent across adapters).
+//! `trellis-store-postgres-async` is a drop-in canonical-side composition
+//! partner for the in-memory test oracle (per VISION.md §III + §V -
+//! "Trellis IS the database"; the canonical schema is byte-equivalent across
+//! adapters).
 //!
 //! This is also the first-class integration test exercising the
-//! transaction-composition surface ([`trellis_store_postgres::append_event_in_tx`])
-//! against the full append corpus.
-
-mod common;
+//! transaction-composition surface
+//! ([`trellis_store_postgres_async::append_event_in_tx`]) against the full
+//! append corpus.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use sqlx::PgPool;
+use stack_common_postgres::testing::EphemeralCluster;
 use trellis_core::{AuthoredEvent, SigningKeyMaterial, append_event};
 use trellis_store_memory::MemoryStore;
-use trellis_store_postgres::{PostgresStore, append_event_in_tx};
+use trellis_store_postgres_async::{append_event_in_tx, build_pool, run_migrations};
 use trellis_types::StoredEvent;
-
-use common::TestCluster;
 
 fn fixtures_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/vectors")
@@ -50,10 +50,9 @@ fn signing_key_name(inputs: &toml::value::Table) -> &str {
         .expect("append manifest must name a signing key")
 }
 
-#[test]
-fn append_corpus_byte_parity_memory_vs_postgres() {
-    let cluster = TestCluster::start();
-    let mut postgres_store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+#[tokio::test]
+async fn append_corpus_byte_parity_memory_vs_postgres() {
+    let (_cluster, pool) = started_pool("append_corpus_byte_parity_memory_vs_postgres").await;
 
     let mut checked = 0usize;
     for dir in append_vector_dirs() {
@@ -97,34 +96,18 @@ fn append_corpus_byte_parity_memory_vs_postgres() {
         // truncate before each per-fixture round-trip so Postgres sees a
         // fresh write. Byte parity is the assertion under test, not
         // multi-fixture replay (which the wider conformance suite covers).
-        {
-            let mut clean = postgres_store.begin().unwrap();
-            clean
-                .batch_execute("TRUNCATE TABLE trellis_events")
-                .unwrap();
-            clean.commit().unwrap();
-        }
-        let mut tx = postgres_store.begin().unwrap();
-        append_event_in_tx(
-            &mut tx,
-            &StoredEvent::new(
-                runner_stored.scope().to_vec(),
-                runner_stored.sequence(),
-                runner_stored.canonical_event().to_vec(),
-                runner_stored.signed_event().to_vec(),
-            ),
-            None,
-        )
-        .unwrap();
-        tx.commit().unwrap();
-
-        let postgres_events = postgres_store
-            .load_scope_events(memory_stored.scope())
+        sqlx::query("TRUNCATE TABLE trellis_events")
+            .execute(&pool)
+            .await
             .unwrap();
-        let postgres_stored = postgres_events
-            .iter()
-            .find(|e| e.sequence() == memory_stored.sequence())
-            .unwrap_or_else(|| panic!("postgres did not persist event for {}", dir.display()));
+        let mut tx = pool.begin().await.unwrap();
+        append_event_in_tx(&mut tx, runner_stored).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let postgres_stored =
+            load_scope_event(&pool, memory_stored.scope(), memory_stored.sequence())
+                .await
+                .unwrap_or_else(|| panic!("postgres did not persist event for {}", dir.display()));
 
         // BYTE-EXACT parity contract.
         assert_eq!(
@@ -137,6 +120,18 @@ fn append_corpus_byte_parity_memory_vs_postgres() {
             postgres_stored.signed_event(),
             memory_stored.signed_event(),
             "signed_event byte mismatch memory vs postgres for {}",
+            dir.display()
+        );
+        assert_eq!(
+            postgres_stored.idempotency_key(),
+            memory_stored.idempotency_key(),
+            "idempotency_key mismatch memory vs postgres for {}",
+            dir.display()
+        );
+        assert_eq!(
+            postgres_stored.canonical_event_hash(),
+            memory_stored.canonical_event_hash(),
+            "stored canonical_event_hash mismatch memory vs postgres for {}",
             dir.display()
         );
         assert_eq!(
@@ -155,64 +150,127 @@ fn append_corpus_byte_parity_memory_vs_postgres() {
     );
 }
 
-#[test]
-fn transaction_composition_atomic_with_caller_projections() {
+#[tokio::test]
+async fn transaction_composition_atomic_with_caller_projections() {
     // Demonstrate the load-bearing wos-server commitment: a canonical
     // append + a caller-supplied projection update commit atomically OR
     // roll back together. This is the architectural invariant VISION.md
     // §VIII rejection of dual-write rests on.
-    let cluster = TestCluster::start();
-    let mut store = PostgresStore::connect(&cluster.connection_string()).unwrap();
+    let (_cluster, pool) =
+        started_pool("transaction_composition_atomic_with_caller_projections").await;
 
-    {
-        // Composition root would create this kind of table per its own schema;
-        // we model the seam with a simple side table.
-        let mut tx = store.begin().unwrap();
-        tx.batch_execute("CREATE TABLE projection_demo (case_id TEXT PRIMARY KEY, status TEXT)")
-            .unwrap();
-        tx.commit().unwrap();
-    }
+    // Composition root would create this kind of table per its own schema; we
+    // model the seam with a simple side table.
+    sqlx::query("CREATE TABLE projection_demo (case_id TEXT PRIMARY KEY, status TEXT)")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Happy path: canonical + projection commit together.
     {
-        let mut tx = store.begin().unwrap();
+        let mut tx = pool.begin().await.unwrap();
         append_event_in_tx(
             &mut tx,
             &StoredEvent::new(b"case-1".to_vec(), 0, vec![0xab], vec![0xcd]),
-            None,
         )
+        .await
         .unwrap();
-        tx.execute(
-            "INSERT INTO projection_demo (case_id, status) VALUES ($1, $2)",
-            &[&"case-1", &"open"],
-        )
-        .unwrap();
-        tx.commit().unwrap();
+        sqlx::query("INSERT INTO projection_demo (case_id, status) VALUES ($1, $2)")
+            .bind("case-1")
+            .bind("open")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
     }
-    let events = store.load_scope_events(b"case-1").unwrap();
-    assert_eq!(events.len(), 1);
+    assert_eq!(scope_event_count(&pool, b"case-1").await, 1);
 
     // Sad path: projection write fails -> canonical event MUST roll back.
     {
-        let mut tx = store.begin().unwrap();
+        let mut tx = pool.begin().await.unwrap();
         append_event_in_tx(
             &mut tx,
             &StoredEvent::new(b"case-2".to_vec(), 0, vec![0xee], vec![0xff]),
-            None,
         )
+        .await
         .unwrap();
         // PK conflict against case-1 row.
-        let projection_err = tx.execute(
-            "INSERT INTO projection_demo (case_id, status) VALUES ($1, $2)",
-            &[&"case-1", &"duplicate"],
-        );
+        let projection_err =
+            sqlx::query("INSERT INTO projection_demo (case_id, status) VALUES ($1, $2)")
+                .bind("case-1")
+                .bind("duplicate")
+                .execute(&mut *tx)
+                .await;
         assert!(projection_err.is_err());
-        // Drop without commit -> rollback.
-        drop(tx);
+        tx.rollback().await.unwrap();
     }
-    let events = store.load_scope_events(b"case-2").unwrap();
     assert!(
-        events.is_empty(),
+        scope_event_count(&pool, b"case-2").await == 0,
         "rolled-back tx left canonical event visible"
     );
+}
+
+async fn started_pool(test_name: &str) -> (EphemeralCluster, PgPool) {
+    let cluster = EphemeralCluster::start().unwrap_or_else(|| {
+        panic!(
+            "{test_name} requires postgres binaries (initdb/pg_ctl) and openssl \
+             for an ephemeral TLS-required cluster"
+        )
+    });
+
+    cluster.assert_tls_contract().await;
+    let pool = build_pool(&cluster.dsn(), 8).await.unwrap();
+    run_migrations(&pool).await.unwrap();
+    (cluster, pool)
+}
+
+async fn load_scope_event(pool: &PgPool, scope: &[u8], sequence: u64) -> Option<StoredEvent> {
+    let sequence = i64::try_from(sequence).unwrap();
+    let row: Option<(
+        Vec<u8>,
+        i64,
+        Vec<u8>,
+        Vec<u8>,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+    )> = sqlx::query_as(
+        "\
+SELECT scope, sequence, canonical_event, signed_event, idempotency_key, canonical_event_hash
+FROM trellis_events
+WHERE scope = $1 AND sequence = $2",
+    )
+    .bind(scope)
+    .bind(sequence)
+    .fetch_optional(pool)
+    .await
+    .unwrap();
+
+    row.map(
+        |(scope, sequence, canonical, signed, idempotency_key, canonical_event_hash)| {
+            let event = match idempotency_key {
+                Some(key) => StoredEvent::with_idempotency_key(
+                    scope,
+                    u64::try_from(sequence).unwrap(),
+                    canonical,
+                    signed,
+                    key,
+                ),
+                None => {
+                    StoredEvent::new(scope, u64::try_from(sequence).unwrap(), canonical, signed)
+                }
+            };
+            event.with_canonical_event_hash(canonical_event_hash.map(|hash| {
+                hash.try_into()
+                    .expect("canonical_event_hash column must be 32 bytes")
+            }))
+        },
+    )
+}
+
+async fn scope_event_count(pool: &PgPool, scope: &[u8]) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM trellis_events WHERE scope = $1")
+        .bind(scope)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }

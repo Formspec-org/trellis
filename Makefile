@@ -25,7 +25,7 @@ help:
 	@echo "  make test-rust      Run all Rust tests + trellis-hpke byte oracle"
 	@echo "  make test-python    Run Python conformance tests"
 	@echo "  make test-scripts   Run tests for helper scripts"
-	@echo "  make test-postgres  Run trellis-store-postgres + parity integration tests (needs initdb/pg_ctl on PATH)"
+	@echo "  make test-postgres  Run async Postgres + parity integration tests (needs initdb/pg_ctl/openssl on PATH)"
 	@echo "  make check-specs    Run spec discipline and coverage lint"
 	@echo "  make check-specs-strict  Run check-specs + vector-renumbering guard (CI variant)"
 	@echo "  make check-verifier-isolation  Assert trellis-verify dep graph stays HPKE-clean (Core §16)"
@@ -61,11 +61,11 @@ test-scripts:
 # Targeted run of the Postgres-side integration suite. `cargo nextest run --workspace`
 # already exercises these — this target exists for fast iteration on the
 # canonical-side of the wos-server EventStore composition (per VISION.md §V).
-# Requires `initdb` and `pg_ctl` discoverable on PATH (Postgres 14+; tested
-# against Postgres 16 via `/opt/homebrew/opt/postgresql@16/bin`).
+# Requires `initdb`, `pg_ctl`, and `openssl` discoverable on PATH (Postgres
+# 14+; tested against Postgres 16 via `/opt/homebrew/opt/postgresql@16/bin`).
 test-postgres:
-	@echo "Running trellis-store-postgres + parity integration tests..."
-	$(CARGO) nextest run -p trellis-store-postgres
+	@echo "Running trellis-store-postgres-async + parity integration tests..."
+	$(CARGO) nextest run -p trellis-store-postgres-async
 	$(CARGO) nextest run -p trellis-conformance --test store_parity
 
 check-specs:
