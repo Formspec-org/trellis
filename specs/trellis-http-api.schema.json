@@ -1,0 +1,500 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specs.formspec.dev/trellis/trellis-http-api.schema.json",
+  "title": "Trellis Substrate HTTP API Schema",
+  "description": "Normative JSON envelope schema and route metadata for the Trellis substrate service boundary. The HTTP API is product-edge JSON; the proof artifact remains the dCBOR/COSE export bundle defined by Trellis Core.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SubstrateAppendBody"
+    },
+    {
+      "$ref": "#/$defs/SubstrateAppendResult"
+    },
+    {
+      "$ref": "#/$defs/EventTypeRegistry"
+    },
+    {
+      "$ref": "#/$defs/ProblemJson"
+    }
+  ],
+  "x-trellis-http-api": {
+    "version": "2026-05-15",
+    "sourceCrates": [
+      "trellis-service-client",
+      "trellis-server"
+    ],
+    "tenantHeaderSets": {
+      "wos": [
+        "x-wos-tenant-id",
+        "x-wos-workspace-id",
+        "x-wos-environment-id",
+        "x-wos-cell-id"
+      ],
+      "formspec": [
+        "x-formspec-tenant-id",
+        "x-formspec-workspace-id",
+        "x-formspec-environment-id",
+        "x-formspec-cell-id"
+      ]
+    },
+    "operations": [
+      {
+        "operationId": "appendEvent",
+        "method": "POST",
+        "path": "/v1/scopes/{scope}/events",
+        "tenantScopeRequired": true,
+        "requiredHeaders": [
+          "idempotency-key"
+        ],
+        "optionalHeaders": [
+          "authorization"
+        ],
+        "idempotencyHeaderMustEqualBodyField": "idempotencyKey",
+        "request": {
+          "contentType": "application/json",
+          "schemaRef": "#/$defs/SubstrateAppendBody"
+        },
+        "responses": [
+          {
+            "status": 201,
+            "contentType": "application/json",
+            "schemaRef": "#/$defs/SubstrateAppendResult",
+            "optionalHeaders": [
+              "x-replay"
+            ]
+          },
+          {
+            "status": "4xx/5xx",
+            "contentType": "application/problem+json",
+            "schemaRef": "#/$defs/ProblemJson"
+          }
+        ]
+      },
+      {
+        "operationId": "getHeadBundle",
+        "method": "GET",
+        "path": "/v1/scopes/{scope}/bundles/head",
+        "tenantScopeRequired": true,
+        "optionalHeaders": [
+          "authorization"
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "contentType": "application/zip",
+            "description": "Current deterministic Trellis export bundle bytes."
+          },
+          {
+            "status": "4xx/5xx",
+            "contentType": "application/problem+json",
+            "schemaRef": "#/$defs/ProblemJson"
+          }
+        ]
+      },
+      {
+        "operationId": "getBundleByCheckpointDigest",
+        "method": "GET",
+        "path": "/v1/scopes/{scope}/bundles/{checkpointDigest}",
+        "tenantScopeRequired": true,
+        "optionalHeaders": [
+          "authorization"
+        ],
+        "pathParameters": {
+          "checkpointDigest": {
+            "$ref": "#/$defs/CheckpointDigestPathParam"
+          }
+        },
+        "responses": [
+          {
+            "status": 200,
+            "contentType": "application/zip",
+            "description": "Deterministic Trellis export bundle bytes pinned by checkpoint digest."
+          },
+          {
+            "status": "4xx/5xx",
+            "contentType": "application/problem+json",
+            "schemaRef": "#/$defs/ProblemJson"
+          }
+        ]
+      },
+      {
+        "operationId": "getSigningKeyRegistry",
+        "method": "GET",
+        "path": "/v1/scopes/{scope}/registries/signing-keys",
+        "tenantScopeRequired": true,
+        "optionalHeaders": [
+          "authorization"
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "contentType": "application/cbor",
+            "description": "Current signing-key registry projection encoded as deterministic CBOR."
+          },
+          {
+            "status": "4xx/5xx",
+            "contentType": "application/problem+json",
+            "schemaRef": "#/$defs/ProblemJson"
+          }
+        ]
+      },
+      {
+        "operationId": "getEventTypeRegistry",
+        "method": "GET",
+        "path": "/v1/scopes/{scope}/registries/event-types",
+        "tenantScopeRequired": true,
+        "optionalHeaders": [
+          "authorization"
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "contentType": "application/json",
+            "schemaRef": "#/$defs/EventTypeRegistry"
+          },
+          {
+            "status": "4xx/5xx",
+            "contentType": "application/problem+json",
+            "schemaRef": "#/$defs/ProblemJson"
+          }
+        ]
+      }
+    ]
+  },
+  "$defs": {
+    "AppendActor": {
+      "type": "object",
+      "description": "Actor block carried by the Trellis append body. The service authorizer may replace the effective actor with authenticated bearer-token claims.",
+      "required": [
+        "kind",
+        "subject"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "ArtifactUri": {
+      "type": "string",
+      "description": "Opaque artifact-store URI returned by the Trellis service. Seed adapters emit memory:// and s3:// URIs.",
+      "pattern": "^[a-z][a-z0-9+.-]*://.+$"
+    },
+    "Base64Url": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+={0,2}$"
+    },
+    "CheckpointDigestPathParam": {
+      "type": "string",
+      "description": "Checkpoint digest path parameter, accepted with or without the sha256: prefix.",
+      "pattern": "^(sha256:)?[A-Fa-f0-9]{64}$"
+    },
+    "ClientAttestation": {
+      "type": "object",
+      "description": "Optional direct-client attestation block. Binary COSE_Sign1 bytes are base64url encoded at the JSON boundary.",
+      "required": [
+        "kid",
+        "coseSign1"
+      ],
+      "properties": {
+        "kid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coseSign1": {
+          "$ref": "#/$defs/Base64Url"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ComputeContext": {
+      "type": "object",
+      "description": "Delegated-compute disclosure context for an append producer.",
+      "required": [
+        "declarationId",
+        "actor",
+        "sensitivity"
+      ],
+      "properties": {
+        "declarationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sensitivity": {
+          "$ref": "#/$defs/ComputeSensitivity"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ComputeSensitivity": {
+      "type": "string",
+      "enum": [
+        "publicMetadata",
+        "providerReadable",
+        "readerHeld",
+        "restricted"
+      ]
+    },
+    "DigestSha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "EventId": {
+      "type": "string",
+      "pattern": "^evt_[0-9a-f]{16}$"
+    },
+    "EventType": {
+      "type": "string",
+      "enum": [
+        "wos.kernel.state_transition",
+        "wos.kernel.case_created",
+        "wos.kernel.intake_accepted",
+        "wos.kernel.note_added",
+        "wos.kernel.intake_rejected",
+        "wos.kernel.intake_deferred",
+        "wos.ai.capability_invocation",
+        "wos.kernel.for_each_iteration_started",
+        "wos.kernel.for_each_iteration_completed",
+        "wos.kernel.for_each_completed",
+        "wos.kernel.signature_affirmation",
+        "wos.kernel.signature_admission_failed",
+        "wos.governance.correction_authorized",
+        "wos.governance.amendment_authorized",
+        "wos.governance.determination_amended",
+        "wos.governance.rescission_authorized",
+        "wos.governance.determination_rescinded",
+        "wos.governance.reinstated",
+        "wos.governance.authorization_attestation",
+        "wos.governance.clock_started",
+        "wos.governance.clock_resolved",
+        "wos.assurance.identity_attestation",
+        "wos.assurance.key_rebind",
+        "wos.governance.clock_skew_observed",
+        "wos.kernel.commit_attempt_failure",
+        "wos.governance.authorization_rejected",
+        "wos.kernel.instance_migrated",
+        "wos.kernel.migration_pin_changed"
+      ]
+    },
+    "EventTypeRegistry": {
+      "type": "object",
+      "description": "JSON registry returned by GET /v1/scopes/{scope}/registries/event-types. The event literals mirror trellis-server WOS_EVENT_TYPES and wos-events ProvenanceKind::canonical_event_literal().",
+      "required": [
+        "registryVersion",
+        "eventTypes"
+      ],
+      "properties": {
+        "registryVersion": {
+          "type": "string",
+          "const": "wos-events:2026-05-15"
+        },
+        "eventTypes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/EventTypeRegistryEntry"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "EventTypeRegistryEntry": {
+      "type": "object",
+      "required": [
+        "eventType",
+        "schemaRef"
+      ],
+      "properties": {
+        "eventType": {
+          "$ref": "#/$defs/EventType"
+        },
+        "schemaRef": {
+          "type": "string",
+          "pattern": "^wos-events://wos\\.[a-z0-9_.]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IdempotencyKey": {
+      "type": "string",
+      "description": "Stable append idempotency key. The HTTP idempotency-key header MUST equal this field.",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "OperationId": {
+      "type": "string",
+      "enum": [
+        "appendEvent",
+        "getHeadBundle",
+        "getBundleByCheckpointDigest",
+        "getSigningKeyRegistry",
+        "getEventTypeRegistry"
+      ]
+    },
+    "ProblemJson": {
+      "type": "object",
+      "description": "Stack-standard RFC 7807-style error body returned as application/problem+json.",
+      "required": [
+        "type",
+        "title",
+        "status",
+        "error_code"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "error_code": {
+          "type": "string",
+          "pattern": "^[A-Z]+-[0-9]{4}$"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScopePathParam": {
+      "type": "string",
+      "description": "One ASCII path segment. The service rejects empty, whitespace-only, non-ASCII, or slash-containing scopes.",
+      "minLength": 1,
+      "pattern": "^(?=.*\\S)(?!.*\\/)[\\u0000-\\u007F]+$"
+    },
+    "SubstrateAppendBody": {
+      "type": "object",
+      "description": "JSON body for POST /v1/scopes/{scope}/events.",
+      "required": [
+        "eventType",
+        "idempotencyKey",
+        "actor",
+        "payload",
+        "computeContext"
+      ],
+      "properties": {
+        "eventType": {
+          "$ref": "#/$defs/EventType"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "actor": {
+          "$ref": "#/$defs/AppendActor"
+        },
+        "payload": {
+          "type": "object",
+          "description": "Typed WOS provenance payload. The server admits only payloads whose WOS event field and record kind agree with eventType."
+        },
+        "computeContext": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ComputeContext"
+            },
+            {
+              "properties": {
+                "sensitivity": {
+                  "const": "publicMetadata"
+                }
+              }
+            }
+          ]
+        },
+        "clientAttestation": {
+          "$ref": "#/$defs/ClientAttestation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SubstrateAppendResult": {
+      "type": "object",
+      "description": "Append response returned after the canonical record crosses the durable append boundary and a bundle reference is available.",
+      "required": [
+        "eventId",
+        "sequence",
+        "canonicalEventHash",
+        "checkpointRef",
+        "bundleRef",
+        "verificationReceipt"
+      ],
+      "properties": {
+        "eventId": {
+          "$ref": "#/$defs/EventId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "canonicalEventHash": {
+          "$ref": "#/$defs/DigestSha256"
+        },
+        "checkpointRef": {
+          "type": "string",
+          "pattern": "^trellis://[^/]+/checkpoints/sha256:[0-9a-f]{64}$"
+        },
+        "bundleRef": {
+          "$ref": "#/$defs/ArtifactUri"
+        },
+        "verificationReceipt": {
+          "$ref": "#/$defs/VerificationReceipt"
+        }
+      },
+      "additionalProperties": false
+    },
+    "VerificationReceipt": {
+      "type": "object",
+      "required": [
+        "verified",
+        "profileId",
+        "eventType"
+      ],
+      "properties": {
+        "verified": {
+          "const": true
+        },
+        "profileId": {
+          "type": "integer",
+          "const": 2
+        },
+        "eventType": {
+          "$ref": "#/$defs/EventType"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

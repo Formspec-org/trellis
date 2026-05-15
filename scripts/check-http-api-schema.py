@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Check the Trellis HTTP API schema against the live service wire."""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA_PATH = ROOT / "specs" / "trellis-http-api.schema.json"
+SERVER_PATH = ROOT / "crates" / "trellis-server" / "src" / "lib.rs"
+CLIENT_PATH = ROOT / "crates" / "trellis-service-client" / "src" / "lib.rs"
+
+EXPECTED_OPERATIONS = {
+    "appendEvent": ("POST", "/v1/scopes/{scope}/events"),
+    "getHeadBundle": ("GET", "/v1/scopes/{scope}/bundles/head"),
+    "getBundleByCheckpointDigest": ("GET", "/v1/scopes/{scope}/bundles/{checkpointDigest}"),
+    "getSigningKeyRegistry": ("GET", "/v1/scopes/{scope}/registries/signing-keys"),
+    "getEventTypeRegistry": ("GET", "/v1/scopes/{scope}/registries/event-types"),
+}
+
+EXPECTED_TENANT_HEADERS = {
+    "wos": [
+        "x-wos-tenant-id",
+        "x-wos-workspace-id",
+        "x-wos-environment-id",
+        "x-wos-cell-id",
+    ],
+    "formspec": [
+        "x-formspec-tenant-id",
+        "x-formspec-workspace-id",
+        "x-formspec-environment-id",
+        "x-formspec-cell-id",
+    ],
+}
+
+CLIENT_ROUTE_FRAGMENTS = {
+    "/v1/scopes/{scope}/events": "/v1/scopes/{}/events",
+    "/v1/scopes/{scope}/bundles/head": "/v1/scopes/{}/bundles/head",
+    "/v1/scopes/{scope}/bundles/{checkpointDigest}": "/v1/scopes/{}/bundles/{}",
+    "/v1/scopes/{scope}/registries/signing-keys": "/v1/scopes/{}/registries/signing-keys",
+    "/v1/scopes/{scope}/registries/event-types": "/v1/scopes/{}/registries/event-types",
+}
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def parse_const_str(source: str, name: str) -> str:
+    match = re.search(rf'const {name}: &str = "([^"]+)";', source)
+    if not match:
+        raise ValueError(f"could not find const {name}")
+    return match.group(1)
+
+
+def parse_const_u64(source: str, name: str) -> int:
+    match = re.search(rf"const {name}: u64 = ([0-9]+);", source)
+    if not match:
+        raise ValueError(f"could not find const {name}")
+    return int(match.group(1))
+
+
+def parse_wos_event_types(source: str) -> list[str]:
+    match = re.search(
+        r"const WOS_EVENT_TYPES: &\[&str\] = &\[(?P<body>.*?)\];",
+        source,
+        flags=re.S,
+    )
+    if not match:
+        raise ValueError("could not find WOS_EVENT_TYPES")
+    return re.findall(r'"([^"]+)"', match.group("body"))
+
+
+def normalize_axum_path(path: str) -> str:
+    return path.replace("{checkpoint_digest}", "{checkpointDigest}")
+
+
+def parse_router_paths(source: str) -> set[str]:
+    return {normalize_axum_path(path) for path in re.findall(r'\.route\(\s*"([^"]+)"', source)}
+
+
+def require_defs(schema: dict, errors: list[str], names: list[str]) -> dict:
+    defs = schema.get("$defs")
+    if not isinstance(defs, dict):
+        errors.append("schema is missing $defs")
+        return {}
+    for name in names:
+        if name not in defs:
+            errors.append(f"schema is missing $defs.{name}")
+    return defs
+
+
+def check_operations(schema: dict, server_source: str, client_source: str, errors: list[str]) -> None:
+    meta = schema.get("x-trellis-http-api")
+    if not isinstance(meta, dict):
+        errors.append("schema is missing x-trellis-http-api metadata")
+        return
+
+    if meta.get("tenantHeaderSets") != EXPECTED_TENANT_HEADERS:
+        errors.append("tenantHeaderSets drifted from stack-common HeaderConfig")
+
+    operations = meta.get("operations")
+    if not isinstance(operations, list):
+        errors.append("x-trellis-http-api.operations must be a list")
+        return
+
+    by_id = {operation.get("operationId"): operation for operation in operations}
+    if set(by_id) != set(EXPECTED_OPERATIONS):
+        errors.append(
+            "operationId set mismatch: "
+            f"expected {sorted(EXPECTED_OPERATIONS)}, got {sorted(by_id)}"
+        )
+        return
+
+    for operation_id, (method, path) in EXPECTED_OPERATIONS.items():
+        operation = by_id[operation_id]
+        if operation.get("method") != method:
+            errors.append(f"{operation_id}: method must be {method}")
+        if operation.get("path") != path:
+            errors.append(f"{operation_id}: path must be {path}")
+        if operation.get("tenantScopeRequired") is not True:
+            errors.append(f"{operation_id}: tenantScopeRequired must be true")
+
+    append = by_id["appendEvent"]
+    if append.get("idempotencyHeaderMustEqualBodyField") != "idempotencyKey":
+        errors.append("appendEvent must bind idempotency-key header to body idempotencyKey")
+    if "idempotency-key" not in append.get("requiredHeaders", []):
+        errors.append("appendEvent must require idempotency-key header")
+
+    router_paths = parse_router_paths(server_source)
+    expected_paths = {path for _, path in EXPECTED_OPERATIONS.values()}
+    if not expected_paths.issubset(router_paths):
+        missing = sorted(expected_paths - router_paths)
+        errors.append(f"server router is missing schema paths: {missing}")
+
+    for path, fragment in CLIENT_ROUTE_FRAGMENTS.items():
+        if fragment not in client_source:
+            errors.append(f"trellis-service-client is missing route fragment for {path}: {fragment}")
+
+
+def check_defs(schema: dict, server_source: str, errors: list[str]) -> None:
+    defs = require_defs(
+        schema,
+        errors,
+        [
+            "EventType",
+            "EventTypeRegistry",
+            "EventTypeRegistryEntry",
+            "SubstrateAppendBody",
+            "SubstrateAppendResult",
+            "VerificationReceipt",
+            "ProblemJson",
+        ],
+    )
+    if not defs:
+        return
+
+    server_events = parse_wos_event_types(server_source)
+    schema_events = defs["EventType"].get("enum")
+    if schema_events != server_events:
+        errors.append(
+            "EventType enum drifted from trellis-server WOS_EVENT_TYPES: "
+            f"expected {server_events}, got {schema_events}"
+        )
+    if len(schema_events or []) != len(set(schema_events or [])):
+        errors.append("EventType enum contains duplicate values")
+
+    registry_version = parse_const_str(server_source, "EVENT_TYPE_REGISTRY_VERSION")
+    schema_registry_version = (
+        defs["EventTypeRegistry"]
+        .get("properties", {})
+        .get("registryVersion", {})
+        .get("const")
+    )
+    if schema_registry_version != registry_version:
+        errors.append(
+            "EventTypeRegistry.registryVersion drifted from server constant: "
+            f"expected {registry_version}, got {schema_registry_version}"
+        )
+
+    profile_id = parse_const_u64(server_source, "PROFILE_ID")
+    schema_profile_id = (
+        defs["VerificationReceipt"]
+        .get("properties", {})
+        .get("profileId", {})
+        .get("const")
+    )
+    if schema_profile_id != profile_id:
+        errors.append(
+            "VerificationReceipt.profileId drifted from server constant: "
+            f"expected {profile_id}, got {schema_profile_id}"
+        )
+
+    append_required = set(defs["SubstrateAppendBody"].get("required", []))
+    expected_append_required = {
+        "eventType",
+        "idempotencyKey",
+        "actor",
+        "payload",
+        "computeContext",
+    }
+    if append_required != expected_append_required:
+        errors.append(
+            "SubstrateAppendBody required fields mismatch: "
+            f"expected {sorted(expected_append_required)}, got {sorted(append_required)}"
+        )
+
+    result_required = set(defs["SubstrateAppendResult"].get("required", []))
+    expected_result_required = {
+        "eventId",
+        "sequence",
+        "canonicalEventHash",
+        "checkpointRef",
+        "bundleRef",
+        "verificationReceipt",
+    }
+    if result_required != expected_result_required:
+        errors.append(
+            "SubstrateAppendResult required fields mismatch: "
+            f"expected {sorted(expected_result_required)}, got {sorted(result_required)}"
+        )
+
+
+def main() -> int:
+    errors: list[str] = []
+    try:
+        schema = read_json(SCHEMA_PATH)
+        server_source = SERVER_PATH.read_text(encoding="utf-8")
+        client_source = CLIENT_PATH.read_text(encoding="utf-8")
+        check_defs(schema, server_source, errors)
+        check_operations(schema, server_source, client_source, errors)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        errors.append(str(exc))
+
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1
+
+    event_count = len(schema["$defs"]["EventType"]["enum"])
+    operation_count = len(schema["x-trellis-http-api"]["operations"])
+    print(
+        "Trellis HTTP API schema OK: "
+        f"{operation_count} operations, {event_count} WOS event literals."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

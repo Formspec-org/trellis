@@ -57,6 +57,7 @@ test-scripts:
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_specs.py
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_vector_renumbering.py
 	$(PYTHON) $(SCRIPTS_DIR)/test_check_verifier_isolation.py
+	$(PYTHON) $(SCRIPTS_DIR)/check-http-api-schema.py
 
 # Targeted run of the Postgres-side integration suite. `cargo nextest run --workspace`
 # already exercises these — this target exists for fast iteration on the
