@@ -3,5 +3,4 @@
 
 #![forbid(unsafe_code)]
 
-pub mod collision;
 pub mod migrations;
