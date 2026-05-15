@@ -341,7 +341,7 @@ fn event_by_hash<'a>(
     by_hash
 }
 
-fn signature_entry_matches_record(
+pub(crate) fn signature_entry_matches_record(
     entry: &SignatureManifestEntry,
     record: &SignatureAffirmationRecordDetails,
 ) -> bool {
@@ -364,6 +364,9 @@ fn signature_entry_matches_record(
         && entry.profile_ref == record.profile_ref
         && entry.profile_key == record.profile_key
         && entry.formspec_response_ref == record.formspec_response_ref
+        && entry.signing_act_id == record.signing_act_id
+        && entry.presentation_hash == record.presentation_hash
+        && entry.witnessed_signature_ref == record.witnessed_signature_ref
 }
 
 fn intake_entry_matches_record(

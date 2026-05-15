@@ -160,8 +160,14 @@ def export_members_from_dir(export_dir: Path) -> tuple[str, list[str], dict[str,
 
 def signature_catalog_entry(canonical_event_hash: bytes, wos_record: dict) -> dict:
     data = wos_record["data"]
+    signing_act_id = data.get("signingActId") or data.get("sourceSignatureId") or "signing-act-1"
+    presentation_hash = data.get("presentationHash") or data["documentHash"]
+    signing_act_id = str(signing_act_id)
+    presentation_hash = str(presentation_hash)
     return {
         "canonical_event_hash": canonical_event_hash,
+        "signing_act_id": signing_act_id,
+        "presentation_hash": presentation_hash,
         "signer_id": data["signerId"],
         "role_id": data["roleId"],
         "role": data["role"],

@@ -60,6 +60,9 @@ pub(crate) struct SignatureManifestEntry {
     pub(crate) profile_ref: Option<String>,
     pub(crate) profile_key: Option<String>,
     pub(crate) formspec_response_ref: String,
+    pub(crate) signing_act_id: String,
+    pub(crate) presentation_hash: String,
+    pub(crate) witnessed_signature_ref: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +86,9 @@ pub(crate) struct SignatureAffirmationRecordDetails {
     pub(crate) profile_ref: Option<String>,
     pub(crate) profile_key: Option<String>,
     pub(crate) formspec_response_ref: String,
+    pub(crate) signing_act_id: String,
+    pub(crate) presentation_hash: String,
+    pub(crate) witnessed_signature_ref: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +197,9 @@ pub(crate) fn parse_signature_manifest_entries(
                 profile_ref: map_lookup_optional_text(map, "profile_ref")?,
                 profile_key: map_lookup_optional_text(map, "profile_key")?,
                 formspec_response_ref: map_lookup_text(map, "formspec_response_ref")?,
+                signing_act_id: map_lookup_text(map, "signing_act_id")?,
+                presentation_hash: map_lookup_text(map, "presentation_hash")?,
+                witnessed_signature_ref: map_lookup_optional_text(map, "witnessed_signature_ref")?,
             })
         })
         .collect()
@@ -265,6 +274,9 @@ pub(crate) fn parse_signature_affirmation_record(
         profile_ref: map_lookup_optional_text(data, "profileRef")?,
         profile_key: map_lookup_optional_text(data, "profileKey")?,
         formspec_response_ref: map_lookup_text(data, "formspecResponseRef")?,
+        signing_act_id: map_lookup_text(data, "signingActId")?,
+        presentation_hash: map_lookup_text(data, "presentationHash")?,
+        witnessed_signature_ref: map_lookup_optional_text(data, "witnessedSignatureRef")?,
     })
 }
 

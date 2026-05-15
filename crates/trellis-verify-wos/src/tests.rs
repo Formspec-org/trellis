@@ -10,6 +10,7 @@ use integrity_verify::trellis::{
     DomainEvent, DomainExport, RecordValidator, Severity, TrellisTimestamp,
 };
 
+use crate::records::parse_signature_affirmation_record;
 use crate::event_types::{
     OPEN_CLOCKS_EXPORT_EXTENSION, WOS_CASE_CREATED_EVENT_TYPE,
     WOS_GOVERNANCE_CLOCK_RESOLVED_EVENT_TYPE, WOS_GOVERNANCE_CLOCK_STARTED_EVENT_TYPE,
@@ -78,6 +79,166 @@ fn encode_record(event_type: &str, data: Vec<(Value, Value)>) -> Vec<u8> {
     let mut bytes = Vec::new();
     ciborium::into_writer(&value, &mut bytes).unwrap();
     bytes
+}
+
+const DOC_HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const PRESENTATION_HASH: &str =
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+/// Given a signature affirmation payload with distinct K-2 fields, when parsed,
+/// then signingActId and presentationHash are extracted separately from
+/// sourceSignatureId and documentHash (TWREF-050).
+#[test]
+fn given_distinct_k2_fields_when_parsed_then_signing_act_and_presentation_hash_preserved() {
+    let payload = encode_record(
+        WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE,
+        vec![
+            (Value::Text("signerId".into()), Value::Text("signer-1".into())),
+            (Value::Text("roleId".into()), Value::Text("role-1".into())),
+            (Value::Text("role".into()), Value::Text("applicant".into())),
+            (Value::Text("documentId".into()), Value::Text("application".into())),
+            (
+                Value::Text("signingActId".into()),
+                Value::Text("signing-act-777".into()),
+            ),
+            (Value::Text("documentHash".into()), Value::Text(DOC_HASH.into())),
+            (
+                Value::Text("presentationHash".into()),
+                Value::Text(PRESENTATION_HASH.into()),
+            ),
+            (
+                Value::Text("documentHashAlgorithm".into()),
+                Value::Text("sha-256".into()),
+            ),
+            (
+                Value::Text("sourceSignatureSystem".into()),
+                Value::Text("formspec".into()),
+            ),
+            (
+                Value::Text("sourceSignatureId".into()),
+                Value::Text("source-sig-001".into()),
+            ),
+            (
+                Value::Text("signedPayloadDigest".into()),
+                Value::Text(DOC_HASH.into()),
+            ),
+            (
+                Value::Text("signedPayloadDigestAlgorithm".into()),
+                Value::Text("sha-256".into()),
+            ),
+            (
+                Value::Text("signingIntent".into()),
+                Value::Text("urn:wos:signing-intent:applicant-signature".into()),
+            ),
+            (
+                Value::Text("signedAt".into()),
+                Value::Text("2026-05-15T12:00:00Z".into()),
+            ),
+            (Value::Text("identityBinding".into()), Value::Map(vec![])),
+            (Value::Text("consentReference".into()), Value::Map(vec![])),
+            (
+                Value::Text("signatureProvider".into()),
+                Value::Text("formspec".into()),
+            ),
+            (Value::Text("ceremonyId".into()), Value::Text("ceremony-1".into())),
+            (
+                Value::Text("formspecResponseRef".into()),
+                Value::Text("urn:test:response:1".into()),
+            ),
+        ],
+    );
+    let parsed =
+        parse_signature_affirmation_record(&payload, WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE)
+            .expect("parse signature affirmation");
+    assert_eq!(parsed.signing_act_id, "signing-act-777");
+    assert_eq!(parsed.source_signature_id.as_deref(), Some("source-sig-001"));
+    assert_eq!(parsed.document_hash, DOC_HASH);
+    assert_eq!(parsed.presentation_hash, PRESENTATION_HASH);
+}
+
+/// Given catalog and record disagree on presentationHash, when matched,
+/// then the stranger test reports a mismatch (TWREF-050 / WOS-TV-005).
+#[test]
+fn given_wrong_presentation_hash_when_catalog_compared_then_entry_does_not_match() {
+    use crate::catalog::signature_entry_matches_record;
+    use crate::records::{SignatureAffirmationRecordDetails, SignatureManifestEntry};
+
+    let entry = SignatureManifestEntry {
+        canonical_event_hash: [0u8; 32],
+        signer_id: "signer-1".to_string(),
+        role_id: "role-1".to_string(),
+        role: "applicant".to_string(),
+        document_id: "application".to_string(),
+        document_hash: DOC_HASH.to_string(),
+        document_hash_algorithm: "sha-256".to_string(),
+        signed_at: "2026-05-15T12:00:00Z".to_string(),
+        identity_binding: Value::Map(vec![]),
+        consent_reference: Value::Map(vec![]),
+        signature_provider: "formspec".to_string(),
+        ceremony_id: "ceremony-1".to_string(),
+        source_signature_system: Some("formspec".to_string()),
+        source_signature_id: Some("source-sig-001".to_string()),
+        signed_payload_digest: Some(DOC_HASH.to_string()),
+        signed_payload_digest_algorithm: Some("sha-256".to_string()),
+        signing_intent: Some("urn:wos:signing-intent:applicant-signature".into()),
+        profile_ref: None,
+        profile_key: None,
+        formspec_response_ref: "urn:test:response:1".to_string(),
+        signing_act_id: "signing-act-777".to_string(),
+        presentation_hash: PRESENTATION_HASH.to_string(),
+        witnessed_signature_ref: None,
+    };
+    let record = SignatureAffirmationRecordDetails {
+        signer_id: entry.signer_id.clone(),
+        role_id: entry.role_id.clone(),
+        role: entry.role.clone(),
+        document_id: entry.document_id.clone(),
+        document_hash: entry.document_hash.clone(),
+        document_hash_algorithm: entry.document_hash_algorithm.clone(),
+        signed_at: entry.signed_at.clone(),
+        identity_binding: entry.identity_binding.clone(),
+        consent_reference: entry.consent_reference.clone(),
+        signature_provider: entry.signature_provider.clone(),
+        ceremony_id: entry.ceremony_id.clone(),
+        source_signature_system: entry.source_signature_system.clone(),
+        source_signature_id: entry.source_signature_id.clone(),
+        signed_payload_digest: entry.signed_payload_digest.clone(),
+        signed_payload_digest_algorithm: entry.signed_payload_digest_algorithm.clone(),
+        signing_intent: entry.signing_intent.clone(),
+        profile_ref: entry.profile_ref.clone(),
+        profile_key: entry.profile_key.clone(),
+        formspec_response_ref: entry.formspec_response_ref.clone(),
+        signing_act_id: entry.signing_act_id.clone(),
+        presentation_hash: DOC_HASH.to_string(),
+        witnessed_signature_ref: None,
+    };
+    assert!(!signature_entry_matches_record(&entry, &record));
+}
+
+/// Given export/006 with a tampered signature catalog row, when verify_export_zip
+/// runs, then stranger verification reports failure (TWREF-050 / WOS-TV-005).
+#[test]
+fn given_tampered_signature_catalog_export_when_verify_export_zip_then_stranger_fails() {
+    let zip_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../fixtures/vectors/verify/014-export-006-signature-row-mismatch/input-export.zip",
+    );
+    let bytes = std::fs::read(&zip_path).unwrap_or_else(|error| {
+        panic!(
+            "fixture input-export.zip must exist at {}: {error}",
+            zip_path.display()
+        );
+    });
+    let report = crate::verify_export_zip(&bytes);
+    let stranger_passed = report.trellis.structure_verified
+        && report.trellis.integrity_verified
+        && report
+            .wos_findings
+            .iter()
+            .all(|finding| finding.severity != Severity::Failure);
+    assert!(
+        !stranger_passed,
+        "tampered signature catalog must fail stranger verification: {report:#?}"
+    );
 }
 
 #[test]
