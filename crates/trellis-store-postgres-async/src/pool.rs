@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use stack_common_postgres::{PoolConfig, build_sqlx_pool_with_acquire_timeout};
 
 /// Error returned when async Postgres pool setup fails.
 #[derive(Debug, thiserror::Error)]
@@ -23,10 +23,8 @@ pub enum PoolError {
 ///
 /// Returns [`PoolError::Sqlx`] when SQLx cannot connect or initialize the pool.
 pub async fn build_pool(connection_url: &str, max_connections: u32) -> Result<PgPool, PoolError> {
-    let pool = PgPoolOptions::new()
-        .max_connections(max_connections)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(connection_url)
-        .await?;
-    Ok(pool)
+    let config = PoolConfig::programmatic(connection_url, max_connections);
+    build_sqlx_pool_with_acquire_timeout(&config, Duration::from_secs(10))
+        .await
+        .map_err(PoolError::Sqlx)
 }
