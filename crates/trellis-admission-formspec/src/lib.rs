@@ -33,12 +33,19 @@ pub fn formspec_schema_ref(event_type: &str) -> String {
 
 /// Builds the event-type specifications a Trellis composition root may register
 /// against [`trellis_server_ports::EventTypeRegistry`] at startup.
+///
+/// Each entry carries the full neutral metadata (`event_family`, `profile_id`,
+/// `direct_submit`) so the registry remains the catalog's source of truth.
 #[must_use]
 pub fn formspec_event_type_specs() -> Vec<EventTypeSpec> {
     vec![EventTypeSpec {
         event_type: FORMSPEC_RESPONSE_SUBMITTED.to_string(),
+        event_family: EventFamilyId::new(FORMSPEC_EVENT_FAMILY)
+            .expect("formspec family slug is non-empty by construction"),
         schema_ref: SchemaRef::new(formspec_schema_ref(FORMSPEC_RESPONSE_SUBMITTED))
             .expect("formspec schema refs are URI-like by construction"),
+        profile_id: ProfileId::new(integrity_verify::FORMSPEC_PROFILE_ID),
+        direct_submit: DirectSubmitPolicy::ServiceOnly,
         budget_review: BudgetReviewRecord {
             reviewer: "trellis-admission-formspec::FORMSPEC_RESPONSE_SUBMITTED".to_string(),
             plaintext_fields: vec!["eventType".to_string()],

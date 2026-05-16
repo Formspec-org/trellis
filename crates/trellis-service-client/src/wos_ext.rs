@@ -17,15 +17,10 @@
 use async_trait::async_trait;
 use stack_common_error::StackError;
 use stack_common_http::tenant::TenantScope;
-use wos_events::{ProvenanceRecord, SUBSTRATE_CANONICAL_EVENT_LITERALS};
+pub use wos_events::WOS_CANONICAL_EVENT_LITERALS;
+use wos_events::ProvenanceRecord;
 
 use crate::{AppendActor, ComputeContext, SubstrateAppendRequest, SubstrateAppendResult, SubstrateClient};
-
-/// Canonical WOS append literals re-exported through the typed helper surface.
-///
-/// Core service-client code consults this slice instead of importing
-/// `wos-events` directly, keeping the WOS dependency contained to this module.
-pub const WOS_APPEND_EVENT_TYPE_LITERALS: &[&str] = SUBSTRATE_CANONICAL_EVENT_LITERALS;
 
 /// Builds a typed WOS provenance append request from a [`ProvenanceRecord`].
 ///

@@ -893,18 +893,29 @@ pub struct BudgetReviewRecord {
 }
 
 /// Event type registration request.
+///
+/// Carries the full neutral metadata (`event_family`, `profile_id`,
+/// `direct_submit`) so the event-type catalog projection and downstream
+/// readers consult one source of truth instead of re-parsing the literal.
+/// This mirrors the [`AdmittedEvent`] contract for the registration path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EventTypeSpec {
     pub event_type: EventType,
+    pub event_family: EventFamilyId,
     pub schema_ref: SchemaRef,
+    pub profile_id: ProfileId,
+    pub direct_submit: DirectSubmitPolicy,
     pub budget_review: BudgetReviewRecord,
 }
 
-/// Registered event type reference.
+/// Registered event type reference held by the registry after the budget gate accepts a spec.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EventTypeRef {
     pub event_type: EventType,
+    pub event_family: EventFamilyId,
     pub schema_ref: SchemaRef,
+    pub profile_id: ProfileId,
+    pub direct_submit: DirectSubmitPolicy,
 }
 
 /// Registration-time budget review failure.
@@ -928,8 +939,17 @@ impl std::fmt::Display for BudgetViolation {
 impl std::error::Error for BudgetViolation {}
 
 /// Event type registry gate.
+///
+/// Read access (`entries`, `get`) lets the catalog projection and dispatch
+/// code consult registered metadata without re-parsing literals.
 pub trait EventTypeRegistry {
     fn register(&mut self, spec: EventTypeSpec) -> Result<EventTypeRef, BudgetViolation>;
+
+    /// Iterates registered event-type entries in event-type lexicographic order.
+    fn entries(&self) -> Box<dyn Iterator<Item = &EventTypeRef> + '_>;
+
+    /// Looks up a registered entry by event-type literal.
+    fn get(&self, event_type: &str) -> Option<&EventTypeRef>;
 }
 
 /// In-memory registry gate that enforces required budget review metadata.
@@ -948,11 +968,22 @@ impl EventTypeRegistry for ReviewGateEventTypeRegistry {
         }
         let event_ref = EventTypeRef {
             event_type: spec.event_type,
+            event_family: spec.event_family,
             schema_ref: spec.schema_ref,
+            profile_id: spec.profile_id,
+            direct_submit: spec.direct_submit,
         };
         self.entries
             .insert(event_ref.event_type.clone(), event_ref.clone());
         Ok(event_ref)
+    }
+
+    fn entries(&self) -> Box<dyn Iterator<Item = &EventTypeRef> + '_> {
+        Box::new(self.entries.values())
+    }
+
+    fn get(&self, event_type: &str) -> Option<&EventTypeRef> {
+        self.entries.get(event_type)
     }
 }
 
@@ -1138,11 +1169,16 @@ mod tests {
     fn event_type_registry_requires_budget_review() {
         let mut registry = ReviewGateEventTypeRegistry::default();
         let schema = SchemaRef::new("schema:v1").expect("valid schema ref");
+        let family = EventFamilyId::new("wos.kernel").expect("non-empty family");
+        let profile_id = ProfileId::new(1);
 
         let err = registry
             .register(EventTypeSpec {
                 event_type: "wos.kernel.case_created".to_string(),
+                event_family: family.clone(),
                 schema_ref: schema.clone(),
+                profile_id,
+                direct_submit: DirectSubmitPolicy::ServiceOnly,
                 budget_review: BudgetReviewRecord {
                     reviewer: "".to_string(),
                     plaintext_fields: vec![],
@@ -1155,7 +1191,10 @@ mod tests {
         let event_ref = registry
             .register(EventTypeSpec {
                 event_type: "wos.kernel.case_created".to_string(),
+                event_family: family,
                 schema_ref: schema,
+                profile_id,
+                direct_submit: DirectSubmitPolicy::ServiceOnly,
                 budget_review: BudgetReviewRecord {
                     reviewer: "security-review".to_string(),
                     plaintext_fields: vec!["eventType".to_string()],
@@ -1164,6 +1203,16 @@ mod tests {
             })
             .expect("register");
         assert_eq!(event_ref.schema_ref.as_str(), "schema:v1");
+        assert_eq!(event_ref.event_family.as_str(), "wos.kernel");
+        assert_eq!(event_ref.profile_id.get(), 1);
+        assert_eq!(event_ref.direct_submit, DirectSubmitPolicy::ServiceOnly);
+
+        // After registration the registry is the catalog's source of truth.
+        let retrieved = registry
+            .get("wos.kernel.case_created")
+            .expect("registered entry visible via get()");
+        assert_eq!(retrieved.event_family.as_str(), "wos.kernel");
+        assert_eq!(registry.entries().count(), 1);
     }
 
     #[test]

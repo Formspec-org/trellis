@@ -9,11 +9,11 @@
 
 use stack_common_error::StackError;
 use trellis_admission_formspec::{FORMSPEC_RESPONSE_SUBMITTED, FormspecAppendAdmissionPolicy};
-use trellis_admission_wos::{WOS_CANONICAL_EVENT_LITERALS, WosEventAdmissionPolicy};
+use trellis_admission_wos::WosEventAdmissionPolicy;
 use trellis_server_ports::{
     AdmissionEvent, AdmittedEvent, DirectSubmitPolicy, EventAdmissionPolicy,
 };
-use wos_events::{ProvenanceKind, ProvenanceRecord};
+use wos_events::{ProvenanceKind, ProvenanceRecord, WOS_CANONICAL_EVENT_LITERALS};
 
 fn wos_payload(kind: ProvenanceKind, id: &str) -> Vec<u8> {
     let mut record = ProvenanceRecord::blank(kind);
@@ -156,13 +156,13 @@ fn given_wos_admission_literal_table_when_aliased_then_matches_substrate_export(
     // silently disagree with admission registration at startup.
     assert_eq!(
         WOS_CANONICAL_EVENT_LITERALS.len(),
-        wos_events::SUBSTRATE_CANONICAL_EVENT_LITERALS.len(),
-        "WOS_CANONICAL_EVENT_LITERALS must alias wos-events SUBSTRATE_CANONICAL_EVENT_LITERALS"
+        wos_events::WOS_CANONICAL_EVENT_LITERALS.len(),
+        "WOS_CANONICAL_EVENT_LITERALS must alias wos-events WOS_CANONICAL_EVENT_LITERALS"
     );
     assert!(
         std::ptr::eq(
             WOS_CANONICAL_EVENT_LITERALS.as_ptr(),
-            wos_events::SUBSTRATE_CANONICAL_EVENT_LITERALS.as_ptr()
+            wos_events::WOS_CANONICAL_EVENT_LITERALS.as_ptr()
         ),
         "alias must point at the same slice"
     );

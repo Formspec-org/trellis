@@ -78,7 +78,7 @@ pub const FORMSPEC_APPEND_EVENT_TYPE_LITERAL: &str = "substrate.append.response_
 
 #[must_use]
 fn trellis_admitted_event_type_openapi_schema() -> RefOr<Schema> {
-    let mut values: Vec<String> = wos_ext::WOS_APPEND_EVENT_TYPE_LITERALS
+    let mut values: Vec<String> = wos_ext::WOS_CANONICAL_EVENT_LITERALS
         .iter()
         .copied()
         .map(str::to_string)

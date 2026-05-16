@@ -41,6 +41,9 @@ trellis-service-client = { path = "../trellis-service-client" }
 trellis-store-postgres-async = { path = "../trellis-store-postgres-async" }
 trellis-types = { path = "../trellis-types" }
 utoipa = "5"
+# Domain vocabulary needed only by the composition root; generic modules are
+# blocked from importing wos-events by the boundary gate.
+wos-events = { path = "../../../work-spec/crates/wos-events" }
 
 [dev-dependencies]
 integrity-seam = { path = "../../../integrity-stack/crates/integrity-seam" }

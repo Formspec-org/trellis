@@ -281,7 +281,7 @@ fn given_verify_wos_substrate_event_bindings_when_compared_to_wos_events_registr
 
     use wos_events::{
         GOVERNANCE_DETERMINATION_WIRE_EVENT_PREFIX, ProvenanceKind,
-        SUBSTRATE_CANONICAL_EVENT_LITERALS,
+        WOS_CANONICAL_EVENT_LITERALS,
     };
 
     use crate::event_types::{
@@ -315,8 +315,8 @@ fn given_verify_wos_substrate_event_bindings_when_compared_to_wos_events_registr
             "{kind:?}: verify-wos binding must match ProvenanceKind::canonical_event_literal"
         );
         assert!(
-            SUBSTRATE_CANONICAL_EVENT_LITERALS.contains(&actual),
-            "`{actual}` must appear exactly as a member of SUBSTRATE_CANONICAL_EVENT_LITERALS"
+            WOS_CANONICAL_EVENT_LITERALS.contains(&actual),
+            "`{actual}` must appear exactly as a member of WOS_CANONICAL_EVENT_LITERALS"
         );
         assert_eq!(
             ProvenanceKind::from_canonical_event_literal(actual),
@@ -329,7 +329,7 @@ fn given_verify_wos_substrate_event_bindings_when_compared_to_wos_events_registr
         );
     }
 
-    let determination_count = SUBSTRATE_CANONICAL_EVENT_LITERALS
+    let determination_count = WOS_CANONICAL_EVENT_LITERALS
         .iter()
         .filter(|lit| lit.starts_with(GOVERNANCE_DETERMINATION_WIRE_EVENT_PREFIX))
         .count();

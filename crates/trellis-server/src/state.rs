@@ -30,7 +30,7 @@ use trellis_server_ports::{
 };
 
 use crate::admission::{AllowAllScopeAuthorizer, ScopedAllowlistScopeAuthorizer};
-use crate::composition::default_admission_policy;
+use crate::composition::{EventTypeCatalog, default_admission_policy};
 use crate::append::{AppendRunner, DefaultAppendRunner};
 use crate::artifacts::{BundleIndex, InMemoryArtifactStore, ScopeLocks};
 use crate::event_repository::{EventRepository, InMemoryEventRepository, PostgresEventRepository};
@@ -55,6 +55,10 @@ pub struct TrellisServerState {
     /// True while the built-in [`AllowAllScopeAuthorizer`] from [`Self::new`] is still installed.
     scope_authorizer_allow_all: bool,
     pub(crate) append_runner: Arc<dyn AppendRunner>,
+    /// Event-type catalog snapshot built from registered admission specs at
+    /// startup; the catalog projection routes consult this and never re-parse
+    /// literals or hand-build constants.
+    pub(crate) event_type_catalog: Arc<EventTypeCatalog>,
 }
 
 impl TrellisServerState {
@@ -78,6 +82,7 @@ impl TrellisServerState {
             production_like_scope_posture: false,
             scope_authorizer_allow_all: true,
             append_runner: Arc::new(DefaultAppendRunner),
+            event_type_catalog: Arc::new(EventTypeCatalog::default_stack()),
         }
     }
 

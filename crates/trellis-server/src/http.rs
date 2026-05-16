@@ -93,7 +93,7 @@ pub(crate) async fn append_event(
 ) -> Result<(StatusCode, Json<SubstrateAppendResult>), StackError> {
     validate_scope(&scope)?;
     body.validate()?;
-    reject_unverified_client_attestation(&body)?;
+    validate_client_attestation_shape(&body)?;
     validate_idempotency_header(&headers, &body.idempotency_key)?;
     validate_compute_context(&body)?;
     let claims = state.authenticate(&headers)?;
@@ -118,6 +118,7 @@ pub(crate) async fn append_event(
         idempotency_key: body.idempotency_key.clone(),
         payload: body.payload.clone(),
         compute_context: append::port_compute_context(&body),
+        client_attestation: body.client_attestation.clone(),
     };
     let outcome = state.append_runner.run_append(&state, command).await?;
     Ok((StatusCode::CREATED, Json(outcome.result)))
@@ -242,7 +243,7 @@ pub(crate) async fn event_type_registry(
     headers: HeaderMap,
 ) -> Result<Json<EventTypeRegistryView>, StackError> {
     read_authorized(&state, &scope, &tenant_scope, &headers).await?;
-    Ok(Json(event_type_registry_view()))
+    Ok(Json(event_type_registry_view(state.event_type_catalog.as_ref())))
 }
 
 async fn read_authorized(
@@ -312,13 +313,25 @@ fn validate_compute_context(body: &SubstrateAppendBody) -> Result<(), StackError
     Ok(())
 }
 
-/// Rejects any `clientAttestation` object: COSE_Sign1 is not verified yet (TWREF-0103).
-fn reject_unverified_client_attestation(body: &SubstrateAppendBody) -> Result<(), StackError> {
-    if body.client_attestation.is_some() {
-        return Err(StackError::bad_request(
-            "clientAttestation is not verified on trellis-server—omit this field. \
-             COSE_Sign1 is not validated in this release (TWREF-0103).",
-        ));
+/// Validates the structural shape of a `clientAttestation` when present.
+///
+/// The semantic accept/reject decision is metadata-driven and lives inside
+/// the append coordinator: it consults `AdmittedEvent.direct_submit` after
+/// admission classifies the event family. This handler-side check only
+/// catches malformed shapes that admission would never see (empty `kid`,
+/// empty `cose_sign1`).
+fn validate_client_attestation_shape(body: &SubstrateAppendBody) -> Result<(), StackError> {
+    if let Some(attestation) = &body.client_attestation {
+        if attestation.kid.trim().is_empty() {
+            return Err(StackError::bad_request(
+                "clientAttestation.kid must not be empty",
+            ));
+        }
+        if attestation.cose_sign1.trim().is_empty() {
+            return Err(StackError::bad_request(
+                "clientAttestation.cose_sign1 must not be empty",
+            ));
+        }
     }
     Ok(())
 }

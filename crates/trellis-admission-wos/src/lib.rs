@@ -13,22 +13,13 @@
 use async_trait::async_trait;
 use stack_common_error::StackError;
 use trellis_server_ports::{
-    AdmissionEvent, AdmittedEvent, DirectSubmitPolicy, EventAdmissionPolicy, EventFamilyId,
-    EventTypeSpec, BudgetReviewRecord, ProfileId, SchemaRef,
+    AdmissionEvent, AdmittedEvent, BudgetReviewRecord, DirectSubmitPolicy, EventAdmissionPolicy,
+    EventFamilyId, EventTypeSpec, ProfileId, SchemaRef,
 };
-use wos_events::{
-    ProvenanceKind, ProvenanceRecord, SUBSTRATE_CANONICAL_EVENT_LITERALS,
-};
+use wos_events::{ProvenanceKind, ProvenanceRecord, WOS_CANONICAL_EVENT_LITERALS};
 
 /// URI scheme used in [`AdmittedEvent::schema_ref`] entries emitted by this adapter.
 pub const WOS_SCHEMA_SCHEME: &str = "wos-events";
-
-/// Canonical WOS event literals admitted by this adapter.
-///
-/// The literals are sourced from [`wos_events::SUBSTRATE_CANONICAL_EVENT_LITERALS`]
-/// so adding a new WOS event family in `wos-events` does not require a Trellis
-/// admission edit.
-pub const WOS_CANONICAL_EVENT_LITERALS: &[&str] = SUBSTRATE_CANONICAL_EVENT_LITERALS;
 
 /// Returns the schema reference used by [`AdmittedEvent`] entries this adapter emits.
 #[must_use]
@@ -58,20 +49,36 @@ pub fn wos_event_family(event_type: &str) -> Option<&str> {
 /// Builds the event-type specifications a Trellis composition root may register
 /// against [`trellis_server_ports::EventTypeRegistry`] at startup.
 ///
-/// Each entry carries a non-empty reviewer to satisfy the registry budget gate.
+/// Each entry carries the full neutral metadata (`event_family`, `profile_id`,
+/// `direct_submit`) so the registry — not a downstream string-parsing helper
+/// — is the catalog's source of truth. Reviewer is non-empty so registration
+/// passes the budget gate.
 #[must_use]
 pub fn wos_event_type_specs() -> Vec<EventTypeSpec> {
+    let profile_id = ProfileId::new(integrity_verify::WOS_PROFILE_ID);
     WOS_CANONICAL_EVENT_LITERALS
         .iter()
-        .map(|event_type| EventTypeSpec {
-            event_type: (*event_type).to_string(),
-            schema_ref: SchemaRef::new(wos_schema_ref(event_type))
-                .expect("wos-events schema refs are URI-like by construction"),
-            budget_review: BudgetReviewRecord {
-                reviewer: "wos-events::SUBSTRATE_CANONICAL_EVENT_LITERALS".to_string(),
-                plaintext_fields: vec!["eventType".to_string()],
-                considered: true,
-            },
+        .map(|event_type| {
+            let family_slice = wos_event_family(event_type).unwrap_or_else(|| {
+                panic!(
+                    "WOS literal `{event_type}` is missing the `<root>.<family>.` prefix; \
+                     wos-events vocabulary invariant broken"
+                )
+            });
+            EventTypeSpec {
+                event_type: (*event_type).to_string(),
+                event_family: EventFamilyId::new(family_slice)
+                    .expect("wos family slug is non-empty by construction"),
+                schema_ref: SchemaRef::new(wos_schema_ref(event_type))
+                    .expect("wos-events schema refs are URI-like by construction"),
+                profile_id,
+                direct_submit: DirectSubmitPolicy::ServiceOnly,
+                budget_review: BudgetReviewRecord {
+                    reviewer: "wos-events::WOS_CANONICAL_EVENT_LITERALS".to_string(),
+                    plaintext_fields: vec!["eventType".to_string()],
+                    considered: true,
+                },
+            }
         })
         .collect()
 }

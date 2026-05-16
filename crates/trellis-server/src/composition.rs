@@ -6,17 +6,18 @@
 //! `state.rs` consume composition. New ecosystem overlays should be added by
 //! introducing a `trellis-admission-*` adapter crate and registering it here.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use stack_common_error::StackError;
-use trellis_admission_formspec::{
-    FORMSPEC_EVENT_FAMILY, FormspecAppendAdmissionPolicy, formspec_event_type_specs,
-};
-use trellis_admission_wos::{WosEventAdmissionPolicy, wos_event_family, wos_event_type_specs};
+use trellis_admission_formspec::{FormspecAppendAdmissionPolicy, formspec_event_type_specs};
+use trellis_admission_wos::{WosEventAdmissionPolicy, wos_event_type_specs};
 use trellis_server_ports::{
-    AdmissionEvent, AdmittedEvent, EventAdmissionPolicy, EventTypeSpec,
+    AdmissionEvent, AdmittedEvent, EventAdmissionPolicy, EventType, EventTypeRef,
+    EventTypeRegistry, EventTypeSpec, ReviewGateEventTypeRegistry,
 };
+use wos_events::WOS_CANONICAL_EVENT_LITERALS;
 
 /// Formspec intake-proof append literal admitted at the Trellis service edge.
 ///
@@ -25,42 +26,90 @@ use trellis_server_ports::{
 /// `trellis-admission-formspec` directly (Boundary Gate).
 pub use trellis_admission_formspec::FORMSPEC_RESPONSE_SUBMITTED;
 
-/// Routed default admission policy: WOS for canonical WOS literals, Formspec for the
-/// `substrate.append.response_submitted` aggregate literal.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DefaultAdmissionPolicy {
-    wos: WosEventAdmissionPolicy,
-    formspec: FormspecAppendAdmissionPolicy,
+/// Register-style admission router: each adapter declares which literals it
+/// owns, and the router dispatches by literal lookup.
+///
+/// Adding a new ecosystem overlay (e.g. `trellis-admission-c2pa`) is one
+/// `register_for_literals(...)` call against the default builder — no if-else
+/// edits in this module, no struct-field churn. The router fails admission
+/// for unregistered literals so unknown event types reject before append.
+#[derive(Default, Clone)]
+pub struct AdmissionRouter {
+    by_literal: HashMap<EventType, Arc<dyn EventAdmissionPolicy<Error = StackError>>>,
 }
 
-impl DefaultAdmissionPolicy {
-    /// Constructs the default routed admission policy.
+impl std::fmt::Debug for AdmissionRouter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdmissionRouter")
+            .field("registered_literals", &self.by_literal.len())
+            .finish()
+    }
+}
+
+impl AdmissionRouter {
+    /// Creates an empty router. Add adapters with [`Self::register_for_literals`].
     #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            wos: WosEventAdmissionPolicy::new(),
-            formspec: FormspecAppendAdmissionPolicy::new(),
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers an adapter as the admission policy for every literal in `literals`.
+    ///
+    /// Later registrations for the same literal overwrite earlier ones, which
+    /// gives composition the final word when a test substitutes a counting
+    /// wrapper around an existing adapter.
+    #[must_use]
+    pub fn register_for_literals<I, S>(
+        mut self,
+        adapter: Arc<dyn EventAdmissionPolicy<Error = StackError>>,
+        literals: I,
+    ) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for literal in literals {
+            self.by_literal.insert(literal.into(), Arc::clone(&adapter));
         }
+        self
+    }
+
+    /// Returns true when a literal is registered.
+    #[must_use]
+    pub fn handles(&self, event_type: &str) -> bool {
+        self.by_literal.contains_key(event_type)
     }
 }
 
 #[async_trait]
-impl EventAdmissionPolicy for DefaultAdmissionPolicy {
+impl EventAdmissionPolicy for AdmissionRouter {
     type Error = StackError;
 
     async fn admit(&self, event: &AdmissionEvent<'_>) -> Result<AdmittedEvent, Self::Error> {
-        if event.event_type == FORMSPEC_RESPONSE_SUBMITTED {
-            self.formspec.admit(event).await
-        } else {
-            self.wos.admit(event).await
-        }
+        let Some(adapter) = self.by_literal.get(event.event_type) else {
+            return Err(StackError::bad_request(format!(
+                "event type `{}` is not registered for admission",
+                event.event_type
+            )));
+        };
+        adapter.admit(event).await
     }
 }
 
-/// Builds the default admission policy wrapped in `Arc<dyn EventAdmissionPolicy>`.
+/// Builds the default admission policy by registering every shipped adapter
+/// against the literals it owns. Adding a new overlay = one
+/// `register_for_literals(...)` chain entry.
 #[must_use]
 pub fn default_admission_policy() -> Arc<dyn EventAdmissionPolicy<Error = StackError>> {
-    Arc::new(DefaultAdmissionPolicy::new())
+    let wos: Arc<dyn EventAdmissionPolicy<Error = StackError>> =
+        Arc::new(WosEventAdmissionPolicy::new());
+    let formspec: Arc<dyn EventAdmissionPolicy<Error = StackError>> =
+        Arc::new(FormspecAppendAdmissionPolicy::new());
+    Arc::new(
+        AdmissionRouter::new()
+            .register_for_literals(wos, WOS_CANONICAL_EVENT_LITERALS.iter().copied())
+            .register_for_literals(formspec, [FORMSPEC_RESPONSE_SUBMITTED]),
+    )
 }
 
 /// Returns the combined event-type specifications the catalog projects.
@@ -75,48 +124,69 @@ pub fn default_event_type_specs() -> Vec<EventTypeSpec> {
     specs
 }
 
-/// Derives the catalog binding family slug for a registered event-type literal.
+/// Read-side snapshot of the event-type catalog after every admission adapter
+/// has registered its specs through the budget-review gate.
 ///
-/// Generic Trellis catalog projection consumes this so the catalog binding-
-/// family column never re-parses literals on its own. The function is only
-/// defined for literals produced by [`default_event_type_specs`] (i.e. WOS or
-/// Formspec admission). Unregistered literals are surfaced as
-/// [`BindingFamilyError`] so the caller can fail the projection cleanly
-/// instead of crashing the process.
-///
-/// # Errors
-/// Returns [`BindingFamilyError::Unregistered`] when `event_type` has no
-/// admission adapter responsible for it.
-pub fn binding_family_for(event_type: &str) -> Result<String, BindingFamilyError> {
-    if event_type == FORMSPEC_RESPONSE_SUBMITTED {
-        return Ok(FORMSPEC_EVENT_FAMILY.to_string());
-    }
-    if let Some(family) = wos_event_family(event_type) {
-        return Ok(family.to_string());
-    }
-    Err(BindingFamilyError::Unregistered(event_type.to_string()))
+/// Generic Trellis service code (catalog projection, future dispatch) reads
+/// from this snapshot — never from the parallel `default_event_type_specs()`
+/// collection — so the registry trait is the single source of truth.
+#[derive(Clone, Debug)]
+pub struct EventTypeCatalog {
+    entries: Vec<EventTypeRef>,
 }
 
-/// Errors raised when [`binding_family_for`] cannot resolve a literal.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BindingFamilyError {
-    /// The literal is not registered by any admission adapter in this stack.
-    Unregistered(String),
-}
-
-impl std::fmt::Display for BindingFamilyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unregistered(literal) => write!(
-                f,
-                "binding family for `{literal}` must come from a registered admission adapter; \
-                 catalog projection received an unregistered literal"
-            ),
+impl EventTypeCatalog {
+    /// Builds the catalog by registering every default admission spec through
+    /// the [`ReviewGateEventTypeRegistry`] budget gate at startup.
+    ///
+    /// # Panics
+    /// Panics if any default admission spec fails the budget gate; the
+    /// adapter implementations are owned by this crate and the contract is
+    /// satisfied by construction.
+    #[must_use]
+    pub fn default_stack() -> Self {
+        let mut registry = ReviewGateEventTypeRegistry::default();
+        for spec in default_event_type_specs() {
+            registry
+                .register(spec)
+                .expect("default admission specs satisfy the budget gate by construction");
+        }
+        Self {
+            entries: registry.entries().cloned().collect(),
         }
     }
+
+    /// Iterates registered event-type entries in event-type lexicographic order.
+    pub fn entries(&self) -> impl Iterator<Item = &EventTypeRef> + '_ {
+        self.entries.iter()
+    }
+
+    /// Looks up the registered entry for an event-type literal.
+    #[must_use]
+    pub fn get(&self, event_type: &str) -> Option<&EventTypeRef> {
+        self.entries
+            .iter()
+            .find(|entry| entry.event_type == event_type)
+    }
+
+    /// Number of registered entries (for sizing tests + projection).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns true if no admission specs are registered.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
-impl std::error::Error for BindingFamilyError {}
+impl Default for EventTypeCatalog {
+    fn default() -> Self {
+        Self::default_stack()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -124,8 +194,9 @@ mod tests {
 
     #[tokio::test]
     async fn given_default_policy_when_wos_literal_admits_then_wos_metadata() {
-        let policy = DefaultAdmissionPolicy::new();
-        let mut record = wos_events::ProvenanceRecord::blank(wos_events::ProvenanceKind::CaseCreated);
+        let policy = default_admission_policy();
+        let mut record =
+            wos_events::ProvenanceRecord::blank(wos_events::ProvenanceKind::CaseCreated);
         record.id = "prov-default-route".to_string();
         let payload = serde_json::to_vec(&record).expect("serialize record");
         let event = AdmissionEvent {
@@ -140,7 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn given_default_policy_when_formspec_literal_admits_then_formspec_metadata() {
-        let policy = DefaultAdmissionPolicy::new();
+        let policy = default_admission_policy();
         let payload = br#"{"aggregateType":"t","aggregateId":"i","payload":{}}"#;
         let event = AdmissionEvent {
             scope: b"formspec",
@@ -155,6 +226,71 @@ mod tests {
         assert_eq!(admitted.event_family.as_str(), "formspec.response");
     }
 
+    #[tokio::test]
+    async fn given_unregistered_literal_when_default_policy_admits_then_rejects() {
+        // Unknown literals (e.g., a hypothetical future overlay not yet
+        // registered at composition) must reject at admission, never reach
+        // append. This is the load-bearing dispatch contract.
+        let policy = default_admission_policy();
+        let event = AdmissionEvent {
+            scope: b"unknown",
+            event_type: "c2pa.assertion.created",
+            payload: b"{}",
+        };
+        let err = policy.admit(&event).await.expect_err("unregistered must reject");
+        assert!(
+            err.to_string().contains("not registered for admission"),
+            "router must surface the registration gap; got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn given_router_when_new_adapter_registers_then_dispatches_without_editing_core() {
+        // Demonstrates the plan-level criterion: adding an adapter is one
+        // `register_for_literals` chain entry. The router exposes the
+        // overlay through the EventAdmissionPolicy trait without editing
+        // generic Trellis code.
+        #[derive(Debug)]
+        struct ConstantAdapter(AdmittedEvent);
+
+        #[async_trait]
+        impl EventAdmissionPolicy for ConstantAdapter {
+            type Error = StackError;
+            async fn admit(
+                &self,
+                _event: &AdmissionEvent<'_>,
+            ) -> Result<AdmittedEvent, Self::Error> {
+                Ok(self.0.clone())
+            }
+        }
+
+        let adapter: Arc<dyn EventAdmissionPolicy<Error = StackError>> =
+            Arc::new(ConstantAdapter(AdmittedEvent {
+                event_type: "x-test.overlay.synthetic".to_string(),
+                event_family: trellis_server_ports::EventFamilyId::new("x-test.overlay")
+                    .unwrap(),
+                schema_ref: trellis_server_ports::SchemaRef::new(
+                    "x-test://x-test.overlay.synthetic",
+                )
+                .unwrap(),
+                profile_id: trellis_server_ports::ProfileId::new(42),
+                direct_submit: trellis_server_ports::DirectSubmitPolicy::ServiceOnly,
+            }));
+
+        let router = AdmissionRouter::new()
+            .register_for_literals(adapter, ["x-test.overlay.synthetic"]);
+        assert!(router.handles("x-test.overlay.synthetic"));
+        let admitted = router
+            .admit(&AdmissionEvent {
+                scope: b"x-test",
+                event_type: "x-test.overlay.synthetic",
+                payload: b"",
+            })
+            .await
+            .expect("registered overlay admits");
+        assert_eq!(admitted.profile_id.get(), 42);
+    }
+
     #[test]
     fn given_event_type_specs_when_combined_then_include_wos_and_formspec_literals() {
         let specs = default_event_type_specs();
@@ -163,26 +299,30 @@ mod tests {
     }
 
     #[test]
-    fn given_binding_family_when_resolved_then_distinguishes_namespaces() {
-        assert_eq!(
-            binding_family_for("wos.kernel.case_created").expect("known wos"),
-            "wos.kernel"
-        );
-        assert_eq!(
-            binding_family_for("wos.governance.amendment_authorized").expect("known governance"),
-            "wos.governance"
-        );
-        assert_eq!(
-            binding_family_for(FORMSPEC_RESPONSE_SUBMITTED).expect("known formspec"),
-            "formspec.response"
-        );
-    }
+    fn given_event_type_specs_when_collected_then_carry_family_profile_and_direct_submit() {
+        let specs = default_event_type_specs();
+        let wos = specs
+            .iter()
+            .find(|spec| spec.event_type == "wos.kernel.case_created")
+            .expect("WOS kernel spec");
+        assert_eq!(wos.event_family.as_str(), "wos.kernel");
+        assert_eq!(wos.profile_id.get(), integrity_verify::WOS_PROFILE_ID);
+        assert_eq!(wos.direct_submit, trellis_server_ports::DirectSubmitPolicy::ServiceOnly);
 
-    #[test]
-    fn given_unregistered_literal_when_resolved_then_returns_error() {
-        let err = binding_family_for("c2pa.assertion.created")
-            .expect_err("unregistered literal must fail");
-        assert!(matches!(err, BindingFamilyError::Unregistered(ref literal) if literal == "c2pa.assertion.created"));
-        assert!(err.to_string().contains("c2pa.assertion.created"));
+        let governance = specs
+            .iter()
+            .find(|spec| spec.event_type == "wos.governance.amendment_authorized")
+            .expect("WOS governance spec");
+        assert_eq!(governance.event_family.as_str(), "wos.governance");
+
+        let formspec = specs
+            .iter()
+            .find(|spec| spec.event_type == FORMSPEC_RESPONSE_SUBMITTED)
+            .expect("Formspec spec");
+        assert_eq!(formspec.event_family.as_str(), "formspec.response");
+        assert_eq!(
+            formspec.profile_id.get(),
+            integrity_verify::FORMSPEC_PROFILE_ID
+        );
     }
 }

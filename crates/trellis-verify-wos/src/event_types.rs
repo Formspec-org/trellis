@@ -2,7 +2,7 @@
 //! WOS event and export extension identifiers.
 //!
 //! Canonical `wos.*` event-type strings resolve through [`wos_events::ProvenanceKind`]
-//! so `trellis-verify-wos` cannot drift from [`wos_events::SUBSTRATE_CANONICAL_EVENT_LITERALS`].
+//! so `trellis-verify-wos` cannot drift from [`wos_events::WOS_CANONICAL_EVENT_LITERALS`].
 
 #![forbid(unsafe_code)]
 

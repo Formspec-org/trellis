@@ -18,8 +18,9 @@ use trellis_export_writer::PostureDeclaration as ExportPostureDeclaration;
 use trellis_export_writer::TrellisTimestamp;
 use trellis_server_ports::{
     AdmissionEvent, AdmittedEvent, AppendUnitOfWork, ComputeContext, ComputeSensitivity,
+    DirectSubmitPolicy,
 };
-use trellis_service_client::{SubstrateAppendBody, SubstrateAppendResult};
+use trellis_service_client::{ClientAttestation, SubstrateAppendBody, SubstrateAppendResult};
 use trellis_types::{CONTENT_DOMAIN, StoredEvent};
 
 use crate::{
@@ -35,6 +36,12 @@ pub struct AppendCommand {
     pub idempotency_key: String,
     pub payload: serde_json::Value,
     pub compute_context: ComputeContext,
+    /// Optional COSE_Sign1 attestation supplied by a direct-client submission.
+    /// The coordinator rejects this when the admitted event family is
+    /// `DirectSubmitPolicy::ServiceOnly` (current production posture pending
+    /// TWREF-0103); ADR-0103 lands the verifier that turns
+    /// `AuthorizedClientAllowed` into accepted material.
+    pub client_attestation: Option<ClientAttestation>,
 }
 
 /// Stored event plus wire result produced by one coordinator pass.
@@ -107,6 +114,21 @@ impl<'a> AppendCoordinator<'a> {
                 payload: &payload_json,
             })
             .await?;
+
+        // Direct-submit policy is metadata-driven (TODO acceptance line 294):
+        // reject a `clientAttestation`-bearing submission when admitted
+        // metadata says the event family is service-submitted only. ADR-0103
+        // / TWREF-0103 lands the verifier that turns AuthorizedClientAllowed
+        // into accepted material.
+        if matches!(admitted.direct_submit, DirectSubmitPolicy::ServiceOnly)
+            && command.client_attestation.is_some()
+        {
+            return Err(StackError::bad_request(format!(
+                "clientAttestation rejected: event family `{}` is service-submitted only \
+                 (DirectSubmitPolicy::ServiceOnly; pending TWREF-0103 verifier)",
+                admitted.event_family
+            )));
+        }
 
         let _scope_guard = self.state.scope_locks.lock(command.scope.as_bytes()).await;
         let mut events = self
