@@ -153,6 +153,49 @@ fn generic_server_files_do_not_use_prefix_dispatch_for_profile_metadata() {
 }
 
 #[test]
+fn service_client_contains_wos_imports_to_extension_helper_module() {
+    // D12 + DI-004: `trellis-service-client` may depend on `wos-events` only for
+    // the blessed WOS typed-helper surface (`wos_ext`). The crate root and any
+    // other module must remain WOS-agnostic so the shared HTTP client stays
+    // reusable by Formspec and future producers without inheriting WOS dialect.
+    let client_root = trellis_root().join("crates").join("trellis-service-client").join("src");
+    let entries =
+        fs::read_dir(&client_root).expect("read trellis-service-client src directory");
+    for entry in entries {
+        let entry = entry.expect("entry");
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if !file_name.ends_with(".rs") || file_name == "wos_ext.rs" {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+        let production_source = strip_test_modules(&source);
+        // Skip doc comments / line comments when scanning so prose like
+        // "deserializes as `wos_events::ProvenanceRecord`" does not trip the
+        // gate. Path-qualified imports stay caught because `use` lines are
+        // never inside comments.
+        for line in production_source.lines() {
+            let stripped = line.trim_start();
+            if stripped.starts_with("//") {
+                continue;
+            }
+            for forbidden in ["use wos_events", "wos_events::"] {
+                assert!(
+                    !line.contains(forbidden),
+                    "{file_name}: trellis-service-client must contain WOS imports to `wos_ext.rs` \
+                     (D12 / DI-004); found `{forbidden}` in `{line}`."
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn neutral_port_crate_does_not_import_domain_vocabulary() {
     let ports_lib = fs::read_to_string(
         trellis_root()
