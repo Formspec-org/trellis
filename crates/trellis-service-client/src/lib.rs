@@ -1,46 +1,61 @@
 // Rust guideline compliant 2026-02-21
 //! Shared Trellis service HTTP client contract.
 //!
-//! Applications append to Trellis through this crate instead of each carrying a
-//! bespoke substrate dialect. The core trait is intentionally small; the
-//! extension trait owns ergonomic constructors for product-facing event
-//! payloads such as WOS provenance records.
+//! Applications append to Trellis through this crate instead of each carrying
+//! a bespoke substrate dialect. The core surface ([`SubstrateClient`],
+//! [`SubstrateAppendRequest`], wire DTOs) is intentionally WOS-agnostic.
+//! Typed WOS producer ergonomics live in the [`wos_ext`] module behind D12's
+//! "blessed helper client with containment" contract — no other producer
+//! vocabulary belongs in this crate; future overlays ship their own
+//! `<producer>-trellis-binding` crate.
 //!
 //! ## Append dialects (single HTTP route)
 //!
-//! All producers post to [`SubstrateClient::append_event`] (`POST /v1/scopes/{scope}/events`).
-//! The Trellis service admission router (`trellis-server` `RoutedEventAdmissionPolicy`)
-//! validates one of two dialects before append commits:
+//! All producers post to [`SubstrateClient::append_event`]
+//! (`POST /v1/scopes/{scope}/events`). The Trellis admission composition root
+//! (`trellis-server::composition::DefaultAdmissionPolicy`) routes the request
+//! to one of two adapters before append commits:
 //!
-//! - **WOS provenance** — construct via [`SubstrateAppendRequest::from_wos_provenance`]. The JSON body
-//!   deserializes as [`ProvenanceRecord`] and must agree with the canonical event literal carried in
-//!   `event_type` (`WosEventAdmissionPolicy`).
-//! - **Formspec substrate** — construct via [`SubstrateAppendRequest::new_json`] with Formspec's aggregate
-//!   envelope (`aggregateType`, `aggregateId`, `payload`). Today Trellis routes to [`FormspecAppendAdmissionPolicy`]
-//!   only when `event_type` equals the configured Formspec append literal (`substrate.append.response_submitted`);
-//!   additional Formspec literals require extending `RoutedEventAdmissionPolicy` alongside admission updates.
+//! - **WOS provenance** — construct via [`wos_provenance_append_request`]
+//!   (or the [`SubstrateClientExt::append_wos_provenance`] helper). The JSON
+//!   body deserializes as `wos_events::ProvenanceRecord` and must agree with
+//!   the canonical event literal carried in `event_type`.
+//! - **Formspec substrate** — construct via [`SubstrateAppendRequest::new_json`]
+//!   with Formspec's aggregate envelope (`aggregateType`, `aggregateId`,
+//!   `payload`). Trellis routes Formspec admission only when `event_type`
+//!   equals `substrate.append.response_submitted`. Additional Formspec literals
+//!   require extending `trellis-admission-formspec` and the Trellis
+//!   composition router alongside admission updates.
 //!
 //! ## Trust boundaries
 //!
-//! **Case scope versus URL scope (TWREF-005).** The `{scope}` path segment names a Trellis deployment namespace
-//! (tenant/workspace routing), not a governed WOS case identity by itself. Callers such as `wos-server` or
-//! `formspec-server` map their product identifiers into that scope and tenant headers. Trellis admission enforces
-//! event shape and registry literals for whatever scope is supplied; it does not substitute WOS relationship
-//! checks from other services.
+//! **Case scope versus URL scope (TWREF-005).** The `{scope}` path segment
+//! names a Trellis deployment namespace (tenant/workspace routing), not a
+//! governed WOS case identity by itself. Callers such as `wos-server` or
+//! `formspec-server` map their product identifiers into that scope and tenant
+//! headers. Trellis admission enforces event shape and registry literals for
+//! whatever scope is supplied; it does not substitute WOS relationship checks
+//! from other services.
 //!
-//! **Governance overlay versus substrate admission (TWREF-064).** A reference WOS HTTP surface may publish only a
-//! subset of WOS event literals while still delegating to Trellis for append. Trellis `WosEventAdmissionPolicy`
-//! admits the full `wos-events` substrate registry for callers that bear Trellis service credentials. Treat Trellis
-//! bearer scope plus admission as the substrate trust root for vocabulary allowance; WOS HTTP routing remains a
-//! narrower product gate until shared authorizers align.
+//! **Governance overlay versus substrate admission (TWREF-064).** A reference
+//! WOS HTTP surface may publish only a subset of WOS event literals while
+//! still delegating to Trellis for append. The Trellis `trellis-admission-wos`
+//! adapter admits the full `wos-events` substrate registry for callers that
+//! bear Trellis service credentials. Treat Trellis bearer scope plus
+//! admission as the substrate trust root for vocabulary allowance; WOS HTTP
+//! routing remains a narrower product gate until shared authorizers align.
 //!
-//! **Why two dialects share one crate (TWREF-065).** WOS provenance JSON and Formspec aggregate JSON are different
-//! wire shapes but share one HTTP route. `RoutedEventAdmissionPolicy` sends almost every literal through
-//! `WosEventAdmissionPolicy`; only the single Formspec append literal (`substrate.append.response_submitted`) is routed to
-//! `FormspecAppendAdmissionPolicy`. Clients must set `event_type` consistently with the constructor used so admission and
-//! profile id dispatch stay aligned.
+//! **Why WOS helpers share this crate (TWREF-065 / D12).** WOS provenance
+//! JSON and Formspec aggregate JSON differ in payload shape but share one
+//! HTTP route. The D12-blessed WOS helpers live in [`wos_ext`] to keep the
+//! generic client free of producer dialects while still offering typed
+//! convenience for the dominant first-party producer.
 
 #![forbid(unsafe_code)]
+
+mod wos_ext;
+
+pub use wos_ext::{SubstrateClientExt, WosProvenanceAppend, wos_provenance_append_request};
 
 use std::time::Duration;
 
@@ -52,7 +67,6 @@ use stack_common_http::tenant::{HeaderConfig, TenantScope};
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::openapi::schema::{ObjectBuilder, SchemaType, Type};
 use utoipa::ToSchema;
-use wos_events::{ProvenanceRecord, SUBSTRATE_CANONICAL_EVENT_LITERALS};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -64,7 +78,7 @@ pub const FORMSPEC_APPEND_EVENT_TYPE_LITERAL: &str = "substrate.append.response_
 
 #[must_use]
 fn trellis_admitted_event_type_openapi_schema() -> RefOr<Schema> {
-    let mut values: Vec<String> = SUBSTRATE_CANONICAL_EVENT_LITERALS
+    let mut values: Vec<String> = wos_ext::WOS_APPEND_EVENT_TYPE_LITERALS
         .iter()
         .copied()
         .map(str::to_string)
@@ -257,47 +271,6 @@ impl SubstrateAppendRequest {
         Ok(request)
     }
 
-    /// Builds a request from a typed WOS provenance record.
-    ///
-    /// # Errors
-    /// Returns an error when the provenance kind is not admitted as a Trellis
-    /// event literal or when the record cannot serialize to JSON.
-    pub fn from_wos_provenance(
-        scope: impl Into<String>,
-        tenant_scope: TenantScope,
-        idempotency_key: impl Into<String>,
-        actor: AppendActor,
-        record: ProvenanceRecord,
-        compute_context: ComputeContext,
-    ) -> Result<Self, StackError> {
-        let event_type = record
-            .event
-            .clone()
-            .or_else(|| {
-                record
-                    .record_kind
-                    .canonical_event_literal()
-                    .map(str::to_string)
-            })
-            .ok_or_else(|| {
-                StackError::bad_request("WOS provenance record kind has no Trellis event literal")
-            })?;
-        let payload = serde_json::to_value(&record).map_err(|error| {
-            StackError::bad_request(format!(
-                "failed to serialize WOS provenance payload: {error}"
-            ))
-        })?;
-        Self::new_json(
-            scope,
-            tenant_scope,
-            event_type,
-            idempotency_key,
-            actor,
-            payload,
-            compute_context,
-        )
-    }
-
     /// Attaches a direct-client attestation block.
     #[must_use]
     pub fn with_client_attestation(mut self, attestation: ClientAttestation) -> Self {
@@ -454,42 +427,6 @@ pub trait SubstrateClient: Send + Sync {
         scope: &str,
         tenant_scope: &TenantScope,
     ) -> Result<serde_json::Value, StackError>;
-}
-
-/// Ergonomic helpers layered over [`SubstrateClient`].
-#[async_trait]
-pub trait SubstrateClientExt: SubstrateClient {
-    /// Builds and appends a typed WOS provenance record.
-    ///
-    /// # Errors
-    /// Returns an error when request construction or append fails.
-    async fn append_wos_provenance(
-        &self,
-        input: WosProvenanceAppend,
-    ) -> Result<SubstrateAppendResult, StackError> {
-        let request = SubstrateAppendRequest::from_wos_provenance(
-            input.scope,
-            input.tenant_scope,
-            input.idempotency_key,
-            input.actor,
-            input.record,
-            input.compute_context,
-        )?;
-        self.append_event(request).await
-    }
-}
-
-impl<T> SubstrateClientExt for T where T: SubstrateClient + ?Sized {}
-
-/// Input for [`SubstrateClientExt::append_wos_provenance`].
-#[derive(Clone, Debug)]
-pub struct WosProvenanceAppend {
-    pub scope: String,
-    pub tenant_scope: TenantScope,
-    pub idempotency_key: String,
-    pub actor: AppendActor,
-    pub record: ProvenanceRecord,
-    pub compute_context: ComputeContext,
 }
 
 /// Configures the concrete HTTP client.

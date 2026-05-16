@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use stack_common_error::StackError;
-use trellis_admission_formspec::{FormspecAppendAdmissionPolicy, formspec_event_type_specs};
+use trellis_admission_formspec::{
+    FORMSPEC_EVENT_FAMILY, FormspecAppendAdmissionPolicy, formspec_event_type_specs,
+};
 use trellis_admission_wos::{WosEventAdmissionPolicy, wos_event_family, wos_event_type_specs};
 use trellis_server_ports::{
     AdmissionEvent, AdmittedEvent, EventAdmissionPolicy, EventTypeSpec,
@@ -75,20 +77,27 @@ pub fn default_event_type_specs() -> Vec<EventTypeSpec> {
 
 /// Derives the catalog binding family slug for a registered event-type literal.
 ///
-/// Falls back to the literal's first dotted segment when no recognised admission
-/// family pattern matches. Generic Trellis catalog projection consumes this and
-/// never re-parses literals on its own.
+/// Generic Trellis catalog projection consumes this so the catalog binding-
+/// family column never re-parses literals on its own. The function is only
+/// defined for literals produced by [`default_event_type_specs`] (i.e. WOS or
+/// Formspec admission). Passing any other literal is a programmer error and
+/// panics — surfacing the registration gap loudly at test time rather than
+/// silently emitting a misleading family.
+///
+/// # Panics
+/// Panics when `event_type` is not registered by any admission adapter.
 #[must_use]
 pub fn binding_family_for(event_type: &str) -> String {
     if event_type == FORMSPEC_RESPONSE_SUBMITTED {
-        return "formspec.response".to_string();
+        return FORMSPEC_EVENT_FAMILY.to_string();
     }
     if let Some(family) = wos_event_family(event_type) {
         return family.to_string();
     }
-    event_type
-        .split_once('.')
-        .map_or_else(|| event_type.to_string(), |(root, _)| root.to_string())
+    panic!(
+        "binding family for `{event_type}` must come from a registered admission adapter; \
+         catalog projection received an unregistered literal"
+    );
 }
 
 #[cfg(test)]
