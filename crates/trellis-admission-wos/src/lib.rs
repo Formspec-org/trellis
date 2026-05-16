@@ -16,6 +16,7 @@ use trellis_server_ports::{
     AdmissionEvent, AdmittedEvent, BudgetReviewRecord, DirectSubmitPolicy, EventAdmissionPolicy,
     EventFamilyId, EventTypeSpec, ProfileId, SchemaRef,
 };
+use trellis_types::ArtifactType;
 use wos_events::{ProvenanceKind, ProvenanceRecord, WOS_CANONICAL_EVENT_LITERALS};
 
 /// URI scheme used in [`AdmittedEvent::schema_ref`] entries emitted by this adapter.
@@ -72,6 +73,7 @@ pub fn wos_event_type_specs() -> Vec<EventTypeSpec> {
                 schema_ref: SchemaRef::new(wos_schema_ref(event_type))
                     .expect("wos-events schema refs are URI-like by construction"),
                 profile_id,
+                artifact_type: ArtifactType::Event,
                 direct_submit: DirectSubmitPolicy::ServiceOnly,
                 budget_review: BudgetReviewRecord {
                     reviewer: "wos-events::WOS_CANONICAL_EVENT_LITERALS".to_string(),
@@ -110,6 +112,7 @@ impl WosEventAdmissionPolicy {
             event_family: family,
             schema_ref,
             profile_id: ProfileId::new(integrity_verify::WOS_PROFILE_ID),
+            artifact_type: ArtifactType::Event,
             direct_submit: DirectSubmitPolicy::ServiceOnly,
         })
     }

@@ -3447,6 +3447,7 @@ dependencies = [
  "stack-common-error",
  "tokio",
  "trellis-server-ports",
+ "trellis-types",
 ]
 
 [[package]]
@@ -3459,6 +3460,7 @@ dependencies = [
  "stack-common-error",
  "tokio",
  "trellis-server-ports",
+ "trellis-types",
  "wos-events",
 ]
 

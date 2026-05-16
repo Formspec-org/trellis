@@ -21,7 +21,7 @@ pub use stack_common_object_store::{ObjectByteEvidence, S3ObjectConfig};
 pub use stack_common_postgres::PoolConfig as PostgresPoolConfig;
 pub use trellis_core::LedgerStore;
 pub use trellis_service_client::{ComputeContext, ComputeSensitivity};
-use trellis_types::StoredEvent;
+use trellis_types::{ArtifactType, StoredEvent};
 
 /// Ledger scope bytes.
 pub type ScopeId = Vec<u8>;
@@ -473,7 +473,17 @@ pub struct AdmittedEvent {
     /// Validated event-type catalog reference.
     pub schema_ref: SchemaRef,
     /// Verification profile bound to this event family.
+    ///
+    /// Retired by ADR 0109; field retained during the migration window.
+    /// Consumers MUST switch to [`AdmittedEvent::artifact_type`] for the
+    /// substrate structural-role contract.
     pub profile_id: ProfileId,
+    /// Substrate structural role (ADR 0109).
+    ///
+    /// Always [`ArtifactType::Event`] — admission emits events. Carried here
+    /// so downstream COSE-envelope construction reads a single source of truth
+    /// for the protected-header `artifact_type` value without re-inferring it.
+    pub artifact_type: ArtifactType,
     /// Whether direct (non-service) client submission is permitted.
     pub direct_submit: DirectSubmitPolicy,
 }
@@ -903,7 +913,10 @@ pub struct EventTypeSpec {
     pub event_type: EventType,
     pub event_family: EventFamilyId,
     pub schema_ref: SchemaRef,
+    /// Retired by ADR 0109; retained during the migration window.
     pub profile_id: ProfileId,
+    /// Substrate structural role (ADR 0109) — always [`ArtifactType::Event`].
+    pub artifact_type: ArtifactType,
     pub direct_submit: DirectSubmitPolicy,
     pub budget_review: BudgetReviewRecord,
 }
@@ -914,7 +927,10 @@ pub struct EventTypeRef {
     pub event_type: EventType,
     pub event_family: EventFamilyId,
     pub schema_ref: SchemaRef,
+    /// Retired by ADR 0109; retained during the migration window.
     pub profile_id: ProfileId,
+    /// Substrate structural role (ADR 0109) — always [`ArtifactType::Event`].
+    pub artifact_type: ArtifactType,
     pub direct_submit: DirectSubmitPolicy,
 }
 
@@ -971,6 +987,7 @@ impl EventTypeRegistry for ReviewGateEventTypeRegistry {
             event_family: spec.event_family,
             schema_ref: spec.schema_ref,
             profile_id: spec.profile_id,
+            artifact_type: spec.artifact_type,
             direct_submit: spec.direct_submit,
         };
         self.entries
@@ -1178,6 +1195,7 @@ mod tests {
                 event_family: family.clone(),
                 schema_ref: schema.clone(),
                 profile_id,
+                artifact_type: ArtifactType::Event,
                 direct_submit: DirectSubmitPolicy::ServiceOnly,
                 budget_review: BudgetReviewRecord {
                     reviewer: "".to_string(),
@@ -1194,6 +1212,7 @@ mod tests {
                 event_family: family,
                 schema_ref: schema,
                 profile_id,
+                artifact_type: ArtifactType::Event,
                 direct_submit: DirectSubmitPolicy::ServiceOnly,
                 budget_review: BudgetReviewRecord {
                     reviewer: "security-review".to_string(),
@@ -1277,11 +1296,13 @@ mod tests {
             event_family: EventFamilyId::new("wos.kernel").expect("family"),
             schema_ref: SchemaRef::new("wos-events://wos.kernel.case_created").expect("schema"),
             profile_id: ProfileId::new(1),
+            artifact_type: ArtifactType::Event,
             direct_submit: DirectSubmitPolicy::ServiceOnly,
         };
         assert_eq!(admitted.event_type, "wos.kernel.case_created");
         assert_eq!(admitted.event_family.as_str(), "wos.kernel");
         assert_eq!(admitted.profile_id.get(), 1);
+        assert_eq!(admitted.artifact_type, ArtifactType::Event);
         assert_eq!(admitted.direct_submit, DirectSubmitPolicy::ServiceOnly);
     }
 }

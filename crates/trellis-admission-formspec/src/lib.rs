@@ -18,6 +18,7 @@ use trellis_server_ports::{
     AdmissionEvent, AdmittedEvent, BudgetReviewRecord, DirectSubmitPolicy, EventAdmissionPolicy,
     EventFamilyId, EventTypeSpec, ProfileId, SchemaRef,
 };
+use trellis_types::ArtifactType;
 
 /// Logical event family for Formspec aggregate append events.
 pub const FORMSPEC_EVENT_FAMILY: &str = "formspec.response";
@@ -45,6 +46,7 @@ pub fn formspec_event_type_specs() -> Vec<EventTypeSpec> {
         schema_ref: SchemaRef::new(formspec_schema_ref(FORMSPEC_RESPONSE_SUBMITTED))
             .expect("formspec schema refs are URI-like by construction"),
         profile_id: ProfileId::new(integrity_verify::FORMSPEC_PROFILE_ID),
+        artifact_type: ArtifactType::Event,
         direct_submit: DirectSubmitPolicy::ServiceOnly,
         budget_review: BudgetReviewRecord {
             reviewer: "trellis-admission-formspec::FORMSPEC_RESPONSE_SUBMITTED".to_string(),
@@ -77,6 +79,7 @@ impl FormspecAppendAdmissionPolicy {
             event_family: family,
             schema_ref,
             profile_id: ProfileId::new(integrity_verify::FORMSPEC_PROFILE_ID),
+            artifact_type: ArtifactType::Event,
             direct_submit: DirectSubmitPolicy::ServiceOnly,
         })
     }

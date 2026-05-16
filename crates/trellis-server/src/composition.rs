@@ -274,6 +274,7 @@ mod tests {
                 )
                 .unwrap(),
                 profile_id: trellis_server_ports::ProfileId::new(42),
+                artifact_type: trellis_types::ArtifactType::Event,
                 direct_submit: trellis_server_ports::DirectSubmitPolicy::ServiceOnly,
             }));
 
