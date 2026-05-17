@@ -17,9 +17,9 @@ Trellis Core had assigned COSE protected-header label `-65539` to integer dispat
 
 ## Consequences
 
-- `integrity-verify::profile` declares constants for allocated stack profiles.
-- Formspec Core §2.1.6 names value `2` distinctly from protected-header label `-65539`.
-- Future profile allocations update this ADR family, Trellis §26.2.1, and the stack-root mirror together.
+- `integrity-verify` no longer declares active constants for the retired dispatch values.
+- Formspec Core §2.1.6 no longer routes authored signatures through label `-65539`; ADR 0109 moved consumer detached-signature dispatch to `method_uri` at label `-65540`.
+- No new values may be allocated under this ADR family, Trellis §26.2.1, or the historical stack-root mirror.
 
 ## References
 

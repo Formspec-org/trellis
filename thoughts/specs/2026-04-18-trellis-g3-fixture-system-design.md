@@ -35,7 +35,7 @@ Operation-first tagged union. Each vector declares its `op` in its manifest and 
 
 - **append** — `(prior_head?, signing_key, authored_event) → (canonical_event, signed_event, next_head)`. Runner byte-compares outputs against committed sibling files.
 - **verify** — `(ledger_artifact) → VerificationReport`. Runner compares report fields (`structure_verified`, `integrity_verified`, `readability_verified`) against inline expected.
-- **export** — `(ledger_state) → zip_bytes`. Runner byte-compares ZIP bytes against committed expected; `zip_sha256` in the manifest is a convenience mirror, not the acceptance check.
+- **export** — `(ledger_state) → zip_bytes`. Runner byte-compares ZIP bytes against committed expected and validates the manifest `zip_sha256` pin against the committed ZIP.
 - **tamper** — `(tampered_artifact) → VerificationReport` where at least one `*_verified` flag is false. Runner compares failure kind + failing event id.
 
 Manifest input/expected fields mirror whatever Core says each API's signature is. This spec does not re-normatize the API — it reflects Core.
@@ -97,7 +97,7 @@ ledger_state = "input-ledger-state.cbor"
 
 [expected]
 zip         = "expected-export.zip"
-zip_sha256  = "..."                              # convenience mirror; canonical source is the zip
+zip_sha256  = "..."                              # conformance-checked committed ZIP hash pin
 ```
 
 **Coverage rule**: `tr_core` is the canonical coverage anchor. `core_sections`, when declared, is lint-verified equal to the set derived from its `tr_core` list via matrix lookup — a mismatch is an error. `invariants`, when declared, is commentary only: the lint uses it for an informational cross-check and emits a warning (not an error) if the declared set disagrees with the union of `Invariant` cells for the vector's `tr_core` rows. No bidirectional equality is enforced for invariants.
