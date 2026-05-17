@@ -29,6 +29,7 @@ stack-common-error = { path = "../../../stack-common/crates/stack-common-error" 
 stack-common-http = { path = "../../../stack-common/crates/stack-common-http" }
 stack-common-idempotency = { path = "../../../stack-common/crates/stack-common-idempotency", default-features = false, features = ["replay"] }
 stack-common-ops = { path = "../../../stack-common/crates/stack-common-ops" }
+time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 trellis-admission-formspec = { path = "../trellis-admission-formspec" }
@@ -40,12 +41,14 @@ trellis-server-ports = { path = "../trellis-server-ports" }
 trellis-service-client = { path = "../trellis-service-client" }
 trellis-store-postgres-async = { path = "../trellis-store-postgres-async" }
 trellis-types = { path = "../trellis-types" }
+trellis-verify-wos = { path = "../trellis-verify-wos" }
 utoipa = "5"
 # Domain vocabulary needed only by the composition root; generic modules are
 # blocked from importing wos-events by the boundary gate.
 wos-events = { path = "../../../work-spec/crates/wos-events" }
 
 [dev-dependencies]
+integrity-bundle = { path = "../../../integrity-stack/crates/integrity-bundle" }
 integrity-seam = { path = "../../../integrity-stack/crates/integrity-seam" }
 tower = { version = "0.5", features = ["util"] }
 wos-events = { path = "../../../work-spec/crates/wos-events" }

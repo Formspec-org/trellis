@@ -35,6 +35,7 @@ mod append;
 mod artifacts;
 mod composition;
 mod event_repository;
+mod export_profile;
 mod http;
 pub mod openapi;
 mod scope_startup;
@@ -201,6 +202,14 @@ pub(crate) async fn publish_bundle(
         .copied()
         .ok_or_else(|| StackError::internal("empty timestamp set"))?;
     let registry_bytes = event_type_registry_cbor(state.event_type_catalog.as_ref())?;
+    let policy_artifacts = composition::default_signature_policy_artifacts();
+    let export_profile = export_profile::build_export_profile_members(
+        scope,
+        events,
+        generated_at,
+        &policy_artifacts,
+    )?;
+    let profile_validation_required = export_profile.requires_profile_validation();
     let package = write_export(ExportWriterInput {
         scope: scope.to_vec(),
         events: events.to_vec(),
@@ -221,8 +230,8 @@ pub(crate) async fn publish_bundle(
         external_anchors: Vec::new(),
         extensions: None,
         witness_key_registry: None,
-        signed_acts_catalog: None,
-        policy_closure: None,
+        signed_acts_catalog: export_profile.signed_acts_catalog,
+        policy_closure: export_profile.policy_closure,
     })?;
     let checkpoint_digest = format!("sha256:{}", hex::encode(package.head_checkpoint_digest));
     let key = format!(
@@ -233,6 +242,12 @@ pub(crate) async fn publish_bundle(
     if !export_bundle_cryptographically_verified(&package.zip_bytes) {
         return Err(StackError::internal(
             "published export bundle failed independent verification",
+        ));
+    }
+    if profile_validation_required && !(state.profile_export_verifier.as_ref())(&package.zip_bytes)
+    {
+        return Err(StackError::internal(
+            "published export bundle failed WOS/Formspec profile verification",
         ));
     }
     let artifact_ref = state.artifact_store.put(&key, &package.zip_bytes).await?;
@@ -380,15 +395,24 @@ pub(crate) fn timestamp_value(timestamp: TrellisTimestamp) -> Value {
 pub(crate) fn event_type_registry_view(
     catalog: &composition::EventTypeCatalog,
 ) -> EventTypeRegistryView {
+    debug_assert!(
+        !catalog.is_empty(),
+        "default event-type catalog must not be empty"
+    );
+    let mut event_types = Vec::with_capacity(catalog.len());
+    for entry in catalog.entries() {
+        debug_assert!(
+            catalog.get(&entry.event_type).is_some(),
+            "catalog entry must resolve by its own event type"
+        );
+        event_types.push(crate::openapi::EventTypeRegistryEntry {
+            event_type: entry.event_type.clone(),
+            schema_ref: entry.schema_ref.as_str().to_string(),
+        });
+    }
     EventTypeRegistryView {
         registry_version: EVENT_TYPE_REGISTRY_VERSION.to_string(),
-        event_types: catalog
-            .entries()
-            .map(|entry| crate::openapi::EventTypeRegistryEntry {
-                event_type: entry.event_type.clone(),
-                schema_ref: entry.schema_ref.as_str().to_string(),
-            })
-            .collect(),
+        event_types,
     }
 }
 
@@ -396,7 +420,7 @@ fn event_type_registry_cbor(
     catalog: &composition::EventTypeCatalog,
 ) -> Result<Vec<u8>, StackError> {
     const SERVICE_CLASSIFICATION: &str = "x-trellis-service/public-metadata";
-    let mut event_types = Vec::new();
+    let mut event_types = Vec::with_capacity(catalog.len());
     for entry in catalog.entries() {
         let map_entry = text_map(vec![
             ("privacy_class", Value::Text("publicMetadata".to_string())),
@@ -518,7 +542,10 @@ mod tests {
     use tower::ServiceExt;
     use trellis_server_ports::{AdmissionEvent, ArtifactRef};
     use trellis_service_client::{ClientAttestation, SubstrateAppendBody};
-    use wos_events::{ProvenanceKind, ProvenanceRecord, WOS_CANONICAL_EVENT_LITERALS};
+    use wos_events::{
+        ProvenanceKind, ProvenanceRecord, SignatureAdmissionFailedInput, SignatureAffirmationInput,
+        WOS_CANONICAL_EVENT_LITERALS,
+    };
 
     use crate::admission::ScopedAllowlistScopeAuthorizer;
     use crate::append::{AppendRunner, DefaultAppendRunner};
@@ -1158,6 +1185,257 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn signature_affirmation_append_publishes_profile_members_verified_by_wos_verifier() {
+        let app = router(test_state()).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_signature/events",
+                signature_affirmation_append_body("idem-signature-export"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let bundle = app
+            .oneshot(get_request("/v1/scopes/case_signature/bundles/head"))
+            .await
+            .expect("bundle response");
+        assert_eq!(bundle.status(), StatusCode::OK);
+        let bundle_bytes = to_bytes(bundle.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("bundle bytes")
+            .to_vec();
+        let members = integrity_bundle::read_stored_zip(&bundle_bytes).expect("parse bundle");
+        assert!(
+            members.iter().any(|entry| entry
+                .path()
+                .ends_with(trellis_export_writer::SIGNED_ACTS_MEMBER)),
+            "signature exports must carry 066-signed-acts.cbor"
+        );
+        assert!(
+            members.iter().any(|entry| entry
+                .path()
+                .ends_with(trellis_export_writer::POLICY_CLOSURE_MEMBER)),
+            "signature exports must carry 067-policy-closure.cbor"
+        );
+
+        let report = trellis_verify_wos::verify_export_zip(&bundle_bytes);
+        assert!(
+            report.substrate().structure_verified && report.substrate().integrity_verified,
+            "{report:#?}"
+        );
+        assert!(
+            report.wos_findings.is_empty() && report.relying_party_valid(),
+            "{report:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn signature_affirmation_with_deployment_local_intent_suppresses_policy_closure() {
+        let app = router(test_state()).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_deployment_local_signature/events",
+                signature_affirmation_append_body_with_intent(
+                    "idem-deployment-local-signature",
+                    "urn:acme:signing-intent:supervisor-approval",
+                    None,
+                    None,
+                ),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let bundle = app
+            .oneshot(get_request(
+                "/v1/scopes/case_deployment_local_signature/bundles/head",
+            ))
+            .await
+            .expect("bundle response");
+        assert_eq!(bundle.status(), StatusCode::OK);
+        let bundle_bytes = to_bytes(bundle.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("bundle bytes")
+            .to_vec();
+        let members = integrity_bundle::read_stored_zip(&bundle_bytes).expect("parse bundle");
+        assert!(
+            members.iter().any(|entry| entry
+                .path()
+                .ends_with(trellis_export_writer::SIGNED_ACTS_MEMBER)),
+            "signature exports must still carry 066-signed-acts.cbor"
+        );
+        assert!(
+            members.iter().all(|entry| !entry
+                .path()
+                .ends_with(trellis_export_writer::POLICY_CLOSURE_MEMBER)),
+            "deployment-local policy inputs are not represented by the default closure evidence"
+        );
+
+        let report = trellis_verify_wos::verify_export_zip(&bundle_bytes);
+        assert!(
+            report.wos_findings.is_empty() && report.relying_party_valid(),
+            "{report:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn signature_affirmation_with_unregistered_wos_intent_suppresses_policy_closure() {
+        let app = router(test_state()).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_unregistered_wos_signature/events",
+                signature_affirmation_append_body_with_intent(
+                    "idem-unregistered-wos-signature",
+                    "urn:wos:signing-intent:not-registered",
+                    None,
+                    None,
+                ),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let bundle = app
+            .oneshot(get_request(
+                "/v1/scopes/case_unregistered_wos_signature/bundles/head",
+            ))
+            .await
+            .expect("bundle response");
+        assert_eq!(bundle.status(), StatusCode::OK);
+        let bundle_bytes = to_bytes(bundle.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("bundle bytes")
+            .to_vec();
+        let members = integrity_bundle::read_stored_zip(&bundle_bytes).expect("parse bundle");
+        assert!(
+            members.iter().any(|entry| entry
+                .path()
+                .ends_with(trellis_export_writer::SIGNED_ACTS_MEMBER)),
+            "signature exports must still carry 066-signed-acts.cbor"
+        );
+        assert!(
+            members.iter().all(|entry| !entry
+                .path()
+                .ends_with(trellis_export_writer::POLICY_CLOSURE_MEMBER)),
+            "unregistered WOS namespace intents are not covered by the baseline policy closure"
+        );
+
+        let report = trellis_verify_wos::verify_export_zip(&bundle_bytes);
+        assert!(
+            report.wos_findings.is_empty() && report.relying_party_valid(),
+            "{report:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn signature_admission_failed_append_publishes_rejected_profile_projection() {
+        let app = router(test_state()).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_rejected_signature/events",
+                signature_admission_failed_append_body("idem-rejected-signature-export"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let bundle = app
+            .oneshot(get_request(
+                "/v1/scopes/case_rejected_signature/bundles/head",
+            ))
+            .await
+            .expect("bundle response");
+        assert_eq!(bundle.status(), StatusCode::OK);
+        let bundle_bytes = to_bytes(bundle.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("bundle bytes")
+            .to_vec();
+        let members = integrity_bundle::read_stored_zip(&bundle_bytes).expect("parse bundle");
+        let signed_acts = members
+            .iter()
+            .find(|entry| {
+                entry
+                    .path()
+                    .ends_with(trellis_export_writer::SIGNED_ACTS_MEMBER)
+            })
+            .expect("signed acts member");
+        let catalog =
+            integrity_cbor::decode_cbor_value(signed_acts.bytes()).expect("signed acts cbor");
+        let root = catalog.as_map().expect("signed acts root map");
+        let acts = integrity_cbor::map_lookup_array(root, "acts").expect("acts");
+        let act = acts.first().expect("one rejected act").as_map().unwrap();
+        let admission = integrity_cbor::map_lookup_map(act, "admission").expect("admission");
+        assert_eq!(
+            integrity_cbor::map_lookup_text(admission, "outcome").expect("outcome"),
+            "rejected"
+        );
+        assert_eq!(
+            integrity_cbor::map_lookup_text(admission, "failure_reason").expect("failure_reason"),
+            "method_unregistered"
+        );
+
+        let report = trellis_verify_wos::verify_export_zip(&bundle_bytes);
+        assert!(
+            report.wos_findings.is_empty() && report.relying_party_valid(),
+            "{report:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn signature_admission_failed_with_posture_floor_unmet_suppresses_policy_closure() {
+        let app = router(test_state()).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_posture_failed_signature/events",
+                signature_admission_failed_append_body_with_reason(
+                    "idem-posture-failed-signature",
+                    "posture_floor_unmet",
+                    "urn:wos:signing-intent:applicant-signature",
+                ),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let bundle = app
+            .oneshot(get_request(
+                "/v1/scopes/case_posture_failed_signature/bundles/head",
+            ))
+            .await
+            .expect("bundle response");
+        assert_eq!(bundle.status(), StatusCode::OK);
+        let bundle_bytes = to_bytes(bundle.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("bundle bytes")
+            .to_vec();
+        let members = integrity_bundle::read_stored_zip(&bundle_bytes).expect("parse bundle");
+        assert!(
+            members.iter().any(|entry| entry
+                .path()
+                .ends_with(trellis_export_writer::SIGNED_ACTS_MEMBER)),
+            "signature exports must still carry 066-signed-acts.cbor"
+        );
+        assert!(
+            members.iter().all(|entry| !entry
+                .path()
+                .ends_with(trellis_export_writer::POLICY_CLOSURE_MEMBER)),
+            "posture-specific rejection policy is not represented by the default closure evidence"
+        );
+
+        let report = trellis_verify_wos::verify_export_zip(&bundle_bytes);
+        assert!(
+            report.wos_findings.is_empty() && report.relying_party_valid(),
+            "{report:#?}"
+        );
+    }
+
+    #[tokio::test]
     async fn given_same_scope_and_events_when_bundle_published_twice_then_zip_bytes_are_identical()
     {
         let state = test_state();
@@ -1197,6 +1475,114 @@ mod tests {
         assert_eq!(
             first_bytes, second_bytes,
             "publishing identical ledger state twice must produce byte-identical ZIP output"
+        );
+    }
+
+    #[tokio::test]
+    async fn signature_profile_bundle_republish_is_byte_identical() {
+        let state = test_state();
+        let app = router(state.clone()).expect("router");
+        let first_response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_signature_deterministic/events",
+                signature_affirmation_append_body("idem-signature-deterministic-1"),
+            ))
+            .await
+            .expect("append signature response");
+        assert_eq!(first_response.status(), StatusCode::CREATED);
+        let second_response = app
+            .oneshot(post_request(
+                "/v1/scopes/case_signature_deterministic/events",
+                signature_admission_failed_append_body("idem-signature-deterministic-2"),
+            ))
+            .await
+            .expect("append rejected signature response");
+        assert_eq!(second_response.status(), StatusCode::CREATED);
+
+        let events = state
+            .repository
+            .list_scope(b"case_signature_deterministic")
+            .await
+            .expect("load deterministic signature scope events");
+        let compute = append::default_public_compute_context();
+        let first = publish_bundle(
+            &state,
+            b"case_signature_deterministic",
+            &events,
+            false,
+            &compute,
+        )
+        .await
+        .expect("first publish");
+        let second = publish_bundle(
+            &state,
+            b"case_signature_deterministic",
+            &events,
+            false,
+            &compute,
+        )
+        .await
+        .expect("second publish");
+        let first_bytes = state
+            .artifact_store
+            .get(&first.artifact_ref)
+            .await
+            .expect("load first bundle")
+            .expect("first bundle bytes");
+        let second_bytes = state
+            .artifact_store
+            .get(&second.artifact_ref)
+            .await
+            .expect("load second bundle")
+            .expect("second bundle bytes");
+        assert_eq!(
+            first_bytes, second_bytes,
+            "profile-bearing bundles must remain byte-identical for the same closed signature event set"
+        );
+    }
+
+    #[tokio::test]
+    async fn failing_profile_verification_prevents_artifact_storage() {
+        #[derive(Default)]
+        struct CountingArtifactStore {
+            puts: AtomicUsize,
+        }
+
+        #[async_trait]
+        impl ArtifactStore for CountingArtifactStore {
+            type Error = StackError;
+
+            async fn put(&self, key: &str, _bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+                self.puts.fetch_add(1, Ordering::SeqCst);
+                Ok(ArtifactRef::new(format!("memory://{key}")))
+            }
+
+            async fn get(
+                &self,
+                _artifact_ref: &ArtifactRef,
+            ) -> Result<Option<Vec<u8>>, Self::Error> {
+                Ok(None)
+            }
+        }
+
+        let store = Arc::new(CountingArtifactStore::default());
+        let state = test_state()
+            .with_artifact_store(store.clone())
+            .with_profile_export_verifier(Arc::new(|_zip_bytes| false));
+        let app = router(state).expect("router");
+        let response = app
+            .oneshot(post_request(
+                "/v1/scopes/case_signature_verifier_failure/events",
+                signature_affirmation_append_body("idem-signature-verifier-failure"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            store.puts.load(Ordering::SeqCst),
+            0,
+            "profile verification must fail before export bytes are stored"
         );
     }
 
@@ -1511,6 +1897,133 @@ mod tests {
         record.id = format!("prov-{idempotency_key}");
         let body = SubstrateAppendBody {
             event_type: "wos.kernel.case_created".to_string(),
+            idempotency_key: idempotency_key.to_string(),
+            actor: trellis_service_client::AppendActor::service("wos-server"),
+            payload: serde_json::to_value(record).unwrap(),
+            compute_context: trellis_service_client::ComputeContext::no_delegated_compute(
+                "wos-server",
+            ),
+            client_attestation: None,
+        };
+        serde_json::to_vec(&body).unwrap()
+    }
+
+    fn signature_affirmation_append_body(idempotency_key: &str) -> Vec<u8> {
+        signature_affirmation_append_body_with_intent(
+            idempotency_key,
+            "urn:wos:signing-intent:applicant-signature",
+            None,
+            None,
+        )
+    }
+
+    fn signature_affirmation_append_body_with_intent(
+        idempotency_key: &str,
+        signing_intent: &str,
+        profile_ref: Option<&str>,
+        profile_key: Option<&str>,
+    ) -> Vec<u8> {
+        let mut record = ProvenanceRecord::signature_affirmation(SignatureAffirmationInput {
+            signer_id: "applicant",
+            role_id: "role-applicant-signer",
+            role: "applicant",
+            document_id: "benefits-application",
+            signing_act_id: "signing-act-server-test",
+            document_ref: serde_json::json!({
+                "documentId": "benefits-application",
+                "locale": "en-US"
+            }),
+            document_hash:
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            presentation_hash:
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            document_hash_algorithm: "sha-256",
+            source_signature_system: "formspec",
+            source_signature_id: "sig-server-test",
+            signed_payload_digest:
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            signed_payload_digest_algorithm: "sha-256",
+            signing_intent,
+            signed_at: "2026-05-16T18:31:00Z",
+            identity_binding: serde_json::json!({
+                "kind": "subjectRef",
+                "ref": "applicant"
+            }),
+            consent_reference: serde_json::json!({
+                "textRef": "consent-v1",
+                "acceptedAt": "2026-05-16T18:30:00Z"
+            }),
+            signature_provider: "formspec-local",
+            ceremony_id: "ceremony-server-test",
+            profile_ref,
+            profile_key,
+            source_response_ref: "formspec://responses/resp-server-test",
+            signer_authority: None,
+            custody_hook_eligible: true,
+            primitive_verification: serde_json::json!({
+                "status": "verified"
+            }),
+            verification_receipt: None,
+            witnessed_signature_ref: None,
+        });
+        record.id = format!("prov-{idempotency_key}");
+        record.timestamp = "2026-05-16T18:31:00Z".to_string();
+        let event_type = ProvenanceKind::SignatureAffirmation
+            .canonical_event_literal()
+            .expect("signature affirmation has event literal")
+            .to_string();
+        let body = SubstrateAppendBody {
+            event_type,
+            idempotency_key: idempotency_key.to_string(),
+            actor: trellis_service_client::AppendActor::service("wos-server"),
+            payload: serde_json::to_value(record).unwrap(),
+            compute_context: trellis_service_client::ComputeContext::no_delegated_compute(
+                "wos-server",
+            ),
+            client_attestation: None,
+        };
+        serde_json::to_vec(&body).unwrap()
+    }
+
+    fn signature_admission_failed_append_body(idempotency_key: &str) -> Vec<u8> {
+        signature_admission_failed_append_body_with_reason(
+            idempotency_key,
+            "method_unregistered",
+            "urn:wos:signing-intent:applicant-signature",
+        )
+    }
+
+    fn signature_admission_failed_append_body_with_reason(
+        idempotency_key: &str,
+        reason: &'static str,
+        signing_intent: &'static str,
+    ) -> Vec<u8> {
+        let mut failure_context = serde_json::Map::new();
+        failure_context.insert(
+            "methodUri".to_string(),
+            serde_json::Value::String("urn:formspec:sig-method:unknown@1".to_string()),
+        );
+        let mut record =
+            ProvenanceRecord::signature_admission_failed(SignatureAdmissionFailedInput {
+                reason,
+                response_id: "resp-rejected-server-test",
+                signed_payload_digest:
+                    "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                signature_id: "sig-rejected-server-test",
+                signing_intent,
+                signer_id: Some("applicant"),
+                signer_authority: None,
+                failure_context: Some(failure_context),
+                emitted_at: "2026-05-16T18:32:00Z",
+            });
+        record.id = format!("prov-{idempotency_key}");
+        record.timestamp = "2026-05-16T18:32:00Z".to_string();
+        let event_type = ProvenanceKind::SignatureAdmissionFailed
+            .canonical_event_literal()
+            .expect("signature admission failed has event literal")
+            .to_string();
+        let body = SubstrateAppendBody {
+            event_type,
             idempotency_key: idempotency_key.to_string(),
             actor: trellis_service_client::AppendActor::service("wos-server"),
             payload: serde_json::to_value(record).unwrap(),

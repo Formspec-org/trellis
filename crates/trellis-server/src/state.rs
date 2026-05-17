@@ -37,6 +37,8 @@ use crate::event_repository::{EventRepository, InMemoryEventRepository, Postgres
 use crate::scope_startup::TrellisScopeAuthorizerStartupInputs;
 use crate::{ServerSigningKey, TenantHeaderMode, TrellisClaims};
 
+pub(crate) type ProfileExportVerifier = dyn Fn(&[u8]) -> bool + Send + Sync;
+
 /// Cloneable Axum state for the Trellis service.
 #[derive(Clone)]
 pub struct TrellisServerState {
@@ -59,6 +61,7 @@ pub struct TrellisServerState {
     /// startup; the catalog projection routes consult this and never re-parse
     /// literals or hand-build constants.
     pub(crate) event_type_catalog: Arc<EventTypeCatalog>,
+    pub(crate) profile_export_verifier: Arc<ProfileExportVerifier>,
 }
 
 impl TrellisServerState {
@@ -83,6 +86,7 @@ impl TrellisServerState {
             scope_authorizer_allow_all: true,
             append_runner: Arc::new(DefaultAppendRunner),
             event_type_catalog: Arc::new(EventTypeCatalog::default_stack()),
+            profile_export_verifier: Arc::new(crate::composition::wos_profile_export_verified),
         }
     }
 
@@ -90,6 +94,16 @@ impl TrellisServerState {
     #[cfg(test)]
     pub(crate) fn with_append_runner(mut self, runner: Arc<dyn AppendRunner>) -> Self {
         self.append_runner = runner;
+        self
+    }
+
+    /// Test-only: replace profile export verification to prove publication is fail-closed.
+    #[cfg(test)]
+    pub(crate) fn with_profile_export_verifier(
+        mut self,
+        verifier: Arc<ProfileExportVerifier>,
+    ) -> Self {
+        self.profile_export_verifier = verifier;
         self
     }
 

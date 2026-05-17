@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use integrity_cbor::sha256_bytes;
 use stack_common_error::StackError;
 use trellis_admission_formspec::{FormspecAppendAdmissionPolicy, formspec_event_type_specs};
 use trellis_admission_wos::{WosEventAdmissionPolicy, wos_event_type_specs};
@@ -17,7 +18,10 @@ use trellis_server_ports::{
     AdmissionEvent, AdmittedEvent, EventAdmissionPolicy, EventType, EventTypeRef,
     EventTypeRegistry, EventTypeSpec, ReviewGateEventTypeRegistry,
 };
+use wos_events::ProvenanceKind;
 use wos_events::WOS_CANONICAL_EVENT_LITERALS;
+
+use crate::export_profile::PolicyClosureArtifact;
 
 /// Formspec intake-proof append literal admitted at the Trellis service edge.
 ///
@@ -25,6 +29,111 @@ use wos_events::WOS_CANONICAL_EVENT_LITERALS;
 /// modules pull the literal through this single seam instead of depending on
 /// `trellis-admission-formspec` directly (Boundary Gate).
 pub use trellis_admission_formspec::FORMSPEC_RESPONSE_SUBMITTED;
+
+const POLICY_VALID_FROM: &str = "2026-05-16T00:00:00Z";
+const POLICY_VERSION: &str = "2026-05-16";
+const FORMSPEC_RESPONSE_SCHEMA: &[u8] =
+    include_bytes!("../../../../formspec/schemas/response.schema.json");
+const FORMSPEC_SIGNATURE_METHOD_REGISTRY: &[u8] =
+    include_bytes!("../../../../formspec/registries/signature-method-registry.json");
+const WOS_SIGNATURE_PROFILE_SPEC: &[u8] =
+    include_bytes!("../../../../work-spec/specs/profiles/signature.md");
+const WOS_PROVENANCE_SCHEMA: &[u8] =
+    include_bytes!("../../../../work-spec/schemas/wos-provenance-log.schema.json");
+
+/// Canonical WOS `SignatureAffirmation` event literal for export-profile composition.
+#[must_use]
+pub(crate) fn wos_signature_affirmation_event_type() -> &'static str {
+    ProvenanceKind::SignatureAffirmation
+        .canonical_event_literal()
+        .expect("SignatureAffirmation must carry a substrate canonical event literal")
+}
+
+/// Canonical WOS `SignatureAdmissionFailed` event literal for export-profile composition.
+#[must_use]
+pub(crate) fn wos_signature_admission_failed_event_type() -> &'static str {
+    ProvenanceKind::SignatureAdmissionFailed
+        .canonical_event_literal()
+        .expect("SignatureAdmissionFailed must carry a substrate canonical event literal")
+}
+
+/// Returns the default public policy evidence rows for WOS/Formspec signature exports.
+#[must_use]
+pub(crate) fn default_signature_policy_artifacts() -> Vec<PolicyClosureArtifact> {
+    vec![
+        policy_artifact(
+            "formspec",
+            "formspec.signing-intent-registry.v1",
+            "repo://formspec/schemas/response.schema.json",
+            FORMSPEC_RESPONSE_SCHEMA,
+        ),
+        policy_artifact(
+            "formspec",
+            "formspec.signature-method-registry.v1",
+            "repo://formspec/registries/signature-method-registry.json",
+            FORMSPEC_SIGNATURE_METHOD_REGISTRY,
+        ),
+        policy_artifact(
+            "wos",
+            "wos.signature-posture-floors.v1",
+            "repo://work-spec/specs/profiles/signature.md",
+            WOS_SIGNATURE_PROFILE_SPEC,
+        ),
+        policy_artifact(
+            "wos",
+            "wos.signer-authority-shape.v1",
+            "repo://work-spec/specs/profiles/signature.md",
+            WOS_SIGNATURE_PROFILE_SPEC,
+        ),
+        policy_artifact(
+            "wos",
+            "wos.identity-proofing-primitives.v1",
+            "repo://work-spec/specs/profiles/signature.md",
+            WOS_SIGNATURE_PROFILE_SPEC,
+        ),
+        policy_artifact(
+            "wos",
+            "wos.signature-defaults.v1",
+            "repo://work-spec/specs/profiles/signature.md",
+            WOS_SIGNATURE_PROFILE_SPEC,
+        ),
+        policy_artifact(
+            "wos",
+            "wos.signature-deny-rules.v1",
+            "repo://work-spec/specs/profiles/signature.md",
+            WOS_SIGNATURE_PROFILE_SPEC,
+        ),
+        policy_artifact(
+            "wos",
+            "wos.signature-tombstones.v1",
+            "repo://work-spec/schemas/wos-provenance-log.schema.json",
+            WOS_PROVENANCE_SCHEMA,
+        ),
+    ]
+}
+
+/// Returns true when a profile-bearing export passes WOS/Formspec verification.
+#[must_use]
+pub(crate) fn wos_profile_export_verified(zip_bytes: &[u8]) -> bool {
+    trellis_verify_wos::verify_export_zip(zip_bytes).relying_party_valid()
+}
+
+fn policy_artifact(
+    owner: &'static str,
+    kind: &'static str,
+    reference: &'static str,
+    bytes: &[u8],
+) -> PolicyClosureArtifact {
+    PolicyClosureArtifact {
+        owner,
+        kind,
+        version: POLICY_VERSION,
+        reference,
+        digest: sha256_bytes(bytes),
+        valid_from: POLICY_VALID_FROM,
+        valid_to: None,
+    }
+}
 
 /// Register-style admission router: each adapter declares which literals it
 /// owns, and the router dispatches by literal lookup.

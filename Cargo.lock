@@ -3565,6 +3565,7 @@ dependencies = [
  "hex",
  "hkdf",
  "http",
+ "integrity-bundle",
  "integrity-cbor",
  "integrity-seam",
  "integrity-verify",
@@ -3578,6 +3579,7 @@ dependencies = [
  "stack-common-http",
  "stack-common-idempotency",
  "stack-common-ops",
+ "time",
  "tokio",
  "tower",
  "tracing",
@@ -3590,6 +3592,7 @@ dependencies = [
  "trellis-service-client",
  "trellis-store-postgres-async",
  "trellis-types",
+ "trellis-verify-wos",
  "utoipa",
  "wos-events",
 ]
