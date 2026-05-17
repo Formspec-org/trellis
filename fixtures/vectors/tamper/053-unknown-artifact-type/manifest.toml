@@ -29,7 +29,7 @@ tamper_kind          = "malformed_cose"
 
 tampered_event_sha256 = "47fe399f262bd01838b1439050b3f43d8a289f2777d102618a2df9a1a6058fd9"
 tampered_ledger_sha256 = "cf60716e842fbe4cc073dd86efc032883cbcdfdd4fee05fc5f7d47c3154bb492"
-baseline_event_sha256 = "8d18bcd820945b4c5575a44823d79685858914ee5893ac3c9e4b8ec183273815"
+baseline_event_sha256 = "deca82133a10729c570e277ee38a975b7f6b9e79374052f80069b3863bdd733d"
 idempotency_key = "tamper-unknown-artifact-type-053"
 
 [derivation]
