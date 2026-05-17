@@ -214,6 +214,7 @@ fn given_wrong_presentation_hash_when_catalog_compared_then_entry_does_not_match
         role_id: entry.role_id.clone(),
         role: entry.role.clone(),
         document_id: entry.document_id.clone(),
+        document_ref: None,
         document_hash: entry.document_hash.clone(),
         document_hash_algorithm: entry.document_hash_algorithm.clone(),
         signed_at: entry.signed_at.clone(),
@@ -232,6 +233,7 @@ fn given_wrong_presentation_hash_when_catalog_compared_then_entry_does_not_match
         signing_act_id: entry.signing_act_id.clone(),
         presentation_hash: DOC_HASH.to_string(),
         witnessed_signature_ref: None,
+        primitive_verification: Value::Map(vec![]),
     };
     assert!(!signature_entry_matches_record(&entry, &record));
 }
@@ -288,7 +290,7 @@ fn given_verify_wos_substrate_event_bindings_when_compared_to_wos_events_registr
         wos_governance_clock_resolved_event_type, wos_governance_clock_started_event_type,
         wos_governance_determination_rescinded_event_type, wos_governance_reinstated_event_type,
         wos_identity_attestation_event_type, wos_intake_accepted_event_type,
-        wos_signature_affirmation_event_type,
+        wos_signature_admission_failed_event_type, wos_signature_affirmation_event_type,
     };
 
     let mut seen = HashSet::<&'static str>::new();
@@ -298,6 +300,7 @@ fn given_verify_wos_substrate_event_bindings_when_compared_to_wos_events_registr
             .expect("tracked kind must be in substrate registry");
         let actual = match kind {
             ProvenanceKind::SignatureAffirmation => wos_signature_affirmation_event_type(),
+            ProvenanceKind::SignatureAdmissionFailed => wos_signature_admission_failed_event_type(),
             ProvenanceKind::IntakeAccepted => wos_intake_accepted_event_type(),
             ProvenanceKind::CaseCreated => wos_case_created_event_type(),
             ProvenanceKind::IdentityAttestation => wos_identity_attestation_event_type(),

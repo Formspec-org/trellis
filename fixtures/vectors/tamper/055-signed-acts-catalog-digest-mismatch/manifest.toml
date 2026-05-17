@@ -1,0 +1,20 @@
+id          = "tamper/055-signed-acts-catalog-digest-mismatch"
+op          = "tamper"
+status      = "active"
+description = """SignedAct projection export tamper. Mutates `066-signed-acts.cbor` after manifest signing so the required archive spine remains intact but the `trellis.export.signed-acts.v1.catalog_digest` check fails."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "signed_acts_catalog_digest_mismatch"
+
+[derivation]
+document = "derivation.md"

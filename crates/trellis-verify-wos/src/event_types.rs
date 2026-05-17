@@ -26,6 +26,10 @@ macro_rules! substrate_canonical_event {
 }
 
 substrate_canonical_event!(wos_signature_affirmation_event_type, SignatureAffirmation);
+substrate_canonical_event!(
+    wos_signature_admission_failed_event_type,
+    SignatureAdmissionFailed
+);
 substrate_canonical_event!(wos_intake_accepted_event_type, IntakeAccepted);
 substrate_canonical_event!(wos_case_created_event_type, CaseCreated);
 substrate_canonical_event!(wos_identity_attestation_event_type, IdentityAttestation);
@@ -43,6 +47,7 @@ substrate_canonical_event!(wos_governance_clock_resolved_event_type, ClockResolv
 pub(crate) fn verify_wos_tracked_substrate_kinds() -> &'static [ProvenanceKind] {
     &[
         ProvenanceKind::SignatureAffirmation,
+        ProvenanceKind::SignatureAdmissionFailed,
         ProvenanceKind::IntakeAccepted,
         ProvenanceKind::CaseCreated,
         ProvenanceKind::IdentityAttestation,

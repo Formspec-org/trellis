@@ -122,5 +122,6 @@ pub fn export_001_writer_input(vectors_root: &Path) -> ExportWriterInput {
         external_anchors: Vec::new(),
         extensions: None,
         witness_key_registry: None,
+        signed_acts_catalog: None,
     }
 }

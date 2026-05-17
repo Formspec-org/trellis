@@ -526,6 +526,11 @@ mod tests {
                 | "signature_catalog_event_unresolved"
                 | "signature_catalog_invalid"
                 | "signature_catalog_mismatch"
+                | "missing_signed_acts_catalog"
+                | "signed_acts_catalog_digest_mismatch"
+                | "signed_acts_catalog_invalid"
+                | "signed_acts_catalog_unbound"
+                | "signed_acts_projection_mismatch"
         )
     }
 

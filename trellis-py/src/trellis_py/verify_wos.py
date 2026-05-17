@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import cbor2
+
 from trellis_py import verify as core
 
 
@@ -17,7 +19,11 @@ SIGNATURE_EXPORT_EXTENSION = "trellis.export.signature-affirmations.v1"
 INTAKE_EXPORT_EXTENSION = "trellis.export.intake-handoffs.v1"
 OPEN_CLOCKS_EXPORT_EXTENSION = "trellis.export.open-clocks.v1"
 OPEN_CLOCKS_MEMBER = "open-clocks.json"
+SIGNED_ACTS_EXPORT_EXTENSION = "trellis.export.signed-acts.v1"
+SIGNED_ACTS_MEMBER = "066-signed-acts.cbor"
+SIGNED_ACTS_DERIVATION_RULE = "signed-act-projection-wos-formspec-v1"
 WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signature_affirmation"
+WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE = "wos.kernel.signature_admission_failed"
 WOS_INTAKE_ACCEPTED_EVENT_TYPE = "wos.kernel.intake_accepted"
 WOS_CASE_CREATED_EVENT_TYPE = "wos.kernel.case_created"
 WOS_IDENTITY_ATTESTATION_EVENT_TYPE = "wos.assurance.identity_attestation"
@@ -196,6 +202,7 @@ def _validate_export(
             )
         )
     findings.extend(_validate_open_clock_export(archive, manifest_map, generated_at))
+    findings.extend(_validate_signed_acts_projection(archive, events, payload_blobs, manifest_map))
     return findings
 
 
@@ -260,6 +267,284 @@ def _parse_intake_export_extension(manifest_map: dict) -> Optional[bytes]:
     if not isinstance(ext, dict):
         raise core.VerifyError("intake export extension is not a map")
     return core._map_lookup_fixed_bytes(ext, "intake_catalog_digest", 32)
+
+
+def _parse_signed_acts_export_extension(manifest_map: dict) -> Optional[dict[str, Any]]:
+    exts = core._map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(SIGNED_ACTS_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise core.VerifyError("signed acts export extension is not a map")
+    catalog_ref = core._map_lookup_str(ext, "catalog_ref")
+    derivation_rule = core._map_lookup_str(ext, "derivation_rule")
+    if not isinstance(catalog_ref, str):
+        raise core.VerifyError("signed acts catalog_ref is not text")
+    if not isinstance(derivation_rule, str):
+        raise core.VerifyError("signed acts derivation_rule is not text")
+    return {
+        "catalog_ref": catalog_ref,
+        "catalog_digest": core._map_lookup_fixed_bytes(ext, "catalog_digest", 32),
+        "derivation_rule": derivation_rule,
+    }
+
+
+def _validate_signed_acts_projection(
+    archive: dict[str, bytes],
+    events: list[core.ParsedSign1],
+    payload_blobs: dict[bytes, bytes],
+    manifest_map: dict,
+) -> list[WosFinding]:
+    has_member = SIGNED_ACTS_MEMBER in archive
+    try:
+        extension = _parse_signed_acts_export_extension(manifest_map)
+    except core.VerifyError as exc:
+        return [
+            _failure(
+                "signed_acts_catalog_invalid",
+                None,
+                f"signed acts export extension is invalid: {exc}",
+            )
+        ]
+    if extension is None and not has_member:
+        return []
+    if extension is None:
+        return [
+            _failure(
+                "signed_acts_catalog_unbound",
+                None,
+                "066-signed-acts.cbor is present without trellis.export.signed-acts.v1",
+            )
+        ]
+    if not has_member:
+        return [
+            _failure(
+                "missing_signed_acts_catalog",
+                None,
+                "export is missing 066-signed-acts.cbor",
+            )
+        ]
+
+    findings: list[WosFinding] = []
+    catalog_bytes = archive[SIGNED_ACTS_MEMBER]
+    if extension["catalog_ref"] != SIGNED_ACTS_MEMBER:
+        findings.append(
+            _failure(
+                "signed_acts_catalog_invalid",
+                None,
+                f"signed acts catalog_ref must be {SIGNED_ACTS_MEMBER}, got {extension['catalog_ref']}",
+            )
+        )
+    if extension["derivation_rule"] != SIGNED_ACTS_DERIVATION_RULE:
+        findings.append(
+            _failure(
+                "signed_acts_catalog_invalid",
+                None,
+                f"signed acts derivation_rule must be {SIGNED_ACTS_DERIVATION_RULE}, got {extension['derivation_rule']}",
+            )
+        )
+    if core._sha256(catalog_bytes) != extension["catalog_digest"]:
+        findings.append(
+            _failure(
+                "signed_acts_catalog_digest_mismatch",
+                None,
+                "signed acts catalog digest does not match manifest extension",
+            )
+        )
+    try:
+        cbor2.loads(catalog_bytes)
+    except Exception as exc:
+        findings.append(
+            _failure(
+                "signed_acts_catalog_invalid",
+                None,
+                f"066-signed-acts.cbor is invalid CBOR: {exc}",
+            )
+        )
+        return findings
+    try:
+        derived = _derive_signed_acts_catalog(events, payload_blobs)
+    except core.VerifyError as exc:
+        findings.append(_failure("signed_acts_catalog_invalid", None, str(exc)))
+        return findings
+    if derived != catalog_bytes:
+        findings.append(
+            _failure(
+                "signed_acts_projection_mismatch",
+                None,
+                "signed acts catalog does not match deterministic WOS/Formspec derivation",
+            )
+        )
+    return findings
+
+
+def _derive_signed_acts_catalog(
+    events: list[core.ParsedSign1], payload_blobs: dict[bytes, bytes]
+) -> bytes:
+    acts: list[dict[str, Any]] = []
+    seen_source_refs: set[bytes] = set()
+    for event in events:
+        details = _event_details(event)
+        if details is None:
+            continue
+        if details.event_type == WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE:
+            payload = core._readable_payload_bytes(details, payload_blobs)
+            if payload is None:
+                raise core.VerifyError(
+                    f"signature affirmation payload unreadable for {details.canonical_event_hash.hex()}"
+                )
+            record = _parse_signature_affirmation_record(
+                payload, WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE
+            )
+            acts.append(_project_admitted_act(details, record))
+        elif details.event_type == WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE:
+            payload = core._readable_payload_bytes(details, payload_blobs)
+            if payload is None:
+                raise core.VerifyError(
+                    f"signature admission-failed payload unreadable for {details.canonical_event_hash.hex()}"
+                )
+            record = _parse_signature_admission_failed_record(
+                payload, WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE
+            )
+            acts.append(_project_rejected_act(details, record))
+
+    acts.sort(
+        key=lambda act: (
+            str(act["act_id"]),
+            str(act["signed_at"]),
+            cbor2.dumps(act["source_refs"][0], canonical=True),
+        )
+    )
+    for act in acts:
+        for source_ref in act["source_refs"]:
+            source_ref_bytes = cbor2.dumps(source_ref, canonical=True)
+            if source_ref_bytes in seen_source_refs:
+                raise core.VerifyError("signed acts projection repeats a source_ref")
+            seen_source_refs.add(source_ref_bytes)
+    return cbor2.dumps(
+        {
+            "projection_schema_version": 1,
+            "derivation_rule_id": SIGNED_ACTS_DERIVATION_RULE,
+            "acts": acts,
+        },
+        canonical=True,
+    )
+
+
+def _project_admitted_act(
+    details: core.EventDetails, record: dict[str, Any]
+) -> dict[str, Any]:
+    intent = record.get("signing_intent")
+    if not isinstance(intent, str):
+        raise core.VerifyError("signature affirmation missing signingIntent")
+    return {
+        "act_id": record["signing_act_id"],
+        "signer": {
+            "id": record["signer_id"],
+            "role": record["role"],
+            "role_ref": record["role_id"],
+            "identity_evidence_refs": [],
+        },
+        "bound": {
+            "subject_kind": "formspec-response",
+            "subject_hash": record.get("signed_payload_digest"),
+            "subject_hash_algorithm": record.get("signed_payload_digest_algorithm"),
+            "presentation_hash": record["presentation_hash"],
+            "document_id": record["document_id"],
+            "document_ref": record.get("document_ref"),
+            "content_hash": record["document_hash"],
+            "content_hash_algorithm": record["document_hash_algorithm"],
+        },
+        "intent": intent,
+        "consent": record["consent_reference"],
+        "admission": {
+            "outcome": "admitted",
+            "source_response_ref": record["source_response_ref"],
+            "source_signature_system": record.get("source_signature_system"),
+            "source_signature_id": record.get("source_signature_id"),
+            "signature_provider": record["signature_provider"],
+            "ceremony_id": record["ceremony_id"],
+            "profile_ref": record.get("profile_ref"),
+            "profile_key": record.get("profile_key"),
+            "signed_payload_digest": record.get("signed_payload_digest"),
+            "signed_payload_digest_algorithm": record.get(
+                "signed_payload_digest_algorithm"
+            ),
+            "primitive_verification": record.get("primitive_verification"),
+            "failure_reason": None,
+        },
+        "witness_of": record.get("witnessed_signature_ref"),
+        "signed_at": record["signed_at"],
+        "source_refs": _sorted_source_refs(
+            [_source_ref(details, "signature-affirmation")]
+        ),
+    }
+
+
+def _project_rejected_act(
+    details: core.EventDetails, record: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "act_id": record["signature_id"],
+        "signer": {
+            "id": record.get("signer_id"),
+            "role": None,
+            "role_ref": None,
+            "identity_evidence_refs": [],
+        },
+        "bound": {
+            "subject_kind": "formspec-response",
+            "subject_hash": record["signed_payload_digest"],
+            "subject_hash_algorithm": None,
+            "presentation_hash": None,
+            "document_id": None,
+            "document_ref": None,
+            "content_hash": record["signed_payload_digest"],
+            "content_hash_algorithm": None,
+        },
+        "intent": record["signing_intent"],
+        "consent": None,
+        "admission": {
+            "outcome": "rejected",
+            "source_response_ref": record["response_id"],
+            "source_signature_system": None,
+            "source_signature_id": record["signature_id"],
+            "signature_provider": None,
+            "ceremony_id": None,
+            "profile_ref": None,
+            "profile_key": None,
+            "signed_payload_digest": record["signed_payload_digest"],
+            "signed_payload_digest_algorithm": None,
+            "primitive_verification": None,
+            "failure_reason": record["reason"],
+        },
+        "witness_of": None,
+        "signed_at": record["emitted_at"],
+        "source_refs": _sorted_source_refs(
+            [_source_ref(details, "signature-admission-failed")]
+        ),
+    }
+
+
+def _source_ref(details: core.EventDetails, kind: str) -> dict[str, Any]:
+    return {
+        "layer": "wos",
+        "kind": kind,
+        "ref": details.canonical_event_hash,
+    }
+
+
+def _sorted_source_refs(source_refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        source_refs,
+        key=lambda ref: (
+            str(ref["layer"]),
+            str(ref["kind"]),
+            cbor2.dumps(ref["ref"], canonical=True),
+        ),
+    )
 
 
 def _validate_signature_catalog(
@@ -782,6 +1067,7 @@ def _parse_signature_affirmation_record(
         "role_id": str(core._map_lookup_str(data, "roleId")),
         "role": str(core._map_lookup_str(data, "role")),
         "document_id": str(core._map_lookup_str(data, "documentId")),
+        "document_ref": data.get("documentRef"),
         "document_hash": str(core._map_lookup_str(data, "documentHash")),
         "document_hash_algorithm": str(
             core._map_lookup_str(data, "documentHashAlgorithm")
@@ -811,6 +1097,32 @@ def _parse_signature_affirmation_record(
         "source_response_ref": core._map_lookup_str_alias(
             data, "sourceResponseRef", "formspecResponseRef"
         ),
+        "signing_act_id": str(core._map_lookup_str(data, "signingActId")),
+        "presentation_hash": str(core._map_lookup_str(data, "presentationHash")),
+        "primitive_verification": data.get("primitiveVerification"),
+        "witnessed_signature_ref": _optional_str(data.get("witnessedSignatureRef")),
+    }
+
+
+def _parse_signature_admission_failed_record(
+    payload_bytes: bytes, expected_event: str
+) -> dict[str, Any]:
+    v = core._decode_value(payload_bytes)
+    if not isinstance(v, dict):
+        raise core.VerifyError("signature admission-failed payload root is not a map")
+    _require_event(v, expected_event, "signature admission failed")
+    data = core._map_lookup_map(v, "data")
+    evidence = core._map_lookup_map(data, "evidenceBindings")
+    return {
+        "reason": str(core._map_lookup_str(data, "reason")),
+        "response_id": str(core._map_lookup_str(evidence, "responseId")),
+        "signed_payload_digest": str(
+            core._map_lookup_str(evidence, "signedPayloadDigest")
+        ),
+        "signature_id": str(core._map_lookup_str(evidence, "signatureId")),
+        "signing_intent": str(core._map_lookup_str(evidence, "signingIntent")),
+        "signer_id": _optional_str(data.get("signerId")),
+        "emitted_at": str(core._map_lookup_str(data, "emittedAt")),
     }
 
 

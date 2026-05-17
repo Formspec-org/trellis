@@ -48,6 +48,11 @@ pub const SIGNING_KEY_REGISTRY_MEMBER: &str = "030-signing-key-registry.cbor";
 pub const WITNESS_KEY_REGISTRY_MEMBER: &str = "031-witness-key-registry.cbor";
 pub const CHECKPOINTS_MEMBER: &str = "040-checkpoints.cbor";
 pub const REGISTRY_DIR: &str = "050-registries";
+/// Composition-owned SignedAct projection catalog.
+///
+/// Trellis binds the bytes in the export manifest, but WOS/Formspec profile
+/// validators own the projection semantics and deterministic re-derivation.
+pub const SIGNED_ACTS_MEMBER: &str = "066-signed-acts.cbor";
 pub const VERIFY_MEMBER: &str = "090-verify.sh";
 pub const README_MEMBER: &str = "098-README.md";
 
@@ -110,6 +115,13 @@ pub struct RegistrySnapshot {
     pub registry_format: u64,
     pub registry_version: String,
     pub bound_at_sequence: u64,
+}
+
+/// Caller-supplied verifier-facing SignedAct projection catalog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedActsCatalogMember {
+    pub bytes: Vec<u8>,
+    pub derivation_rule: String,
 }
 
 /// Export posture declaration carried in the manifest and rendered into the
@@ -211,6 +223,12 @@ pub struct ExportWriterInput {
     /// If [`Self::extensions`] already includes that key, the writer replaces it
     /// with values derived from this registry so the manifest matches the member.
     pub witness_key_registry: Option<WitnessKeyRegistry>,
+    /// Optional composition-owned `066-signed-acts.cbor` projection catalog.
+    ///
+    /// The writer verifies only byte carriage preconditions and binds the member
+    /// digest. WOS/Formspec verifiers re-derive the catalog from layered records
+    /// and decide whether the projection is semantically usable.
+    pub signed_acts_catalog: Option<SignedActsCatalogMember>,
 }
 
 /// Complete export writer output.
@@ -366,6 +384,12 @@ pub fn write_export(input: ExportWriterInput) -> Result<ExportPackage, StackErro
             bytes,
         ));
     }
+    if let Some(catalog) = &input.signed_acts_catalog {
+        bundle.add_entry(BundleEntry::new(
+            format!("{root_dir}/{SIGNED_ACTS_MEMBER}"),
+            catalog.bytes.clone(),
+        ));
+    }
     bundle.add_entry(BundleEntry::new(
         format!("{root_dir}/{CHECKPOINTS_MEMBER}"),
         checkpoints_cbor,
@@ -401,27 +425,37 @@ pub fn write_export(input: ExportWriterInput) -> Result<ExportPackage, StackErro
 
 /// Core §18.3d manifest.extensions key binding `031-witness-key-registry.cbor`.
 const WITNESS_REGISTRY_MANIFEST_EXTENSION: &str = "trellis.export.witness-key-registry.v1";
+/// Composition-owned manifest extension binding `066-signed-acts.cbor`.
+const SIGNED_ACTS_MANIFEST_EXTENSION: &str = "trellis.export.signed-acts.v1";
 
 fn manifest_extensions_value(
     input: &ExportWriterInput,
     registry: Option<&WitnessKeyRegistry>,
     witness_registry_cbor: Option<&[u8]>,
 ) -> Result<Value, StackError> {
-    match (registry, witness_registry_cbor) {
-        (None, None) => Ok(input.extensions.clone().unwrap_or(Value::Null)),
+    let with_witness = match (registry, witness_registry_cbor) {
+        (None, None) => input.extensions.clone(),
         (Some(registry), Some(cbor)) => {
             let entry_count = u64::try_from(registry.entries.len()).map_err(|_| {
                 StackError::internal("witness registry entry count exceeds u64::MAX")
             })?;
-            merge_witness_registry_manifest_extension(
+            Some(merge_witness_registry_manifest_extension(
                 input.extensions.as_ref(),
                 sha256_bytes(cbor),
                 entry_count,
-            )
+            )?)
         }
         (None, Some(_)) | (Some(_), None) => Err(StackError::internal(
             "witness_key_registry field and encoded witness registry bytes disagree",
-        )),
+        ))?,
+    };
+    match &input.signed_acts_catalog {
+        None => Ok(with_witness.unwrap_or(Value::Null)),
+        Some(catalog) => merge_signed_acts_manifest_extension(
+            with_witness.as_ref(),
+            sha256_bytes(&catalog.bytes),
+            &catalog.derivation_rule,
+        ),
     }
 }
 
@@ -446,6 +480,32 @@ fn merge_witness_registry_manifest_extension(
     pairs.push((
         Value::Text(WITNESS_REGISTRY_MANIFEST_EXTENSION.to_string()),
         witness_payload,
+    ));
+    canonical_map(pairs)
+}
+
+fn merge_signed_acts_manifest_extension(
+    base_extensions: Option<&Value>,
+    digest: [u8; 32],
+    derivation_rule: &str,
+) -> Result<Value, StackError> {
+    let mut pairs: Vec<(Value, Value)> = Vec::new();
+    if let Some(Value::Map(entries)) = base_extensions {
+        for (key, value) in entries {
+            if key.as_text() == Some(SIGNED_ACTS_MANIFEST_EXTENSION) {
+                continue;
+            }
+            pairs.push((key.clone(), value.clone()));
+        }
+    }
+    let signed_acts_payload = text_map(vec![
+        ("catalog_digest", Value::Bytes(digest.to_vec())),
+        ("catalog_ref", Value::Text(SIGNED_ACTS_MEMBER.to_string())),
+        ("derivation_rule", Value::Text(derivation_rule.to_string())),
+    ])?;
+    pairs.push((
+        Value::Text(SIGNED_ACTS_MANIFEST_EXTENSION.to_string()),
+        signed_acts_payload,
     ));
     canonical_map(pairs)
 }
@@ -496,6 +556,33 @@ fn validate_top_level_input(input: &ExportWriterInput) -> Result<(), StackError>
             return Err(StackError::bad_request(
                 "manifest extensions include trellis.export.witness-key-registry.v1 \
                  but witness_key_registry was not provided",
+            ));
+        }
+    }
+    if input.signed_acts_catalog.is_none() {
+        if let Some(Value::Map(entries)) = &input.extensions
+            && entries
+                .iter()
+                .any(|(key, _)| key.as_text() == Some(SIGNED_ACTS_MANIFEST_EXTENSION))
+        {
+            return Err(StackError::bad_request(
+                "manifest extensions include trellis.export.signed-acts.v1 \
+                 but signed_acts_catalog was not provided",
+            ));
+        }
+    }
+    if let Some(catalog) = &input.signed_acts_catalog {
+        if catalog.bytes.is_empty() {
+            return Err(StackError::bad_request(
+                "signed_acts_catalog bytes must not be empty",
+            ));
+        }
+        decode_cbor_value(&catalog.bytes).map_err(|error| {
+            StackError::bad_request(format!("signed_acts_catalog is invalid CBOR: {error}"))
+        })?;
+        if catalog.derivation_rule.trim().is_empty() {
+            return Err(StackError::bad_request(
+                "signed_acts_catalog derivation_rule must not be empty",
             ));
         }
     }
@@ -1298,6 +1385,7 @@ mod tests {
             external_anchors: Vec::new(),
             extensions: None,
             witness_key_registry: None,
+            signed_acts_catalog: None,
         };
         let error = write_export(input).expect_err("empty export must reject");
         assert!(error.to_string().contains("requires at least one"));
@@ -1441,6 +1529,99 @@ mod tests {
         assert_eq!(
             map_lookup_u64(binding_map, "entry_count").expect("entry_count"),
             0
+        );
+    }
+
+    #[test]
+    fn write_export_binds_signed_acts_catalog_when_provided() {
+        let root = fixtures_root();
+        let mut input = crate::export_001_writer_input(root.as_path());
+        let catalog = SignedActsCatalogMember {
+            bytes: encode_value(
+                &text_map(vec![
+                    ("projection_schema_version", uint(1)),
+                    (
+                        "acts",
+                        Value::Array(vec![
+                            text_map(vec![
+                                ("act_id", Value::Text("act-001".to_string())),
+                                ("outcome", Value::Text("admitted".to_string())),
+                            ])
+                            .expect("act"),
+                        ]),
+                    ),
+                ])
+                .expect("catalog"),
+            )
+            .expect("catalog bytes"),
+            derivation_rule: "signed-act-projection-test-v1".to_string(),
+        };
+        let expected_digest = sha256_bytes(&catalog.bytes);
+        input.signed_acts_catalog = Some(catalog);
+
+        let package = write_export(input).expect("write export");
+        let member = package
+            .member_bytes(SIGNED_ACTS_MEMBER)
+            .expect("066 signed acts member");
+        assert_eq!(sha256_bytes(member), expected_digest);
+
+        let manifest = decode_cbor_value(&package.manifest_payload).expect("manifest CBOR");
+        let map = manifest.as_map().expect("manifest map");
+        let extensions = map_lookup_map(map, "extensions").expect("extensions");
+        let binding_map = extensions
+            .iter()
+            .find(|(k, _)| k.as_text() == Some(SIGNED_ACTS_MANIFEST_EXTENSION))
+            .map(|(_, v)| v.as_map().expect("binding"))
+            .expect("signed acts extension");
+        assert_eq!(
+            map_lookup_bytes(binding_map, "catalog_digest")
+                .expect("catalog_digest")
+                .as_slice(),
+            expected_digest.as_slice()
+        );
+        assert_eq!(
+            binding_map
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("catalog_ref"))
+                .and_then(|(_, value)| value.as_text()),
+            Some(SIGNED_ACTS_MEMBER)
+        );
+        assert_eq!(
+            binding_map
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("derivation_rule"))
+                .and_then(|(_, value)| value.as_text()),
+            Some("signed-act-projection-test-v1")
+        );
+    }
+
+    #[test]
+    fn rejects_signed_acts_manifest_extension_without_catalog() {
+        let root = fixtures_root();
+        let mut input = crate::export_001_writer_input(root.as_path());
+        let stale_binding = text_map(vec![
+            ("catalog_digest", Value::Bytes([0xbb; 32].to_vec())),
+            ("catalog_ref", Value::Text(SIGNED_ACTS_MEMBER.to_string())),
+            (
+                "derivation_rule",
+                Value::Text("signed-act-projection-test-v1".to_string()),
+            ),
+        ])
+        .expect("stale signed acts binding");
+        input.extensions = Some(
+            canonical_map(vec![(
+                Value::Text(SIGNED_ACTS_MANIFEST_EXTENSION.to_string()),
+                stale_binding,
+            )])
+            .expect("extensions map"),
+        );
+        input.signed_acts_catalog = None;
+        let error = write_export(input).expect_err("extension without catalog must reject");
+        assert!(
+            error
+                .to_string()
+                .contains("signed_acts_catalog was not provided"),
+            "{error}"
         );
     }
 

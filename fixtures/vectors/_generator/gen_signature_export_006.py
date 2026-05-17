@@ -43,11 +43,16 @@ KEY_ISSUER_001 = ROOT / "_keys" / "issuer-001.cose_key"
 
 OUT_EXPORT_006 = ROOT / "export" / "006-signature-affirmations-inline"
 OUT_VERIFY_014 = ROOT / "verify" / "014-export-006-signature-row-mismatch"
+OUT_VERIFY_019 = ROOT / "verify" / "019-export-006-signed-acts-projection-mismatch"
 OUT_TAMPER_014 = ROOT / "tamper" / "014-signature-catalog-digest-mismatch"
+OUT_TAMPER_055 = ROOT / "tamper" / "055-signed-acts-catalog-digest-mismatch"
 
 TAG_TRELLIS_CHECKPOINT_V1 = "trellis-checkpoint-v1"
 TAG_TRELLIS_MERKLE_LEAF_V1 = "trellis-merkle-leaf-v1"
 EXTENSION_KEY = "trellis.export.signature-affirmations.v1"
+SIGNED_ACTS_EXTENSION_KEY = "trellis.export.signed-acts.v1"
+SIGNED_ACTS_MEMBER = "066-signed-acts.cbor"
+SIGNED_ACTS_DERIVATION_RULE = "signed-act-projection-wos-formspec-v1"
 
 
 def sha256(data: bytes) -> bytes:
@@ -168,7 +173,7 @@ def signature_catalog_entry(canonical_event_hash: bytes, wos_record: dict) -> di
     presentation_hash = data.get("presentationHash") or data["documentHash"]
     signing_act_id = str(signing_act_id)
     presentation_hash = str(presentation_hash)
-    return {
+    entry = {
         "canonical_event_hash": canonical_event_hash,
         "signing_act_id": signing_act_id,
         "presentation_hash": presentation_hash,
@@ -184,8 +189,102 @@ def signature_catalog_entry(canonical_event_hash: bytes, wos_record: dict) -> di
         "signature_provider": data["signatureProvider"],
         "ceremony_id": data["ceremonyId"],
         "profile_ref": data["profileRef"],
-        "formspec_response_ref": data["formspecResponseRef"],
+        "formspec_response_ref": data.get("sourceResponseRef") or data["formspecResponseRef"],
     }
+    for source_key, catalog_key in [
+        ("sourceSignatureSystem", "source_signature_system"),
+        ("sourceSignatureId", "source_signature_id"),
+        ("signedPayloadDigest", "signed_payload_digest"),
+        ("signedPayloadDigestAlgorithm", "signed_payload_digest_algorithm"),
+        ("signingIntent", "signing_intent"),
+        ("profileKey", "profile_key"),
+        ("witnessedSignatureRef", "witnessed_signature_ref"),
+    ]:
+        if source_key in data:
+            entry[catalog_key] = data[source_key]
+    return entry
+
+
+def source_ref(canonical_event_hash: bytes, kind: str) -> dict:
+    return {
+        "layer": "wos",
+        "kind": kind,
+        "ref": canonical_event_hash,
+    }
+
+
+def sorted_source_refs(refs: list[dict]) -> list[dict]:
+    return sorted(
+        refs,
+        key=lambda ref: (
+            ref["layer"],
+            ref["kind"],
+            dcbor(ref["ref"]),
+        ),
+    )
+
+
+def signed_act_projection(canonical_event_hash: bytes, wos_record: dict) -> dict:
+    data = wos_record["data"]
+    source_response_ref = data.get("sourceResponseRef") or data["formspecResponseRef"]
+    return {
+        "act_id": data["signingActId"],
+        "signer": {
+            "id": data["signerId"],
+            "role": data["role"],
+            "role_ref": data["roleId"],
+            "identity_evidence_refs": [],
+        },
+        "bound": {
+            "subject_kind": "formspec-response",
+            "subject_hash": data.get("signedPayloadDigest"),
+            "subject_hash_algorithm": data.get("signedPayloadDigestAlgorithm"),
+            "presentation_hash": data["presentationHash"],
+            "document_id": data["documentId"],
+            "document_ref": data.get("documentRef"),
+            "content_hash": data["documentHash"],
+            "content_hash_algorithm": data["documentHashAlgorithm"],
+        },
+        "intent": data["signingIntent"],
+        "consent": data["consentReference"],
+        "admission": {
+            "outcome": "admitted",
+            "source_response_ref": source_response_ref,
+            "source_signature_system": data.get("sourceSignatureSystem"),
+            "source_signature_id": data.get("sourceSignatureId"),
+            "signature_provider": data["signatureProvider"],
+            "ceremony_id": data["ceremonyId"],
+            "profile_ref": data.get("profileRef"),
+            "profile_key": data.get("profileKey"),
+            "signed_payload_digest": data.get("signedPayloadDigest"),
+            "signed_payload_digest_algorithm": data.get("signedPayloadDigestAlgorithm"),
+            "primitive_verification": data.get("primitiveVerification"),
+            "failure_reason": None,
+        },
+        "witness_of": data.get("witnessedSignatureRef"),
+        "signed_at": data["signedAt"],
+        "source_refs": sorted_source_refs(
+            [source_ref(canonical_event_hash, "signature-affirmation")]
+        ),
+    }
+
+
+def signed_acts_catalog(canonical_event_hash: bytes, wos_record: dict) -> bytes:
+    acts = [signed_act_projection(canonical_event_hash, wos_record)]
+    acts.sort(
+        key=lambda act: (
+            act["act_id"],
+            act["signed_at"],
+            dcbor(act["source_refs"][0]),
+        )
+    )
+    return dcbor(
+        {
+            "projection_schema_version": 1,
+            "derivation_rule_id": SIGNED_ACTS_DERIVATION_RULE,
+            "acts": acts,
+        }
+    )
 
 
 def build_export_006() -> None:
@@ -246,14 +345,17 @@ def build_export_006() -> None:
 
     signature_catalog = dcbor([signature_catalog_entry(canonical_event_hash, wos_record)])
     members_data["062-signature-affirmations.cbor"] = signature_catalog
+    signed_acts = signed_acts_catalog(canonical_event_hash, wos_record)
+    members_data[SIGNED_ACTS_MEMBER] = signed_acts
 
     members_data["090-verify.sh"] = trellis_cli_verify_script()
     members_data["098-README.md"] = (
         "# Trellis Export (Fixture) — export/006-signature-affirmations-inline\n\n"
         "WOS-T4 signature export fixture. `062-signature-affirmations.cbor` is a "
         "chain-derived catalog over a readable WOS `SignatureAffirmation` payload "
-        "and is intended as machine-verifiable input to certificate-of-completion "
-        "renderers. The human-facing certificate remains a derived artifact.\n"
+        "and `066-signed-acts.cbor` is the verifier-facing signing projection. "
+        "Both are re-derived from signed chain records; neither creates new "
+        "semantic authority.\n"
     ).encode("utf-8")
 
     manifest_payload = {
@@ -293,7 +395,12 @@ def build_export_006() -> None:
         "extensions": {
             EXTENSION_KEY: {
                 "signature_catalog_digest": sha256(signature_catalog),
-            }
+            },
+            SIGNED_ACTS_EXTENSION_KEY: {
+                "catalog_digest": sha256(signed_acts),
+                "catalog_ref": SIGNED_ACTS_MEMBER,
+                "derivation_rule": SIGNED_ACTS_DERIVATION_RULE,
+            },
         },
     }
     members_data["000-manifest.cbor"] = cose_sign1(seed, kid, dcbor(manifest_payload), ARTIFACT_TYPE_MANIFEST)
@@ -323,7 +430,7 @@ def build_export_006() -> None:
         f'''id          = "export/006-signature-affirmations-inline"
 op          = "export"
 status      = "active"
-description = """Single-event WOS-T4 export that carries a WOS `SignatureAffirmation` event and binds `062-signature-affirmations.cbor` through `trellis.export.signature-affirmations.v1`."""
+description = """Single-event WOS-T4 export that carries a WOS `SignatureAffirmation` event, binds `062-signature-affirmations.cbor` through `trellis.export.signature-affirmations.v1`, and binds verifier-facing `066-signed-acts.cbor` through `trellis.export.signed-acts.v1`."""
 
 [coverage]
 tr_core = [
@@ -362,12 +469,15 @@ It starts from `append/019-wos-signature-affirmation`, packages that canonical
 event as the only event in the export, and derives
 `062-signature-affirmations.cbor` from the readable WOS-authored
 `SignatureAffirmation` payload already carried inside the signed event.
+It also derives `066-signed-acts.cbor`, a verifier-facing projection over the
+same signed record with nested signer, bound-subject, consent, admission, and
+source-reference sections.
 
-The catalog is chain-derived rather than independently authored: each row names
+Both catalogs are chain-derived rather than independently authored. Each row names
 the admitting `canonical_event_hash` and repeats the WOS evidence fields needed
-for a certificate-of-completion renderer to summarize the signing act without
-redefining canonical authority. The human-facing certificate remains a derived
-artifact; the signed Trellis export remains the authority.
+for verifier/reporting surfaces to summarize the signing act without redefining
+canonical authority. The human-facing certificate remains a derived artifact;
+the signed Trellis export remains the authority.
 """,
     )
 
@@ -432,6 +542,70 @@ matches the chain-authored WOS `SignatureAffirmation` payload.
     )
 
 
+def write_signed_acts_verify_vector() -> None:
+    root_dir, members, data, manifest_payload = export_members_from_dir(OUT_EXPORT_006)
+    catalog = cbor2.loads(data[SIGNED_ACTS_MEMBER])
+    tampered_catalog = copy.deepcopy(catalog)
+    tampered_catalog["acts"][0]["signer"]["id"] = "delegate"
+    catalog_bytes = dcbor(tampered_catalog)
+    data_verify = dict(data)
+    data_verify[SIGNED_ACTS_MEMBER] = catalog_bytes
+
+    seed, pubkey = load_seed_and_pubkey(KEY_ISSUER_001)
+    kid = derive_kid(SUITE_ID_PHASE_1, pubkey)
+    manifest_payload_verify = copy.deepcopy(manifest_payload)
+    manifest_payload_verify["extensions"][SIGNED_ACTS_EXTENSION_KEY][
+        "catalog_digest"
+    ] = sha256(catalog_bytes)
+    data_verify["000-manifest.cbor"] = cose_sign1(
+        seed, kid, dcbor(manifest_payload_verify), ARTIFACT_TYPE_MANIFEST
+    )
+
+    OUT_VERIFY_019.mkdir(parents=True, exist_ok=True)
+    write_zip(
+        OUT_VERIFY_019 / "input-export.zip",
+        root_dir=root_dir,
+        members=members,
+        data=data_verify,
+    )
+    write_text(
+        OUT_VERIFY_019 / "manifest.toml",
+        '''id          = "verify/019-export-006-signed-acts-projection-mismatch"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the verifier-facing SignedAct projection. Starts from `export/006-signature-affirmations-inline`, mutates `066-signed-acts.cbor`, recomputes its manifest extension digest, and re-signs the export manifest so archive structure stays valid while the projection no longer matches signed WOS source records."""
+
+[coverage]
+tr_core = ["TR-CORE-067"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_projection_mismatch"
+
+[derivation]
+document = "derivation.md"
+''',
+    )
+    write_text(
+        OUT_VERIFY_019 / "derivation.md",
+        """# Derivation — `verify/019-export-006-signed-acts-projection-mismatch`
+
+This fixture starts from `export/006-signature-affirmations-inline`, mutates
+`066-signed-acts.cbor`, recomputes the `catalog_digest` under
+`trellis.export.signed-acts.v1`, and re-signs `000-manifest.cbor`. The ZIP
+remains structurally valid and all manifest digests match archive contents, but
+the SignedAct projection no longer matches the signed WOS
+`SignatureAffirmation` payload.
+""",
+    )
+
+
 def write_tamper_vector() -> None:
     root_dir, members, data, _manifest_payload = export_members_from_dir(OUT_EXPORT_006)
     catalog = cbor2.loads(data["062-signature-affirmations.cbor"])
@@ -482,10 +656,63 @@ digest bound by `trellis.export.signature-affirmations.v1.signature_catalog_dige
     )
 
 
+def write_signed_acts_tamper_vector() -> None:
+    root_dir, members, data, _manifest_payload = export_members_from_dir(OUT_EXPORT_006)
+    catalog = cbor2.loads(data[SIGNED_ACTS_MEMBER])
+    tampered_catalog = copy.deepcopy(catalog)
+    tampered_catalog["acts"][0]["admission"]["outcome"] = "rejected"
+    data_tampered = dict(data)
+    data_tampered[SIGNED_ACTS_MEMBER] = dcbor(tampered_catalog)
+
+    OUT_TAMPER_055.mkdir(parents=True, exist_ok=True)
+    write_zip(
+        OUT_TAMPER_055 / "input-export.zip",
+        root_dir=root_dir,
+        members=members,
+        data=data_tampered,
+    )
+    write_text(
+        OUT_TAMPER_055 / "manifest.toml",
+        '''id          = "tamper/055-signed-acts-catalog-digest-mismatch"
+op          = "tamper"
+status      = "active"
+description = """SignedAct projection export tamper. Mutates `066-signed-acts.cbor` after manifest signing so the required archive spine remains intact but the `trellis.export.signed-acts.v1.catalog_digest` check fails."""
+
+[coverage]
+tr_core = ["TR-CORE-061"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+tamper_kind          = "signed_acts_catalog_digest_mismatch"
+
+[derivation]
+document = "derivation.md"
+''',
+    )
+    write_text(
+        OUT_TAMPER_055 / "derivation.md",
+        """# Derivation — `tamper/055-signed-acts-catalog-digest-mismatch`
+
+This fixture starts from `export/006-signature-affirmations-inline`, mutates
+`066-signed-acts.cbor`, and leaves the signed `000-manifest.cbor` unchanged.
+The verifier must localize the failure to the SignedAct projection catalog
+digest bound by `trellis.export.signed-acts.v1.catalog_digest`.
+""",
+    )
+
+
 def main() -> None:
     build_export_006()
     write_verify_vector()
+    write_signed_acts_verify_vector()
     write_tamper_vector()
+    write_signed_acts_tamper_vector()
 
 
 if __name__ == "__main__":

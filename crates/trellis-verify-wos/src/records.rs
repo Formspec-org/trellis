@@ -71,6 +71,7 @@ pub(crate) struct SignatureAffirmationRecordDetails {
     pub(crate) role_id: String,
     pub(crate) role: String,
     pub(crate) document_id: String,
+    pub(crate) document_ref: Option<Value>,
     pub(crate) document_hash: String,
     pub(crate) document_hash_algorithm: String,
     pub(crate) signed_at: String,
@@ -89,6 +90,18 @@ pub(crate) struct SignatureAffirmationRecordDetails {
     pub(crate) signing_act_id: String,
     pub(crate) presentation_hash: String,
     pub(crate) witnessed_signature_ref: Option<String>,
+    pub(crate) primitive_verification: Value,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SignatureAdmissionFailedRecordDetails {
+    pub(crate) reason: String,
+    pub(crate) response_id: String,
+    pub(crate) signed_payload_digest: String,
+    pub(crate) signature_id: String,
+    pub(crate) signing_intent: String,
+    pub(crate) signer_id: Option<String>,
+    pub(crate) emitted_at: String,
 }
 
 #[derive(Clone, Debug)]
@@ -256,6 +269,7 @@ pub(crate) fn parse_signature_affirmation_record(
         role_id: map_lookup_text(data, "roleId")?,
         role: map_lookup_text(data, "role")?,
         document_id: map_lookup_text(data, "documentId")?,
+        document_ref: map_lookup_optional_value(data, "documentRef").cloned(),
         document_hash: map_lookup_text(data, "documentHash")?,
         document_hash_algorithm: map_lookup_text(data, "documentHashAlgorithm")?,
         signed_at: map_lookup_text(data, "signedAt")?,
@@ -273,10 +287,39 @@ pub(crate) fn parse_signature_affirmation_record(
         signing_intent: map_lookup_optional_text(data, "signingIntent")?,
         profile_ref: map_lookup_optional_text(data, "profileRef")?,
         profile_key: map_lookup_optional_text(data, "profileKey")?,
-        formspec_response_ref: map_lookup_text(data, "formspecResponseRef")?,
+        formspec_response_ref: map_lookup_text_alias(
+            data,
+            "sourceResponseRef",
+            "formspecResponseRef",
+        )?,
         signing_act_id: map_lookup_text(data, "signingActId")?,
         presentation_hash: map_lookup_text(data, "presentationHash")?,
         witnessed_signature_ref: map_lookup_optional_text(data, "witnessedSignatureRef")?,
+        primitive_verification: map_lookup_optional_value(data, "primitiveVerification")
+            .cloned()
+            .unwrap_or(Value::Null),
+    })
+}
+
+pub(crate) fn parse_signature_admission_failed_record(
+    payload_bytes: &[u8],
+    expected_event: &str,
+) -> Result<SignatureAdmissionFailedRecordDetails, ParseError> {
+    let value = decode_value(payload_bytes)?;
+    let map = value
+        .as_map()
+        .ok_or_else(|| "signature admission-failed payload root is not a map".to_string())?;
+    require_event(map, expected_event, "signature admission failed")?;
+    let data = map_lookup_map(map, "data")?;
+    let evidence = map_lookup_map(data, "evidenceBindings")?;
+    Ok(SignatureAdmissionFailedRecordDetails {
+        reason: map_lookup_text(data, "reason")?,
+        response_id: map_lookup_text(evidence, "responseId")?,
+        signed_payload_digest: map_lookup_text(evidence, "signedPayloadDigest")?,
+        signature_id: map_lookup_text(evidence, "signatureId")?,
+        signing_intent: map_lookup_text(evidence, "signingIntent")?,
+        signer_id: map_lookup_optional_text(data, "signerId")?,
+        emitted_at: map_lookup_text(data, "emittedAt")?,
     })
 }
 
@@ -433,6 +476,20 @@ fn map_lookup_optional_text(
         Value::Null => Ok(None),
         _ => Err(format!("{key} must be text or null").into()),
     }
+}
+
+fn map_lookup_text_alias(
+    map: &[(Value, Value)],
+    preferred: &str,
+    legacy: &str,
+) -> Result<String, ParseError> {
+    if let Some(value) = map_lookup_optional_value(map, preferred) {
+        return match value {
+            Value::Text(text) => Ok(text.clone()),
+            _ => Err(format!("{preferred} must be text").into()),
+        };
+    }
+    map_lookup_text(map, legacy).map_err(ParseError::from)
 }
 
 fn first_array_text(values: &[Value]) -> Option<String> {

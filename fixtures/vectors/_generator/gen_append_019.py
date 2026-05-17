@@ -62,8 +62,19 @@ WOS_RECORD = {
         "roleId": "applicantSigner",
         "role": "signer",
         "documentId": "benefitsApplication",
+        "documentRef": {
+            "documentId": "benefitsApplication",
+            "locale": "en-US",
+        },
         "documentHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "presentationHash": "fedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedcbafedc",
         "documentHashAlgorithm": "sha-256",
+        "sourceSignatureSystem": "formspec",
+        "sourceSignatureId": "sig-2026-0001",
+        "signingActId": "signing-act-2026-0001",
+        "signedPayloadDigest": "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+        "signedPayloadDigestAlgorithm": "sha-256",
+        "signingIntent": "urn:wos:signing-intent:applicant-signature",
         "signedAt": "2026-04-22T12:00:00Z",
         "identityBinding": {
             "method": "email-otp",
@@ -80,6 +91,10 @@ WOS_RECORD = {
         "ceremonyId": "ceremony-2026-0001",
         "profileRef": "urn:agency.gov:wos:signature-profile:benefits:v1",
         "formspecResponseRef": "https://example.org/forms/signature-attestation#responses/resp-2026-0001",
+        "primitiveVerification": {
+            "status": "verified",
+        },
+        "witnessedSignatureRef": None,
         "custodyHookEligible": True,
     },
 }

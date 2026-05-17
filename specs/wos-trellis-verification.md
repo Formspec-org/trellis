@@ -35,6 +35,7 @@ The WOS validator owns the following event-type literals:
 | Literal | Meaning |
 |---|---|
 | `wos.kernel.signature_affirmation` | Signature provenance event. |
+| `wos.kernel.signature_admission_failed` | Failed signature-admission provenance event. |
 | `wos.kernel.intake_accepted` | Intake-acceptance provenance event. |
 | `wos.kernel.case_created` | Governed-case creation provenance event. |
 | `wos.governance.determination_rescinded` | Rescission closes the current determination chain. |
@@ -62,8 +63,58 @@ These literals MUST NOT be required by a Trellis Core verifier.
 | WOS-TV-011 | If `handoff.initiationMode = "workflowInitiated"`, `case_created_event_hash` MUST be absent. If `handoff.initiationMode = "publicIntake"`, `case_created_event_hash` MUST be present. |
 | WOS-TV-012 | Intake catalog rows MUST NOT duplicate `intake_event_hash`. |
 | WOS-TV-013 | If `trellis.export.open-clocks.v1` is present, each `open-clocks.json` row whose `computed_deadline` is before catalog `sealed_at` MUST be reported as an advisory WOS finding. This advisory MUST NOT by itself fail composed integrity. |
+| WOS-TV-014 | If `trellis.export.signed-acts.v1` is present, `066-signed-acts.cbor` MUST be present. If `066-signed-acts.cbor` is present without the extension, the WOS validator MUST report `signed_acts_catalog_unbound`. |
+| WOS-TV-015 | The `trellis.export.signed-acts.v1` extension MUST be a CBOR map carrying `catalog_digest`, `catalog_ref = "066-signed-acts.cbor"`, and `derivation_rule = "signed-act-projection-wos-formspec-v1"`. Invalid extension shape or an invalid catalog member is `signed_acts_catalog_invalid`; absent member is `missing_signed_acts_catalog`. |
+| WOS-TV-016 | The SHA-256 digest of `066-signed-acts.cbor` MUST equal `catalog_digest`. A mismatch is `signed_acts_catalog_digest_mismatch`. |
+| WOS-TV-017 | The WOS validator MUST deterministically rederive the SignedAct catalog from every readable exported `wos.kernel.signature_affirmation` and `wos.kernel.signature_admission_failed` event. The committed member MUST byte-equal that derivation. A mismatch is `signed_acts_projection_mismatch`. |
+| WOS-TV-018 | The SignedAct catalog root MUST be canonical CBOR with `projection_schema_version = 1`, `derivation_rule_id = "signed-act-projection-wos-formspec-v1"`, and `acts`. Rows MUST be sorted by `(act_id, signed_at, first source_ref canonical bytes)`, and every `source_refs` entry MUST be unique across the catalog. |
+| WOS-TV-019 | A SignedAct row derived from `wos.kernel.signature_affirmation` MUST project signer, bound subject, intent, consent, admission, witness, timestamp, and source-reference fields from the signed WOS record only; missing `signingIntent` is a closed failure, not an advisory. |
+| WOS-TV-020 | A SignedAct row derived from `wos.kernel.signature_admission_failed` MUST set `admission.outcome = "rejected"` and carry the failure reason and evidence-binding values from the signed WOS record. |
+| WOS-TV-021 | `066-signed-acts.cbor` is a verifier/reporting projection only. A WOS validator MUST NOT accept a signature, failure, signer, response reference, or bound-subject claim solely because it appears in the projection; the signed source event remains the authority. |
 
-## 4. WOS Tamper Kinds
+## 4. SignedAct Projection
+
+`066-signed-acts.cbor` is the verifier-facing signing projection for
+WOS/Formspec exports. It exists to give auditors one compact signing ledger
+surface without making a presentation artifact, PDF, or projection row the
+source of truth.
+
+The catalog root is canonical CBOR:
+
+```text
+{
+  "projection_schema_version": 1,
+  "derivation_rule_id": "signed-act-projection-wos-formspec-v1",
+  "acts": [...]
+}
+```
+
+For `wos.kernel.signature_affirmation`, each act row has:
+
+- `act_id` from `data.signingActId`.
+- `signer` with `id`, `role`, `role_ref`, and `identity_evidence_refs`.
+- `bound` with `subject_kind = "formspec-response"`, the signed response digest, presentation hash, document id/ref, document content hash, and hash algorithms.
+- `intent` from `data.signingIntent`.
+- `consent` from `data.consentReference`.
+- `admission` with `outcome = "admitted"` and the source response, signature, provider, signing policy, and primitive-verification fields.
+- `witness_of`, `signed_at`, and `source_refs`.
+
+For `wos.kernel.signature_admission_failed`, each act row has
+`admission.outcome = "rejected"` and carries `failure_reason` plus the
+evidence-binding values needed to identify the rejected response/signature.
+
+`source_refs` entries are maps `{ layer, kind, ref }` with `layer = "wos"`,
+`kind = "signature-affirmation"` or `"signature-admission-failed"`, and
+`ref = canonical_event_hash`. Source refs are sorted by `(layer, kind, ref)`
+using canonical CBOR bytes for `ref`; catalog rows are sorted by
+`(act_id, signed_at, first source_ref canonical bytes)`.
+
+Nulls are explicit. A missing optional WOS source field projects as `null`.
+Malformed required fields fail the projection. No relying party may treat the
+projection as independent evidence; every claim in it must be recoverable from
+the signed WOS source event.
+
+## 5. WOS Tamper Kinds
 
 WOS composed reports may use these `tamper_kind` values in fixture manifests and
 human-facing diagnostics:
@@ -74,6 +125,11 @@ human-facing diagnostics:
 | `clock_calendar_mismatch` | WOS-TV-003 |
 | `signature_catalog_digest_mismatch` | WOS-TV-004 |
 | `intake_handoff_catalog_digest_mismatch` | WOS-TV-007 |
+| `missing_signed_acts_catalog` | WOS-TV-014 / WOS-TV-015 |
+| `signed_acts_catalog_digest_mismatch` | WOS-TV-016 |
+| `signed_acts_catalog_invalid` | WOS-TV-015 / WOS-TV-018 |
+| `signed_acts_catalog_unbound` | WOS-TV-014 |
+| `signed_acts_projection_mismatch` | WOS-TV-017 |
 
 Additional localizable WOS finding kinds MAY be emitted by implementations for
 missing catalogs, malformed catalogs, duplicate rows, unresolved event hashes,
@@ -81,7 +137,7 @@ wrong event types, and field mismatches. Fixture `tamper_kind` values remain the
 stable compatibility vocabulary; implementation-specific subcodes should be
 reported as WOS findings, not added to the Core enum.
 
-## 5. Implementation Mapping
+## 6. Implementation Mapping
 
 The Rust implementation lives in `crates/trellis-verify-wos`. It depends on
 `integrity-verify::trellis` and composes through the Core domain-validator seam.

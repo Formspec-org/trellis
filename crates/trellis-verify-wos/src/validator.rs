@@ -28,6 +28,7 @@ impl RecordValidator for WosRecordValidator {
     fn validate_export(&self, export: DomainExport<'_>) -> Vec<DomainFinding> {
         let mut findings = crate::catalog::validate_catalogs(&export);
         findings.extend(crate::clock_semantics::validate_open_clock_export(&export));
+        findings.extend(crate::signed_acts::validate_signed_acts_projection(&export));
         findings
     }
 

@@ -20,6 +20,7 @@ mod event_types;
 mod findings;
 mod records;
 mod rescission;
+mod signed_acts;
 mod validator;
 
 #[cfg(test)]
