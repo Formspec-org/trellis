@@ -1933,15 +1933,12 @@ mod tests {
                 "documentId": "benefits-application",
                 "locale": "en-US"
             }),
-            document_hash:
-                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            presentation_hash:
-                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            document_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            presentation_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             document_hash_algorithm: "sha-256",
             source_signature_system: "formspec",
             source_signature_id: "sig-server-test",
-            signed_payload_digest:
-                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            signed_payload_digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             signed_payload_digest_algorithm: "sha-256",
             signing_intent,
             signed_at: "2026-05-16T18:31:00Z",
@@ -2003,19 +2000,19 @@ mod tests {
             "methodUri".to_string(),
             serde_json::Value::String("urn:formspec:sig-method:unknown@1".to_string()),
         );
-        let mut record =
-            ProvenanceRecord::signature_admission_failed(SignatureAdmissionFailedInput {
+        let mut record = ProvenanceRecord::signature_admission_failed(
+            SignatureAdmissionFailedInput {
                 reason,
                 response_id: "resp-rejected-server-test",
-                signed_payload_digest:
-                    "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                signed_payload_digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                 signature_id: "sig-rejected-server-test",
                 signing_intent,
                 signer_id: Some("applicant"),
                 signer_authority: None,
                 failure_context: Some(failure_context),
                 emitted_at: "2026-05-16T18:32:00Z",
-            });
+            },
+        );
         record.id = format!("prov-{idempotency_key}");
         record.timestamp = "2026-05-16T18:32:00Z".to_string();
         let event_type = ProvenanceKind::SignatureAdmissionFailed

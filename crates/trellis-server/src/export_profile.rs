@@ -12,12 +12,12 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 use integrity_cbor::{
-    decode_cbor_value, map_lookup_bytes, map_lookup_map, map_lookup_optional_text,
-    map_lookup_optional_value, map_lookup_text, map_lookup_value, Value,
+    Value, decode_cbor_value, map_lookup_bytes, map_lookup_map, map_lookup_optional_text,
+    map_lookup_optional_value, map_lookup_text, map_lookup_value,
 };
 use stack_common_error::StackError;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use trellis_export_writer::{PolicyClosureMember, SignedActsCatalogMember, TrellisTimestamp};
 use trellis_types::StoredEvent;
 
