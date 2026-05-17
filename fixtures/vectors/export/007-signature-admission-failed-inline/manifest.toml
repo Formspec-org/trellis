@@ -1,0 +1,29 @@
+id          = "export/007-signature-admission-failed-inline"
+op          = "export"
+status      = "active"
+description = """Single-event WOS-T4 export that carries a WOS `SignatureAdmissionFailed` event and binds verifier-facing `066-signed-acts.cbor` rejected-act projection plus `067-policy-closure.cbor` effective policy evidence."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-006",
+    "TR-CORE-062",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-067",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = [
+    "TR-OP-072",
+    "TR-OP-122",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "0eb4564611a1ea5cbc9df89ae9295b6a35a5cd4db478c5889e84234f588d91dc"
+
+[derivation]
+document = "derivation.md"

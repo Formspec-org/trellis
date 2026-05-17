@@ -327,6 +327,42 @@ fn given_policy_closure_digest_mismatch_when_layered_report_then_domain_blocks_v
     assert_eq!(layered.verdict.blocking_reasons, ["domain_admissibility"]);
 }
 
+/// Given a valid export with a WOS admission-failure record, when layered
+/// verification runs, then the rejected signed act projection is byte-checked
+/// and the relying-party verdict remains valid.
+#[test]
+fn given_signature_admission_failed_export_when_layered_report_then_rejected_projection_validates()
+{
+    let zip_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../fixtures/vectors/export/007-signature-admission-failed-inline/expected-export.zip",
+    );
+    let bytes = std::fs::read(&zip_path).unwrap_or_else(|error| {
+        panic!(
+            "fixture expected-export.zip must exist at {}: {error}",
+            zip_path.display()
+        );
+    });
+    let report = crate::verify_export_zip(&bytes);
+    let layered = report.layered_report();
+
+    assert!(layered.substrate.structure_verified, "{layered:#?}");
+    assert!(layered.substrate.integrity_verified, "{layered:#?}");
+    assert!(
+        report
+            .wos_findings
+            .iter()
+            .all(|finding| finding.severity != Severity::Failure),
+        "{report:#?}"
+    );
+    assert_eq!(layered.verdict.cryptographic_integrity, VerdictState::Pass);
+    assert_eq!(layered.verdict.projection_integrity, VerdictState::Pass);
+    assert_eq!(layered.verdict.domain_admissibility, VerdictState::Pass);
+    assert_eq!(
+        layered.verdict.relying_party_result,
+        RelyingPartyResult::Valid
+    );
+}
+
 #[test]
 fn validator_admits_wos_identity_attestation_event_type() {
     assert!(

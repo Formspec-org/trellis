@@ -42,6 +42,7 @@ APPEND_019 = ROOT / "append" / "019-wos-signature-affirmation"
 KEY_ISSUER_001 = ROOT / "_keys" / "issuer-001.cose_key"
 
 OUT_EXPORT_006 = ROOT / "export" / "006-signature-affirmations-inline"
+OUT_EXPORT_007 = ROOT / "export" / "007-signature-admission-failed-inline"
 OUT_VERIFY_014 = ROOT / "verify" / "014-export-006-signature-row-mismatch"
 OUT_VERIFY_019 = ROOT / "verify" / "019-export-006-signed-acts-projection-mismatch"
 OUT_TAMPER_014 = ROOT / "tamper" / "014-signature-catalog-digest-mismatch"
@@ -50,6 +51,11 @@ OUT_TAMPER_056 = ROOT / "tamper" / "056-policy-closure-digest-mismatch"
 
 TAG_TRELLIS_CHECKPOINT_V1 = "trellis-checkpoint-v1"
 TAG_TRELLIS_MERKLE_LEAF_V1 = "trellis-merkle-leaf-v1"
+TAG_TRELLIS_CONTENT_V1 = "trellis-content-v1"
+TAG_TRELLIS_AUTHOR_EVENT_V1 = "trellis-author-event-v1"
+TAG_TRELLIS_EVENT_V1 = "trellis-event-v1"
+WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE = "wos.kernel.signature_affirmation"
+WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE = "wos.kernel.signature_admission_failed"
 EXTENSION_KEY = "trellis.export.signature-affirmations.v1"
 SIGNED_ACTS_EXTENSION_KEY = "trellis.export.signed-acts.v1"
 SIGNED_ACTS_MEMBER = "066-signed-acts.cbor"
@@ -132,19 +138,25 @@ def build_signing_key_registry(kid: bytes, pubkey: bytes) -> bytes:
     return dcbor([entry])
 
 
-def build_domain_registry() -> bytes:
+def build_domain_registry(*, include_admission_failed: bool = False) -> bytes:
+    event_types = {
+        WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE: {
+            "privacy_class": "restricted",
+            "binding_family": "wos.signatureProfile",
+        }
+    }
+    if include_admission_failed:
+        event_types[WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE] = {
+            "privacy_class": "restricted",
+            "binding_family": "wos.signatureProfile",
+        }
     return dcbor(
         {
             "governance": {
                 "ruleset_id": "x-trellis-test/governance-ruleset-signature-v1",
                 "ruleset_digest": sha256(b"x-trellis-test/governance-ruleset-signature-v1"),
             },
-            "event_types": {
-                "wos.kernel.signature_affirmation": {
-                    "privacy_class": "restricted",
-                    "binding_family": "wos.signatureProfile",
-                }
-            },
+            "event_types": event_types,
             "classifications": ["x-trellis-test/unclassified"],
             "role_vocabulary": ["x-trellis-test/role-applicant-signer"],
             "registry_version": "x-trellis-test/registry-signature-v1",
@@ -239,6 +251,15 @@ def sorted_source_refs(refs: list[dict]) -> list[dict]:
 
 
 def signed_act_projection(canonical_event_hash: bytes, wos_record: dict) -> dict:
+    event_type = wos_record.get("event")
+    if event_type == WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE:
+        return rejected_signed_act_projection(canonical_event_hash, wos_record)
+    if event_type != WOS_SIGNATURE_AFFIRMATION_EVENT_TYPE:
+        raise ValueError(f"unsupported signed-act source event {event_type!r}")
+    return admitted_signed_act_projection(canonical_event_hash, wos_record)
+
+
+def admitted_signed_act_projection(canonical_event_hash: bytes, wos_record: dict) -> dict:
     data = wos_record["data"]
     source_response_ref = data.get("sourceResponseRef") or data["formspecResponseRef"]
     return {
@@ -279,6 +300,51 @@ def signed_act_projection(canonical_event_hash: bytes, wos_record: dict) -> dict
         "signed_at": data["signedAt"],
         "source_refs": sorted_source_refs(
             [source_ref(canonical_event_hash, "signature-affirmation")]
+        ),
+    }
+
+
+def rejected_signed_act_projection(canonical_event_hash: bytes, wos_record: dict) -> dict:
+    data = wos_record["data"]
+    evidence = data["evidenceBindings"]
+    return {
+        "act_id": evidence["signatureId"],
+        "signer": {
+            "id": data.get("signerId"),
+            "role": None,
+            "role_ref": None,
+            "identity_evidence_refs": [],
+        },
+        "bound": {
+            "subject_kind": "formspec-response",
+            "subject_hash": evidence["signedPayloadDigest"],
+            "subject_hash_algorithm": None,
+            "presentation_hash": None,
+            "document_id": None,
+            "document_ref": None,
+            "content_hash": evidence["signedPayloadDigest"],
+            "content_hash_algorithm": None,
+        },
+        "intent": evidence["signingIntent"],
+        "consent": None,
+        "admission": {
+            "outcome": "rejected",
+            "source_response_ref": evidence["responseId"],
+            "source_signature_system": None,
+            "source_signature_id": evidence["signatureId"],
+            "signature_provider": None,
+            "ceremony_id": None,
+            "profile_ref": None,
+            "profile_key": None,
+            "signed_payload_digest": evidence["signedPayloadDigest"],
+            "signed_payload_digest_algorithm": None,
+            "primitive_verification": None,
+            "failure_reason": data["reason"],
+        },
+        "witness_of": None,
+        "signed_at": data["emittedAt"],
+        "source_refs": sorted_source_refs(
+            [source_ref(canonical_event_hash, "signature-admission-failed")]
         ),
     }
 
@@ -337,6 +403,109 @@ def policy_closure(domain_registry_digest: bytes) -> bytes:
                 for index, kind in enumerate(POLICY_CLOSURE_ARTIFACT_KINDS)
             ],
         }
+    )
+
+
+def signature_admission_failed_record() -> dict:
+    return {
+        "id": "sba-poc_prov_01jqt0f0wm8f4b7n1j6m2r3k4q",
+        "event": WOS_SIGNATURE_ADMISSION_FAILED_EVENT_TYPE,
+        "actorId": "applicant",
+        "timestamp": "2026-04-22T14:31:00Z",
+        "auditLayer": "facts",
+        "data": {
+            "reason": "method_unregistered",
+            "signerId": "applicant",
+            "emittedAt": "2026-04-22T14:31:00Z",
+            "failureContext": {
+                "methodUri": "urn:formspec:sig-method:unknown@1",
+                "registryVersion": "1.0.0",
+            },
+            "evidenceBindings": {
+                "responseId": "resp-2026-0001",
+                "signedPayloadDigest": "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                "signatureId": "sig-2026-0001",
+                "signingIntent": "urn:wos:signing-intent:applicant-signature",
+            },
+        },
+    }
+
+
+def build_event_from_wos_record(
+    *,
+    seed: bytes,
+    kid: bytes,
+    scope: bytes,
+    sequence: int,
+    prev_hash: bytes | None,
+    wos_record: dict,
+    idempotency_key: bytes,
+    authored_at: list[int],
+) -> tuple[bytes, bytes]:
+    wos_record_bytes = dcbor(wos_record)
+    content_hash = domain_separated_sha256(TAG_TRELLIS_CONTENT_V1, wos_record_bytes)
+    header = {
+        "event_type": wos_record["event"].encode("utf-8"),
+        "extensions": None,
+        "authored_at": authored_at,
+        "witness_ref": None,
+        "classification": b"x-trellis-test/unclassified",
+        "retention_tier": 0,
+        "tag_commitment": None,
+        "outcome_commitment": None,
+        "subject_ref_commitment": None,
+    }
+    payload_ref = {
+        "ref_type": "inline",
+        "ciphertext": wos_record_bytes,
+        "nonce": b"\x00" * 12,
+    }
+    key_bag = {"entries": []}
+    authored_map = {
+        "version": 1,
+        "ledger_scope": scope,
+        "sequence": sequence,
+        "prev_hash": prev_hash,
+        "causal_deps": None,
+        "content_hash": content_hash,
+        "header": header,
+        "commitments": None,
+        "payload_ref": payload_ref,
+        "key_bag": key_bag,
+        "idempotency_key": idempotency_key,
+        "extensions": None,
+    }
+    author_event_hash = domain_separated_sha256(
+        TAG_TRELLIS_AUTHOR_EVENT_V1, dcbor(authored_map)
+    )
+    event_payload = {
+        "version": 1,
+        "ledger_scope": scope,
+        "sequence": sequence,
+        "prev_hash": prev_hash,
+        "causal_deps": None,
+        "author_event_hash": author_event_hash,
+        "content_hash": content_hash,
+        "header": header,
+        "commitments": None,
+        "payload_ref": payload_ref,
+        "key_bag": key_bag,
+        "idempotency_key": idempotency_key,
+        "extensions": None,
+    }
+    canonical_event_hash = domain_separated_sha256(
+        TAG_TRELLIS_EVENT_V1,
+        dcbor(
+            {
+                "version": 1,
+                "ledger_scope": scope,
+                "event_payload": event_payload,
+            }
+        ),
+    )
+    return (
+        cose_sign1(seed, kid, dcbor(event_payload), ARTIFACT_TYPE_EVENT),
+        canonical_event_hash,
     )
 
 
@@ -546,6 +715,208 @@ for verifier/reporting surfaces to summarize the signing act without redefining
 canonical authority. The policy closure is evidence, not executable verifier
 configuration. The human-facing certificate remains a derived artifact; the
 signed Trellis export remains the authority.
+""",
+    )
+
+
+def build_export_007() -> None:
+    OUT_EXPORT_007.mkdir(parents=True, exist_ok=True)
+
+    seed, pubkey = load_seed_and_pubkey(KEY_ISSUER_001)
+    kid = derive_kid(SUITE_ID_PHASE_1, pubkey)
+    scope = b"wos-case:sba-poc_case_01jqrpd32jf8xtx9qxkkv3rqsc"
+    wos_record = signature_admission_failed_record()
+    event_bytes, canonical_event_hash = build_event_from_wos_record(
+        seed=seed,
+        kid=kid,
+        scope=scope,
+        sequence=0,
+        prev_hash=None,
+        wos_record=wos_record,
+        idempotency_key=sha256(b"export-007-signature-admission-failed"),
+        authored_at=ts(1776877861),
+    )
+    leaf_hash = merkle_leaf_hash(canonical_event_hash)
+
+    members_data: dict[str, bytes] = {}
+    events_cbor = dcbor([cbor2.loads(event_bytes)])
+    members_data["010-events.cbor"] = events_cbor
+    inclusion_proofs = dcbor(
+        {
+            0: {
+                "leaf_index": 0,
+                "tree_size": 1,
+                "leaf_hash": leaf_hash,
+                "audit_path": [],
+            }
+        }
+    )
+    members_data["020-inclusion-proofs.cbor"] = inclusion_proofs
+    consistency_proofs = dcbor([])
+    members_data["025-consistency-proofs.cbor"] = consistency_proofs
+
+    signing_key_registry = build_signing_key_registry(kid, pubkey)
+    members_data["030-signing-key-registry.cbor"] = signing_key_registry
+
+    checkpoint_payload = {
+        "version": 1,
+        "scope": scope,
+        "tree_size": 1,
+        "tree_head_hash": leaf_hash,
+        "timestamp": ts(1776877861),
+        "anchor_ref": None,
+        "prev_checkpoint_hash": None,
+        "extensions": None,
+    }
+    head_checkpoint_digest = checkpoint_digest(scope, checkpoint_payload)
+    members_data["040-checkpoints.cbor"] = dcbor(
+        [
+            cbor2.loads(
+                cose_sign1(seed, kid, dcbor(checkpoint_payload), ARTIFACT_TYPE_CHECKPOINT)
+            )
+        ]
+    )
+
+    domain_registry = build_domain_registry(include_admission_failed=True)
+    domain_registry_digest = sha256(domain_registry)
+    domain_registry_member = f"050-registries/{domain_registry_digest.hex()}.cbor"
+    members_data[domain_registry_member] = domain_registry
+
+    signed_acts = signed_acts_catalog(canonical_event_hash, wos_record)
+    members_data[SIGNED_ACTS_MEMBER] = signed_acts
+    policy_closure_bytes = policy_closure(domain_registry_digest)
+    members_data[POLICY_CLOSURE_MEMBER] = policy_closure_bytes
+
+    members_data["090-verify.sh"] = trellis_cli_verify_script()
+    members_data["098-README.md"] = (
+        "# Trellis Export (Fixture) — export/007-signature-admission-failed-inline\n\n"
+        "WOS-T4 signature export fixture with a readable WOS "
+        "`SignatureAdmissionFailed` payload. `066-signed-acts.cbor` is the "
+        "verifier-facing signing projection and must include the rejected act; "
+        "`067-policy-closure.cbor` carries admission-policy evidence.\n"
+    ).encode("utf-8")
+
+    manifest_payload = {
+        "format": "trellis-export/1",
+        "version": 1,
+        "generator": "x-trellis-test/export-generator-007-signature-admission-failed",
+        "generated_at": ts(1776877861),
+        "scope": scope,
+        "tree_size": 1,
+        "head_checkpoint_digest": head_checkpoint_digest,
+        "registry_bindings": [
+            {
+                "registry_digest": domain_registry_digest,
+                "registry_format": 1,
+                "registry_version": "x-trellis-test/registry-signature-v1",
+                "bound_at_sequence": 0,
+            }
+        ],
+        "signing_key_registry_digest": sha256(signing_key_registry),
+        "events_digest": sha256(events_cbor),
+        "checkpoints_digest": sha256(members_data["040-checkpoints.cbor"]),
+        "inclusion_proofs_digest": sha256(inclusion_proofs),
+        "consistency_proofs_digest": sha256(consistency_proofs),
+        "payloads_inlined": False,
+        "external_anchors": [],
+        "posture_declaration": {
+            "provider_readable": True,
+            "reader_held": False,
+            "delegated_compute": False,
+            "external_anchor_required": False,
+            "external_anchor_name": None,
+            "recovery_without_user": True,
+            "metadata_leakage_summary": "WOS-T4 rejected-signature export fixture with readable WOS payload bytes.",
+        },
+        "head_format_version": 1,
+        "omitted_payload_checks": [],
+        "extensions": {
+            SIGNED_ACTS_EXTENSION_KEY: {
+                "catalog_digest": sha256(signed_acts),
+                "catalog_ref": SIGNED_ACTS_MEMBER,
+                "derivation_rule": SIGNED_ACTS_DERIVATION_RULE,
+            },
+            POLICY_CLOSURE_EXTENSION_KEY: {
+                "closure_digest": sha256(policy_closure_bytes),
+                "closure_ref": POLICY_CLOSURE_MEMBER,
+                "closure_version": POLICY_CLOSURE_VERSION,
+            },
+        },
+    }
+    members_data["000-manifest.cbor"] = cose_sign1(
+        seed, kid, dcbor(manifest_payload), ARTIFACT_TYPE_MANIFEST
+    )
+
+    for member, member_bytes in members_data.items():
+        write_bytes(OUT_EXPORT_007 / member, member_bytes)
+
+    members = sorted(members_data)
+    root_dir = f"trellis-export-{scope.decode('utf-8')}-1-{leaf_hash.hex()[:8]}"
+    zip_bytes = write_zip(
+        OUT_EXPORT_007 / "expected-export.zip",
+        root_dir=root_dir,
+        members=members,
+        data=members_data,
+    )
+    ledger_state = {
+        "version": 1,
+        "scope": scope,
+        "tree_size": 1,
+        "root_dir": root_dir,
+        "members": members,
+        "notes": "Fixture ledger_state for export/007-signature-admission-failed-inline; pack listed members into deterministic ZIP.",
+    }
+    write_bytes(OUT_EXPORT_007 / "input-ledger-state.cbor", dcbor(ledger_state))
+    write_text(
+        OUT_EXPORT_007 / "manifest.toml",
+        f'''id          = "export/007-signature-admission-failed-inline"
+op          = "export"
+status      = "active"
+description = """Single-event WOS-T4 export that carries a WOS `SignatureAdmissionFailed` event and binds verifier-facing `066-signed-acts.cbor` rejected-act projection plus `067-policy-closure.cbor` effective policy evidence."""
+
+[coverage]
+tr_core = [
+    "TR-CORE-006",
+    "TR-CORE-062",
+    "TR-CORE-064",
+    "TR-CORE-065",
+    "TR-CORE-067",
+    "TR-CORE-110",
+    "TR-CORE-134",
+]
+tr_op = [
+    "TR-OP-072",
+    "TR-OP-122",
+]
+
+[inputs]
+ledger_state = "input-ledger-state.cbor"
+
+[expected]
+zip        = "expected-export.zip"
+zip_sha256 = "{hashlib.sha256(zip_bytes).hexdigest()}"
+
+[derivation]
+document = "derivation.md"
+''',
+    )
+    write_text(
+        OUT_EXPORT_007 / "derivation.md",
+        """# Derivation — `export/007-signature-admission-failed-inline`
+
+This fixture realizes the rejected-signature branch of the WOS/Formspec signing
+projection contract.
+
+It packages a single readable WOS `SignatureAdmissionFailed` payload in the
+Trellis export. No `062-signature-affirmations.cbor` catalog is present because
+there is no successful `SignatureAffirmation` source record. The export still
+derives `066-signed-acts.cbor`, and that catalog contains one rejected act whose
+source reference points at the signed WOS admission-failure event.
+
+The rejected row is privacy-minimized: signer reference, signed payload digest,
+signature id, signing intent, and stable reason code are present; consent,
+document placement, provider ceremony, primitive verification, and raw failed
+content are null.
 """,
     )
 
@@ -829,6 +1200,7 @@ digest bound by `trellis.export.policy-closure.v1.closure_digest`.
 
 def main() -> None:
     build_export_006()
+    build_export_007()
     write_verify_vector()
     write_signed_acts_verify_vector()
     write_tamper_vector()

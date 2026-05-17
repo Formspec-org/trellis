@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cbor2
 import pytest
 
 from trellis_py import verify as core
@@ -130,6 +131,27 @@ def test_policy_closure_digest_mismatch_blocks_domain_verdict() -> None:
     assert report.verdict.relying_party_result == "invalid"
     assert report.verdict.blocking_reasons == ["domain_admissibility"]
     assert report.integrity_verified is False
+
+
+def test_signature_admission_failed_export_projects_rejected_signed_act() -> None:
+    export_dir = (
+        TRELLIS_ROOT
+        / "fixtures/vectors/export/007-signature-admission-failed-inline"
+    )
+    report = verify_wos.verify_export_zip((export_dir / "expected-export.zip").read_bytes())
+
+    assert report.substrate.structure_verified is True
+    assert report.substrate.integrity_verified is True
+    assert report.wos_findings == []
+    assert report.verdict.relying_party_result == "valid"
+
+    catalog = cbor2.loads((export_dir / "066-signed-acts.cbor").read_bytes())
+    act = catalog["acts"][0]
+    assert act["act_id"] == "sig-2026-0001"
+    assert act["admission"]["outcome"] == "rejected"
+    assert act["admission"]["failure_reason"] == "method_unregistered"
+    assert act["consent"] is None
+    assert act["source_refs"][0]["kind"] == "signature-admission-failed"
 
 
 def test_clock_event_type_constants_match_f13_literals() -> None:
