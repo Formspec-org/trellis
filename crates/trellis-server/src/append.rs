@@ -246,6 +246,14 @@ pub fn export_posture_from_compute(compute: &ComputeContext) -> ExportPostureDec
         ComputeSensitivity::ReaderHeld => (false, true, false),
         ComputeSensitivity::Restricted => (false, true, false),
     };
+    let metadata_leakage_summary = match compute.sensitivity {
+        ComputeSensitivity::PublicMetadata => "publicMetadata".to_string(),
+        _ => format!(
+            "{} ({})",
+            compute.declaration_id,
+            compute.sensitivity.as_str()
+        ),
+    };
     ExportPostureDeclaration {
         provider_readable,
         reader_held,
@@ -253,11 +261,7 @@ pub fn export_posture_from_compute(compute: &ComputeContext) -> ExportPostureDec
         external_anchor_required: false,
         external_anchor_name: None,
         recovery_without_user: false,
-        metadata_leakage_summary: format!(
-            "{} ({})",
-            compute.declaration_id,
-            compute.sensitivity.as_str()
-        ),
+        metadata_leakage_summary,
     }
 }
 
@@ -434,6 +438,16 @@ mod tests {
         assert!(posture.reader_held);
         assert!(!posture.provider_readable);
         assert!(!posture.delegated_compute);
+    }
+
+    #[test]
+    fn given_public_metadata_compute_when_mapped_then_export_summary_is_stable() {
+        let left = export_posture_from_compute(&ComputeContext::no_delegated_compute("wos-server"));
+        let right =
+            export_posture_from_compute(&ComputeContext::no_delegated_compute("trellis-server"));
+
+        assert_eq!(left, right);
+        assert_eq!(left.metadata_leakage_summary, "publicMetadata");
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use stack_common_error::StackError;
 use tokio::sync::{Mutex, OwnedMutexGuard};
-use trellis_server_ports::{ArtifactRef, ArtifactStore};
+use trellis_server_ports::{ArtifactRef, ArtifactStore, artifact_key_requires_immutable_put};
 
 #[derive(Default)]
 pub(crate) struct InMemoryArtifactStore {
@@ -23,10 +23,30 @@ impl ArtifactStore for InMemoryArtifactStore {
     type Error = StackError;
 
     async fn put(&self, key: &str, bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+        if artifact_key_requires_immutable_put(key) {
+            return Err(StackError::conflict(
+                "bundle artifact keys require immutable writes",
+            ));
+        }
         let uri = format!("memory://trellis/{key}");
         let mut objects = self.objects.lock().await;
         objects.insert(uri.clone(), bytes.to_vec());
         Ok(ArtifactRef::new(uri))
+    }
+
+    async fn put_immutable(&self, key: &str, bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+        let uri = format!("memory://trellis/{key}");
+        let mut objects = self.objects.lock().await;
+        match objects.get(&uri) {
+            Some(existing) if existing == bytes => Ok(ArtifactRef::new(uri)),
+            Some(_existing) => Err(StackError::conflict(
+                "artifact key already exists with different bytes",
+            )),
+            None => {
+                objects.insert(uri.clone(), bytes.to_vec());
+                Ok(ArtifactRef::new(uri))
+            }
+        }
     }
 
     async fn get(&self, artifact_ref: &ArtifactRef) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -102,6 +122,45 @@ mod tests {
         let artifact_ref = store.put("scope/k", &[7u8, 8, 9]).await.expect("put");
         let got = store.get(&artifact_ref).await.expect("get");
         assert_eq!(got.as_deref(), Some(&[7u8, 8, 9][..]));
+    }
+
+    /// Given an in-memory artifact store, when an immutable key is written twice with the
+    /// same bytes and then different bytes, then the identical write is reused and the
+    /// changed write conflicts without replacing the original object.
+    #[tokio::test]
+    async fn given_in_memory_artifact_store_when_immutable_put_conflicts_then_original_stays() {
+        let store = InMemoryArtifactStore::default();
+        let first = store
+            .put_immutable("scope/export.zip", b"sealed bytes")
+            .await
+            .expect("first immutable put");
+        let second = store
+            .put_immutable("scope/export.zip", b"sealed bytes")
+            .await
+            .expect("second immutable put");
+        assert_eq!(first, second);
+
+        let error = store
+            .put_immutable("scope/export.zip", b"changed bytes")
+            .await
+            .expect_err("different immutable bytes must conflict");
+        assert_eq!(error.code().as_str(), "INFRA-4090");
+        let got = store.get(&first).await.expect("get").expect("object bytes");
+        assert_eq!(got, b"sealed bytes");
+    }
+
+    /// Given an in-memory artifact store, when a caller uses mutable put for a bundle key,
+    /// then the store rejects the write so checkpoint ZIP keys stay on the immutable path.
+    #[tokio::test]
+    async fn given_in_memory_artifact_store_when_plain_put_for_bundle_key_then_conflict() {
+        let store = InMemoryArtifactStore::default();
+
+        let error = store
+            .put("scope/bundles/deadbeef.zip", b"sealed bytes")
+            .await
+            .expect_err("plain put must not write bundle keys");
+
+        assert_eq!(error.code().as_str(), "INFRA-4090");
     }
 
     /// Given a bundle index, when a published record is inserted via [`BundleIndex::insert_published_record`],

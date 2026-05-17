@@ -129,6 +129,7 @@ pub(crate) async fn append_event(
     responses(
         (status = 200, description = "Current Trellis export bundle.", content_type = "application/zip"),
         (status = 404, description = "Scope has no bundle.", body = ProblemJson, content_type = "application/problem+json"),
+        (status = 409, description = "Checkpoint artifact identity conflict.", body = ProblemJson, content_type = "application/problem+json"),
         (status = 503, description = "Bundle store unavailable.", body = ProblemJson, content_type = "application/problem+json")
     ),
     tag = "bundles",
@@ -164,6 +165,7 @@ pub(crate) async fn head_bundle(
         (status = 200, description = "Pinned Trellis export bundle.", content_type = "application/zip"),
         (status = 400, description = "Invalid checkpoint digest.", body = ProblemJson, content_type = "application/problem+json"),
         (status = 404, description = "Pinned checkpoint bundle not found.", body = ProblemJson, content_type = "application/problem+json"),
+        (status = 409, description = "Checkpoint artifact identity conflict.", body = ProblemJson, content_type = "application/problem+json"),
         (status = 503, description = "Bundle store unavailable.", body = ProblemJson, content_type = "application/problem+json")
     ),
     tag = "bundles",

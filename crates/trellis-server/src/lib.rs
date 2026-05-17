@@ -250,7 +250,10 @@ pub(crate) async fn publish_bundle(
             "published export bundle failed WOS/Formspec profile verification",
         ));
     }
-    let artifact_ref = state.artifact_store.put(&key, &package.zip_bytes).await?;
+    let artifact_ref = state
+        .artifact_store
+        .put_immutable(&key, &package.zip_bytes)
+        .await?;
     let record = BundleRecord {
         checkpoint_digest,
         artifact_ref,
@@ -602,6 +605,31 @@ mod tests {
         ) -> Result<append::AppendOutcome, StackError> {
             self.invocations.fetch_add(1, Ordering::SeqCst);
             DefaultAppendRunner.run_append(state, command).await
+        }
+    }
+
+    struct ConflictOnImmutableArtifactStore;
+
+    #[async_trait]
+    impl ArtifactStore for ConflictOnImmutableArtifactStore {
+        type Error = StackError;
+
+        async fn put(&self, key: &str, _bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+            Ok(ArtifactRef::new(format!("memory://conflict/{key}")))
+        }
+
+        async fn put_immutable(
+            &self,
+            _key: &str,
+            _bytes: &[u8],
+        ) -> Result<ArtifactRef, Self::Error> {
+            Err(StackError::conflict(
+                "artifact key already exists with different bytes",
+            ))
+        }
+
+        async fn get(&self, _artifact_ref: &ArtifactRef) -> Result<Option<Vec<u8>>, Self::Error> {
+            Ok(None)
         }
     }
 
@@ -1211,6 +1239,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publish_bundle_propagates_immutable_artifact_conflict() {
+        let state = test_state();
+        let app = router(state.clone()).expect("router");
+        let response = app
+            .oneshot(post_request(
+                "/v1/scopes/case_publish_conflict/events",
+                append_body("idem-publish-conflict"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let events = state
+            .repository
+            .list_scope(b"case_publish_conflict")
+            .await
+            .expect("load scope events");
+        let conflict_state = state.with_artifact_store(Arc::new(ConflictOnImmutableArtifactStore));
+
+        let error = publish_bundle(
+            &conflict_state,
+            b"case_publish_conflict",
+            &events,
+            false,
+            &append::default_public_compute_context(),
+        )
+        .await
+        .expect_err("immutable artifact conflict must propagate");
+
+        assert_eq!(error.code().as_str(), "INFRA-4090");
+    }
+
+    #[tokio::test]
+    async fn head_bundle_returns_conflict_when_checkpoint_artifact_identity_conflicts() {
+        let state = test_state();
+        let app = router(state.clone()).expect("router");
+        let response = app
+            .oneshot(post_request(
+                "/v1/scopes/case_head_conflict/events",
+                append_body("idem-head-conflict"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let conflict_app =
+            router(state.with_artifact_store(Arc::new(ConflictOnImmutableArtifactStore)))
+                .expect("router");
+
+        let response = conflict_app
+            .oneshot(get_request("/v1/scopes/case_head_conflict/bundles/head"))
+            .await
+            .expect("head bundle response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
     async fn signature_affirmation_append_publishes_profile_members_verified_by_wos_verifier() {
         let app = router(test_state()).expect("router");
         let response = app
@@ -1580,6 +1664,15 @@ mod tests {
                 Ok(ArtifactRef::new(format!("memory://{key}")))
             }
 
+            async fn put_immutable(
+                &self,
+                key: &str,
+                _bytes: &[u8],
+            ) -> Result<ArtifactRef, Self::Error> {
+                self.puts.fetch_add(1, Ordering::SeqCst);
+                Ok(ArtifactRef::new(format!("memory://{key}")))
+            }
+
             async fn get(
                 &self,
                 _artifact_ref: &ArtifactRef,
@@ -1617,6 +1710,14 @@ mod tests {
             type Error = StackError;
 
             async fn put(&self, _key: &str, _bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+                Err(StackError::unavailable("artifact store offline"))
+            }
+
+            async fn put_immutable(
+                &self,
+                _key: &str,
+                _bytes: &[u8],
+            ) -> Result<ArtifactRef, Self::Error> {
                 Err(StackError::unavailable("artifact store offline"))
             }
 

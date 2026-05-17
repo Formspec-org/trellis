@@ -206,9 +206,21 @@ impl ArtifactRef {
 pub trait ArtifactStore: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
+    /// Writes mutable artifact bytes.
+    ///
+    /// Implementations must reject keys for which [`artifact_key_requires_immutable_put`] returns
+    /// `true`; checkpoint bundle publication must use [`Self::put_immutable`].
     async fn put(&self, key: &str, bytes: &[u8]) -> Result<ArtifactRef, Self::Error>;
 
+    /// Writes immutable artifact bytes, accepting same-key retries only when bytes are identical.
+    async fn put_immutable(&self, key: &str, bytes: &[u8]) -> Result<ArtifactRef, Self::Error>;
+
     async fn get(&self, artifact_ref: &ArtifactRef) -> Result<Option<Vec<u8>>, Self::Error>;
+}
+
+#[must_use]
+pub fn artifact_key_requires_immutable_put(key: &str) -> bool {
+    key.contains("/bundles/") && key.ends_with(".zip")
 }
 
 /// S3-compatible artifact-store adapter backed by shared stack object helpers.
@@ -305,6 +317,11 @@ impl ArtifactStore for S3CompatibleArtifactStore {
     type Error = StackError;
 
     async fn put(&self, key: &str, bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+        if artifact_key_requires_immutable_put(key) {
+            return Err(StackError::conflict(
+                "bundle artifact keys require immutable writes",
+            ));
+        }
         let location = self.location_for_key(key)?;
         let uri = self.uri_for_location(&location);
         stack_common_object_store::parse_s3_object_uri(&self.config, &uri)?;
@@ -314,12 +331,25 @@ impl ArtifactStore for S3CompatibleArtifactStore {
         Ok(ArtifactRef::with_evidence(uri, evidence))
     }
 
+    async fn put_immutable(&self, key: &str, bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+        let location = self.location_for_key(key)?;
+        let uri = self.uri_for_location(&location);
+        let store = self.object_store()?;
+        let evidence = stack_common_object_store::write_s3_object_bytes_once(
+            store.as_ref(),
+            &self.config,
+            &uri,
+            bytes,
+        )
+        .await?;
+        Ok(ArtifactRef::with_evidence(uri, evidence))
+    }
+
     async fn get(&self, artifact_ref: &ArtifactRef) -> Result<Option<Vec<u8>>, Self::Error> {
         let location =
             stack_common_object_store::parse_s3_object_uri(&self.config, &artifact_ref.uri)?;
         let store = self.object_store()?;
-        let bytes = stack_common_object_store::read_object_bytes(store.as_ref(), &location).await?;
-        Ok(Some(bytes))
+        stack_common_object_store::read_optional_object_bytes(store.as_ref(), &location).await
     }
 }
 
@@ -1019,6 +1049,61 @@ mod tests {
         store.put("b", b"2").await.expect("put2");
         let third = store.object_store_arc_for_test().expect("store handle");
         assert!(Arc::ptr_eq(&first, &third));
+    }
+
+    #[tokio::test]
+    async fn s3_artifact_store_immutable_put_reuses_same_bytes_and_rejects_conflict() {
+        use object_store::memory::InMemory;
+
+        let config = S3ObjectConfig {
+            bucket: "proof-bundles".to_string(),
+            endpoint: None,
+            region: None,
+        };
+        let backend = Arc::new(InMemory::new()) as Arc<dyn object_store::ObjectStore + Send + Sync>;
+        let store = S3CompatibleArtifactStore::from_object_store_for_test(config, "pfx/", backend);
+
+        let first = store
+            .put_immutable("case/export.zip", b"sealed bytes")
+            .await
+            .expect("first immutable put");
+        let second = store
+            .put_immutable("case/export.zip", b"sealed bytes")
+            .await
+            .expect("second immutable put");
+        assert_eq!(first, second);
+
+        let error = store
+            .put_immutable("case/export.zip", b"changed bytes")
+            .await
+            .expect_err("changed immutable bytes must conflict");
+        assert_eq!(error.code().as_str(), "INFRA-4090");
+        let bytes = store
+            .get(&first)
+            .await
+            .expect("read immutable object")
+            .expect("object bytes");
+        assert_eq!(bytes, b"sealed bytes");
+    }
+
+    #[tokio::test]
+    async fn s3_artifact_store_plain_put_rejects_bundle_keys() {
+        use object_store::memory::InMemory;
+
+        let config = S3ObjectConfig {
+            bucket: "proof-bundles".to_string(),
+            endpoint: None,
+            region: None,
+        };
+        let backend = Arc::new(InMemory::new()) as Arc<dyn object_store::ObjectStore + Send + Sync>;
+        let store = S3CompatibleArtifactStore::from_object_store_for_test(config, "pfx/", backend);
+
+        let error = store
+            .put("case/bundles/deadbeef.zip", b"sealed bytes")
+            .await
+            .expect_err("bundle keys require immutable writes");
+
+        assert_eq!(error.code().as_str(), "INFRA-4090");
     }
 
     #[tokio::test]
