@@ -100,6 +100,68 @@ def test_signed_acts_nested_map_oracle_matches_rust_canonical_bytes() -> None:
     )
 
 
+def test_signed_acts_v1_derivation_rule_is_registry_backed() -> None:
+    rules = verify_wos._signed_acts_derivation_rules()  # noqa: SLF001
+
+    assert verify_wos.SIGNED_ACTS_DERIVATION_RULE in rules
+
+
+def test_signed_acts_unknown_derivation_rule_is_failure_without_v1_fallback() -> None:
+    catalog_bytes = cbor2.dumps(
+        {
+            "projection_schema_version": 1,
+            "derivation_rule_id": verify_wos.SIGNED_ACTS_DERIVATION_RULE,
+            "acts": [],
+        },
+        canonical=True,
+    )
+    extension = {
+        "catalog_ref": verify_wos.SIGNED_ACTS_MEMBER,
+        "catalog_digest": core._sha256(catalog_bytes),  # noqa: SLF001
+        "derivation_rule": "signed-act-projection-wos-formspec-v2",
+    }
+
+    findings = verify_wos._validate_signed_acts_projection(  # noqa: SLF001
+        archive={verify_wos.SIGNED_ACTS_MEMBER: catalog_bytes},
+        events=[],
+        payload_blobs={},
+        manifest_map={
+            "extensions": {verify_wos.SIGNED_ACTS_EXPORT_EXTENSION: extension}
+        },
+    )
+
+    assert any(
+        finding.kind == "signed_acts_catalog_invalid"
+        and "unsupported signed acts derivation_rule" in finding.detail
+        for finding in findings
+    )
+    assert all(
+        finding.kind != "signed_acts_projection_mismatch" for finding in findings
+    )
+
+
+def test_signed_acts_unknown_derivation_rule_blocks_public_verdict() -> None:
+    export_zip = (
+        TRELLIS_ROOT
+        / "fixtures/vectors/verify/020-export-006-signed-acts-unsupported-rule/input-export.zip"
+    ).read_bytes()
+
+    report = verify_wos.verify_export_zip(export_zip)
+
+    assert report.substrate.structure_verified is True
+    assert report.substrate.integrity_verified is True
+    assert report.verdict.cryptographic_integrity == "pass"
+    assert report.verdict.projection_integrity == "fail"
+    assert report.verdict.domain_admissibility == "pass"
+    assert report.verdict.relying_party_result == "invalid"
+    assert report.verdict.blocking_reasons == ["projection_integrity"]
+    assert [
+        finding.kind
+        for finding in report.wos_findings
+        if finding.severity == "failure"
+    ] == ["signed_acts_catalog_invalid"]
+
+
 def test_signature_catalog_signing_act_mismatch_fails_domain_validation() -> None:
     export_zip = (
         TRELLIS_ROOT

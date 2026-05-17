@@ -45,6 +45,7 @@ OUT_EXPORT_006 = ROOT / "export" / "006-signature-affirmations-inline"
 OUT_EXPORT_007 = ROOT / "export" / "007-signature-admission-failed-inline"
 OUT_VERIFY_014 = ROOT / "verify" / "014-export-006-signature-row-mismatch"
 OUT_VERIFY_019 = ROOT / "verify" / "019-export-006-signed-acts-projection-mismatch"
+OUT_VERIFY_020 = ROOT / "verify" / "020-export-006-signed-acts-unsupported-rule"
 OUT_TAMPER_014 = ROOT / "tamper" / "014-signature-catalog-digest-mismatch"
 OUT_TAMPER_055 = ROOT / "tamper" / "055-signed-acts-catalog-digest-mismatch"
 OUT_TAMPER_056 = ROOT / "tamper" / "056-policy-closure-digest-mismatch"
@@ -1046,6 +1047,65 @@ the SignedAct projection no longer matches the signed WOS
     )
 
 
+def write_signed_acts_unsupported_rule_verify_vector() -> None:
+    root_dir, members, data, manifest_payload = export_members_from_dir(OUT_EXPORT_006)
+    seed, pubkey = load_seed_and_pubkey(KEY_ISSUER_001)
+    kid = derive_kid(SUITE_ID_PHASE_1, pubkey)
+    manifest_payload_verify = copy.deepcopy(manifest_payload)
+    manifest_payload_verify["extensions"][SIGNED_ACTS_EXTENSION_KEY][
+        "derivation_rule"
+    ] = "signed-act-projection-wos-formspec-v2"
+    data_verify = dict(data)
+    data_verify["000-manifest.cbor"] = cose_sign1(
+        seed, kid, dcbor(manifest_payload_verify), ARTIFACT_TYPE_MANIFEST
+    )
+
+    OUT_VERIFY_020.mkdir(parents=True, exist_ok=True)
+    write_zip(
+        OUT_VERIFY_020 / "input-export.zip",
+        root_dir=root_dir,
+        members=members,
+        data=data_verify,
+    )
+    write_text(
+        OUT_VERIFY_020 / "manifest.toml",
+        '''id          = "verify/020-export-006-signed-acts-unsupported-rule"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for SignedAct derivation-rule dispatch. Starts from `export/006-signature-affirmations-inline`, changes the manifest extension derivation rule to an unsupported value, and re-signs the export manifest so archive structure and member digests stay valid while the WOS validator rejects the projection rule."""
+
+[coverage]
+tr_core = ["TR-CORE-067"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_catalog_invalid"
+
+[derivation]
+document = "derivation.md"
+''',
+    )
+    write_text(
+        OUT_VERIFY_020 / "derivation.md",
+        """# Derivation — `verify/020-export-006-signed-acts-unsupported-rule`
+
+This fixture starts from `export/006-signature-affirmations-inline`, changes the
+`trellis.export.signed-acts.v1.derivation_rule` manifest-extension value to
+`signed-act-projection-wos-formspec-v2`, and re-signs `000-manifest.cbor`.
+The ZIP remains structurally valid and all member digests match archive
+contents, but the WOS validator has no registered derivation implementation
+for that rule ID and must reject it as `signed_acts_catalog_invalid` without
+falling back to the v1 derivation.
+""",
+    )
+
+
 def write_tamper_vector() -> None:
     root_dir, members, data, _manifest_payload = export_members_from_dir(OUT_EXPORT_006)
     catalog = cbor2.loads(data["062-signature-affirmations.cbor"])
@@ -1203,6 +1263,7 @@ def main() -> None:
     build_export_007()
     write_verify_vector()
     write_signed_acts_verify_vector()
+    write_signed_acts_unsupported_rule_verify_vector()
     write_tamper_vector()
     write_signed_acts_tamper_vector()
     write_policy_closure_tamper_vector()

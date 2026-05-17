@@ -1,0 +1,20 @@
+id          = "verify/020-export-006-signed-acts-unsupported-rule"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for SignedAct derivation-rule dispatch. Starts from `export/006-signature-affirmations-inline`, changes the manifest extension derivation rule to an unsupported value, and re-signs the export manifest so archive structure and member digests stay valid while the WOS validator rejects the projection rule."""
+
+[coverage]
+tr_core = ["TR-CORE-067"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_catalog_invalid"
+
+[derivation]
+document = "derivation.md"

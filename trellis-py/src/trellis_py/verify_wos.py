@@ -8,7 +8,7 @@ WOS-specific catalog interpretation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import cbor2
 
@@ -607,14 +607,6 @@ def _validate_signed_acts_projection(
                 f"signed acts catalog_ref must be {SIGNED_ACTS_MEMBER}, got {extension['catalog_ref']}",
             )
         )
-    if extension["derivation_rule"] != SIGNED_ACTS_DERIVATION_RULE:
-        findings.append(
-            _failure(
-                "signed_acts_catalog_invalid",
-                None,
-                f"signed acts derivation_rule must be {SIGNED_ACTS_DERIVATION_RULE}, got {extension['derivation_rule']}",
-            )
-        )
     if core._sha256(catalog_bytes) != extension["catalog_digest"]:
         findings.append(
             _failure(
@@ -635,7 +627,9 @@ def _validate_signed_acts_projection(
         )
         return findings
     try:
-        derived = _derive_signed_acts_catalog(events, payload_blobs)
+        derived = _derive_signed_acts_catalog(
+            extension["derivation_rule"], events, payload_blobs
+        )
     except core.VerifyError as exc:
         findings.append(_failure("signed_acts_catalog_invalid", None, str(exc)))
         return findings
@@ -651,6 +645,25 @@ def _validate_signed_acts_projection(
 
 
 def _derive_signed_acts_catalog(
+    derivation_rule: str,
+    events: list[core.ParsedSign1], payload_blobs: dict[bytes, bytes]
+) -> bytes:
+    derive = _signed_acts_derivation_rules().get(derivation_rule)
+    if derive is None:
+        supported = ", ".join(sorted(_signed_acts_derivation_rules()))
+        raise core.VerifyError(
+            f"unsupported signed acts derivation_rule {derivation_rule}; supported rules: {supported}"
+        )
+    return derive(events, payload_blobs)
+
+
+def _signed_acts_derivation_rules() -> dict[
+    str, Callable[[list[core.ParsedSign1], dict[bytes, bytes]], bytes]
+]:
+    return {SIGNED_ACTS_DERIVATION_RULE: _derive_signed_acts_catalog_v1}
+
+
+def _derive_signed_acts_catalog_v1(
     events: list[core.ParsedSign1], payload_blobs: dict[bytes, bytes]
 ) -> bytes:
     acts: list[dict[str, Any]] = []

@@ -24,6 +24,14 @@ const SIGNED_ACTS_EXPORT_EXTENSION: &str = "trellis.export.signed-acts.v1";
 const SIGNED_ACTS_MEMBER: &str = "066-signed-acts.cbor";
 const SIGNED_ACTS_DERIVATION_RULE: &str = "signed-act-projection-wos-formspec-v1";
 
+type SignedActsDeriver = fn(&[DomainEvent]) -> Result<Vec<u8>, String>;
+
+#[derive(Clone, Copy)]
+struct SignedActsDerivationRule {
+    id: &'static str,
+    derive: SignedActsDeriver,
+}
+
 #[derive(Clone, Debug)]
 struct SignedActsExportExtension {
     catalog_ref: String,
@@ -86,16 +94,6 @@ fn validate_bound_signed_acts_projection(
             ),
         ));
     }
-    if extension.derivation_rule != SIGNED_ACTS_DERIVATION_RULE {
-        findings.push(finding(
-            "signed_acts_catalog_invalid",
-            None,
-            format!(
-                "signed acts derivation_rule must be {SIGNED_ACTS_DERIVATION_RULE}, got {}",
-                extension.derivation_rule
-            ),
-        ));
-    }
     if sha256_bytes(member_bytes) != extension.catalog_digest {
         findings.push(finding(
             "signed_acts_catalog_digest_mismatch",
@@ -111,8 +109,23 @@ fn validate_bound_signed_acts_projection(
         ));
         return findings;
     }
+    let derivation_rule = match signed_acts_derivation_rule(&extension.derivation_rule) {
+        Some(rule) => rule,
+        None => {
+            findings.push(finding(
+                "signed_acts_catalog_invalid",
+                None,
+                format!(
+                    "unsupported signed acts derivation_rule {}; supported rules: {}",
+                    extension.derivation_rule,
+                    supported_signed_acts_derivation_rules().join(", ")
+                ),
+            ));
+            return findings;
+        }
+    };
 
-    let derived = match derive_signed_acts_catalog(export.events) {
+    let derived = match (derivation_rule.derive)(export.events) {
         Ok(bytes) => bytes,
         Err(error) => {
             findings.push(finding("signed_acts_catalog_invalid", None, error));
@@ -127,6 +140,26 @@ fn validate_bound_signed_acts_projection(
         ));
     }
     findings
+}
+
+fn signed_acts_derivation_rule(rule_id: &str) -> Option<SignedActsDerivationRule> {
+    signed_acts_derivation_rules()
+        .into_iter()
+        .find(|rule| rule.id == rule_id)
+}
+
+fn supported_signed_acts_derivation_rules() -> Vec<&'static str> {
+    signed_acts_derivation_rules()
+        .into_iter()
+        .map(|rule| rule.id)
+        .collect()
+}
+
+fn signed_acts_derivation_rules() -> [SignedActsDerivationRule; 1] {
+    [SignedActsDerivationRule {
+        id: SIGNED_ACTS_DERIVATION_RULE,
+        derive: derive_signed_acts_catalog,
+    }]
 }
 
 fn parse_signed_acts_export_extension(bytes: &[u8]) -> Result<SignedActsExportExtension, String> {
@@ -565,6 +598,53 @@ mod tests {
     }
 
     #[test]
+    fn signed_acts_v1_derivation_rule_is_registry_backed() {
+        let event = signature_event();
+        let catalog = derive_signed_acts_catalog(std::slice::from_ref(&event)).expect("derive");
+        let rule = signed_acts_derivation_rule(SIGNED_ACTS_DERIVATION_RULE)
+            .expect("v1 signed acts derivation rule registered");
+
+        assert_eq!(rule.id, SIGNED_ACTS_DERIVATION_RULE);
+        assert_eq!(
+            (rule.derive)(std::slice::from_ref(&event)).expect("derive"),
+            catalog
+        );
+    }
+
+    #[test]
+    fn signed_acts_unknown_derivation_rule_is_failure_without_v1_fallback() {
+        let event = signature_event();
+        let catalog = derive_signed_acts_catalog(std::slice::from_ref(&event)).expect("derive");
+        let extension = extension_for_rule(&catalog, "signed-act-projection-wos-formspec-v2");
+        let mut members = BTreeMap::new();
+        members.insert(SIGNED_ACTS_MEMBER.to_string(), catalog);
+        let mut manifest_extensions = BTreeMap::new();
+        manifest_extensions.insert(SIGNED_ACTS_EXPORT_EXTENSION.to_string(), extension);
+
+        let findings = WosRecordValidator.validate_export(DomainExport {
+            events: &[event],
+            members: &members,
+            manifest_extensions: &manifest_extensions,
+        });
+
+        assert!(
+            findings.iter().any(|finding| {
+                finding.kind == "signed_acts_catalog_invalid"
+                    && finding
+                        .message
+                        .contains("unsupported signed acts derivation_rule")
+            }),
+            "{findings:#?}"
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.kind != "signed_acts_projection_mismatch"),
+            "{findings:#?}"
+        );
+    }
+
+    #[test]
     fn signed_acts_projection_canonicalizes_nested_payload_maps() {
         let event = signature_event_with_consent(Value::Map(vec![
             (
@@ -662,6 +742,10 @@ mod tests {
     }
 
     fn extension_for(catalog: &[u8]) -> Vec<u8> {
+        extension_for_rule(catalog, SIGNED_ACTS_DERIVATION_RULE)
+    }
+
+    fn extension_for_rule(catalog: &[u8], derivation_rule: &str) -> Vec<u8> {
         encode_value(
             &text_map(vec![
                 (
@@ -669,10 +753,7 @@ mod tests {
                     Value::Bytes(sha256_bytes(catalog).to_vec()),
                 ),
                 ("catalog_ref", Value::Text(SIGNED_ACTS_MEMBER.to_string())),
-                (
-                    "derivation_rule",
-                    Value::Text(SIGNED_ACTS_DERIVATION_RULE.to_string()),
-                ),
+                ("derivation_rule", Value::Text(derivation_rule.to_string())),
             ])
             .expect("extension"),
         )
