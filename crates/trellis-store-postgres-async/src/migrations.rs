@@ -55,6 +55,27 @@ ALTER TABLE trellis_events
 ALTER TABLE trellis_events ADD COLUMN canonical_event_hash BYTEA NULL;
 ",
     },
+    Migration {
+        version: 4,
+        name: "bundle_publications",
+        up_sql: "\
+CREATE TABLE trellis_bundle_publications (
+    scope BYTEA NOT NULL,
+    seal_version BIGINT NOT NULL,
+    checkpoint_digest TEXT NOT NULL,
+    export_attempt_id TEXT NOT NULL,
+    artifact_ref TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    published_at TIMESTAMPTZ NULL,
+    PRIMARY KEY (scope, seal_version),
+    UNIQUE (scope, checkpoint_digest),
+    CHECK (seal_version >= 1),
+    CHECK (length(checkpoint_digest) BETWEEN 8 AND 128),
+    CHECK (length(export_attempt_id) BETWEEN 8 AND 128),
+    CHECK (artifact_ref IS NULL OR length(artifact_ref) BETWEEN 1 AND 2048)
+);
+",
+    },
 ];
 
 /// Error returned by async migration setup.

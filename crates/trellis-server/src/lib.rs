@@ -265,7 +265,6 @@ pub(crate) async fn publish_bundle(
         seal_version,
         export_attempt_id: export_attempt_id.clone(),
     };
-    state.bundles.ensure_publishable(scope, &identity).await?;
     if !export_bundle_cryptographically_verified(&package.zip_bytes) {
         return Err(StackError::internal(
             "published export bundle failed independent verification",
@@ -277,6 +276,7 @@ pub(crate) async fn publish_bundle(
             "published export bundle failed WOS/Formspec profile verification",
         ));
     }
+    state.bundles.reserve_publishable(scope, &identity).await?;
     let artifact_ref = state
         .artifact_store
         .put_immutable(&key, &package.zip_bytes)

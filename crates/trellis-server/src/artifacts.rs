@@ -85,6 +85,28 @@ pub(crate) struct BundleIndex {
     records: Mutex<BundleRecords>,
 }
 
+#[async_trait]
+pub(crate) trait BundleIndexPort: Send + Sync {
+    async fn reserve_publishable(
+        &self,
+        scope: &[u8],
+        identity: &BundleIdentity,
+    ) -> Result<(), StackError>;
+
+    async fn get_by_digest(
+        &self,
+        scope: &[u8],
+        checkpoint_digest: &str,
+    ) -> Result<Option<BundleRecord>, StackError>;
+
+    async fn insert_published_record(
+        &self,
+        scope: &[u8],
+        record: &BundleRecord,
+        update_head: bool,
+    ) -> Result<(), StackError>;
+}
+
 #[derive(Default)]
 struct BundleRecords {
     head: HashMap<Vec<u8>, BundleRecord>,
@@ -92,8 +114,9 @@ struct BundleRecords {
     by_seal: HashMap<(Vec<u8>, u64), BundleRecord>,
 }
 
-impl BundleIndex {
-    pub(crate) async fn ensure_publishable(
+#[async_trait]
+impl BundleIndexPort for BundleIndex {
+    async fn reserve_publishable(
         &self,
         scope: &[u8],
         identity: &BundleIdentity,
@@ -102,20 +125,20 @@ impl BundleIndex {
         records.ensure_publishable(scope, identity)
     }
 
-    pub(crate) async fn get_by_digest(
+    async fn get_by_digest(
         &self,
         scope: &[u8],
         checkpoint_digest: &str,
-    ) -> Option<BundleRecord> {
+    ) -> Result<Option<BundleRecord>, StackError> {
         let records = self.records.lock().await;
-        records
+        Ok(records
             .by_digest
             .get(&(scope.to_vec(), checkpoint_digest.to_string()))
-            .cloned()
+            .cloned())
     }
 
     /// Inserts `record` under digest and seal-version indexes, then optionally updates head.
-    pub(crate) async fn insert_published_record(
+    async fn insert_published_record(
         &self,
         scope: &[u8],
         record: &BundleRecord,

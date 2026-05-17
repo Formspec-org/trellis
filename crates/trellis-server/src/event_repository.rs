@@ -7,8 +7,13 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use stack_common_error::StackError;
 use tokio::sync::Mutex;
-use trellis_store_postgres_async::AppendError;
+use trellis_server_ports::ArtifactRef;
+use trellis_store_postgres_async::{
+    AppendError, BundlePublicationError, BundlePublicationIdentity, BundlePublicationRecord,
+};
 use trellis_types::StoredEvent;
+
+use crate::artifacts::{BundleIdentity, BundleIndexPort, BundleRecord};
 
 /// Core §17.3 identity for idempotent retries: same canonical + signed bytes, independent of
 /// optional `canonical_event_hash` materialization on [`StoredEvent`].
@@ -38,6 +43,52 @@ fn map_postgres_append_error(error: AppendError) -> StackError {
             }
             StackError::unavailable(format!("trellis append failed: {sqlx_err}"))
         }
+    }
+}
+
+fn map_postgres_bundle_error(error: BundlePublicationError) -> StackError {
+    match error {
+        BundlePublicationError::Conflict(message) => {
+            StackError::conflict(format!("trellis bundle publication rejected: {message}"))
+        }
+        BundlePublicationError::DomainViolation(seal_version) => StackError::internal(format!(
+            "seal version does not fit store domain at bundle publication: {seal_version}"
+        )),
+        BundlePublicationError::Sqlx(sqlx_err) => {
+            if let Some(db_err) = sqlx_err.as_database_error()
+                && db_err.code().as_deref() == Some("23505")
+            {
+                return StackError::conflict(format!(
+                    "trellis bundle publication rejected: {sqlx_err}"
+                ));
+            }
+            StackError::unavailable(format!("trellis bundle publication failed: {sqlx_err}"))
+        }
+    }
+}
+
+fn publication_identity(scope: &[u8], identity: &BundleIdentity) -> BundlePublicationIdentity {
+    BundlePublicationIdentity {
+        scope: scope.to_vec(),
+        checkpoint_digest: identity.checkpoint_digest.clone(),
+        seal_version: identity.seal_version,
+        export_attempt_id: identity.export_attempt_id.clone(),
+    }
+}
+
+fn publication_record(scope: &[u8], record: &BundleRecord) -> BundlePublicationRecord {
+    BundlePublicationRecord {
+        identity: publication_identity(scope, &record.identity()),
+        artifact_ref: record.artifact_ref.uri.clone(),
+    }
+}
+
+fn bundle_record_from_publication(record: BundlePublicationRecord) -> BundleRecord {
+    BundleRecord {
+        checkpoint_digest: record.identity.checkpoint_digest,
+        seal_version: record.identity.seal_version,
+        export_attempt_id: record.identity.export_attempt_id,
+        artifact_ref: ArtifactRef::new(record.artifact_ref),
     }
 }
 
@@ -187,6 +238,64 @@ ORDER BY sequence",
             StackError::unavailable(format!("trellis tx commit failed: {error}"))
         })?;
         Ok(())
+    }
+}
+
+/// Postgres-backed bundle publication index.
+#[derive(Clone)]
+pub(crate) struct PostgresBundleIndex {
+    pool: PgPool,
+}
+
+impl PostgresBundleIndex {
+    #[must_use]
+    pub(crate) fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl BundleIndexPort for PostgresBundleIndex {
+    async fn reserve_publishable(
+        &self,
+        scope: &[u8],
+        identity: &BundleIdentity,
+    ) -> Result<(), StackError> {
+        trellis_store_postgres_async::reserve_bundle_publication(
+            &self.pool,
+            &publication_identity(scope, identity),
+        )
+        .await
+        .map_err(map_postgres_bundle_error)
+    }
+
+    async fn get_by_digest(
+        &self,
+        scope: &[u8],
+        checkpoint_digest: &str,
+    ) -> Result<Option<BundleRecord>, StackError> {
+        trellis_store_postgres_async::get_bundle_publication_by_digest(
+            &self.pool,
+            scope,
+            checkpoint_digest,
+        )
+        .await
+        .map(|record| record.map(bundle_record_from_publication))
+        .map_err(map_postgres_bundle_error)
+    }
+
+    async fn insert_published_record(
+        &self,
+        scope: &[u8],
+        record: &BundleRecord,
+        _update_head: bool,
+    ) -> Result<(), StackError> {
+        trellis_store_postgres_async::publish_bundle_publication(
+            &self.pool,
+            &publication_record(scope, record),
+        )
+        .await
+        .map_err(map_postgres_bundle_error)
     }
 }
 

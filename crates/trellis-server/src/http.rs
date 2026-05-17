@@ -184,7 +184,10 @@ pub(crate) async fn pinned_bundle(
     let digest = normalize_checkpoint_digest(&checkpoint_digest)?;
     let record = {
         let _scope_guard = state.scope_locks.lock(scope.as_bytes()).await;
-        let record = state.bundles.get_by_digest(scope.as_bytes(), &digest).await;
+        let record = state
+            .bundles
+            .get_by_digest(scope.as_bytes(), &digest)
+            .await?;
         if let Some(record) = record {
             record
         } else {

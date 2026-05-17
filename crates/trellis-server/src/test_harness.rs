@@ -7,11 +7,9 @@
 #![forbid(unsafe_code)]
 
 use std::fs;
-use std::sync::Arc;
-
 use trellis_export_writer::TrellisTimestamp;
 
-use crate::{InMemoryEventRepository, ServerSigningKey, TenantHeaderMode, TrellisServerState};
+use crate::{ServerSigningKey, TenantHeaderMode, TrellisServerState};
 
 /// In-memory substrate state with mixed WOS/Formspec tenant headers (compose default).
 ///
@@ -21,8 +19,7 @@ use crate::{InMemoryEventRepository, ServerSigningKey, TenantHeaderMode, Trellis
 /// relative to this crate (same oracle as `trellis-server` unit tests).
 #[must_use]
 pub fn multi_producer_memory_state() -> TrellisServerState {
-    TrellisServerState::new(
-        Arc::new(InMemoryEventRepository::new()),
+    TrellisServerState::in_memory(
         fixture_issuer_signing_key(),
         TenantHeaderMode::MultiProducer,
     )

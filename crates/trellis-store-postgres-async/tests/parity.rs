@@ -33,7 +33,7 @@ async fn ddl_matches_shared_migration_contract() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(applied_versions, vec![1, 2, 3]);
+    assert_eq!(applied_versions, vec![1, 2, 3, 4]);
 
     let columns: Vec<(String, String, String)> = sqlx::query_as(
         "\
@@ -117,6 +117,83 @@ WHERE table_class.relname = 'trellis_events'
     .unwrap();
     assert!(constraint_def.contains("octet_length(idempotency_key)"));
     assert!(constraint_def.contains("64"));
+
+    let bundle_columns: Vec<(String, String, String)> = sqlx::query_as(
+        "\
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'trellis_bundle_publications'
+ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        bundle_columns,
+        vec![
+            ("scope".to_owned(), "bytea".to_owned(), "NO".to_owned()),
+            (
+                "seal_version".to_owned(),
+                "bigint".to_owned(),
+                "NO".to_owned()
+            ),
+            (
+                "checkpoint_digest".to_owned(),
+                "text".to_owned(),
+                "NO".to_owned()
+            ),
+            (
+                "export_attempt_id".to_owned(),
+                "text".to_owned(),
+                "NO".to_owned()
+            ),
+            (
+                "artifact_ref".to_owned(),
+                "text".to_owned(),
+                "YES".to_owned()
+            ),
+            (
+                "created_at".to_owned(),
+                "timestamp with time zone".to_owned(),
+                "NO".to_owned()
+            ),
+            (
+                "published_at".to_owned(),
+                "timestamp with time zone".to_owned(),
+                "YES".to_owned()
+            ),
+        ]
+    );
+
+    let bundle_pk_columns: Vec<String> = sqlx::query_scalar(
+        "\
+SELECT attribute.attname
+FROM pg_index AS index
+JOIN pg_class AS table_class ON table_class.oid = index.indrelid
+JOIN LATERAL unnest(index.indkey) WITH ORDINALITY AS key(attnum, ord) ON true
+JOIN pg_attribute AS attribute
+  ON attribute.attrelid = table_class.oid AND attribute.attnum = key.attnum
+WHERE table_class.relname = 'trellis_bundle_publications' AND index.indisprimary
+ORDER BY key.ord",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bundle_pk_columns, vec!["scope", "seal_version"]);
+
+    let checkpoint_index_def: String = sqlx::query_scalar(
+        "\
+SELECT indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename = 'trellis_bundle_publications'
+  AND indexname = 'trellis_bundle_publications_scope_checkpoint_digest_key'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(checkpoint_index_def.contains("CREATE UNIQUE INDEX"));
+    assert!(checkpoint_index_def.contains("(scope, checkpoint_digest)"));
 }
 
 #[tokio::test]

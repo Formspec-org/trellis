@@ -31,9 +31,11 @@ use trellis_server_ports::{
 
 use crate::admission::{AllowAllScopeAuthorizer, ScopedAllowlistScopeAuthorizer};
 use crate::append::{AppendRunner, DefaultAppendRunner};
-use crate::artifacts::{BundleIndex, InMemoryArtifactStore, ScopeLocks};
+use crate::artifacts::{BundleIndex, BundleIndexPort, InMemoryArtifactStore, ScopeLocks};
 use crate::composition::{EventTypeCatalog, default_admission_policy};
-use crate::event_repository::{EventRepository, InMemoryEventRepository, PostgresEventRepository};
+use crate::event_repository::{
+    EventRepository, InMemoryEventRepository, PostgresBundleIndex, PostgresEventRepository,
+};
 use crate::scope_startup::TrellisScopeAuthorizerStartupInputs;
 use crate::{ServerSigningKey, TenantHeaderMode, TrellisClaims};
 
@@ -49,7 +51,7 @@ pub struct TrellisServerState {
     pub(crate) signing_key: ServerSigningKey,
     tenant_header_mode: TenantHeaderMode,
     replay_store: Arc<InMemoryHttpReplayStore>,
-    pub(crate) bundles: Arc<BundleIndex>,
+    pub(crate) bundles: Arc<dyn BundleIndexPort>,
     pub(crate) scope_locks: Arc<ScopeLocks>,
     jwt_verifier: Option<Arc<JwtVerifier<TrellisClaims>>>,
     /// True when [`state_from_env`] used durable storage without `TRELLIS_PERMISSIVE_SCOPE_AUTH=1`.
@@ -66,7 +68,16 @@ pub struct TrellisServerState {
 
 impl TrellisServerState {
     #[must_use]
-    pub fn new(
+    pub fn in_memory(signing_key: ServerSigningKey, tenant_header_mode: TenantHeaderMode) -> Self {
+        Self::new(
+            Arc::new(InMemoryEventRepository::new()),
+            signing_key,
+            tenant_header_mode,
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn new(
         repository: Arc<dyn EventRepository>,
         signing_key: ServerSigningKey,
         tenant_header_mode: TenantHeaderMode,
@@ -124,6 +135,11 @@ impl TrellisServerState {
         artifact_store: Arc<dyn ArtifactStore<Error = StackError>>,
     ) -> Self {
         self.artifact_store = artifact_store;
+        self
+    }
+
+    pub(crate) fn with_bundle_index(mut self, bundles: Arc<dyn BundleIndexPort>) -> Self {
+        self.bundles = bundles;
         self
     }
 
@@ -348,21 +364,30 @@ pub async fn state_from_env() -> Result<TrellisServerState, StackError> {
         }
     };
 
-    let repository: Arc<dyn EventRepository> = if trellis_storage_is_memory {
-        Arc::new(InMemoryEventRepository::new())
-    } else {
-        let database_url = env::var("TRELLIS_DATABASE_URL")
-            .map_err(|_| StackError::bad_request("TRELLIS_DATABASE_URL is required"))?;
-        let pool = trellis_store_postgres_async::build_pool(&database_url, 10)
-            .await
-            .map_err(|error| StackError::unavailable(format!("postgres pool: {error}")))?;
-        trellis_store_postgres_async::run_migrations(&pool)
-            .await
-            .map_err(|error| StackError::unavailable(format!("postgres migrations: {error}")))?;
-        Arc::new(PostgresEventRepository::new(pool))
-    };
+    let (repository, bundle_index): (Arc<dyn EventRepository>, Option<Arc<dyn BundleIndexPort>>) =
+        if trellis_storage_is_memory {
+            (Arc::new(InMemoryEventRepository::new()), None)
+        } else {
+            let database_url = env::var("TRELLIS_DATABASE_URL")
+                .map_err(|_| StackError::bad_request("TRELLIS_DATABASE_URL is required"))?;
+            let pool = trellis_store_postgres_async::build_pool(&database_url, 10)
+                .await
+                .map_err(|error| StackError::unavailable(format!("postgres pool: {error}")))?;
+            trellis_store_postgres_async::run_migrations(&pool)
+                .await
+                .map_err(|error| {
+                    StackError::unavailable(format!("postgres migrations: {error}"))
+                })?;
+            (
+                Arc::new(PostgresEventRepository::new(pool.clone())),
+                Some(Arc::new(PostgresBundleIndex::new(pool))),
+            )
+        };
 
     let mut state = TrellisServerState::new(repository, signing_key, tenant_header_mode);
+    if let Some(bundle_index) = bundle_index {
+        state = state.with_bundle_index(bundle_index);
+    }
     if let Some(artifact_store) = artifact_store_from_env() {
         state = state.with_artifact_store(artifact_store);
     }
