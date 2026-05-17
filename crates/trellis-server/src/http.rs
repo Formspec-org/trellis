@@ -129,7 +129,7 @@ pub(crate) async fn append_event(
     responses(
         (status = 200, description = "Current Trellis export bundle.", content_type = "application/zip"),
         (status = 404, description = "Scope has no bundle.", body = ProblemJson, content_type = "application/problem+json"),
-        (status = 409, description = "Checkpoint artifact identity conflict.", body = ProblemJson, content_type = "application/problem+json"),
+        (status = 409, description = "Bundle artifact or seal identity conflict.", body = ProblemJson, content_type = "application/problem+json"),
         (status = 503, description = "Bundle store unavailable.", body = ProblemJson, content_type = "application/problem+json")
     ),
     tag = "bundles",
@@ -142,15 +142,18 @@ pub(crate) async fn head_bundle(
     headers: HeaderMap,
 ) -> Result<Response, StackError> {
     read_authorized(&state, &scope, &tenant_scope, &headers).await?;
-    let events = state.repository.list_scope(scope.as_bytes()).await?;
-    let bundle = publish_bundle(
-        &state,
-        scope.as_bytes(),
-        &events,
-        true,
-        &append::default_public_compute_context(),
-    )
-    .await?;
+    let bundle = {
+        let _scope_guard = state.scope_locks.lock(scope.as_bytes()).await;
+        let events = state.repository.list_scope(scope.as_bytes()).await?;
+        publish_bundle(
+            &state,
+            scope.as_bytes(),
+            &events,
+            true,
+            &append::default_public_compute_context(),
+        )
+        .await?
+    };
     bundle_response(&state, &bundle).await
 }
 
@@ -165,7 +168,7 @@ pub(crate) async fn head_bundle(
         (status = 200, description = "Pinned Trellis export bundle.", content_type = "application/zip"),
         (status = 400, description = "Invalid checkpoint digest.", body = ProblemJson, content_type = "application/problem+json"),
         (status = 404, description = "Pinned checkpoint bundle not found.", body = ProblemJson, content_type = "application/problem+json"),
-        (status = 409, description = "Checkpoint artifact identity conflict.", body = ProblemJson, content_type = "application/problem+json"),
+        (status = 409, description = "Bundle artifact or seal identity conflict.", body = ProblemJson, content_type = "application/problem+json"),
         (status = 503, description = "Bundle store unavailable.", body = ProblemJson, content_type = "application/problem+json")
     ),
     tag = "bundles",
@@ -180,25 +183,26 @@ pub(crate) async fn pinned_bundle(
     read_authorized(&state, &scope, &tenant_scope, &headers).await?;
     let digest = normalize_checkpoint_digest(&checkpoint_digest)?;
     let record = {
-        let by_digest = state.bundles.by_digest.lock().await;
-        by_digest
-            .get(&(scope.as_bytes().to_vec(), digest.clone()))
-            .cloned()
-    };
-    let Some(record) = record else {
-        let events = state.repository.list_scope(scope.as_bytes()).await?;
-        let head = publish_bundle(
-            &state,
-            scope.as_bytes(),
-            &events,
-            true,
-            &append::default_public_compute_context(),
-        )
-        .await?;
-        if head.checkpoint_digest == digest {
-            return bundle_response(&state, &head).await;
+        let _scope_guard = state.scope_locks.lock(scope.as_bytes()).await;
+        let record = state.bundles.get_by_digest(scope.as_bytes(), &digest).await;
+        if let Some(record) = record {
+            record
+        } else {
+            let events = state.repository.list_scope(scope.as_bytes()).await?;
+            let head = publish_bundle(
+                &state,
+                scope.as_bytes(),
+                &events,
+                true,
+                &append::default_public_compute_context(),
+            )
+            .await?;
+            if head.checkpoint_digest == digest {
+                head
+            } else {
+                return Err(StackError::not_found("checkpoint bundle not found"));
+            }
         }
-        return Err(StackError::not_found("checkpoint bundle not found"));
     };
     bundle_response(&state, &record).await
 }
@@ -354,10 +358,10 @@ fn validate_scope(scope: &str) -> Result<(), StackError> {
 fn normalize_checkpoint_digest(value: &str) -> Result<String, StackError> {
     if let Some(hex) = value.strip_prefix("sha256:") {
         validate_digest_hex(hex)?;
-        Ok(value.to_string())
+        Ok(format!("sha256:{}", hex.to_ascii_lowercase()))
     } else {
         validate_digest_hex(value)?;
-        Ok(format!("sha256:{value}"))
+        Ok(format!("sha256:{}", value.to_ascii_lowercase()))
     }
 }
 

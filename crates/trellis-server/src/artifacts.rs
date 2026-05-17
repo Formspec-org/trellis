@@ -58,34 +58,108 @@ impl ArtifactStore for InMemoryArtifactStore {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BundleRecord {
     pub(crate) checkpoint_digest: String,
+    pub(crate) seal_version: u64,
+    pub(crate) export_attempt_id: String,
     pub(crate) artifact_ref: ArtifactRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BundleIdentity {
+    pub(crate) checkpoint_digest: String,
+    pub(crate) seal_version: u64,
+    pub(crate) export_attempt_id: String,
+}
+
+impl BundleRecord {
+    pub(crate) fn identity(&self) -> BundleIdentity {
+        BundleIdentity {
+            checkpoint_digest: self.checkpoint_digest.clone(),
+            seal_version: self.seal_version,
+            export_attempt_id: self.export_attempt_id.clone(),
+        }
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct BundleIndex {
-    pub(crate) head: Mutex<HashMap<Vec<u8>, BundleRecord>>,
-    pub(crate) by_digest: Mutex<HashMap<(Vec<u8>, String), BundleRecord>>,
+    records: Mutex<BundleRecords>,
+}
+
+#[derive(Default)]
+struct BundleRecords {
+    head: HashMap<Vec<u8>, BundleRecord>,
+    by_digest: HashMap<(Vec<u8>, String), BundleRecord>,
+    by_seal: HashMap<(Vec<u8>, u64), BundleRecord>,
 }
 
 impl BundleIndex {
-    /// Inserts `record` under `(scope, checkpoint_digest)` and optionally updates the scope head.
+    pub(crate) async fn ensure_publishable(
+        &self,
+        scope: &[u8],
+        identity: &BundleIdentity,
+    ) -> Result<(), StackError> {
+        let records = self.records.lock().await;
+        records.ensure_publishable(scope, identity)
+    }
+
+    pub(crate) async fn get_by_digest(
+        &self,
+        scope: &[u8],
+        checkpoint_digest: &str,
+    ) -> Option<BundleRecord> {
+        let records = self.records.lock().await;
+        records
+            .by_digest
+            .get(&(scope.to_vec(), checkpoint_digest.to_string()))
+            .cloned()
+    }
+
+    /// Inserts `record` under digest and seal-version indexes, then optionally updates head.
     pub(crate) async fn insert_published_record(
         &self,
         scope: &[u8],
         record: &BundleRecord,
         update_head: bool,
-    ) {
-        {
-            let mut by_digest = self.by_digest.lock().await;
-            by_digest.insert(
-                (scope.to_vec(), record.checkpoint_digest.clone()),
-                record.clone(),
-            );
-        }
+    ) -> Result<(), StackError> {
+        let mut records = self.records.lock().await;
+        records.ensure_publishable(scope, &record.identity())?;
+        records.by_digest.insert(
+            (scope.to_vec(), record.checkpoint_digest.clone()),
+            record.clone(),
+        );
+        records
+            .by_seal
+            .insert((scope.to_vec(), record.seal_version), record.clone());
         if update_head {
-            let mut head = self.head.lock().await;
-            head.insert(scope.to_vec(), record.clone());
+            records.head.insert(scope.to_vec(), record.clone());
         }
+        Ok(())
+    }
+}
+
+impl BundleRecords {
+    fn ensure_publishable(
+        &self,
+        scope: &[u8],
+        identity: &BundleIdentity,
+    ) -> Result<(), StackError> {
+        if let Some(existing) = self.by_seal.get(&(scope.to_vec(), identity.seal_version))
+            && existing.identity() != *identity
+        {
+            return Err(StackError::conflict(
+                "seal version already published with different bundle identity",
+            ));
+        }
+        if let Some(existing) = self
+            .by_digest
+            .get(&(scope.to_vec(), identity.checkpoint_digest.clone()))
+            && existing.identity() != *identity
+        {
+            return Err(StackError::conflict(
+                "checkpoint digest already published with different bundle identity",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -172,18 +246,53 @@ mod tests {
         let digest = "sha256:deadbeef".to_string();
         let record = BundleRecord {
             checkpoint_digest: digest.clone(),
+            seal_version: 1,
+            export_attempt_id: "sha256:attempt".to_string(),
             artifact_ref: ArtifactRef::new("memory://trellis/case_scope/bundles/deadbeef.zip"),
         };
-        idx.insert_published_record(scope, &record, true).await;
-        let from_digest = idx
-            .by_digest
-            .lock()
+        idx.insert_published_record(scope, &record, true)
             .await
+            .expect("insert bundle record");
+        let records = idx.records.lock().await;
+        let from_digest = records
+            .by_digest
             .get(&(scope.to_vec(), digest.clone()))
             .cloned();
-        let from_head = idx.head.lock().await.get(scope.as_slice()).cloned();
+        let from_seal = records.by_seal.get(&(scope.to_vec(), 1)).cloned();
+        let from_head = records.head.get(scope.as_slice()).cloned();
         assert_eq!(from_digest, Some(record.clone()));
+        assert_eq!(from_seal, Some(record.clone()));
         assert_eq!(from_head, Some(record));
+    }
+
+    /// Given a bundle index, when a seal version already points at different bundle identity,
+    /// then insertion rejects so retries cannot silently retarget an export identity.
+    #[tokio::test]
+    async fn given_bundle_index_when_seal_version_conflicts_then_rejects() {
+        let idx = BundleIndex::default();
+        let scope = b"case_scope";
+        let first = BundleRecord {
+            checkpoint_digest: "sha256:first".to_string(),
+            seal_version: 1,
+            export_attempt_id: "sha256:attempt-one".to_string(),
+            artifact_ref: ArtifactRef::new("memory://trellis/case_scope/bundles/first.zip"),
+        };
+        let second = BundleRecord {
+            checkpoint_digest: "sha256:second".to_string(),
+            seal_version: 1,
+            export_attempt_id: "sha256:attempt-two".to_string(),
+            artifact_ref: ArtifactRef::new("memory://trellis/case_scope/bundles/second.zip"),
+        };
+
+        idx.insert_published_record(scope, &first, true)
+            .await
+            .expect("first insert");
+        let error = idx
+            .insert_published_record(scope, &second, true)
+            .await
+            .expect_err("conflicting seal identity must reject");
+
+        assert_eq!(error.code().as_str(), "INFRA-4090");
     }
 
     /// Given per-scope locks, when the same scope is locked twice in sequence,

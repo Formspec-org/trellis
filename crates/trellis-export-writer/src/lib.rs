@@ -36,6 +36,7 @@ const CHECKPOINT_DOMAIN: &str = "trellis-checkpoint-v1";
 const MERKLE_LEAF_DOMAIN: &str = "trellis-merkle-leaf-v1";
 const MERKLE_INTERIOR_DOMAIN: &str = "trellis-merkle-interior-v1";
 const EXPORT_MANIFEST_DOMAIN: &str = "trellis-export-manifest-v1";
+const EXPORT_ATTEMPT_DOMAIN: &str = "trellis-export-attempt-v1";
 const SUITE_ID_PHASE_1: u64 = 1;
 
 pub const MANIFEST_MEMBER: &str = "000-manifest.cbor";
@@ -229,6 +230,8 @@ pub struct ExportWriterInput {
     pub root_dir_override: Option<String>,
     pub external_anchors: Vec<Value>,
     pub extensions: Option<Value>,
+    /// Optional export identity and high-water fence bound into the manifest.
+    pub seal_fence: Option<ExportSealFence>,
     /// When set, the writer emits `031-witness-key-registry.cbor` and merges
     /// `ExportManifestPayload.extensions["trellis.export.witness-key-registry.v1"]`
     /// (`witness_key_registry_digest`, `entry_count`) per Core §18.3d.
@@ -249,6 +252,16 @@ pub struct ExportWriterInput {
     /// enforce that the member is case-policy evidence, not verifier trust-root
     /// or adapter allowlist configuration.
     pub policy_closure: Option<PolicyClosureMember>,
+}
+
+/// Export identity and source high-water fence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportSealFence {
+    pub bundle_scope: Vec<u8>,
+    pub export_attempt_id: String,
+    pub seal_version: u64,
+    pub event_count: u64,
+    pub high_water_sequence: u64,
 }
 
 /// Complete export writer output.
@@ -306,6 +319,7 @@ struct RegistryBindingMaterial {
 pub fn write_export(input: ExportWriterInput) -> Result<ExportPackage, StackError> {
     validate_top_level_input(&input)?;
     let events = prepare_events(&input)?;
+    validate_seal_fence(&input, &events)?;
     let tree_head_hash = merkle_root(
         &events
             .iter()
@@ -353,6 +367,8 @@ pub fn write_export(input: ExportWriterInput) -> Result<ExportPackage, StackErro
         &input,
         input.witness_key_registry.as_ref(),
         witness_registry_cbor.as_deref(),
+        head_checkpoint_digest,
+        &events_cbor,
     )?;
 
     let manifest_payload = manifest_payload_cbor(ManifestPayloadInput {
@@ -451,6 +467,8 @@ pub fn write_export(input: ExportWriterInput) -> Result<ExportPackage, StackErro
 
 /// Core §18.3d manifest.extensions key binding `031-witness-key-registry.cbor`.
 const WITNESS_REGISTRY_MANIFEST_EXTENSION: &str = "trellis.export.witness-key-registry.v1";
+/// Export seal identity and high-water source fence.
+const SEAL_FENCE_MANIFEST_EXTENSION: &str = "trellis.export.seal-fence.v1";
 /// Composition-owned manifest extension binding `066-signed-acts.cbor`.
 const SIGNED_ACTS_MANIFEST_EXTENSION: &str = "trellis.export.signed-acts.v1";
 /// Composition-owned manifest extension binding `067-policy-closure.cbor`.
@@ -460,15 +478,31 @@ fn manifest_extensions_value(
     input: &ExportWriterInput,
     registry: Option<&WitnessKeyRegistry>,
     witness_registry_cbor: Option<&[u8]>,
+    head_checkpoint_digest: [u8; 32],
+    events_cbor: &[u8],
 ) -> Result<Value, StackError> {
+    let policy_closure_digest = input
+        .policy_closure
+        .as_ref()
+        .map(|closure| sha256_bytes(&closure.bytes));
+    let with_seal = match &input.seal_fence {
+        None => input.extensions.clone(),
+        Some(seal_fence) => Some(merge_seal_fence_manifest_extension(
+            input.extensions.as_ref(),
+            seal_fence,
+            head_checkpoint_digest,
+            sha256_bytes(events_cbor),
+            policy_closure_digest,
+        )?),
+    };
     let with_witness = match (registry, witness_registry_cbor) {
-        (None, None) => input.extensions.clone(),
+        (None, None) => with_seal,
         (Some(registry), Some(cbor)) => {
             let entry_count = u64::try_from(registry.entries.len()).map_err(|_| {
                 StackError::internal("witness registry entry count exceeds u64::MAX")
             })?;
             Some(merge_witness_registry_manifest_extension(
-                input.extensions.as_ref(),
+                with_seal.as_ref(),
                 sha256_bytes(cbor),
                 entry_count,
             )?)
@@ -493,6 +527,55 @@ fn manifest_extensions_value(
             &closure.closure_version,
         ),
     }
+}
+
+fn merge_seal_fence_manifest_extension(
+    base_extensions: Option<&Value>,
+    seal_fence: &ExportSealFence,
+    head_checkpoint_digest: [u8; 32],
+    events_digest: [u8; 32],
+    policy_closure_digest: Option<[u8; 32]>,
+) -> Result<Value, StackError> {
+    let mut pairs: Vec<(Value, Value)> = Vec::new();
+    if let Some(Value::Map(entries)) = base_extensions {
+        for (key, value) in entries {
+            if key.as_text() == Some(SEAL_FENCE_MANIFEST_EXTENSION) {
+                continue;
+            }
+            pairs.push((key.clone(), value.clone()));
+        }
+    }
+    let seal_payload = text_map(vec![
+        (
+            "identity_rule",
+            Value::Text("trellis-export-seal-fence-v1".to_string()),
+        ),
+        (
+            "bundle_scope",
+            Value::Bytes(seal_fence.bundle_scope.clone()),
+        ),
+        (
+            "export_attempt_id",
+            Value::Text(seal_fence.export_attempt_id.clone()),
+        ),
+        ("seal_version", uint(seal_fence.seal_version)),
+        ("event_count", uint(seal_fence.event_count)),
+        ("high_water_sequence", uint(seal_fence.high_water_sequence)),
+        (
+            "head_checkpoint_digest",
+            Value::Bytes(head_checkpoint_digest.to_vec()),
+        ),
+        ("events_digest", Value::Bytes(events_digest.to_vec())),
+        (
+            "policy_closure_digest",
+            policy_closure_digest.map_or(Value::Null, |digest| Value::Bytes(digest.to_vec())),
+        ),
+    ])?;
+    pairs.push((
+        Value::Text(SEAL_FENCE_MANIFEST_EXTENSION.to_string()),
+        seal_payload,
+    ));
+    canonical_map(pairs)
 }
 
 fn merge_witness_registry_manifest_extension(
@@ -624,6 +707,18 @@ fn validate_top_level_input(input: &ExportWriterInput) -> Result<(), StackError>
             ));
         }
     }
+    if input.seal_fence.is_none() {
+        if let Some(Value::Map(entries)) = &input.extensions
+            && entries
+                .iter()
+                .any(|(key, _)| key.as_text() == Some(SEAL_FENCE_MANIFEST_EXTENSION))
+        {
+            return Err(StackError::bad_request(
+                "manifest extensions include trellis.export.seal-fence.v1 \
+                 but seal_fence was not provided",
+            ));
+        }
+    }
     if input.signed_acts_catalog.is_none() {
         if let Some(Value::Map(entries)) = &input.extensions
             && entries
@@ -677,6 +772,65 @@ fn validate_top_level_input(input: &ExportWriterInput) -> Result<(), StackError>
                 "policy_closure closure_version must not be empty",
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_seal_fence(
+    input: &ExportWriterInput,
+    events: &[PreparedEvent],
+) -> Result<(), StackError> {
+    let Some(seal_fence) = &input.seal_fence else {
+        return Ok(());
+    };
+    if seal_fence.bundle_scope != input.scope {
+        return Err(StackError::bad_request(
+            "seal_fence bundle_scope must match export scope",
+        ));
+    }
+    if seal_fence.export_attempt_id.is_empty() {
+        return Err(StackError::bad_request(
+            "seal_fence export_attempt_id must not be empty",
+        ));
+    }
+    if seal_fence.seal_version == 0 {
+        return Err(StackError::bad_request(
+            "seal_fence seal_version must be positive",
+        ));
+    }
+    let event_count =
+        u64::try_from(events.len()).map_err(|_| StackError::internal("event count exceeds u64"))?;
+    if seal_fence.event_count != event_count {
+        return Err(StackError::bad_request(format!(
+            "seal_fence event_count {} does not match export event count {event_count}",
+            seal_fence.event_count
+        )));
+    }
+    let high_water_sequence = events
+        .last()
+        .map(|event| event.sequence)
+        .ok_or_else(|| StackError::internal("prepared events unexpectedly empty"))?;
+    if seal_fence.high_water_sequence != high_water_sequence {
+        return Err(StackError::bad_request(format!(
+            "seal_fence high_water_sequence {} does not match export high-water sequence {high_water_sequence}",
+            seal_fence.high_water_sequence
+        )));
+    }
+    let high_water_event_hash = events
+        .last()
+        .map(|event| event.canonical_event_hash)
+        .ok_or_else(|| StackError::internal("prepared events unexpectedly empty"))?;
+    let expected_export_attempt_id = export_attempt_id(
+        &seal_fence.bundle_scope,
+        seal_fence.seal_version,
+        seal_fence.high_water_sequence,
+        high_water_event_hash,
+    )?;
+    if seal_fence.export_attempt_id != expected_export_attempt_id {
+        return Err(StackError::bad_request(format!(
+            "seal_fence export_attempt_id {} does not match deterministic identity {expected_export_attempt_id}",
+            seal_fence.export_attempt_id
+        )));
     }
     Ok(())
 }
@@ -1183,6 +1337,25 @@ fn export_manifest_digest(scope: &[u8], manifest_payload_bytes: &[u8]) -> [u8; 3
     domain_separated_sha256(EXPORT_MANIFEST_DOMAIN, &preimage)
 }
 
+fn export_attempt_id(
+    scope: &[u8],
+    seal_version: u64,
+    high_water_sequence: u64,
+    high_water_event_hash: [u8; 32],
+) -> Result<String, StackError> {
+    let material = text_map(vec![
+        ("bundle_scope", Value::Bytes(scope.to_vec())),
+        ("seal_version", uint(seal_version)),
+        ("high_water_sequence", uint(high_water_sequence)),
+        (
+            "high_water_event_hash",
+            Value::Bytes(high_water_event_hash.to_vec()),
+        ),
+    ])?;
+    let digest = domain_separated_sha256(EXPORT_ATTEMPT_DOMAIN, &encode_value(&material)?);
+    Ok(format!("sha256:{}", hex_lower(&digest)))
+}
+
 fn merkle_leaf_hash(canonical_hash: [u8; 32]) -> [u8; 32] {
     domain_separated_sha256(MERKLE_LEAF_DOMAIN, &canonical_hash)
 }
@@ -1476,6 +1649,7 @@ mod tests {
             root_dir_override: None,
             external_anchors: Vec::new(),
             extensions: None,
+            seal_fence: None,
             witness_key_registry: None,
             signed_acts_catalog: None,
             policy_closure: None,
@@ -1556,6 +1730,162 @@ mod tests {
             error
                 .to_string()
                 .contains("witness_key_registry was not provided"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn write_export_binds_seal_fence_when_provided() {
+        let root = fixtures_root();
+        let mut input = crate::export_001_writer_input(root.as_path());
+        let prepared_events = prepare_events(&input).expect("prepare events");
+        let high_water_event_hash = prepared_events
+            .last()
+            .expect("fixture has events")
+            .canonical_event_hash;
+        let export_attempt_id =
+            export_attempt_id(&input.scope, 2, 1, high_water_event_hash).expect("attempt id");
+        input.seal_fence = Some(ExportSealFence {
+            bundle_scope: input.scope.clone(),
+            export_attempt_id: export_attempt_id.clone(),
+            seal_version: 2,
+            event_count: 2,
+            high_water_sequence: 1,
+        });
+        let expected_scope = input.scope.clone();
+
+        let package = write_export(input).expect("write export");
+        let events_member = package
+            .member_bytes(EVENTS_MEMBER)
+            .expect("events member must be present");
+        let manifest = decode_cbor_value(&package.manifest_payload).expect("manifest CBOR");
+        let map = manifest.as_map().expect("manifest map");
+        let extensions = map_lookup_map(map, "extensions").expect("extensions");
+        let binding_map = extensions
+            .iter()
+            .find(|(key, _)| key.as_text() == Some(SEAL_FENCE_MANIFEST_EXTENSION))
+            .map(|(_, value)| value.as_map().expect("seal fence binding"))
+            .expect("seal fence extension");
+
+        assert_eq!(
+            binding_map
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("identity_rule"))
+                .and_then(|(_, value)| value.as_text()),
+            Some("trellis-export-seal-fence-v1")
+        );
+        assert_eq!(
+            map_lookup_bytes(binding_map, "bundle_scope")
+                .expect("bundle scope")
+                .as_slice(),
+            expected_scope.as_slice()
+        );
+        assert_eq!(
+            binding_map
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("export_attempt_id"))
+                .and_then(|(_, value)| value.as_text()),
+            Some(export_attempt_id.as_str())
+        );
+        assert_eq!(
+            map_lookup_bytes(binding_map, "head_checkpoint_digest")
+                .expect("head checkpoint digest")
+                .as_slice(),
+            package.head_checkpoint_digest.as_slice()
+        );
+        assert_eq!(
+            map_lookup_bytes(binding_map, "events_digest")
+                .expect("events digest")
+                .as_slice(),
+            sha256_bytes(events_member).as_slice()
+        );
+        assert_eq!(
+            map_lookup_u64(binding_map, "seal_version").expect("seal version"),
+            2
+        );
+        assert_eq!(
+            map_lookup_u64(binding_map, "event_count").expect("event count"),
+            2
+        );
+        assert_eq!(
+            map_lookup_u64(binding_map, "high_water_sequence").expect("high water"),
+            1
+        );
+        assert_eq!(
+            binding_map
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("policy_closure_digest"))
+                .map(|(_, value)| value),
+            Some(&Value::Null)
+        );
+    }
+
+    #[test]
+    fn rejects_seal_fence_manifest_extension_without_input() {
+        let root = fixtures_root();
+        let mut input = crate::export_001_writer_input(root.as_path());
+        let stale_binding = text_map(vec![
+            (
+                "identity_rule",
+                Value::Text("trellis-export-seal-fence-v1".to_string()),
+            ),
+            ("bundle_scope", Value::Bytes(input.scope.clone())),
+            ("export_attempt_id", Value::Text("sha256:stale".to_string())),
+            ("seal_version", uint(2)),
+            ("event_count", uint(2)),
+            ("high_water_sequence", uint(1)),
+        ])
+        .expect("stale seal fence binding");
+        input.extensions = Some(
+            canonical_map(vec![(
+                Value::Text(SEAL_FENCE_MANIFEST_EXTENSION.to_string()),
+                stale_binding,
+            )])
+            .expect("extensions map"),
+        );
+        input.seal_fence = None;
+
+        let error = write_export(input).expect_err("extension without seal fence must reject");
+
+        assert!(
+            error.to_string().contains("seal_fence was not provided"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_seal_fence_event_count_mismatch() {
+        let root = fixtures_root();
+        let mut input = crate::export_001_writer_input(root.as_path());
+        input.seal_fence = Some(ExportSealFence {
+            bundle_scope: input.scope.clone(),
+            export_attempt_id: "sha256:test-export-attempt".to_string(),
+            seal_version: 2,
+            event_count: 99,
+            high_water_sequence: 1,
+        });
+
+        let error = write_export(input).expect_err("wrong event count must reject");
+
+        assert!(error.to_string().contains("event_count 99"), "{error}");
+    }
+
+    #[test]
+    fn rejects_seal_fence_export_attempt_id_mismatch() {
+        let root = fixtures_root();
+        let mut input = crate::export_001_writer_input(root.as_path());
+        input.seal_fence = Some(ExportSealFence {
+            bundle_scope: input.scope.clone(),
+            export_attempt_id: "sha256:test-export-attempt".to_string(),
+            seal_version: 2,
+            event_count: 2,
+            high_water_sequence: 1,
+        });
+
+        let error = write_export(input).expect_err("wrong export attempt id must reject");
+
+        assert!(
+            error.to_string().contains("deterministic identity"),
             "{error}"
         );
     }

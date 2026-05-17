@@ -345,6 +345,7 @@ Registered extension identifiers:
 | `CheckpointPayload.extensions` | `trellis.case_ledger.case_scope_metadata.v1` | 3 | Case-scope adjudication metadata. |
 | `ExportManifestPayload.extensions` | `trellis.export.attachments.v1` | 1 | Binds optional `061-attachments.cbor` (SHA-256 digest + `inline_attachments` flag). Verifier obligations and manifest entry shape per stack ADR 0072 (evidence integrity and attachment binding). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.witness-key-registry.v1` | 1 | Binds optional `031-witness-key-registry.cbor` via `witness_key_registry_digest` (SHA-256 of the registry member bytes) and `entry_count`. Reference-with-optional-inline pattern for witness-key history; small registries MAY be inlined by domain-specific adapters, but the archive member is the canonical verifier input when present. Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.seal-fence.v1` | 1 | Manifest-resident export identity and high-water fence. Carries `identity_rule = "trellis-export-seal-fence-v1"`, `bundle_scope`, `export_attempt_id`, `seal_version`, `event_count`, `high_water_sequence`, `head_checkpoint_digest`, `events_digest`, and `policy_closure_digest`. `export_attempt_id` is `sha256:<hex>` over the v1 preimage defined in §18.3e. This binds Trellis-local export identity to the signed manifest without adding a separate archive member. Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived WOS signature catalog; Trellis Core treats this as a registered, digest-bound extension member, while WOS row semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signed-acts.v1` | 1 | Binds optional `066-signed-acts.cbor` via `catalog_digest` (SHA-256 of the catalog bytes), `catalog_ref = "066-signed-acts.cbor"`, and `derivation_rule`. Chain-derived WOS/Formspec SignedAct projection; Trellis Core treats this as a registered, digest-bound extension member, while projection semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.policy-closure.v1` | 1 | Binds optional `067-policy-closure.cbor` via `closure_digest` (SHA-256 of the closure bytes), `closure_ref = "067-policy-closure.cbor"`, and `closure_version`. WOS/Formspec effective admission-policy evidence; Trellis Core treats this as a registered, digest-bound extension member, while policy-boundary semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
@@ -1581,6 +1582,46 @@ catalog. Trellis Core verifies the member binding only. Domain validators, such
 as WOS-Trellis verification, own overdue advisories and pause/resume calendar
 semantics.
 Traceability: **TR-CORE-172**.
+
+**Seal fence (§18.3e).** `trellis.export.seal-fence.v1` is the manifest
+extension hook for Trellis-local export identity. When present, the extension
+MUST carry the `SealFenceManifestExtension` shape in Appendix A §28. The
+`identity_rule` value MUST be `trellis-export-seal-fence-v1`. The
+`bundle_scope` MUST equal `ExportManifestPayload.scope`; `event_count` MUST
+equal `ExportManifestPayload.tree_size`; `high_water_sequence` MUST equal
+`event_count - 1`; `head_checkpoint_digest` MUST equal
+`ExportManifestPayload.head_checkpoint_digest`; and `events_digest` MUST equal
+`ExportManifestPayload.events_digest`.
+
+For identity rule `trellis-export-seal-fence-v1`, `export_attempt_id` MUST be
+`"sha256:" || lowercase_hex(SHA-256-DS("trellis-export-attempt-v1",
+dCBOR(ExportAttemptPreimage)))`, where SHA-256-DS is the Trellis
+length-prefixed domain-separation construction from §9.1 and:
+
+```cddl
+ExportAttemptPreimage = {
+  bundle_scope:           bstr,
+  seal_version:           uint,
+  high_water_sequence:    uint,
+  high_water_event_hash:  digest,
+}
+```
+
+`high_water_event_hash` is the canonical event hash of the last event covered
+by the export. `seal_version` is a monotonic producer-owned export version for
+the scope; the Phase-1 Trellis server uses `tree_size` for this value. Retrying
+the same `(bundle_scope, seal_version)` MUST either produce the same
+`export_attempt_id` and byte-identical export object or fail as an identity
+conflict.
+
+`policy_closure_digest` is `SHA-256(067-policy-closure.cbor)` when the export
+carries `trellis.export.policy-closure.v1`. It is `null` only when the export
+does not claim bundle-resident policy-closure evidence. A `null` value is not
+evidence that policy was irrelevant; WOS/Formspec deployments that require
+policy evidence report that posture through their domain validators.
+Phase-1 verifiers that implement extension version 1 MUST reject the export
+when any seal-fence field disagrees with the manifest, event stream, derived
+`export_attempt_id`, or policy-closure member presence.
 
 ```cddl
 OmittedPayloadCheck = {
@@ -3069,6 +3110,21 @@ OpenClocksManifestExtension = {
 WitnessKeyRegistryManifestExtension = {
   witness_key_registry_digest: digest,
   entry_count:                 uint,
+}
+
+; Carried under
+; ExportManifestPayload.extensions["trellis.export.seal-fence.v1"] (§18.3).
+; Manifest-resident export identity and high-water fence.
+SealFenceManifestExtension = {
+  identity_rule:           "trellis-export-seal-fence-v1",
+  bundle_scope:            bstr,
+  export_attempt_id:       tstr,
+  seal_version:            uint,
+  event_count:             uint,
+  high_water_sequence:     uint,
+  head_checkpoint_digest:  digest,
+  events_digest:           digest,
+  policy_closure_digest:   digest / null,
 }
 
 ; Carried under

@@ -121,6 +121,7 @@ pub fn export_001_writer_input(vectors_root: &Path) -> ExportWriterInput {
         root_dir_override: None,
         external_anchors: Vec::new(),
         extensions: None,
+        seal_fence: None,
         witness_key_registry: None,
         signed_acts_catalog: None,
         policy_closure: None,

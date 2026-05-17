@@ -44,7 +44,7 @@ mod state;
 #[doc(inline)]
 pub use composition::{AdmissionRouter, default_admission_policy};
 
-use artifacts::BundleRecord;
+use artifacts::{BundleIdentity, BundleRecord};
 
 #[doc(inline)]
 pub use event_repository::{EventRepository, InMemoryEventRepository, PostgresEventRepository};
@@ -74,7 +74,7 @@ use stack_common_error::StackError;
 use trellis_cddl::canonical_event_hash_preimage;
 use trellis_core::SigningKeyMaterial as CoreSigningKey;
 use trellis_export_writer::{
-    ExportWriterInput, RegistrySnapshot as ExportRegistrySnapshot,
+    ExportSealFence, ExportWriterInput, RegistrySnapshot as ExportRegistrySnapshot,
     SigningKeyMaterial as ExportSigningKey, TrellisTimestamp, write_export,
 };
 use trellis_service_client::{ComputeContext, SubstrateAppendResult, VerificationReceipt};
@@ -88,6 +88,7 @@ pub use composition::FORMSPEC_RESPONSE_SUBMITTED;
 // projects both WOS and Formspec admitted literals through `composition`. The
 // old `wos-events:` namespace was misleading once Formspec joined the catalog.
 const EVENT_TYPE_REGISTRY_VERSION: &str = "trellis-events:2026-05-15";
+const EXPORT_ATTEMPT_DOMAIN: &str = "trellis-export-attempt-v1";
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8080";
 
 #[must_use]
@@ -201,6 +202,19 @@ pub(crate) async fn publish_bundle(
         .last()
         .copied()
         .ok_or_else(|| StackError::internal("empty timestamp set"))?;
+    let seal_version =
+        u64::try_from(events.len()).map_err(|_| StackError::internal("event count exceeds u64"))?;
+    let high_water_event = events
+        .last()
+        .ok_or_else(|| StackError::internal("empty event set"))?;
+    let high_water_sequence = high_water_event.sequence();
+    let high_water_event_hash = event_hash(scope, high_water_event)?;
+    let export_attempt_id = export_attempt_id(
+        scope,
+        seal_version,
+        high_water_sequence,
+        high_water_event_hash,
+    )?;
     let registry_bytes = event_type_registry_cbor(state.event_type_catalog.as_ref())?;
     let policy_artifacts = composition::default_signature_policy_artifacts();
     let export_profile = export_profile::build_export_profile_members(
@@ -229,6 +243,13 @@ pub(crate) async fn publish_bundle(
         root_dir_override: None,
         external_anchors: Vec::new(),
         extensions: None,
+        seal_fence: Some(ExportSealFence {
+            bundle_scope: scope.to_vec(),
+            export_attempt_id: export_attempt_id.clone(),
+            seal_version,
+            event_count: seal_version,
+            high_water_sequence,
+        }),
         witness_key_registry: None,
         signed_acts_catalog: export_profile.signed_acts_catalog,
         policy_closure: export_profile.policy_closure,
@@ -237,8 +258,14 @@ pub(crate) async fn publish_bundle(
     let key = format!(
         "{}/bundles/{}.zip",
         encode_path_segment(&String::from_utf8_lossy(scope)),
-        checkpoint_digest.trim_start_matches("sha256:")
+        export_attempt_id.trim_start_matches("sha256:")
     );
+    let identity = BundleIdentity {
+        checkpoint_digest: checkpoint_digest.clone(),
+        seal_version,
+        export_attempt_id: export_attempt_id.clone(),
+    };
+    state.bundles.ensure_publishable(scope, &identity).await?;
     if !export_bundle_cryptographically_verified(&package.zip_bytes) {
         return Err(StackError::internal(
             "published export bundle failed independent verification",
@@ -256,13 +283,34 @@ pub(crate) async fn publish_bundle(
         .await?;
     let record = BundleRecord {
         checkpoint_digest,
+        seal_version,
+        export_attempt_id,
         artifact_ref,
     };
     state
         .bundles
         .insert_published_record(scope, &record, update_head)
-        .await;
+        .await?;
     Ok(record)
+}
+
+fn export_attempt_id(
+    scope: &[u8],
+    seal_version: u64,
+    high_water_sequence: u64,
+    high_water_event_hash: [u8; 32],
+) -> Result<String, StackError> {
+    let material = text_map(vec![
+        ("bundle_scope", Value::Bytes(scope.to_vec())),
+        ("seal_version", uint(seal_version)),
+        ("high_water_sequence", uint(high_water_sequence)),
+        (
+            "high_water_event_hash",
+            Value::Bytes(high_water_event_hash.to_vec()),
+        ),
+    ])?;
+    let digest = domain_separated_sha256(EXPORT_ATTEMPT_DOMAIN, &encode_value(&material)?);
+    Ok(format!("sha256:{}", hex::encode(digest)))
 }
 
 pub(crate) fn append_result_for_event(
@@ -1271,6 +1319,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publish_bundle_checks_index_identity_before_artifact_write() {
+        #[derive(Default)]
+        struct CountingArtifactStore {
+            puts: AtomicUsize,
+        }
+
+        #[async_trait]
+        impl ArtifactStore for CountingArtifactStore {
+            type Error = StackError;
+
+            async fn put(&self, key: &str, _bytes: &[u8]) -> Result<ArtifactRef, Self::Error> {
+                self.puts.fetch_add(1, Ordering::SeqCst);
+                Ok(ArtifactRef::new(format!("memory://{key}")))
+            }
+
+            async fn put_immutable(
+                &self,
+                key: &str,
+                _bytes: &[u8],
+            ) -> Result<ArtifactRef, Self::Error> {
+                self.puts.fetch_add(1, Ordering::SeqCst);
+                Ok(ArtifactRef::new(format!("memory://{key}")))
+            }
+
+            async fn get(
+                &self,
+                _artifact_ref: &ArtifactRef,
+            ) -> Result<Option<Vec<u8>>, Self::Error> {
+                Ok(None)
+            }
+        }
+
+        let source_state = test_state();
+        let app = router(source_state.clone()).expect("router");
+        let response = app
+            .oneshot(post_request(
+                "/v1/scopes/case_preflight_conflict/events",
+                append_body("idem-preflight-conflict"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let events = source_state
+            .repository
+            .list_scope(b"case_preflight_conflict")
+            .await
+            .expect("load scope events");
+
+        let store = Arc::new(CountingArtifactStore::default());
+        let publish_state = test_state().with_artifact_store(store.clone());
+        publish_state
+            .bundles
+            .insert_published_record(
+                b"case_preflight_conflict",
+                &BundleRecord {
+                    checkpoint_digest: format!("sha256:{}", "00".repeat(32)),
+                    seal_version: 1,
+                    export_attempt_id: format!("sha256:{}", "11".repeat(32)),
+                    artifact_ref: ArtifactRef::new(
+                        "memory://trellis/case_preflight_conflict/bundles/prior.zip",
+                    ),
+                },
+                true,
+            )
+            .await
+            .expect("seed conflicting bundle identity");
+
+        let error = publish_bundle(
+            &publish_state,
+            b"case_preflight_conflict",
+            &events,
+            false,
+            &append::default_public_compute_context(),
+        )
+        .await
+        .expect_err("conflicting seal identity must reject");
+
+        assert_eq!(error.code().as_str(), "INFRA-4090");
+        assert_eq!(
+            store.puts.load(Ordering::SeqCst),
+            0,
+            "known bundle-index conflicts must fail before artifact writes"
+        );
+    }
+
+    #[tokio::test]
     async fn head_bundle_returns_conflict_when_checkpoint_artifact_identity_conflicts() {
         let state = test_state();
         let app = router(state.clone()).expect("router");
@@ -1292,6 +1426,110 @@ mod tests {
             .expect("head bundle response");
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn pinned_bundle_returns_existing_checkpoint_with_normalized_digest_forms() {
+        let state = test_state();
+        let app = router(state.clone()).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_pinned_bundle/events",
+                append_body("idem-pinned-bundle"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("append response body");
+        let result: SubstrateAppendResult =
+            serde_json::from_slice(&body).expect("append response JSON");
+        let digest = result
+            .checkpoint_ref
+            .rsplit('/')
+            .next()
+            .expect("checkpoint digest in ref");
+        let hex_digest = digest.strip_prefix("sha256:").expect("sha256 digest");
+
+        let head = app
+            .clone()
+            .oneshot(get_request("/v1/scopes/case_pinned_bundle/bundles/head"))
+            .await
+            .expect("head bundle response");
+        assert_eq!(head.status(), StatusCode::OK);
+        let head_bytes = to_bytes(head.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("head bundle bytes")
+            .to_vec();
+
+        let prefixed_path = format!("/v1/scopes/case_pinned_bundle/bundles/{digest}");
+        let prefixed = app
+            .clone()
+            .oneshot(get_request(&prefixed_path))
+            .await
+            .expect("prefixed pinned bundle response");
+        assert_eq!(prefixed.status(), StatusCode::OK);
+        let prefixed_bytes = to_bytes(prefixed.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("prefixed pinned bundle bytes")
+            .to_vec();
+
+        let bare_path = format!("/v1/scopes/case_pinned_bundle/bundles/{hex_digest}");
+        let bare = app
+            .clone()
+            .oneshot(get_request(&bare_path))
+            .await
+            .expect("bare pinned bundle response");
+        assert_eq!(bare.status(), StatusCode::OK);
+        let bare_bytes = to_bytes(bare.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("bare pinned bundle bytes")
+            .to_vec();
+
+        let uppercase_path = format!(
+            "/v1/scopes/case_pinned_bundle/bundles/sha256:{}",
+            hex_digest.to_ascii_uppercase()
+        );
+        let uppercase = app
+            .oneshot(get_request(&uppercase_path))
+            .await
+            .expect("uppercase pinned bundle response");
+        assert_eq!(uppercase.status(), StatusCode::OK);
+        let uppercase_bytes = to_bytes(uppercase.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("uppercase pinned bundle bytes")
+            .to_vec();
+
+        assert_eq!(head_bytes, prefixed_bytes);
+        assert_eq!(head_bytes, bare_bytes);
+        assert_eq!(head_bytes, uppercase_bytes);
+    }
+
+    #[tokio::test]
+    async fn pinned_bundle_returns_not_found_for_unknown_checkpoint_after_head_publish() {
+        let state = test_state();
+        let app = router(state).expect("router");
+        let response = app
+            .clone()
+            .oneshot(post_request(
+                "/v1/scopes/case_pinned_missing/events",
+                append_body("idem-pinned-missing"),
+            ))
+            .await
+            .expect("append response");
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let missing = app
+            .oneshot(get_request(&format!(
+                "/v1/scopes/case_pinned_missing/bundles/sha256:{}",
+                "ff".repeat(32)
+            )))
+            .await
+            .expect("missing pinned bundle response");
+
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -1566,6 +1804,16 @@ mod tests {
         let second = publish_bundle(&state, b"case_deterministic", &events, false, &compute)
             .await
             .expect("second publish");
+        assert_eq!(first.seal_version, 1);
+        assert_eq!(first.export_attempt_id, second.export_attempt_id);
+        assert!(
+            first
+                .artifact_ref
+                .uri
+                .contains(first.export_attempt_id.trim_start_matches("sha256:")),
+            "bundle artifact key should be export-attempt keyed: {}",
+            first.artifact_ref.uri
+        );
         let first_bytes = state
             .artifact_store
             .get(&first.artifact_ref)
@@ -1578,6 +1826,34 @@ mod tests {
             .await
             .expect("load second bundle")
             .expect("second bundle bytes");
+        let manifest = manifest_payload_from_bundle(&first_bytes);
+        let manifest_map = manifest.as_map().expect("manifest map");
+        let extensions = map_lookup_map(manifest_map, "extensions").expect("extensions");
+        let seal_fence = extensions
+            .iter()
+            .find(|(key, _)| key.as_text() == Some("trellis.export.seal-fence.v1"))
+            .map(|(_, value)| value.as_map().expect("seal fence map"))
+            .expect("seal fence extension");
+        assert_eq!(
+            map_lookup_bytes(seal_fence, "bundle_scope")
+                .expect("bundle scope")
+                .as_slice(),
+            b"case_deterministic"
+        );
+        assert_eq!(
+            seal_fence
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("export_attempt_id"))
+                .and_then(|(_, value)| value.as_text()),
+            Some(first.export_attempt_id.as_str())
+        );
+        assert_eq!(
+            seal_fence
+                .iter()
+                .find(|(key, _)| key.as_text() == Some("policy_closure_digest"))
+                .map(|(_, value)| value),
+            Some(&Value::Null)
+        );
         assert_eq!(
             first_bytes, second_bytes,
             "publishing identical ledger state twice must produce byte-identical ZIP output"
@@ -1630,6 +1906,8 @@ mod tests {
         )
         .await
         .expect("second publish");
+        assert_eq!(first.seal_version, 2);
+        assert_eq!(first.export_attempt_id, second.export_attempt_id);
         let first_bytes = state
             .artifact_store
             .get(&first.artifact_ref)
@@ -1995,6 +2273,32 @@ mod tests {
             test_signing_key(),
             TenantHeaderMode::MultiProducer,
         )
+    }
+
+    fn manifest_payload_from_bundle(bundle_bytes: &[u8]) -> Value {
+        const COSE_SIGN1_TAG: u64 = 18;
+
+        let entries = integrity_bundle::read_stored_zip(bundle_bytes).expect("parse bundle ZIP");
+        let manifest_bytes = entries
+            .iter()
+            .find(|entry| {
+                entry
+                    .path()
+                    .ends_with(trellis_export_writer::MANIFEST_MEMBER)
+            })
+            .map(|entry| entry.bytes())
+            .expect("manifest member");
+        let sign1 = integrity_cbor::decode_cbor_value(manifest_bytes).expect("manifest COSE CBOR");
+        let Value::Tag(tag, inner) = sign1 else {
+            panic!("manifest member must be tagged COSE_Sign1");
+        };
+        assert_eq!(tag, COSE_SIGN1_TAG);
+        let fields = inner.as_array().expect("COSE_Sign1 array");
+        let payload = fields
+            .get(2)
+            .and_then(Value::as_bytes)
+            .expect("embedded manifest payload");
+        integrity_cbor::decode_cbor_value(payload).expect("manifest payload CBOR")
     }
 
     fn formspec_append_body(idempotency_key: &str) -> Vec<u8> {
