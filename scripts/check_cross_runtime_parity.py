@@ -65,6 +65,7 @@ GENERATED_DIRS = [
     ("verify", "024-signed-acts-manifest-extension-parse-failure"),
     ("verify", "025-signed-acts-manifest-extension-wrong-catalog-ref"),
     ("verify", "026-signed-acts-manifest-extension-wrong-derivation-rule"),
+    ("verify", "027-signed-acts-manifest-derivation-precondition-failure"),
     ("tamper", "014-signature-catalog-digest-mismatch"),
     ("tamper", "055-signed-acts-catalog-digest-mismatch"),
     ("tamper", "056-policy-closure-digest-mismatch"),
@@ -111,6 +112,11 @@ def run_generator(tmp: Path) -> None:
     )
     module.OUT_VERIFY_024C = (
         tmp / "verify" / "026-signed-acts-manifest-extension-wrong-derivation-rule"
+    )
+    module.OUT_VERIFY_027 = (
+        tmp
+        / "verify"
+        / "027-signed-acts-manifest-derivation-precondition-failure"
     )
     module.OUT_TAMPER_014 = tmp / "tamper" / "014-signature-catalog-digest-mismatch"
     module.OUT_TAMPER_055 = tmp / "tamper" / "055-signed-acts-catalog-digest-mismatch"
@@ -288,6 +294,68 @@ def check_python_verifier_vectors() -> None:
             projection_integrity="pass",
             domain_admissibility="fail",
             blocking_reasons=["domain_admissibility"],
+        )
+    # verify/027 (Wave 5 Task 3.c): derive_signed_acts_manifest_v1
+    # precondition failure — duplicate `(canonical_event_hash, event_type)`
+    # tuple. The deriver-rejection path surfaces one
+    # `signed_acts_manifest_extension_invalid` finding with the
+    # byte-identical detail `signed acts manifest derivation failed:
+    # signed-acts manifest has duplicate (canonical_event_hash, event_type)
+    # tuple for event_type wos.kernel.signature_affirmation` (Rust
+    # `signed_acts.rs:167-176`; Python `_validate_signed_acts_manifest_extension`).
+    # Helper drops `trellis.integrity_verified` from its precondition because
+    # the duplicated event is absent from the fixture-009 inclusion proof,
+    # so substrate `proof_failures` carries `inclusion_proof_invalid` and
+    # `trellis.integrity_verified = false` — the composed
+    # `integrity_verified` is what the verdict reports.
+    _assert_verify_027_parity(verify_wos)
+
+
+def _assert_verify_027_parity(verify_wos) -> None:
+    """Pin verify/027's cross-runtime detail-text parity.
+
+    `assert_wos_failure` requires `trellis.integrity_verified = true`; that
+    precondition is not satisfied here because substrate emits
+    `inclusion_proof_invalid` on the duplicated event. Assert the
+    WOS-finding shape directly so the byte-identical Python+Rust detail
+    string is the load-bearing parity claim.
+    """
+    export_zip = (
+        VECTORS
+        / "verify"
+        / "027-signed-acts-manifest-derivation-precondition-failure"
+        / "input-export.zip"
+    )
+    report = verify_wos.verify_export_zip(export_zip.read_bytes())
+    if not report.trellis.structure_verified:
+        raise AssertionError(f"{export_zip} substrate structure_verified must be true")
+    if not report.trellis.readability_verified:
+        raise AssertionError(
+            f"{export_zip} substrate readability_verified must be true"
+        )
+    if report.integrity_verified:
+        raise AssertionError(
+            f"{export_zip} composed integrity_verified must be false"
+        )
+    failures = [f for f in report.wos_findings if f.severity == "failure"]
+    if not failures:
+        raise AssertionError(f"{export_zip} emitted no WOS failures")
+    first = failures[0]
+    if first.kind != "signed_acts_manifest_extension_invalid":
+        raise AssertionError(
+            f"{export_zip} first WOS failure kind={first.kind}, expected "
+            f"signed_acts_manifest_extension_invalid"
+        )
+    expected_detail = (
+        "signed acts manifest derivation failed: signed-acts manifest has "
+        "duplicate (canonical_event_hash, event_type) tuple for "
+        "event_type wos.kernel.signature_affirmation"
+    )
+    if first.detail != expected_detail:
+        raise AssertionError(
+            f"{export_zip} WOS detail text differs from Rust:\n"
+            f"  expected: {expected_detail!r}\n"
+            f"  actual:   {first.detail!r}"
         )
     # `signed_acts_catalog_digest_mismatch` is a structural-shape kind →
     # `projection_mismatch` per Rust validator.rs:115-133.

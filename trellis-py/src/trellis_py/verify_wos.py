@@ -331,9 +331,6 @@ def _validate_export(
     generated_at: core.TrellisTimestamp,
 ) -> list[WosFinding]:
     findings: list[WosFinding] = []
-    event_by_hash, duplicate_failures = core._index_events_by_canonical_hash(events)
-    for failure in duplicate_failures:
-        findings.append(_failure(failure.kind, None, failure.location))
 
     try:
         signature_catalog_digest = _parse_signature_export_extension(manifest_map)
@@ -346,12 +343,6 @@ def _validate_export(
             )
         )
         signature_catalog_digest = None
-    if signature_catalog_digest is not None:
-        findings.extend(
-            _validate_signature_catalog(
-                archive, payload_blobs, signature_catalog_digest, event_by_hash
-            )
-        )
     try:
         intake_catalog_digest = _parse_intake_export_extension(manifest_map)
     except core.VerifyError as exc:
@@ -363,6 +354,28 @@ def _validate_export(
             )
         )
         intake_catalog_digest = None
+
+    # Mirror of Rust: `event_by_hash` is built inside `validate_signature_catalog`
+    # / `validate_intake_catalog` (`crates/trellis-verify-wos/src/catalog.rs:66`,
+    # `:169`) and never elsewhere. `export_events_duplicate_canonical_hash` is a
+    # catalog-validator finding kind — it MUST NOT surface from exports that
+    # carry neither catalog extension. Calling the indexer unconditionally
+    # caused a Python/Rust drift on exports like `export/009-signed-acts-manifest-only`
+    # where Python emitted a duplicate-hash finding ahead of
+    # `signed_acts_manifest_extension_invalid` while Rust did not. ADR 0004
+    # (Rust is byte authority): align Python to Rust.
+    event_by_hash: dict[bytes, core.EventDetails] = {}
+    if signature_catalog_digest is not None or intake_catalog_digest is not None:
+        event_by_hash, duplicate_failures = core._index_events_by_canonical_hash(events)
+        for failure in duplicate_failures:
+            findings.append(_failure(failure.kind, None, failure.location))
+
+    if signature_catalog_digest is not None:
+        findings.extend(
+            _validate_signature_catalog(
+                archive, payload_blobs, signature_catalog_digest, event_by_hash
+            )
+        )
     if intake_catalog_digest is not None:
         findings.extend(
             _validate_intake_catalog(

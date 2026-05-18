@@ -66,6 +66,24 @@ OUT_VERIFY_024B = (
 OUT_VERIFY_024C = (
     ROOT / "verify" / "026-signed-acts-manifest-extension-wrong-derivation-rule"
 )
+# 068 signed-acts-manifest derive-helper precondition-failure subcase
+# (Wave 5 Task 3.c). Starts from `export/009-signed-acts-manifest-only`
+# (no signature catalog, no intake catalog, no 066 projection — the
+# minimal export that still binds 068) and forges `010-events.cbor` to
+# carry a duplicate of the single affirmation event. The Wave 3 Task 2.c
+# derive helper rejects `(canonical_event_hash, event_type)` duplicates;
+# the verifier surfaces `signed_acts_manifest_extension_invalid` with the
+# byte-identical detail string `signed acts manifest derivation failed:
+# signed-acts manifest has duplicate (canonical_event_hash, event_type)
+# tuple for event_type {ET}`. Promotes TR-CORE-180 evidence-pending
+# subcase (d) — derivation precondition failure — to evidenced via test
+# vector (Wave 4 commit `ad746bf` deferred subcase (e) as structurally
+# inert).
+OUT_VERIFY_027 = (
+    ROOT
+    / "verify"
+    / "027-signed-acts-manifest-derivation-precondition-failure"
+)
 OUT_TAMPER_014 = ROOT / "tamper" / "014-signature-catalog-digest-mismatch"
 OUT_TAMPER_055 = ROOT / "tamper" / "055-signed-acts-catalog-digest-mismatch"
 OUT_TAMPER_056 = ROOT / "tamper" / "056-policy-closure-digest-mismatch"
@@ -2184,6 +2202,172 @@ def write_signed_acts_manifest_extension_wrong_derivation_rule_verify_vector() -
     )
 
 
+def write_signed_acts_manifest_derivation_precondition_failure_verify_vector() -> None:
+    """verify/027 — derive_signed_acts_manifest_v1 rejects duplicate
+    `(canonical_event_hash, event_type)` tuple (Wave 5 Task 3.c).
+
+    Starts from `export/009-signed-acts-manifest-only` (the minimal export
+    binding the 068 manifest — no signature catalog, no intake catalog, no
+    066 projection) and forges `010-events.cbor` to carry a duplicate of the
+    sole affirmation event. The deriver (Wave 3 Task 2.c) rejects with
+    detail `signed-acts manifest has duplicate (canonical_event_hash,
+    event_type) tuple for event_type wos.kernel.signature_affirmation`;
+    the verifier (`validate_bound_signed_acts_manifest_extension` at Rust
+    `signed_acts.rs:167-176` / Python `_validate_signed_acts_manifest_extension`)
+    surfaces this through one `signed_acts_manifest_extension_invalid`
+    finding with the byte-identical detail string
+    `signed acts manifest derivation failed: {error}` in both runtimes.
+
+    The manifest must be re-signed because the duplicated events array's
+    SHA-256 differs from the original `events_digest` binding; otherwise
+    the substrate's pre-WOS manifest-binding check fails first with
+    `archive_integrity_failure` and the deriver never runs.
+
+    Substrate side-effect: the duplicated event is not in the
+    fixture-009 inclusion proof tree, so substrate reports
+    `inclusion_proof_invalid` (in `proof_failures`). The fixture's
+    `first_failure_kind` is the WOS-routed
+    `signed_acts_manifest_extension_invalid`, so the conformance harness
+    dispatches via `trellis_verify_wos::verify_export_zip` and asserts on
+    `first_wos_failure`; the substrate proof_failure is captured by
+    `integrity_verified = false`.
+
+    Source-export choice: fixture 009 has neither `signature-affirmations.v1`
+    nor `intake-handoffs.v1` manifest extension, so the catalog validator's
+    `event_by_hash` indexer (which emits the `export_events_duplicate_canonical_hash`
+    finding kind on duplicates) is not invoked in EITHER runtime — Rust
+    routes through `catalog.rs:66/:169` (extension-gated) and Python
+    matches Rust as of the Task 3.c drift fix (`_validate_export` now
+    gates `_index_events_by_canonical_hash` on extension presence). The
+    only WOS failure that surfaces is the deriver-rejection target.
+    """
+    root_dir, members, data, manifest_payload = export_members_from_dir(OUT_EXPORT_009)
+    events_array = cbor2.loads(data["010-events.cbor"])
+    if len(events_array) != 1:
+        raise ValueError(
+            "export/009 source must carry exactly one affirmation event; "
+            f"got {len(events_array)}"
+        )
+    duplicated_events = list(events_array) + [events_array[0]]
+    duplicated_events_bytes = dcbor(duplicated_events)
+
+    seed, pubkey = load_seed_and_pubkey(KEY_ISSUER_001)
+    kid = derive_kid(SUITE_ID_PHASE_1, pubkey)
+    manifest_payload_forged = copy.deepcopy(manifest_payload)
+    manifest_payload_forged["events_digest"] = sha256(duplicated_events_bytes)
+    data_forged = dict(data)
+    data_forged["010-events.cbor"] = duplicated_events_bytes
+    data_forged["000-manifest.cbor"] = cose_sign1(
+        seed, kid, dcbor(manifest_payload_forged), ARTIFACT_TYPE_MANIFEST
+    )
+
+    OUT_VERIFY_027.mkdir(parents=True, exist_ok=True)
+    write_zip(
+        OUT_VERIFY_027 / "input-export.zip",
+        root_dir=root_dir,
+        members=members,
+        data=data_forged,
+    )
+    write_text(
+        OUT_VERIFY_027 / "manifest.toml",
+        '''id          = "verify/027-signed-acts-manifest-derivation-precondition-failure"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the substrate-anchored 068 signed-acts manifest derivation precondition path. Starts from `export/009-signed-acts-manifest-only` (the minimal export binding 068; no signature catalog, no intake catalog, no 066 projection) and forges `010-events.cbor` to carry a duplicate of the single affirmation event, then re-signs `000-manifest.cbor` so the substrate manifest-binding check passes and the deriver runs. The Wave 3 Task 2.c derive helper rejects the duplicate `(canonical_event_hash, event_type)` tuple; the verifier emits `signed_acts_manifest_extension_invalid` with the byte-identical detail `signed acts manifest derivation failed: signed-acts manifest has duplicate (canonical_event_hash, event_type) tuple for event_type wos.kernel.signature_affirmation` (Rust `signed_acts.rs:167-176`; Python `_validate_signed_acts_manifest_extension`). Substrate side-effect: duplicated event is absent from the fixture-009 inclusion proof tree, so substrate reports `inclusion_proof_invalid` in `proof_failures` and `integrity_verified` is false; the WOS-routed `first_failure_kind` dispatches via the WOS lane per the conformance harness."""
+
+[coverage]
+tr_core = ["TR-CORE-067", "TR-CORE-180"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_manifest_extension_invalid"
+
+[derivation]
+document = "derivation.md"
+''',
+    )
+    write_text(
+        OUT_VERIFY_027 / "derivation.md",
+        """# Derivation — `verify/027-signed-acts-manifest-derivation-precondition-failure`
+
+Starts from `export/009-signed-acts-manifest-only` — the minimal Trellis
+export binding the substrate-anchored 068 signed-acts manifest with no
+066 render projection, no 062 signature catalog, and no 063 intake
+catalog. Forges `010-events.cbor` by appending a byte-identical copy of
+the sole `wos.kernel.signature_affirmation` event to the dCBOR array,
+then re-signs `000-manifest.cbor` with the recomputed
+`events_digest = SHA-256(duplicated 010-events.cbor)` so the substrate's
+pre-WOS manifest-binding check passes and the deriver runs.
+
+The deriver call site
+`validate_bound_signed_acts_manifest_extension`
+(Rust `crates/trellis-verify-wos/src/signed_acts.rs:167-176`; Python
+mirror in `verify_wos.py::_validate_signed_acts_manifest_extension`)
+pre-filters `export.events` for the closed WOS signed-acts allowlist
+and feeds the candidates to `derive_signed_acts_manifest_v1`. The
+deriver's Wave 3 Task 2.c third rejection branch — duplicate
+`(canonical_event_hash, event_type)` tuples — fires with the
+byte-identical error string
+
+```
+signed-acts manifest has duplicate (canonical_event_hash, event_type) tuple for event_type wos.kernel.signature_affirmation
+```
+
+The verifier wraps that error into one `signed_acts_manifest_extension_invalid`
+finding (Severity::Failure) with detail
+
+```
+signed acts manifest derivation failed: signed-acts manifest has duplicate (canonical_event_hash, event_type) tuple for event_type wos.kernel.signature_affirmation
+```
+
+Both runtimes converge on the same detail bytes; the
+`check_cross_runtime_parity.py` `signed-acts-projection` gate pins
+that parity via the Python verifier-vector assertion below.
+
+Source-export choice
+--------------------
+
+Fixture 009 carries neither `trellis.export.signature-affirmations.v1`
+nor `trellis.export.intake-handoffs.v1` manifest extensions, so the
+WOS catalog validator's `event_by_hash` helper (which emits the
+`export_events_duplicate_canonical_hash` finding kind on duplicate
+canonical event hashes) is not invoked. Rust gates that call inside
+`validate_signature_catalog` / `validate_intake_catalog`
+(`crates/trellis-verify-wos/src/catalog.rs:66`, `:169`); Python is
+aligned with Rust (`_validate_export` gates
+`_index_events_by_canonical_hash` on extension presence — drift fix
+co-landed with this fixture). The deriver-rejection finding is therefore
+the only WOS failure that surfaces, which is the load-bearing
+parity claim this fixture pins.
+
+Substrate side-effect
+---------------------
+
+The duplicated event is absent from the fixture-009 inclusion proof
+tree, so substrate reports `inclusion_proof_invalid` in
+`proof_failures`. `integrity_verified` becomes false on the substrate
+report and stays false in the composed WOS report. The fixture's
+`first_failure_kind` is the WOS-routed
+`signed_acts_manifest_extension_invalid`, so the conformance harness
+(`crates/trellis-conformance/src/lib.rs::assert_verify_fixture_matches`)
+dispatches through `trellis_verify_wos::verify_export_zip` and asserts on
+`first_wos_failure`, which IS the deriver-rejection finding in both
+runtimes.
+
+Closes TR-CORE-180 evidence-pending subcase (d) — derivation
+precondition failure — via test vector. Subcase (e) (canonical-CBOR
+re-encoding failure) was deferred as structurally inert in Wave 4
+commit `ad746bf` and remains so.
+""",
+    )
+
+
 def main() -> None:
     build_export_006()
     build_export_007()
@@ -2197,6 +2381,7 @@ def main() -> None:
     write_signed_acts_manifest_extension_parse_failure_verify_vector()
     write_signed_acts_manifest_extension_wrong_catalog_ref_verify_vector()
     write_signed_acts_manifest_extension_wrong_derivation_rule_verify_vector()
+    write_signed_acts_manifest_derivation_precondition_failure_verify_vector()
     write_tamper_vector()
     write_signed_acts_tamper_vector()
     write_policy_closure_tamper_vector()

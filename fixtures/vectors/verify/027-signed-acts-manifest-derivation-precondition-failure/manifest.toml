@@ -1,0 +1,20 @@
+id          = "verify/027-signed-acts-manifest-derivation-precondition-failure"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the substrate-anchored 068 signed-acts manifest derivation precondition path. Starts from `export/009-signed-acts-manifest-only` (the minimal export binding 068; no signature catalog, no intake catalog, no 066 projection) and forges `010-events.cbor` to carry a duplicate of the single affirmation event, then re-signs `000-manifest.cbor` so the substrate manifest-binding check passes and the deriver runs. The Wave 3 Task 2.c derive helper rejects the duplicate `(canonical_event_hash, event_type)` tuple; the verifier emits `signed_acts_manifest_extension_invalid` with the byte-identical detail `signed acts manifest derivation failed: signed-acts manifest has duplicate (canonical_event_hash, event_type) tuple for event_type wos.kernel.signature_affirmation` (Rust `signed_acts.rs:167-176`; Python `_validate_signed_acts_manifest_extension`). Substrate side-effect: duplicated event is absent from the fixture-009 inclusion proof tree, so substrate reports `inclusion_proof_invalid` in `proof_failures` and `integrity_verified` is false; the WOS-routed `first_failure_kind` dispatches via the WOS lane per the conformance harness."""
+
+[coverage]
+tr_core = ["TR-CORE-067", "TR-CORE-180"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_manifest_extension_invalid"
+
+[derivation]
+document = "derivation.md"
