@@ -1633,9 +1633,16 @@ MAY accept an export whose manifest omits `trellis.export.seal-fence.v1` —
 the absence short-circuit at
 `integrity-stack/crates/integrity-verify/src/trellis/export.rs::verify_seal_fence_extension`
 exists only for backwards compatibility with pre-G2 exports written at
-`seal_version = 1` before the extension was registered. For any
-`seal_version >= 2` (when introduced), the extension MUST be present and
-verifiers MUST fail-close on absence under the registered version. The
+`seal_version = 1` before the extension was registered. The branch is the
+single statement `let Some(extension) = extension else { return Ok(()) };`
+inside `verify_seal_fence_extension`. The predicate string is the load-bearing
+deletion target — pin by `rg 'let Some(extension) = extension else'` against
+`integrity-stack/crates/integrity-verify/src/trellis/`, not by line number;
+file rewrites and refactors that preserve the absence-handling behavior MUST
+preserve this exact predicate so a future v2 commit can grep it and remove it.
+
+For any `seal_version >= 2` (when introduced), the extension MUST be present
+and verifiers MUST fail-close on absence under the registered version. The
 absence short-circuit branch SHALL be removed at the first version bump.
 
 **Signed-acts manifest (§18.3f).** `trellis.export.signed-acts.manifest.v1` is
