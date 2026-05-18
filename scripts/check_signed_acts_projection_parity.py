@@ -200,9 +200,20 @@ def check_python_verifier_vectors() -> None:
         projection_integrity="fail",
         blocking_reasons=["projection_integrity"],
     )
-    # verify/021 (068 manifest tamper) requires Python-side 068 validation —
-    # mirror lands in Task A9 (cross-runtime parity gate). The Rust verifier
-    # already covers this fixture via `cargo nextest run -p trellis-conformance`.
+    # verify/021 (068 manifest tamper): the Python 068 verifier landed in Task
+    # A9, so this assertion is the permanent cross-runtime parity guard that
+    # Python's verdict for the tampered 068 member matches Rust's
+    # (`cargo nextest run -p trellis-conformance` exercises the same fixture).
+    # Blocking reason is `projection_mismatch` because the verdict assembly in
+    # `_verdict_from_parts` reads the finding-kind set to distinguish manifest
+    # mismatch from generic projection-integrity failures.
+    assert_wos_failure(
+        verify_wos,
+        VECTORS / "verify/021-signed-acts-manifest-tamper/input-export.zip",
+        {"signed_acts_manifest_extension_digest_mismatch"},
+        projection_integrity="fail",
+        blocking_reasons=["projection_integrity"],
+    )
     assert_wos_failure(
         verify_wos,
         VECTORS / "tamper/055-signed-acts-catalog-digest-mismatch/input-export.zip",
@@ -210,6 +221,59 @@ def check_python_verifier_vectors() -> None:
         projection_integrity="fail",
         blocking_reasons=["projection_integrity"],
     )
+
+
+def check_cross_runtime_manifest_byte_identity() -> None:
+    """Assert Python `encode_signed_acts_manifest_v1` output is byte-identical
+    to the committed Rust-emitted `068-signed-acts-manifest.cbor` member across
+    every export fixture that ships a 068 member.
+
+    The committed bytes ARE the Rust output (the fixture corpus is generated
+    by the Rust writer pipeline). Re-deriving the manifest from the same
+    `010-events.cbor` source events on the Python side and byte-comparing
+    against the archive member is the canonical cross-runtime parity check
+    this script promotes to a permanent invariant (Task A9).
+    """
+    from trellis_py import verify as core
+    from trellis_py import verify_wos
+
+    export_fixtures = [
+        "export/006-signature-affirmations-inline",
+        "export/007-signature-admission-failed-inline",
+        "export/008-signed-acts-fallback-act-id",
+        "export/009-signed-acts-manifest-only",
+    ]
+    for fixture in export_fixtures:
+        export_zip_path = VECTORS / fixture / "expected-export.zip"
+        archive = core.parse_export_zip(export_zip_path.read_bytes())
+        committed_member_bytes = archive.get(
+            verify_wos.SIGNED_ACTS_MANIFEST_MEMBER
+        )
+        if committed_member_bytes is None:
+            raise AssertionError(
+                f"{fixture} is registered for 068 byte-identity but archive "
+                f"is missing {verify_wos.SIGNED_ACTS_MANIFEST_MEMBER}"
+            )
+        events_bytes = archive.get("010-events.cbor")
+        if events_bytes is None:
+            raise AssertionError(f"{fixture} archive is missing 010-events.cbor")
+        events = core._parse_sign1_array(events_bytes)  # noqa: SLF001
+        decoded: list[core.EventDetails] = []
+        for event in events:
+            try:
+                decoded.append(core._decode_event_details(event))  # noqa: SLF001
+            except core.VerifyError as exc:
+                raise AssertionError(
+                    f"{fixture}: cannot decode event for re-derivation: {exc}"
+                ) from exc
+        manifest = verify_wos.derive_signed_acts_manifest_v1(decoded)
+        python_bytes = verify_wos.encode_signed_acts_manifest_v1(manifest)
+        if python_bytes != committed_member_bytes:
+            raise AssertionError(
+                f"{fixture}: Python-derived 068 bytes "
+                f"({python_bytes.hex()[:64]}...) do not match committed Rust "
+                f"output ({committed_member_bytes.hex()[:64]}...)"
+            )
 
 
 def main() -> int:
@@ -235,7 +299,11 @@ def main() -> int:
             return 1
 
     check_python_verifier_vectors()
-    print("OK: signed-acts projection generator and Python verifier match the corpus")
+    check_cross_runtime_manifest_byte_identity()
+    print(
+        "OK: signed-acts projection generator, Python verifier, and "
+        "cross-runtime 068 byte-identity all match the corpus"
+    )
     return 0
 
 

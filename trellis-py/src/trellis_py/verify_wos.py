@@ -34,6 +34,12 @@ SIGNED_ACTS_DERIVATION_RULE_V1 = "signed-act-projection-wos-formspec-v1"
 SIGNED_ACTS_DERIVATION_RULE_V2 = "signed-act-projection-wos-formspec-v2"
 SIGNED_ACTS_DERIVATION_RULE = SIGNED_ACTS_DERIVATION_RULE_V1
 FALLBACK_ACT_ID_DERIVATION_RULE = "signed-act-projection-act-id-v1"
+# 068 signed-acts manifest extension + member — substrate-anchored proof of
+# which signed-act events landed in the export. Mirror of Rust constants at
+# `trellis/crates/trellis-verify-wos/src/signed_acts.rs:29-33` (Task A7).
+SIGNED_ACTS_MANIFEST_MEMBER = "068-signed-acts-manifest.cbor"
+SIGNED_ACTS_MANIFEST_EXPORT_EXTENSION = "trellis.export.signed-acts.manifest.v1"
+SIGNED_ACTS_MANIFEST_DERIVATION_RULE_V1 = "signed-acts-manifest-v1"
 POLICY_CLOSURE_EXPORT_EXTENSION = "trellis.export.policy-closure.v1"
 POLICY_CLOSURE_MEMBER = "067-policy-closure.cbor"
 POLICY_CLOSURE_SCHEMA_VERSION = 1
@@ -344,6 +350,13 @@ def _validate_export(
         )
     findings.extend(_validate_open_clock_export(archive, manifest_map, generated_at))
     findings.extend(_validate_signed_acts_projection(archive, events, payload_blobs, manifest_map))
+    # 068 manifest extension: substrate-anchored proof of which signed-act
+    # events landed. Mirror of Rust dispatch in `validate_export` at
+    # `trellis/crates/trellis-verify-wos/src/lib.rs` (Task A7). Lives next to
+    # the 066 projection validator above so the two extensions are validated
+    # together; failures here are blocking (substrate-shape) while 066
+    # render-drift is advisory.
+    findings.extend(_validate_signed_acts_manifest_extension(archive, events, manifest_map))
     findings.extend(_validate_policy_closure(archive, events, manifest_map))
     return findings
 
@@ -429,6 +442,38 @@ def _parse_signed_acts_export_extension(manifest_map: dict) -> Optional[dict[str
     return {
         "catalog_ref": catalog_ref,
         "catalog_digest": core._map_lookup_fixed_bytes(ext, "catalog_digest", 32),
+        "derivation_rule": derivation_rule,
+    }
+
+
+def _parse_signed_acts_manifest_export_extension(
+    manifest_map: dict,
+) -> Optional[dict[str, Any]]:
+    """Parse the `trellis.export.signed-acts.manifest.v1` manifest extension.
+
+    Mirror of Rust `parse_signed_acts_manifest_extension` at
+    `trellis/crates/trellis-verify-wos/src/signed_acts.rs:194` — extension
+    shape is `{catalog_ref: tstr, manifest_digest: bstr(32), derivation_rule: tstr}`.
+    Returns `None` when the extension is absent. Raises `core.VerifyError`
+    when the extension is present but malformed.
+    """
+    exts = core._map_lookup_optional_extensions(manifest_map)
+    if exts is None:
+        return None
+    ext = exts.get(SIGNED_ACTS_MANIFEST_EXPORT_EXTENSION)
+    if ext is None:
+        return None
+    if not isinstance(ext, dict):
+        raise core.VerifyError("signed acts manifest extension is not a map")
+    catalog_ref = core._map_lookup_str(ext, "catalog_ref")
+    derivation_rule = core._map_lookup_str(ext, "derivation_rule")
+    if not isinstance(catalog_ref, str):
+        raise core.VerifyError("signed acts manifest catalog_ref is not text")
+    if not isinstance(derivation_rule, str):
+        raise core.VerifyError("signed acts manifest derivation_rule is not text")
+    return {
+        "catalog_ref": catalog_ref,
+        "manifest_digest": core._map_lookup_fixed_bytes(ext, "manifest_digest", 32),
         "derivation_rule": derivation_rule,
     }
 
@@ -675,6 +720,129 @@ def encode_signed_acts_manifest_v1(manifest: list[tuple[bytes, str]]) -> bytes:
         [event_hash, event_type] for event_hash, event_type in manifest
     ]
     return encode_canonical_cbor_value(canonical_pairs)
+
+
+def _validate_signed_acts_manifest_extension(
+    archive: dict[str, bytes],
+    events: list[core.ParsedSign1],
+    manifest_map: dict,
+) -> list[WosFinding]:
+    """Validate the substrate-anchored `068-signed-acts-manifest.cbor` member
+    against its `trellis.export.signed-acts.manifest.v1` extension binding and
+    re-derived manifest bytes.
+
+    Mirror of Rust `validate_signed_acts_manifest_extension` at
+    `trellis/crates/trellis-verify-wos/src/signed_acts.rs:82-185` (Task A7).
+    All five finding kinds emitted here are `Severity::Failure` and surface
+    under `projection_integrity` per `_is_projection_finding`.
+
+    Four-way present/absent dispatch on `(extension, member)`:
+      - (absent, absent) → OK (no manifest claimed)
+      - (absent, present) → `signed_acts_manifest_member_unbound`
+      - (present, absent) → `signed_acts_manifest_missing_member`
+      - (present, present) → bound validation:
+          - shape/parse errors → `signed_acts_manifest_extension_invalid`
+          - SHA-256(member) != extension.manifest_digest
+            → `signed_acts_manifest_extension_digest_mismatch`
+          - re-derived bytes != member bytes → `signed_acts_manifest_mismatch`
+    """
+    has_member = SIGNED_ACTS_MANIFEST_MEMBER in archive
+    try:
+        extension = _parse_signed_acts_manifest_export_extension(manifest_map)
+    except core.VerifyError as exc:
+        return [
+            _failure(
+                "signed_acts_manifest_extension_invalid",
+                None,
+                f"signed acts manifest extension is invalid: {exc}",
+            )
+        ]
+    if extension is None and not has_member:
+        return []
+    if extension is None:
+        return [
+            _failure(
+                "signed_acts_manifest_member_unbound",
+                None,
+                f"{SIGNED_ACTS_MANIFEST_MEMBER} is present without "
+                f"{SIGNED_ACTS_MANIFEST_EXPORT_EXTENSION}",
+            )
+        ]
+    if not has_member:
+        return [
+            _failure(
+                "signed_acts_manifest_missing_member",
+                None,
+                f"{SIGNED_ACTS_MANIFEST_EXPORT_EXTENSION} is declared but "
+                f"{SIGNED_ACTS_MANIFEST_MEMBER} is missing from the export",
+            )
+        ]
+
+    findings: list[WosFinding] = []
+    member_bytes = archive[SIGNED_ACTS_MANIFEST_MEMBER]
+    if extension["catalog_ref"] != SIGNED_ACTS_MANIFEST_MEMBER:
+        findings.append(
+            _failure(
+                "signed_acts_manifest_extension_invalid",
+                None,
+                f"signed acts manifest catalog_ref must be "
+                f"{SIGNED_ACTS_MANIFEST_MEMBER}, got {extension['catalog_ref']}",
+            )
+        )
+    if extension["derivation_rule"] != SIGNED_ACTS_MANIFEST_DERIVATION_RULE_V1:
+        findings.append(
+            _failure(
+                "signed_acts_manifest_extension_invalid",
+                None,
+                f"signed acts manifest derivation_rule must be "
+                f"{SIGNED_ACTS_MANIFEST_DERIVATION_RULE_V1}, got "
+                f"{extension['derivation_rule']}",
+            )
+        )
+    if core._sha256(member_bytes) != extension["manifest_digest"]:
+        findings.append(
+            _failure(
+                "signed_acts_manifest_extension_digest_mismatch",
+                None,
+                "signed acts manifest digest does not match manifest extension",
+            )
+        )
+        # Mirror Rust early-return: if the digest binding is broken, the
+        # re-derivation comparison cannot meaningfully attribute blame —
+        # surface the digest mismatch alone.
+        return findings
+
+    # Re-derive the manifest from sealed source events. `derive_signed_acts_manifest_v1`
+    # consumes `EventDetails`; decode each ParsedSign1 once, skipping any whose
+    # envelope cannot be parsed (those surface via core substrate findings).
+    decoded_events: list[core.EventDetails] = []
+    for event in events:
+        details = _event_details(event)
+        if details is not None:
+            decoded_events.append(details)
+    try:
+        manifest = derive_signed_acts_manifest_v1(decoded_events)
+        derived = encode_signed_acts_manifest_v1(manifest)
+    except (core.VerifyError, CanonicalCborError) as exc:
+        findings.append(
+            _failure(
+                "signed_acts_manifest_extension_invalid",
+                None,
+                f"signed acts manifest derivation failed: {exc}",
+            )
+        )
+        return findings
+
+    if derived != member_bytes:
+        findings.append(
+            _failure(
+                "signed_acts_manifest_mismatch",
+                None,
+                f"{SIGNED_ACTS_MANIFEST_MEMBER} bytes do not match deterministic "
+                f"signed-acts-manifest-v1 derivation",
+            )
+        )
+    return findings
 
 
 def _validate_signed_acts_projection(
