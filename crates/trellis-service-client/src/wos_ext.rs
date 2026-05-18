@@ -9,8 +9,9 @@
 //! generic constructors stay WOS-agnostic.
 //!
 //! Future overlay helpers (Formspec, other producers) should not live here —
-//! they belong in their own binding crates (`formspec-trellis-binding`,
-//! future `<producer>-trellis-binding`). See
+//! they belong in their own binding crates (e.g.
+//! `formspec-signature-trellis-binding` under the `formspec-trellis-bindings`
+//! wrapper; future `<producer>-<family>-trellis-binding`). See
 //! `TRELLIS-DI-TOPOLOGY-TODO.md` DI-004 "Contain The D12 Shared Client
 //! Surface".
 

@@ -39,7 +39,7 @@ const NEUTRAL_CRATES: &[&str] = &[
 /// tests inside the same crate.
 const FORBIDDEN_NEUTRAL_DEPS: &[&str] = &[
     "wos-events",
-    "formspec-trellis-binding",
+    "formspec-signature-trellis-binding",
     "trellis-admission-wos",
     "trellis-admission-formspec",
     "trellis-verify-wos",
@@ -60,7 +60,7 @@ const FORBIDDEN_DOMAIN_ROOTS: &[&str] = &[
     "wos_events",
     "trellis_admission_wos",
     "trellis_admission_formspec",
-    "formspec_trellis_binding",
+    "formspec_signature_trellis_binding",
 ];
 
 /// String-prefix dispatch tokens forbidden in generic service code; the
@@ -111,7 +111,7 @@ fn service_client_has_no_formspec_or_admission_dependencies() {
     let manifest = read_manifest("trellis-service-client");
     let deps_section = normal_dependency_section(&manifest);
     for forbidden in [
-        "formspec-trellis-binding",
+        "formspec-signature-trellis-binding",
         "trellis-admission-wos",
         "trellis-admission-formspec",
         "formspec-server",
@@ -185,7 +185,7 @@ fn neutral_port_crate_does_not_import_domain_vocabulary() {
             "use wos_events",
             "use trellis_admission_wos",
             "use trellis_admission_formspec",
-            "use formspec_trellis_binding",
+            "use formspec_signature_trellis_binding",
         ] {
             assert!(
                 !line.contains(forbidden),
