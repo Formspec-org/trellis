@@ -6,6 +6,16 @@ This module is the cross-runtime Python mirror of the Rust authority
 `trellis/specs/canonical-cbor-profile.md`. R6 (float-width compaction) and R7
 (generic tag rejection) are inert today — see notes inline.
 
+Phase-1 `cbor2.CBORTag` posture (Task 2.f): this Python canonical-CBOR
+emitter raises `CanonicalCborError` on `cbor2.CBORTag` inputs. Rust's
+`canonicalize_cbor_value` recurses through tags; the divergence is
+intentional for Phase-1 — no current Trellis preimage carries a CBOR tag
+(per profile §2 R7, generic tags are inert and tag 18 / COSE_Sign1 is
+produced outside this code path). If a future Trellis preimage registers
+a tag in the §4.2.2 profile, this restriction is removed and a
+tag-recursion branch lands matching Rust. Reopen criterion: first Trellis
+preimage that registers a tag.
+
 NOTE on §4.2.2 vs §4.2.1: `cbor2.dumps(..., canonical=True)` implements
 §4.2.1 (length-first sort). This module implements §4.2.2 (bytewise sort on
 canonical-encoded key bytes) by:
