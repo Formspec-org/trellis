@@ -1772,12 +1772,15 @@ VERIFY(E) -> VerificationReport
         performed in the domain validator step after event processing, since it
         requires the readable event stream.)
      i. After processing all registered extension members: enumerate the
-        archive's members. If any member is not bound by either the manifest
-        itself (via a top-level digest field), a registered extension's
-        `catalog_ref`, or the manifest's `interop_sidecars` list, fail with
-        `bundle_unbound_member`. This is a Core-level structural invariant
-        covering every extension; the per-extension rules above are not a
-        substitute for this sweep. Traceability: TR-CORE-181.
+        archive's members. Per-extension `*_unbound` findings (step 3.h) and
+        the generic `bundle_unbound_member` finding (step 3.i) fire
+        independently. A member unbound by the Core §18.2 admitted
+        archive-member set, manifest top-level digest fields, registry
+        bindings, payload references, registered-extension member bindings,
+        and `interop_sidecars[].path` MUST surface `bundle_unbound_member`.
+        Per-extension findings for the same member MUST also appear when
+        applicable; no per-extension finding suppresses the generic sweep.
+        Traceability: TR-CORE-181.
    Any mismatch ⇒ abort with report.archive_integrity_failure.
 
 4. For each Event COSE_Sign1 e in 010-events.cbor (in order):
