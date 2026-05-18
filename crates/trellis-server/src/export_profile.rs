@@ -175,15 +175,13 @@ fn signed_acts_manifest(scope: &[u8], events: &[StoredEvent]) -> Result<Vec<u8>,
         }
     }
     tuples.sort();
-    let array = Value::Array(
-        tuples
-            .into_iter()
-            .map(|(hash, event_type)| {
-                Value::Array(vec![Value::Bytes(hash), Value::Text(event_type)])
-            })
-            .collect(),
-    );
-    crate::encode_value(&array)
+    // Delegate canonical encoding to the single source of truth in
+    // `trellis-verify-wos` (Task A6). The sort + filter remains here because
+    // it operates on `StoredEvent`, while the public helper consumes
+    // `DomainEvent`; collapsing further would force a type-adapter detour
+    // that the seam does not currently require.
+    trellis_verify_wos::encode_signed_acts_manifest_v1(&tuples)
+        .map_err(|error| StackError::internal(format!("failed to encode CBOR: {error}")))
 }
 
 /// Derivation rule string identifying the 068 signed-acts manifest format.
