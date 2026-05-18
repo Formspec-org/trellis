@@ -1238,7 +1238,14 @@ def _projected_act_id(
         raise core.VerifyError("signingActId must be text")
     if not fallback_act_id_allowed:
         raise core.VerifyError("signature affirmation missing signingActId")
-    source_ref_bytes = cbor2.dumps(source_refs, canonical=True)
+    # Route the fallback act_id preimage through the §4.2.2 canonical encoder
+    # so the Python output matches the Rust authority byte-for-byte.
+    # `cbor2.dumps(..., canonical=True)` is §4.2.1 (length-first key sort)
+    # and would silently diverge from Rust's `encode_canonical_cbor_value`
+    # the moment a `source_refs` schema exercises a §4.2.1↔§4.2.2 disagreement
+    # (e.g., mixed major-type keys or a nested map under `ref`). WOS-TV-019
+    # pins this preimage to the §4.2.2 profile; honor it here.
+    source_ref_bytes = encode_canonical_cbor_value(source_refs)
     digest = hashlib.sha256(source_ref_bytes).hexdigest()
     return f"{FALLBACK_ACT_ID_DERIVATION_RULE}:{digest}"
 
