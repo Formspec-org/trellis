@@ -36,9 +36,19 @@ For public-facing stack framing, see [`../STACK.md`](../STACK.md) — lookup-onl
 - **Spec + matrix + fixture in the same commit.** Every normative MUST has a `TR-CORE-*` / `TR-OP-*` row and (where testable) a byte-exact fixture.
 - **Historical material is non-normative.** `specs/archive/` and `thoughts/archive/` — do not cite as normative.
 
+## Trellis settled commitments
+
+These are probed and accepted; they override speculative alternatives.
+
+- **v1.0.0 is tagged, not released.** No production records exist. The tag marks current best understanding; wire shape stays rewritable as long as doing so prevents future architectural debt. Only real adopters close the revision window; there are none.
+- **G-5 stranger test is the integrity anchor.** The strongest verifiability posture is byte-exact reproducibility across two independent implementations by a party with no ambient context — "G-5" is a shorthand for "fifth generation stranger" who has never heard of Trellis. Internal Rust/Python agreement (G-4 oracle) catches intra-team ambiguity; the stranger test catches spec ambiguity for an outside implementor. Every MUST in the spec should be independently derivable from the spec prose alone.
+- **Rust is the byte authority (ADR 0004).** For decisions spec prose cannot pin — CBOR ordering, COSE headers, ZIP metadata, Merkle steps, domain separation tags — Rust is canonical. Python is the cross-check.
+- **Maximalist envelope, restrictive Phase-1 runtime.** Reserve wire-shape capacity for later phases now. Enforce Phase-1 scope with lint + runtime constraints, not by omitting capacity. This is how the envelope stays forward-compatible without requiring version bumps on every new extension point.
+- **Authority order tiebreaker.** When bytes disagree with prose: Rust wins, spec prose updates. When prose disagrees with Python: Python updates. When both disagree with the spec: the spec is the source of truth unless byte reality reveals a spec ambiguity, in which case the spec is updated first.
+
 ## Decision heuristics
 
-Apply after stack-wide heuristics (in [`../VISION.md`](../VISION.md)):
+Apply after stack-wide heuristics (in [`../DEVELOPMENT-PHILOSOPHY.md`](../DEVELOPMENT-PHILOSOPHY.md)):
 
 1. **Phase-check.** Phase 1 (SBA PoC, single-agency intake) or Phase 2+? Phase 2+ defers; Phase 4 version-bumps the envelope regardless.
 2. **Architectural-debt check.** Would keeping the current shape make a future change more expensive than changing now? If yes, change it.
