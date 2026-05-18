@@ -495,6 +495,16 @@ mod tests {
             .find(|finding| finding.severity == integrity_verify::trellis::Severity::Failure)
     }
 
+    /// Routes a failure kind to the WOS-specific conformance lane (via
+    /// `trellis_verify_wos::verify_export_zip` / `verify_tampered_ledger`).
+    /// Substrate-by-default: anything not listed here routes through the
+    /// Core lane (`integrity_verify::trellis::verify_*`).
+    ///
+    /// Core invariants — failure kinds emitted by `integrity-verify`'s Core
+    /// sweep, not by WOS adapters — MUST NOT be added here. Notably
+    /// `bundle_unbound_member` (Core §19 step 3.i) is a generic archive
+    /// invariant and stays on the substrate lane; the guard test
+    /// `bundle_unbound_member_routes_to_substrate_lane` below pins it.
     fn is_wos_kind(kind: &str) -> bool {
         matches!(
             kind,
@@ -541,6 +551,20 @@ mod tests {
                 | "signed_acts_manifest_missing_member"
                 | "signed_acts_manifest_member_unbound"
         )
+    }
+
+    /// Core §19 step 3.i invariant: `bundle_unbound_member` is emitted by
+    /// the substrate Core sweep (`integrity_verify::trellis`), never by a
+    /// WOS adapter. Routing it through the WOS conformance lane would skip
+    /// the Core verifier entirely. This guard fails fast if a future edit
+    /// accidentally adds it to `is_wos_kind`.
+    #[test]
+    fn bundle_unbound_member_routes_to_substrate_lane() {
+        assert!(
+            !is_wos_kind("bundle_unbound_member"),
+            "`bundle_unbound_member` is a Core invariant (§19 step 3.i) and \
+             MUST NOT route to the WOS conformance lane"
+        );
     }
 
     fn hex_string(bytes: &[u8]) -> String {
