@@ -191,9 +191,9 @@ Trellis-bound Formspec processors MUST implement at least Formspec Core conforma
 
 ### 5.1 Pinned encoding: dCBOR
 
-Canonical encoding for every substrate byte follows the **[`specs/canonical-cbor-profile.md`](canonical-cbor-profile.md)** normative document, which publishes the RFC 8949 §4.2.2 Core Deterministic Encoding rules as a standalone runtime-neutral contract (rules R1–R7: integer smallest-form, definite-length-only, bytewise key sort on encoded key bytes, duplicate-key rejection, finite-float-only, smallest-width float emission, and tag restrictions). The Rust authority remains `integrity-stack/crates/integrity-cbor/src/lib.rs::encode_canonical_cbor_value` per ADR 0004; the profile document names the rules a third-party runtime implements to conform and identifies where each rule is enforced in the Rust source.
+Canonical encoding for every substrate byte follows the **[`specs/canonical-cbor-profile.md`](canonical-cbor-profile.md)** normative document (TR-CORE-179), which publishes the RFC 8949 §4.2.2 Core Deterministic Encoding rules as a standalone runtime-neutral contract (rules R1–R7: integer smallest-form, definite-length-only, bytewise key sort on encoded key bytes, duplicate-key rejection, finite-float-only, smallest-width float emission, and tag restrictions). The Rust authority remains `integrity-stack/crates/integrity-cbor/src/lib.rs::encode_canonical_cbor_value` per ADR 0004; the canonical CBOR profile names the rules a third-party runtime implements to conform and identifies where each rule is enforced in the Rust source.
 
-All Trellis byte-level structures — events, checkpoints, signing-key registry entries, export manifests, inclusion proofs, consistency proofs — are serialized as **deterministic CBOR (dCBOR)** under that profile. Implementations MUST compose the substrate dCBOR encoder and decoder rather than locally redefining any rule named in the profile. Trellis structures use byte strings (`bstr`) for binary material and text strings (`tstr`) only for human-readable identifiers.
+All Trellis byte-level structures — events, checkpoints, signing-key registry entries, export manifests, inclusion proofs, consistency proofs — are serialized as **deterministic CBOR (dCBOR)** under that canonical CBOR profile. Implementations MUST compose the substrate dCBOR encoder and decoder rather than locally redefining any rule named in the canonical CBOR profile. Trellis structures use byte strings (`bstr`) for binary material and text strings (`tstr`) only for human-readable identifiers.
 
 Implementations MUST NOT emit non-deterministic CBOR. A record that does not round-trip byte-for-byte through the substrate dCBOR encoder is not a canonical record.
 
@@ -348,6 +348,7 @@ Registered extension identifiers:
 | `ExportManifestPayload.extensions` | `trellis.export.seal-fence.v1` | 1 | Manifest-resident export identity and high-water fence. Carries `identity_rule = "trellis-export-seal-fence-v1"`, `bundle_scope`, `export_attempt_id`, `seal_version`, `event_count`, `high_water_sequence`, `head_checkpoint_digest`, `events_digest`, and `policy_closure_digest`. `export_attempt_id` is `sha256:<hex>` over the v1 preimage defined in §18.3e. This binds Trellis-local export identity to the signed manifest without adding a separate archive member. Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signature-affirmations.v1` | 1 | Binds optional `062-signature-affirmations.cbor` via `signature_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived WOS signature catalog; Trellis Core treats this as a registered, digest-bound extension member, while WOS row semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.signed-acts.v1` | 1 | Binds optional `066-signed-acts.cbor` via `catalog_digest` (SHA-256 of the catalog bytes), `catalog_ref = "066-signed-acts.cbor"`, and `derivation_rule`. Chain-derived WOS/Formspec SignedAct projection; Trellis Core treats this as a registered, digest-bound extension member, while projection semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
+| `ExportManifestPayload.extensions` | `trellis.export.signed-acts.manifest.v1` | 1 | Binds optional `068-signed-acts-manifest.cbor` via `manifest_digest` (SHA-256 of the manifest bytes), `catalog_ref = "068-signed-acts-manifest.cbor"`, and `derivation_rule = "signed-acts-manifest-v1"`. Byte-deterministic verdict-bound sorted array of `(canonical_event_hash, event_type)` tuples covering `wos.kernel.signature_affirmation` and `wos.kernel.signature_admission_failed` events per WOS-TV-014a/015a; mismatch surfaces `signed_acts_manifest_mismatch` (blocking; `integrity_verified = false`). Extension absent + member present → `signed_acts_manifest_member_unbound` (blocking). Reject-if-unknown-at-version. Traceability: TR-CORE-180. |
 | `ExportManifestPayload.extensions` | `trellis.export.policy-closure.v1` | 1 | Binds optional `067-policy-closure.cbor` via `closure_digest` (SHA-256 of the closure bytes), `closure_ref = "067-policy-closure.cbor"`, and `closure_version`. WOS/Formspec effective admission-policy evidence; Trellis Core treats this as a registered, digest-bound extension member, while policy-boundary semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.intake-handoffs.v1` | 1 | Binds optional `063-intake-handoffs.cbor` via `intake_catalog_digest` (SHA-256 of the catalog bytes). Chain-derived WOS intake catalog carrying the Formspec `IntakeHandoff` plus canonical Response bytes needed for offline `responseHash` verification; Trellis Core treats this as a registered, digest-bound extension member, while WOS row semantics are specified by [`wos-trellis-verification.md`](wos-trellis-verification.md). Reject-if-unknown-at-version. |
 | `ExportManifestPayload.extensions` | `trellis.export.supersession-graph.v1` | 1 | Binds optional `064-supersession-graph.json` via `graph_digest` (SHA-256 of Trellis canonical JSON bytes). Graph is chain-derived from ADR 0066 supersession linkage; verifier obligations in §19. Reject-if-unknown-at-version. Traceability: TR-CORE-170. |
@@ -1204,7 +1205,7 @@ The `projection_schema_id` field is REQUIRED whenever the bearer is a projection
 
 **Rebuild-output encoding.** Rebuilt derived artifacts MUST use dCBOR (§5) as their canonical encoding whenever the artifact shape admits CBOR serialization. Two conforming implementations that rebuild the same derived artifact from the same canonical events and configuration history MUST produce byte-equal output. Fields whose determinism depends on external state (wall-clock timestamps, per-implementation resource IDs) MUST be declared in the rebuild-path identifier as non-deterministic; byte-equality is required over the declared-deterministic portion only (Companion §15.3 OC-40).
 
-**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19), the optional `062-signature-affirmations.cbor` signature-affirmation catalog bound under `trellis.export.signature-affirmations.v1` (WOS Signature Profile / stack WOS-T4 closeout; §18.2), the optional `063-intake-handoffs.cbor` intake-handoff catalog bound under `trellis.export.intake-handoffs.v1` (stack ADR 0073; §18.2), and the optional `066-signed-acts.cbor` verifier-facing SignedAct projection bound under `trellis.export.signed-acts.v1` (§18.2). Phase 1 WOS/Formspec exports MAY also carry `067-policy-closure.cbor` effective admission-policy evidence bound under `trellis.export.policy-closure.v1`; this member is not chain-derived, so it is limited to owner-scoped rule inputs that could change whether an act was admitted, and it MUST NOT supply verifier trust roots, verifier adapter allowlists, or server operational configuration. Such members MUST NOT introduce new authority beyond what the signed chain and declared policy evidence already attest. The intake-handoff catalog is permitted because it carries the exact Formspec handoff and canonical Response bytes needed to replay `responseHash` offline; it does not redefine the WOS decision records. The SignedAct projection is permitted because it is a deterministic view over WOS/Formspec signing evidence already present in the chain; it cannot admit a signing act that is absent from the signed source records. Core verification digest-binds registered export members; WOS catalog row and policy-closure semantics live in [`wos-trellis-verification.md`](wos-trellis-verification.md). If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
+**Phase 1 export scope.** Phase 1 exports (§18) do NOT carry Companion projection artifacts such as `Watermark` records; those are runtime state, not Phase 1 export members. Phase 1 exports MAY carry **chain-derived** catalog bytes that are fully determined by the signed event sequence and registered manifest extensions — for example the optional `061-attachments.cbor` attachment manifest bound under `ExportManifestPayload.extensions` per `trellis.export.attachments.v1` (stack ADR 0072; §18.2, §19), the optional `062-signature-affirmations.cbor` signature-affirmation catalog bound under `trellis.export.signature-affirmations.v1` (WOS Signature Profile / stack WOS-T4 closeout; §18.2), the optional `063-intake-handoffs.cbor` intake-handoff catalog bound under `trellis.export.intake-handoffs.v1` (stack ADR 0073; §18.2), the optional `066-signed-acts.cbor` verifier-facing SignedAct projection bound under `trellis.export.signed-acts.v1` (§18.2), and the optional `068-signed-acts-manifest.cbor` verdict-bound signed-acts manifest bound under `trellis.export.signed-acts.manifest.v1` (§18.2). Phase 1 WOS/Formspec exports MAY also carry `067-policy-closure.cbor` effective admission-policy evidence bound under `trellis.export.policy-closure.v1`; this member is not chain-derived, so it is limited to owner-scoped rule inputs that could change whether an act was admitted, and it MUST NOT supply verifier trust roots, verifier adapter allowlists, or server operational configuration. Such members MUST NOT introduce new authority beyond what the signed chain and declared policy evidence already attest. The intake-handoff catalog is permitted because it carries the exact Formspec handoff and canonical Response bytes needed to replay `responseHash` offline; it does not redefine the WOS decision records. The SignedAct projection is permitted because it is a deterministic view over WOS/Formspec signing evidence already present in the chain; it cannot admit a signing act that is absent from the signed source records. Core verification digest-binds registered export members; WOS catalog row and policy-closure semantics live in [`wos-trellis-verification.md`](wos-trellis-verification.md). If watermarks are later added to exports (Phase 2+), they MUST be carried inside `ExportManifestPayload.extensions` under a registered identifier (e.g., `trellis.watermarks.v1`), never as a new top-level manifest field.
 
 ### 15.4 Rule applies to agency-log entries
 
@@ -1323,14 +1324,14 @@ Additional codes MAY be registered in Phase 2+.
 
 **Requirement class:** Export Generator (produces), Verifier (consumes).
 
-**Substrate authority.** Per §1.5, the deterministic-ZIP byte structure — entry ordering, local-file-header rules (zero extra-field length, fixed `1980-01-01T00:00:00Z` mtime in DOS time, zero external file attributes), the central-directory ordering, CRC32 computation, and the STORED-only compression-method requirement — is owned by `integrity-stack/crates/integrity-bundle/`. The substrate crate exports `BundleEntry`, the ZIP local-file-header / central-directory writer, and the deterministic-archive assembler used by every bundle composition in the stack. The Trellis-specific concerns in §18 are the export package's required archive members (§18.2), the filename-prefix convention (`000-`, `010-`, `020-`, `030-`, `040-`, `050-`, `060-`, `061-`, `062-`, `063-`, `064-`, `066-`, `067-`, `070-`, `090-`, `098-`, `099-`) that makes lexicographic order the required processing order, the manifest digest binding for every archive member (§18.3), the optional chain-derived catalog members (`061-attachments.cbor`, `062-signature-affirmations.cbor`, `063-intake-handoffs.cbor`, `064-supersession-graph.json`, `065-certificates-of-completion.cbor`, `066-signed-acts.cbor`, `open-clocks.json`), the optional WOS/Formspec effective policy-evidence member (`067-policy-closure.cbor`), the head-format version commitment (§18.7) that pins Phase-1-vs-Phase-3 forward composition, and the `verify.sh` / `README.md` orientation members. The substrate is the byte-authoritative implementation of the ZIP wire shape; this section is the byte-authoritative spec for the Trellis archive composition.
+**Substrate authority.** Per §1.5, the deterministic-ZIP byte structure — entry ordering, local-file-header rules (zero extra-field length, fixed `1980-01-01T00:00:00Z` mtime in DOS time, zero external file attributes), the central-directory ordering, CRC32 computation, and the STORED-only compression-method requirement — is owned by `integrity-stack/crates/integrity-bundle/`. The substrate crate exports `BundleEntry`, the ZIP local-file-header / central-directory writer, and the deterministic-archive assembler used by every bundle composition in the stack. The Trellis-specific concerns in §18 are the export package's required archive members (§18.2), the filename-prefix convention (`000-`, `010-`, `020-`, `030-`, `040-`, `050-`, `060-`, `061-`, `062-`, `063-`, `064-`, `066-`, `067-`, `068-`, `070-`, `090-`, `098-`, `099-`) that makes lexicographic order the required processing order, the manifest digest binding for every archive member (§18.3), the optional chain-derived catalog members (`061-attachments.cbor`, `062-signature-affirmations.cbor`, `063-intake-handoffs.cbor`, `064-supersession-graph.json`, `065-certificates-of-completion.cbor`, `066-signed-acts.cbor`, `068-signed-acts-manifest.cbor`, `open-clocks.json`), the optional WOS/Formspec effective policy-evidence member (`067-policy-closure.cbor`), the head-format version commitment (§18.7) that pins Phase-1-vs-Phase-3 forward composition, and the `verify.sh` / `README.md` orientation members. The substrate is the byte-authoritative implementation of the ZIP wire shape; this section is the byte-authoritative spec for the Trellis archive composition.
 
 ### 18.1 Deterministic ZIP
 
 An export package is a deterministic ZIP archive. "Deterministic" means:
 
 - entries ordered in byte-wise lexicographic order of their UTF-8 filename — this single lexicographic order IS the required processing order; there is no separate "manifest first" rule because the `000-` prefix on the manifest filename already places it first lexicographically,
-- entry names are prefixed (`000-`, `010-`, `020-`, `030-`, `040-`, `050-`, `060-`, `061-`, `062-`, `063-`, `064-`, `066-`, `067-`, `070-`, `090-`, `098-`, `099-`) so that lexicographic ordering produces the required processing order deterministically,
+- entry names are prefixed (`000-`, `010-`, `020-`, `030-`, `040-`, `050-`, `060-`, `061-`, `062-`, `063-`, `064-`, `066-`, `067-`, `068-`, `070-`, `090-`, `098-`, `099-`) so that lexicographic ordering produces the required processing order deterministically,
 - compression method is **`STORED` (ZIP method 0) only** for every entry; DEFLATE is forbidden because DEFLATE output is not deterministic across libraries without fully pinning every DEFLATE parameter, and this specification refuses to open that door,
 - local file headers have extra-field length zero,
 - file modification time is fixed to `1980-01-01T00:00:00Z` in DOS time (the ZIP epoch minimum),
@@ -1367,6 +1368,7 @@ zip -X -0 trellis-export-<scope>-<tree_size>-<shorthash>.zip \
   trellis-export-<scope>-<tree_size>-<shorthash>/064-supersession-graph.json \
   trellis-export-<scope>-<tree_size>-<shorthash>/066-signed-acts.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/067-policy-closure.cbor \
+  trellis-export-<scope>-<tree_size>-<shorthash>/068-signed-acts-manifest.cbor \
   trellis-export-<scope>-<tree_size>-<shorthash>/open-clocks.json \
   trellis-export-<scope>-<tree_size>-<shorthash>/070-predecessors/... \
   trellis-export-<scope>-<tree_size>-<shorthash>/090-verify.sh \
@@ -1399,6 +1401,7 @@ trellis-export-<scope>-<tree_size>-<shorthash>/
   064-supersession-graph.json     ; OPTIONAL — Trellis canonical JSON supersession graph (chain-derived; §6.7 `trellis.export.supersession-graph.v1`, stack ADR 0066)
   066-signed-acts.cbor            ; OPTIONAL — dCBOR SignedAct projection catalog (chain-derived; §6.7 `trellis.export.signed-acts.v1`)
   067-policy-closure.cbor         ; OPTIONAL — dCBOR effective admission-policy evidence (§6.7 `trellis.export.policy-closure.v1`, WOS/Formspec binding)
+  068-signed-acts-manifest.cbor   ; OPTIONAL — dCBOR signed-acts manifest (verdict-bound; §6.7 `trellis.export.signed-acts.manifest.v1`, WOS-TV-014a/015a)
   open-clocks.json                ; OPTIONAL — Trellis canonical JSON open-clock catalog (chain-derived; §6.7 `trellis.export.open-clocks.v1`, stack ADR 0067)
   070-predecessors/               ; OPTIONAL — embedded deterministic Trellis export ZIPs named by `064-supersession-graph.json` predecessor `bundle_path` entries
   090-verify.sh                   ; §18.8 — self-contained verifier invocation
@@ -1623,6 +1626,24 @@ Phase-1 verifiers that implement extension version 1 MUST reject the export
 when any seal-fence field disagrees with the manifest, event stream, derived
 `export_attempt_id`, or policy-closure member presence.
 
+**Signed-acts manifest (§18.3f).** `trellis.export.signed-acts.manifest.v1` is
+the manifest extension hook for the substrate-anchored 068 signed-acts manifest.
+When the extension is present, its `manifest_digest` field MUST equal
+`SHA-256(068-signed-acts-manifest.cbor)`. The `catalog_ref` field MUST equal
+the string `"068-signed-acts-manifest.cbor"`. The `derivation_rule` field MUST
+equal the string `"signed-acts-manifest-v1"`; new derivation rules require a
+new extension key (v2+, per WOS-TV-015a stability contract). When the extension
+is present but `068-signed-acts-manifest.cbor` is absent, the verifier MUST
+fail with `signed_acts_manifest_missing_member`. When
+`SHA-256(068-signed-acts-manifest.cbor)` does not equal `manifest_digest`, the
+verifier MUST fail with `signed_acts_manifest_extension_digest_mismatch`. When
+re-derived manifest bytes do not match the member bytes, the verifier MUST fail
+with `signed_acts_manifest_mismatch`. When the member is present but the
+extension is absent, the verifier MUST fail with
+`signed_acts_manifest_member_unbound`. All four failure kinds set
+`integrity_verified = false` and `relying_party_result = invalid`.
+Traceability: TR-CORE-180.
+
 ```cddl
 OmittedPayloadCheck = {
   content_hash: digest,
@@ -1719,6 +1740,24 @@ VERIFY(E) -> VerificationReport
           SHA-256(064-supersession-graph.json) == graph_digest.
         If `064-supersession-graph.json` is present without that manifest
         extension, record `supersession_graph_unbound`.
+     h. If manifest.extensions carries `trellis.export.signed-acts.manifest.v1`:
+          - If `068-signed-acts-manifest.cbor` is absent from the archive,
+            fail with `signed_acts_manifest_missing_member`.
+          - Else: SHA-256(068-signed-acts-manifest.cbor bytes) == extension's
+            `manifest_digest`; mismatch → fail with
+            `signed_acts_manifest_extension_digest_mismatch`.
+        If `068-signed-acts-manifest.cbor` is present without the extension,
+        fail with `signed_acts_manifest_member_unbound`.
+        (Re-derivation comparison — `signed_acts_manifest_mismatch` — is
+        performed in the domain validator step after event processing, since it
+        requires the readable event stream.)
+     i. After processing all registered extension members: enumerate the
+        archive's members. If any member is not bound by either the manifest
+        itself (via a top-level digest field), a registered extension's
+        `catalog_ref`, or the manifest's `interop_sidecars` list, fail with
+        `bundle_unbound_member`. This is a Core-level structural invariant
+        covering every extension; the per-extension rules above are not a
+        substitute for this sweep. Traceability: TR-CORE-181.
    Any mismatch ⇒ abort with report.archive_integrity_failure.
 
 4. For each Event COSE_Sign1 e in 010-events.cbor (in order):
@@ -2402,6 +2441,11 @@ semantics.
 | `supersession_graph_linkage_mismatch` | 6e / supersession graph | An exported event carrying `trellis.supersedes-chain-id.v1` has no graph predecessor row with byte-equal `chain_id` and `checkpoint_hash`. |
 | `supersession_graph_cycle` | 6e / supersession graph | Breadth-first traversal of predecessor `chain_id` rows revisits a chain on one traversal path. |
 | `supersession_predecessor_checkpoint_mismatch` | 6e / supersession graph | A non-null `predecessors[*].bundle_path` is absent, does not verify as a deterministic Trellis export ZIP, or its `head_checkpoint_digest` does not equal the row's `checkpoint_hash`. |
+| `signed_acts_manifest_mismatch` | 3.h / manifest extension check | `068-signed-acts-manifest.cbor` re-derived bytes do not match the archive member bytes (domain validator check; `derivation_rule = "signed-acts-manifest-v1"`). |
+| `signed_acts_manifest_extension_digest_mismatch` | 3.h / manifest extension check | `SHA-256(068-signed-acts-manifest.cbor)` does not equal `trellis.export.signed-acts.manifest.v1.manifest_digest`. |
+| `signed_acts_manifest_missing_member` | 3.h / manifest extension check | Extension `trellis.export.signed-acts.manifest.v1` is declared but `068-signed-acts-manifest.cbor` is absent from the archive. |
+| `signed_acts_manifest_member_unbound` | 3.h / bundle structure invariant | `068-signed-acts-manifest.cbor` is present in the archive but `trellis.export.signed-acts.manifest.v1` extension is absent; the member is unbound. |
+| `bundle_unbound_member` | 3.i / bundle structure invariant | An archive member is present that is not bound by the manifest (top-level digest field), any registered extension's `catalog_ref`, or the manifest's `interop_sidecars` list. |
 
 The enum is **append-only**. New categories MUST land in this table first, with a matching `TR-CORE-*` matrix row and a fixture vector under `fixtures/vectors/tamper/`, before a verifier or a fixture references the value. Removing or renaming a value is a wire break; deprecate by adding a successor row and retaining the prior value as a synonym. Traceability: **TR-CORE-068** (matrix row) — enforced by `scripts/check-specs.py` rule R13 over the tamper corpus.
 
