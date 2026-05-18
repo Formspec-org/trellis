@@ -194,3 +194,14 @@ A runtime implementing this profile:
 - Implements R6 float compaction (smallest width) even though the current Rust oracle does not. Third-party implementations should implement R6 now; the Rust oracle will be updated when the first float-bearing preimage lands.
 - Joins the cross-runtime parity matrix by producing byte-identical output for every vector in §5 and every preimage shape in `trellis/fixtures/vectors/`.
 - Does not rely on coincidental §4.2.1 / §4.2.2 agreement for text-only-key maps. Run V10 (mixed-type map) to confirm §4.2.2 sort is implemented correctly.
+
+### How to join the runtime matrix
+
+The runtime-port adapter contract is defined in the stack-level decision doc `formspec-stack/thoughts/specs/2026-05-18-canonical-cbor-runtime-port.md`. A new runtime joins the parity matrix by:
+
+1. Implementing R1–R7 against this profile (R6/R7 are forward-compatibility commitments — implement them, but the gate accepts `result=unimplemented` while the Rust oracle is also inert on them).
+2. Exposing a sub-process adapter command that consumes the parity-gate manifest (`trellis/fixtures/vectors/canonical-cbor/manifest.json`) and emits results matching the adapter output schema (`runtime`, `library_version`, `command`, `result`, `output_hex` | `reject_code`, optional `mismatch_path`, optional `stderr_excerpt`).
+3. Emitting **normalized reject codes** from the closed set (`duplicate_map_key`, `non_finite_float`, `negative_zero_float`, `indefinite_length_input`, `generic_tag_disallowed`). Provider-specific exception text is for diagnostics only; the gate never asserts on it.
+4. Producing byte-identical `output_hex` for every encode-kind case in the manifest and matching `reject_code` for every reject-kind case.
+
+The current in-tree runtimes are Rust (`integrity-cbor`, byte authority per Trellis ADR 0004) and Python (`trellis-py` with the custom `_cbor_canonical` emitter). Go / .NET / Swift / WASM-Rust harnesses are documented external candidates; the runtime-port decision doc records the classification.
