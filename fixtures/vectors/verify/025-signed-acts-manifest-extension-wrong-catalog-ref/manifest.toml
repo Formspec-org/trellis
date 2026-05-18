@@ -1,0 +1,20 @@
+id          = "verify/025-signed-acts-manifest-extension-wrong-catalog-ref"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the substrate-anchored 068 signed-acts manifest extension `catalog_ref` admission gate. Starts from `export/006-signature-affirmations-inline`, rewrites the extension's `catalog_ref` to `"wrong-member.cbor"` (it MUST be `"068-signed-acts-manifest.cbor"`), and re-signs `000-manifest.cbor`. Verifier emits `signed_acts_manifest_extension_invalid` (blocking, domain-admissibility) per Rust `signed_acts.rs:125-133`."""
+
+[coverage]
+tr_core = ["TR-CORE-067", "TR-CORE-180"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_manifest_extension_invalid"
+
+[derivation]
+document = "derivation.md"

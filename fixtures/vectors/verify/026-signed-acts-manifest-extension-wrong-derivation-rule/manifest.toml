@@ -1,0 +1,20 @@
+id          = "verify/026-signed-acts-manifest-extension-wrong-derivation-rule"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the substrate-anchored 068 signed-acts manifest extension `derivation_rule` admission gate. Starts from `export/006-signature-affirmations-inline`, rewrites the extension's `derivation_rule` to `"signed-acts-manifest-unsupported"` (it MUST be `"signed-acts-manifest-v1"`), and re-signs `000-manifest.cbor`. Verifier emits `signed_acts_manifest_extension_invalid` (blocking, domain-admissibility) per Rust `signed_acts.rs:135-145`."""
+
+[coverage]
+tr_core = ["TR-CORE-067", "TR-CORE-180"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_manifest_extension_invalid"
+
+[derivation]
+document = "derivation.md"

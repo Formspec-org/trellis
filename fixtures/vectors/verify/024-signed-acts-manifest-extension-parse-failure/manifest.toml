@@ -1,0 +1,20 @@
+id          = "verify/024-signed-acts-manifest-extension-parse-failure"
+op          = "verify"
+status      = "active"
+description = """Negative verify vector for the substrate-anchored 068 signed-acts manifest extension parse path. Starts from `export/006-signature-affirmations-inline`, replaces the `trellis.export.signed-acts.manifest.v1` extension value with the CBOR text string `"not-a-map"`, and re-signs `000-manifest.cbor`. The extension parser fails at the `value.as_map()` check and emits `signed_acts_manifest_extension_invalid` (blocking, domain-admissibility). Mirrors Rust `validate_bound_signed_acts_manifest_extension` at `trellis-verify-wos/src/signed_acts.rs:114-122`."""
+
+[coverage]
+tr_core = ["TR-CORE-067", "TR-CORE-180"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_manifest_extension_invalid"
+
+[derivation]
+document = "derivation.md"

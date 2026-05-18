@@ -54,6 +54,9 @@ GENERATED_DIRS = [
     ("verify", "020-export-006-signed-acts-unsupported-rule"),
     ("verify", "021-signed-acts-manifest-tamper"),
     ("verify", "022-066-render-drift-tampered-only"),
+    ("verify", "024-signed-acts-manifest-extension-parse-failure"),
+    ("verify", "025-signed-acts-manifest-extension-wrong-catalog-ref"),
+    ("verify", "026-signed-acts-manifest-extension-wrong-derivation-rule"),
     ("tamper", "014-signature-catalog-digest-mismatch"),
     ("tamper", "055-signed-acts-catalog-digest-mismatch"),
     ("tamper", "056-policy-closure-digest-mismatch"),
@@ -92,6 +95,15 @@ def run_generator(tmp: Path) -> None:
     module.OUT_VERIFY_020 = tmp / "verify" / "020-export-006-signed-acts-unsupported-rule"
     module.OUT_VERIFY_021 = tmp / "verify" / "021-signed-acts-manifest-tamper"
     module.OUT_VERIFY_022 = tmp / "verify" / "022-066-render-drift-tampered-only"
+    module.OUT_VERIFY_024A = (
+        tmp / "verify" / "024-signed-acts-manifest-extension-parse-failure"
+    )
+    module.OUT_VERIFY_024B = (
+        tmp / "verify" / "025-signed-acts-manifest-extension-wrong-catalog-ref"
+    )
+    module.OUT_VERIFY_024C = (
+        tmp / "verify" / "026-signed-acts-manifest-extension-wrong-derivation-rule"
+    )
     module.OUT_TAMPER_014 = tmp / "tamper" / "014-signature-catalog-digest-mismatch"
     module.OUT_TAMPER_055 = tmp / "tamper" / "055-signed-acts-catalog-digest-mismatch"
     module.OUT_TAMPER_056 = tmp / "tamper" / "056-policy-closure-digest-mismatch"
@@ -244,6 +256,31 @@ def check_python_verifier_vectors() -> None:
         domain_admissibility="fail",
         blocking_reasons=["domain_admissibility"],
     )
+    # verify/024–026 (Task A5 scope-reduced subcases): three reachable shape
+    # failures on the `trellis.export.signed-acts.manifest.v1` extension —
+    # parse failure (024), wrong `catalog_ref` (025), wrong `derivation_rule`
+    # (026). All three exercise the `signed_acts_manifest_extension_invalid`
+    # finding kind via distinct Rust / Python branches. Same verdict shape as
+    # verify/021 because `signed_acts_manifest_*` kinds route to
+    # `domain_admissibility` (not `projection_integrity`) per Rust
+    # `is_projection_finding` at
+    # `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:288-297`.
+    # Subcases (d) derivation precondition failure and (e) canonical-CBOR
+    # re-encoding failure are evidence-pending behind currently-infallible
+    # helpers — see plan FOLLOWUPS "A4+A5 BLOCKED — verifier surface gaps".
+    for subcase in (
+        "024-signed-acts-manifest-extension-parse-failure",
+        "025-signed-acts-manifest-extension-wrong-catalog-ref",
+        "026-signed-acts-manifest-extension-wrong-derivation-rule",
+    ):
+        assert_wos_failure(
+            verify_wos,
+            VECTORS / "verify" / subcase / "input-export.zip",
+            {"signed_acts_manifest_extension_invalid"},
+            projection_integrity="pass",
+            domain_admissibility="fail",
+            blocking_reasons=["domain_admissibility"],
+        )
     # `signed_acts_catalog_digest_mismatch` is a structural-shape kind →
     # `projection_mismatch` per Rust validator.rs:115-133.
     assert_wos_failure(

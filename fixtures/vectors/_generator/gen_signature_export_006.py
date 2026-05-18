@@ -50,6 +50,22 @@ OUT_VERIFY_019 = ROOT / "verify" / "019-export-006-signed-acts-render-drift"
 OUT_VERIFY_020 = ROOT / "verify" / "020-export-006-signed-acts-unsupported-rule"
 OUT_VERIFY_021 = ROOT / "verify" / "021-signed-acts-manifest-tamper"
 OUT_VERIFY_022 = ROOT / "verify" / "022-066-render-drift-tampered-only"
+# 068 manifest-extension shape-failure subcases (Task A5, scope-reduced to
+# the three reachable subcases: extension parse failure, wrong catalog_ref,
+# wrong derivation_rule). All three mutate the manifest extension binding
+# the 068 member, leaving the 068 member bytes untouched and re-signing
+# `000-manifest.cbor`. Each fires `signed_acts_manifest_extension_invalid`
+# via the corresponding Rust branch in
+# `trellis-verify-wos/src/signed_acts.rs::validate_signed_acts_manifest_extension`.
+OUT_VERIFY_024A = (
+    ROOT / "verify" / "024-signed-acts-manifest-extension-parse-failure"
+)
+OUT_VERIFY_024B = (
+    ROOT / "verify" / "025-signed-acts-manifest-extension-wrong-catalog-ref"
+)
+OUT_VERIFY_024C = (
+    ROOT / "verify" / "026-signed-acts-manifest-extension-wrong-derivation-rule"
+)
 OUT_TAMPER_014 = ROOT / "tamper" / "014-signature-catalog-digest-mismatch"
 OUT_TAMPER_055 = ROOT / "tamper" / "055-signed-acts-catalog-digest-mismatch"
 OUT_TAMPER_056 = ROOT / "tamper" / "056-policy-closure-digest-mismatch"
@@ -1952,6 +1968,222 @@ signer field; this fixture mutates a bound-subject field. Together they pin the
     )
 
 
+def _write_signed_acts_manifest_extension_invalid_vector(
+    *,
+    out_dir: Path,
+    fixture_id: str,
+    description: str,
+    derivation_md_body: str,
+    mutate_extension,
+) -> None:
+    """Shared writer for the three Task A5 subcases (024 / 025 / 026).
+
+    Each subcase mutates the `trellis.export.signed-acts.manifest.v1` manifest
+    extension (catalog_ref, derivation_rule, or whole-value replacement) and
+    re-signs `000-manifest.cbor`. The 068 member bytes are left untouched so
+    SHA-256(member) still matches whatever `manifest_digest` the extension carries
+    after mutation — that way the verifier's parse / field-value branches are
+    exercised cleanly without colliding with the digest-mismatch branch.
+    """
+    root_dir, members, data, manifest_payload = export_members_from_dir(OUT_EXPORT_006)
+    seed, pubkey = load_seed_and_pubkey(KEY_ISSUER_001)
+    kid = derive_kid(SUITE_ID_PHASE_1, pubkey)
+    manifest_payload_verify = copy.deepcopy(manifest_payload)
+    extensions = manifest_payload_verify["extensions"]
+    mutate_extension(extensions)
+    data_verify = dict(data)
+    data_verify["000-manifest.cbor"] = cose_sign1(
+        seed, kid, dcbor(manifest_payload_verify), ARTIFACT_TYPE_MANIFEST
+    )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_zip(
+        out_dir / "input-export.zip",
+        root_dir=root_dir,
+        members=members,
+        data=data_verify,
+    )
+    write_text(
+        out_dir / "manifest.toml",
+        f'''id          = "{fixture_id}"
+op          = "verify"
+status      = "active"
+description = """{description}"""
+
+[coverage]
+tr_core = ["TR-CORE-067", "TR-CORE-180"]
+tr_op = ["TR-OP-122"]
+
+[inputs]
+export_zip = "input-export.zip"
+
+[expected.report]
+structure_verified   = true
+integrity_verified   = false
+readability_verified = true
+first_failure_kind   = "signed_acts_manifest_extension_invalid"
+
+[derivation]
+document = "derivation.md"
+''',
+    )
+    write_text(out_dir / "derivation.md", derivation_md_body)
+
+
+def write_signed_acts_manifest_extension_parse_failure_verify_vector() -> None:
+    """verify/024 — extension value is not a CBOR map.
+
+    Replace the entire `trellis.export.signed-acts.manifest.v1` extension value
+    with a CBOR text string ("not-a-map"). The re-encoded manifest extension is
+    structurally valid CBOR but is not a map, so `parse_signed_acts_manifest_extension`
+    fails at the `value.as_map().ok_or_else(...)` check (Rust `signed_acts.rs:200`,
+    Python `_parse_signed_acts_manifest_export_extension`). Surfaces one finding
+    of kind `signed_acts_manifest_extension_invalid`.
+    """
+
+    def mutate(extensions: dict) -> None:
+        extensions[SIGNED_ACTS_MANIFEST_EXTENSION_KEY] = "not-a-map"
+
+    _write_signed_acts_manifest_extension_invalid_vector(
+        mutate_extension=mutate,
+        out_dir=OUT_VERIFY_024A,
+        fixture_id="verify/024-signed-acts-manifest-extension-parse-failure",
+        description=(
+            "Negative verify vector for the substrate-anchored 068 signed-acts manifest "
+            "extension parse path. Starts from `export/006-signature-affirmations-inline`, "
+            "replaces the `trellis.export.signed-acts.manifest.v1` extension value with the "
+            "CBOR text string `\"not-a-map\"`, and re-signs `000-manifest.cbor`. The "
+            "extension parser fails at the `value.as_map()` check and emits "
+            "`signed_acts_manifest_extension_invalid` (blocking, domain-admissibility). "
+            "Mirrors Rust `validate_bound_signed_acts_manifest_extension` at "
+            "`trellis-verify-wos/src/signed_acts.rs:114-122`."
+        ),
+        derivation_md_body=(
+            "# Derivation — `verify/024-signed-acts-manifest-extension-parse-failure`\n"
+            "\n"
+            "Starts from `export/006-signature-affirmations-inline`. Replaces the value of\n"
+            "`trellis.export.signed-acts.manifest.v1` in the manifest's `extensions` map\n"
+            "with a CBOR text string (`\"not-a-map\"`) instead of the expected map of\n"
+            "`catalog_ref` / `manifest_digest` / `derivation_rule`. Re-signs\n"
+            "`000-manifest.cbor`; the 068 member bytes are left untouched.\n"
+            "\n"
+            "The verifier's extension-parse step fails at\n"
+            "`value.as_map().ok_or_else(|| \"signed acts manifest extension is not a map\")` —\n"
+            "Rust `parse_signed_acts_manifest_extension` (`signed_acts.rs:200`), surfaced via\n"
+            "`validate_bound_signed_acts_manifest_extension` (`signed_acts.rs:114-122`).\n"
+            "Python mirror: `_parse_signed_acts_manifest_export_extension`\n"
+            "(`trellis-py/src/trellis_py/verify_wos.py:487-488`). Both runtimes emit one\n"
+            "finding of kind `signed_acts_manifest_extension_invalid` (Severity::Failure)\n"
+            "and the relying-party verdict becomes invalid via the `domain_admissibility`\n"
+            "blocking-reason (these kinds are NOT `is_projection_finding`).\n"
+        ),
+    )
+
+
+def write_signed_acts_manifest_extension_wrong_catalog_ref_verify_vector() -> None:
+    """verify/025 — extension's catalog_ref field is wrong.
+
+    Set the extension's `catalog_ref` field to a value that is not
+    `"068-signed-acts-manifest.cbor"`. The parser admits the map; the admission
+    gate at Rust `signed_acts.rs:125-133` rejects the value.
+    """
+
+    def mutate(extensions: dict) -> None:
+        extensions[SIGNED_ACTS_MANIFEST_EXTENSION_KEY]["catalog_ref"] = "wrong-member.cbor"
+
+    _write_signed_acts_manifest_extension_invalid_vector(
+        mutate_extension=mutate,
+        out_dir=OUT_VERIFY_024B,
+        fixture_id="verify/025-signed-acts-manifest-extension-wrong-catalog-ref",
+        description=(
+            "Negative verify vector for the substrate-anchored 068 signed-acts manifest "
+            "extension `catalog_ref` admission gate. Starts from "
+            "`export/006-signature-affirmations-inline`, rewrites the extension's "
+            "`catalog_ref` to `\"wrong-member.cbor\"` (it MUST be "
+            "`\"068-signed-acts-manifest.cbor\"`), and re-signs `000-manifest.cbor`. "
+            "Verifier emits `signed_acts_manifest_extension_invalid` (blocking, "
+            "domain-admissibility) per Rust `signed_acts.rs:125-133`."
+        ),
+        derivation_md_body=(
+            "# Derivation — `verify/025-signed-acts-manifest-extension-wrong-catalog-ref`\n"
+            "\n"
+            "Starts from `export/006-signature-affirmations-inline`. Rewrites the\n"
+            "`trellis.export.signed-acts.manifest.v1.catalog_ref` field from\n"
+            "`\"068-signed-acts-manifest.cbor\"` to `\"wrong-member.cbor\"`, leaving every\n"
+            "other extension field (`manifest_digest`, `derivation_rule`) and the 068\n"
+            "member bytes untouched. Re-signs `000-manifest.cbor`.\n"
+            "\n"
+            "Per Trellis Core §6.7 and the verifier admission gate at Rust\n"
+            "`trellis-verify-wos/src/signed_acts.rs:125-133`:\n"
+            "\n"
+            "> if extension.catalog_ref != SIGNED_ACTS_MANIFEST_MEMBER {\n"
+            ">     findings.push(finding(\"signed_acts_manifest_extension_invalid\", …));\n"
+            "> }\n"
+            "\n"
+            "Python mirror: `verify_wos._validate_signed_acts_manifest_extension`\n"
+            "(`verify_wos.py:804-812`). Both runtimes emit one finding of kind\n"
+            "`signed_acts_manifest_extension_invalid` and the relying-party verdict becomes\n"
+            "invalid via the `domain_admissibility` blocking-reason.\n"
+        ),
+    )
+
+
+def write_signed_acts_manifest_extension_wrong_derivation_rule_verify_vector() -> None:
+    """verify/026 — extension's derivation_rule field is wrong.
+
+    Set the extension's `derivation_rule` field to a value that is not
+    `"signed-acts-manifest-v1"`. The parser admits the map; the admission gate
+    at Rust `signed_acts.rs:135-145` rejects the value.
+    """
+
+    def mutate(extensions: dict) -> None:
+        extensions[SIGNED_ACTS_MANIFEST_EXTENSION_KEY]["derivation_rule"] = (
+            "signed-acts-manifest-unsupported"
+        )
+
+    _write_signed_acts_manifest_extension_invalid_vector(
+        mutate_extension=mutate,
+        out_dir=OUT_VERIFY_024C,
+        fixture_id="verify/026-signed-acts-manifest-extension-wrong-derivation-rule",
+        description=(
+            "Negative verify vector for the substrate-anchored 068 signed-acts manifest "
+            "extension `derivation_rule` admission gate. Starts from "
+            "`export/006-signature-affirmations-inline`, rewrites the extension's "
+            "`derivation_rule` to `\"signed-acts-manifest-unsupported\"` (it MUST be "
+            "`\"signed-acts-manifest-v1\"`), and re-signs `000-manifest.cbor`. Verifier "
+            "emits `signed_acts_manifest_extension_invalid` (blocking, "
+            "domain-admissibility) per Rust `signed_acts.rs:135-145`."
+        ),
+        derivation_md_body=(
+            "# Derivation — `verify/026-signed-acts-manifest-extension-wrong-derivation-rule`\n"
+            "\n"
+            "Starts from `export/006-signature-affirmations-inline`. Rewrites the\n"
+            "`trellis.export.signed-acts.manifest.v1.derivation_rule` field from\n"
+            "`\"signed-acts-manifest-v1\"` to `\"signed-acts-manifest-unsupported\"`, leaving\n"
+            "every other extension field and the 068 member bytes untouched. Re-signs\n"
+            "`000-manifest.cbor`.\n"
+            "\n"
+            "Per Trellis Core §6.7 and the verifier admission gate at Rust\n"
+            "`trellis-verify-wos/src/signed_acts.rs:135-145`:\n"
+            "\n"
+            "> if extension.derivation_rule != SIGNED_ACTS_MANIFEST_DERIVATION_RULE_V1 {\n"
+            ">     findings.push(finding(\"signed_acts_manifest_extension_invalid\", …));\n"
+            "> }\n"
+            "\n"
+            "Python mirror: `verify_wos._validate_signed_acts_manifest_extension`\n"
+            "(`verify_wos.py:813-822`). Both runtimes emit one finding of kind\n"
+            "`signed_acts_manifest_extension_invalid` and the relying-party verdict becomes\n"
+            "invalid via the `domain_admissibility` blocking-reason.\n"
+            "\n"
+            "Distinct from `verify/020-export-006-signed-acts-unsupported-rule`, which\n"
+            "mutates the 066 catalog's `trellis.export.signed-acts.v1.derivation_rule`\n"
+            "(render projection) and emits `signed_acts_catalog_invalid` under\n"
+            "`projection_integrity`. This fixture exercises the 068 manifest (substrate)\n"
+            "admission gate, routing to `domain_admissibility`.\n"
+        ),
+    )
+
+
 def main() -> None:
     build_export_006()
     build_export_007()
@@ -1962,6 +2194,9 @@ def main() -> None:
     write_signed_acts_unsupported_rule_verify_vector()
     write_signed_acts_manifest_tamper_verify_vector()
     write_066_render_drift_only_verify_vector()
+    write_signed_acts_manifest_extension_parse_failure_verify_vector()
+    write_signed_acts_manifest_extension_wrong_catalog_ref_verify_vector()
+    write_signed_acts_manifest_extension_wrong_derivation_rule_verify_vector()
     write_tamper_vector()
     write_signed_acts_tamper_vector()
     write_policy_closure_tamper_vector()
