@@ -157,10 +157,21 @@ def _verdict_from_parts(
     if cryptographic_integrity == "fail":
         blocking_reasons.append("substrate_integrity")
     if projection_integrity == "fail":
+        # Mirrors Rust `RelyingPartyVerdict::from_parts` at
+        # `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:115-133`:
+        # the structural-shape kinds land as `projection_mismatch`; everything
+        # else in the projection bucket (currently only `signed_acts_render_drift`,
+        # which is advisory and cannot reach this branch) is `projection_integrity`.
         reason = (
             "projection_mismatch"
             if any(
-                finding.kind == "signed_acts_manifest_mismatch"
+                finding.kind
+                in {
+                    "missing_signed_acts_catalog",
+                    "signed_acts_catalog_digest_mismatch",
+                    "signed_acts_catalog_invalid",
+                    "signed_acts_catalog_unbound",
+                }
                 for finding in findings
             )
             else "projection_integrity"
@@ -189,19 +200,29 @@ def _verdict_from_parts(
 
 
 def _is_projection_finding(finding: WosFinding) -> bool:
+    """Classifies a WOS finding as a projection finding (advisory-eligible)
+    rather than a substrate-damage / declaration-violation finding (blocking).
+
+    Mirrors Rust `is_projection_finding` at
+    `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:288-297`.
+
+    The structural-shape kinds (`missing_signed_acts_catalog`,
+    `signed_acts_catalog_*`) are retained here for relying-party verdict
+    compatibility — they route to `projection_mismatch` blocking-reason but
+    are still substrate-shape failures emitted with severity=failure.
+    `signed_acts_render_drift` is the only true advisory member.
+
+    The five 068 `signed_acts_manifest_*` kinds are NOT projection findings —
+    they signal substrate damage / declaration violation of the
+    substrate-anchored signed-acts proof and MUST surface under
+    `domain_admissibility`.
+    """
     return finding.kind in {
         "missing_signed_acts_catalog",
         "signed_acts_catalog_digest_mismatch",
         "signed_acts_catalog_invalid",
         "signed_acts_catalog_unbound",
-        # 068 signed-acts-manifest extension findings (substrate-anchored proof
-        # of which events landed). Mirrors Rust `is_projection_finding` semantics
-        # at `crates/trellis-verify-wos/src/signed_acts.rs` (Task A7).
-        "signed_acts_manifest_mismatch",
-        "signed_acts_manifest_extension_digest_mismatch",
-        "signed_acts_manifest_extension_invalid",
-        "signed_acts_manifest_missing_member",
-        "signed_acts_manifest_member_unbound",
+        "signed_acts_render_drift",
     }
 
 

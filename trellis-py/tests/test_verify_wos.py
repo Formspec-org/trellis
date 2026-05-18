@@ -329,7 +329,10 @@ def test_signed_acts_unknown_derivation_rule_blocks_public_verdict() -> None:
     assert report.verdict.projection_integrity == "fail"
     assert report.verdict.domain_admissibility == "pass"
     assert report.verdict.relying_party_result == "invalid"
-    assert report.verdict.blocking_reasons == ["projection_integrity"]
+    # `signed_acts_catalog_invalid` is a structural-shape kind, so it routes
+    # to `projection_mismatch` per Rust `RelyingPartyVerdict::from_parts` at
+    # `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:115-133`.
+    assert report.verdict.blocking_reasons == ["projection_mismatch"]
     assert [
         finding.kind
         for finding in report.wos_findings

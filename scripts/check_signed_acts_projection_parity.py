@@ -125,6 +125,7 @@ def assert_wos_failure(
     *,
     projection_integrity: str,
     blocking_reasons: list[str],
+    domain_admissibility: str = "pass",
 ) -> None:
     report = verify_wos.verify_export_zip(export_zip.read_bytes())
     if not report.trellis.structure_verified:
@@ -147,7 +148,7 @@ def assert_wos_failure(
         raise AssertionError(
             f"{export_zip} relying_party_result={report.verdict.relying_party_result}"
         )
-    if report.verdict.domain_admissibility != "pass":
+    if report.verdict.domain_admissibility != domain_admissibility:
         raise AssertionError(
             f"{export_zip} domain_admissibility={report.verdict.domain_admissibility}"
         )
@@ -193,33 +194,41 @@ def check_python_verifier_vectors() -> None:
         verify_wos,
         VECTORS / "verify/022-066-render-drift-tampered-only/input-export.zip"
     )
+    # `signed_acts_catalog_invalid` is a structural-shape kind → routes to
+    # `projection_mismatch` blocking-reason per Rust
+    # `RelyingPartyVerdict::from_parts` at
+    # `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:115-133`.
     assert_wos_failure(
         verify_wos,
         VECTORS / "verify/020-export-006-signed-acts-unsupported-rule/input-export.zip",
         {"signed_acts_catalog_invalid"},
         projection_integrity="fail",
-        blocking_reasons=["projection_integrity"],
+        blocking_reasons=["projection_mismatch"],
     )
-    # verify/021 (068 manifest tamper): the Python 068 verifier landed in Task
-    # A9, so this assertion is the permanent cross-runtime parity guard that
+    # verify/021 (068 manifest tamper): cross-runtime parity guard that
     # Python's verdict for the tampered 068 member matches Rust's
     # (`cargo nextest run -p trellis-conformance` exercises the same fixture).
-    # Blocking reason is `projection_mismatch` because the verdict assembly in
-    # `_verdict_from_parts` reads the finding-kind set to distinguish manifest
-    # mismatch from generic projection-integrity failures.
+    # The five `signed_acts_manifest_*` kinds signal substrate damage /
+    # declaration violation of the substrate-anchored signed-acts proof, so
+    # they surface under `domain_admissibility` (not the projection bucket) —
+    # see Rust `is_projection_finding` at
+    # `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:288-297`.
     assert_wos_failure(
         verify_wos,
         VECTORS / "verify/021-signed-acts-manifest-tamper/input-export.zip",
         {"signed_acts_manifest_extension_digest_mismatch"},
-        projection_integrity="fail",
-        blocking_reasons=["projection_integrity"],
+        projection_integrity="pass",
+        domain_admissibility="fail",
+        blocking_reasons=["domain_admissibility"],
     )
+    # `signed_acts_catalog_digest_mismatch` is a structural-shape kind →
+    # `projection_mismatch` per Rust validator.rs:115-133.
     assert_wos_failure(
         verify_wos,
         VECTORS / "tamper/055-signed-acts-catalog-digest-mismatch/input-export.zip",
         {"signed_acts_catalog_digest_mismatch"},
         projection_integrity="fail",
-        blocking_reasons=["projection_integrity"],
+        blocking_reasons=["projection_mismatch"],
     )
 
 

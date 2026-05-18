@@ -165,9 +165,15 @@ def test_manifest_verifier_rejects_fixture_021_tamper() -> None:
     }
     assert failures == {"signed_acts_manifest_extension_digest_mismatch"}
     assert report.verdict.cryptographic_integrity == "pass"
-    assert report.verdict.projection_integrity == "fail"
+    # `signed_acts_manifest_*` kinds are NOT projection findings (they signal
+    # substrate damage / declaration violation of the substrate-anchored
+    # signed-acts proof) — they surface under `domain_admissibility` to mirror
+    # Rust `is_projection_finding` at
+    # `integrity-stack/crates/integrity-verify/src/trellis/validator.rs:288-297`.
+    assert report.verdict.projection_integrity == "pass"
+    assert report.verdict.domain_admissibility == "fail"
     assert report.verdict.relying_party_result == "invalid"
-    assert report.verdict.blocking_reasons == ["projection_integrity"]
+    assert report.verdict.blocking_reasons == ["domain_admissibility"]
 
 
 def test_manifest_verifier_passes_fixture_022_render_drift_only() -> None:
