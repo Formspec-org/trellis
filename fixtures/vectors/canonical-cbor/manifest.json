@@ -11,6 +11,7 @@
     "indefinite_length_input",
     "generic_tag_disallowed"
   ],
+  "tr_core_coverage": ["TR-CORE-179"],
   "cases": [
     { "case_id": "R1-uint-0",                  "file": "cases/R1-uint-0.json",                  "rule": "R1", "kind": "encode", "forward_compatibility": false },
     { "case_id": "R1-uint-23",                 "file": "cases/R1-uint-23.json",                 "rule": "R1", "kind": "encode", "forward_compatibility": false },

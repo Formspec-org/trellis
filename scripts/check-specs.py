@@ -327,6 +327,42 @@ def vector_manifests() -> list[tuple[Path, dict]]:
     return manifests
 
 
+def corpus_manifest_tr_core_coverage() -> list[tuple[Path, list[str]]]:
+    """Return TR-CORE coverage credited by corpus-level manifests.
+
+    Some vector corpora live as a single JSON manifest plus a `cases/` tree
+    (e.g. `fixtures/vectors/canonical-cbor/manifest.json` for the §4.2.2
+    profile), rather than one TOML manifest per vector. Such corpora declare
+    their TR-CORE coverage via an explicit top-level `tr_core_coverage` field,
+    shaped as a JSON array of `TR-CORE-NNN` strings. The field is read
+    explicitly here — no implicit-coverage tunneling through case files.
+
+    Returns a list of (manifest_path, [row_id, ...]) tuples so callers can
+    both validate the IDs (against the matrix) and credit them into the
+    coverage tally that audits `Verification=test-vector` rows.
+    """
+    import json
+
+    out: list[tuple[Path, list[str]]] = []
+    if not FIXTURES.exists():
+        return out
+    for corpus_dir in ("canonical-cbor",):
+        manifest_path = FIXTURES / corpus_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # Malformed JSON is surfaced separately by other tooling; the
+            # coverage tally simply credits nothing for this corpus.
+            continue
+        ids = data.get("tr_core_coverage", [])
+        if not isinstance(ids, list):
+            continue
+        out.append((manifest_path, [x for x in ids if isinstance(x, str)]))
+    return out
+
+
 def manifest_op_from_path(manifest_path: Path) -> str | None:
     """Return the fixtures/vectors/<op>/ segment for a manifest path."""
     try:
@@ -708,6 +744,24 @@ def check_vector_manifest_coverage_ids(errors: list[str]) -> None:
                 )
 
 
+def check_corpus_manifest_coverage_ids(errors: list[str]) -> None:
+    """Validate corpus-manifest `tr_core_coverage` IDs before tally credit.
+
+    Mirrors `check_vector_manifest_coverage_ids` for per-vector TOML
+    manifests: any `TR-CORE-NNN` declared in a corpus `manifest.json`
+    `tr_core_coverage` array MUST resolve to a known matrix row.
+    """
+    known_tr_core = set(tr_core_ids())
+    for manifest_path, ids in corpus_manifest_tr_core_coverage():
+        rel = manifest_path.relative_to(ROOT)
+        for row_id in ids:
+            if row_id not in known_tr_core:
+                errors.append(
+                    f"{rel}: tr_core_coverage entry {row_id!r} is not a known "
+                    f"TR-CORE-NNN row in specs/trellis-requirements-matrix.md"
+                )
+
+
 def check_vector_declared_coverage(errors: list[str], warnings: list[str]) -> None:
     for path, manifest in vector_manifests():
         coverage = manifest.get("coverage", {})
@@ -766,6 +820,10 @@ def check_invariant_coverage(errors: list[str], pending_invariants: set[int]) ->
         coverage = manifest.get("coverage", {})
         covered_ids.update(coverage.get("tr_core", []))
         covered_ids.update(coverage.get("tr_op", []))
+    # Corpus-level manifests credit TR-CORE rows via an explicit top-level
+    # `tr_core_coverage` array (e.g. canonical-cbor/manifest.json).
+    for _path, ids in corpus_manifest_tr_core_coverage():
+        covered_ids.update(ids)
 
     # Per amended design F2: narrowed rule. Only invariants that have ≥1
     # matrix row with Verification=test-vector are audited here (the byte-
@@ -948,6 +1006,10 @@ def check_vector_coverage(errors: list[str], pending_matrix_rows: set[str]) -> N
         if _is_deprecated_vector(manifest):
             continue  # F6 — deprecated vectors are excluded from audits
         covered.update(manifest.get("coverage", {}).get("tr_core", []))
+    # Corpus-level manifests (e.g. canonical-cbor/manifest.json) credit
+    # TR-CORE rows via an explicit top-level `tr_core_coverage` array.
+    for _path, ids in corpus_manifest_tr_core_coverage():
+        covered.update(ids)
     for row_id in sorted(testable - covered):
         if row_id in pending_matrix_rows:
             continue  # pending-and-uncovered is allowed
@@ -2736,6 +2798,7 @@ def main() -> int:
     check_vector_naming(errors)
     check_vector_manifest_identity(errors)
     check_vector_manifest_coverage_ids(errors)
+    check_corpus_manifest_coverage_ids(errors)
     check_vector_lifecycle_fields(errors)
     check_vector_coverage_prefixes(errors)
     check_vector_coverage(errors, pending_matrix_rows)
