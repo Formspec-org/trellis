@@ -49,7 +49,7 @@ These are probed and accepted; they override speculative alternatives.
 
 Apply after stack-wide heuristics (in [`../DEVELOPMENT-PHILOSOPHY.md`](../DEVELOPMENT-PHILOSOPHY.md)):
 
-1. **Phase-check.** Phase 1 (SBA PoC, single-agency intake) or Phase 2+? Phase 2+ defers; Phase 4 version-bumps the envelope regardless.
+1. **Phase-check.** Phase 1 (single-agency intake reference) or Phase 2+? Phase 2+ defers; Phase 4 version-bumps the envelope regardless.
 2. **Architectural-debt check.** Would keeping the current shape make a future change more expensive than changing now? If yes, change it.
 3. **Byte-authority check.** Byte-level question? Rust is the oracle (ADR 0004).
 4. **Reservation discipline.** New envelope field / hash slot / extension hook? YES at envelope layer if Phase-1 runtime restriction stays clean; runtime NO until the phase opens.
